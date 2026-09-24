@@ -11,7 +11,7 @@ import {
   rotatePoint,
 } from "@/lib/schematic/model";
 import { obstaclesFor, routeOrthogonal } from "@/lib/schematic/tools";
-import { engine, hitTestInstance, useEditor } from "@/state/editor";
+import { engine, hitTestInstance, useEditor, useHud } from "@/state/editor";
 
 interface Pt {
   x: number;
@@ -29,6 +29,8 @@ export default function Canvas() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState<Pt>({ x: 0, y: 0 });
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[] } | null>(null);
+  const [editing, setEditing] = useState<{ kind: "label" | "text"; x: number; y: number; sx: number; sy: number } | null>(null);
+  const editingDone = useRef(false);
   const stateRef = useRef({
     dragging: false,
     panning: false,
@@ -81,6 +83,8 @@ export default function Canvas() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = wrap.clientWidth;
     const h = wrap.clientHeight;
+    const vp = useHud.getState().viewport;
+    if (vp.w !== w || vp.h !== h) useHud.setState({ viewport: { w, h } });
     if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
       canvas.width = w * dpr;
       canvas.height = h * dpr;
@@ -354,19 +358,16 @@ export default function Canvas() {
       return;
     }
 
-    if (st.tool === "label") {
-      const name = window.prompt("Netzname:", "NET");
-      if (name) {
-        st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: sp.x, y: sp.y, name }));
-      }
-      st.setTool("select");
-      return;
-    }
-
-    if (st.tool === "text") {
-      const text = window.prompt("Notiz:", "Hinweis");
-      if (text) st.commit((d) => d.notes.push({ id: "n_" + Math.random().toString(36).slice(2, 8), x: sp.x, y: sp.y, text }));
-      st.setTool("select");
+    if (st.tool === "label" || st.tool === "text") {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      editingDone.current = false;
+      setEditing({
+        kind: st.tool,
+        x: sp.x,
+        y: sp.y,
+        sx: e.clientX - (rect?.left ?? 0),
+        sy: e.clientY - (rect?.top ?? 0),
+      });
       return;
     }
 
@@ -429,12 +430,33 @@ export default function Canvas() {
     }
   };
 
+  const commitEditing = (text: string | null) => {
+    // Enter löst Commit + Unmount aus, danach feuert Blur — nur einmal werten.
+    if (editingDone.current) return;
+    editingDone.current = true;
+    const st = useEditor.getState();
+    const cur = editing;
+    setEditing(null);
+    st.setTool("select");
+    if (cur && text && text.trim()) {
+      const clean = text.trim();
+      if (cur.kind === "label") {
+        st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, name: clean }));
+        st.log("ok", `Netzname „${clean}“ gesetzt`);
+      } else {
+        st.commit((d) => d.notes.push({ id: "n_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, text: clean }));
+        st.log("ok", "Notiz eingefügt");
+      }
+    }
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
     const st = useEditor.getState();
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;
     setCursor(sp);
+    useHud.setState({ cursor: sp });
 
     if (sr.panning) {
       const dx = (e.clientX - (sr.lastMouse.x || e.clientX)) / st.view.zoom;
@@ -478,7 +500,8 @@ export default function Canvas() {
           const p = engine.lastState.power[hit.label];
           if (p !== undefined) lines.push(`P = ${formatValue(Math.abs(p), "W")}`);
         }
-        setTooltip({ x: e.clientX, y: e.clientY, lines });
+        const wr = wrapRef.current?.getBoundingClientRect();
+        setTooltip({ x: e.clientX - (wr?.left ?? 0), y: e.clientY - (wr?.top ?? 0), lines });
       } else setTooltip(null);
     } else setTooltip(null);
   };
@@ -509,11 +532,19 @@ export default function Canvas() {
     if (sr.moved && st.sim.running) engine.rebuild(st.doc);
   };
 
-  const onDoubleClick = () => {
+  const onDoubleClick = (e: React.MouseEvent) => {
     const sr = stateRef.current;
     if (sr.wireStart) {
       sr.wireStart = null;
       sr.wirePreview = [];
+      return;
+    }
+    const st = useEditor.getState();
+    const world = toWorld(e.clientX, e.clientY);
+    const hit = hitTestInstance(st.doc, world.x, world.y);
+    if (hit) {
+      st.setSelection([hit.id]);
+      useEditor.setState({ rightOpen: true });
     }
   };
 
@@ -533,6 +564,18 @@ export default function Canvas() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void st.saveProject();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        st.copySelection();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        st.pasteClipboard();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        st.duplicateSelection();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        st.selectAll();
       } else if (e.key === "Delete" || e.key === "Backspace") {
         st.deleteSelection();
       } else if (e.key.toLowerCase() === "r") {
@@ -548,57 +591,28 @@ export default function Canvas() {
         st.setPlacing(null);
       } else if (e.key.toLowerCase() === "p") {
         st.setTool("probe");
+      } else if (e.key.toLowerCase() === "l") {
+        st.setTool("label");
+      } else if (e.key.toLowerCase() === "t") {
+        st.setTool("text");
       } else if (e.key.toLowerCase() === "e") {
         st.setTool("erase");
+      } else if (e.key.toLowerCase() === "h") {
+        st.setTool("pan");
       } else if (e.key === " ") {
         e.preventDefault();
         if (st.sim.running) st.pauseSim();
         else st.startSim();
       } else if (e.key === "f") {
-        fitView();
+        st.fitView();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const fitView = () => {
-    const st = useEditor.getState();
-    const wrap = wrapRef.current;
-    if (!wrap || !st.doc.instances.length) {
-      st.setView({ zoom: 1, x: 0, y: 0 });
-      return;
-    }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const inst of st.doc.instances) {
-      const b = instanceBounds(inst);
-      minX = Math.min(minX, b.x);
-      minY = Math.min(minY, b.y);
-      maxX = Math.max(maxX, b.x + b.w);
-      maxY = Math.max(maxY, b.y + b.h);
-    }
-    if (!Number.isFinite(minX)) {
-      st.setView({ zoom: 1, x: 0, y: 0 });
-      return;
-    }
-    const pad = 80;
-    const cw = wrap.clientWidth;
-    const ch = wrap.clientHeight;
-    const contentW = maxX - minX;
-    const contentH = maxY - minY;
-    const zoom = Math.min(
-      (cw - pad * 2) / Math.max(contentW, 1),
-      (ch - pad * 2) / Math.max(contentH, 1),
-      2.5,
-    );
-    // Center the content in the viewport
-    const viewX = (minX + maxX) / 2 - (cw / zoom) / 2;
-    const viewY = (minY + maxY) / 2 - (ch / zoom) / 2;
-    st.setView({ zoom, x: viewX, y: viewY });
-  };
-
   useEffect(() => {
-    const t = setTimeout(fitView, 120);
+    const t = setTimeout(() => useEditor.getState().fitView(), 120);
     return () => clearTimeout(t);
   }, []);
 
@@ -620,7 +634,7 @@ export default function Canvas() {
       {tooltip && (
         <div
           className="glass pointer-events-none absolute z-30 rounded-lg px-2.5 py-1.5 text-[11px] mono shadow-xl"
-          style={{ left: tooltip.x - (wrapRef.current?.getBoundingClientRect().left ?? 0) + 14, top: tooltip.y - (wrapRef.current?.getBoundingClientRect().top ?? 0) + 14 }}
+          style={{ left: tooltip.x + 14, top: tooltip.y + 14 }}
         >
           {tooltip.lines.map((l, i) => (
             <div key={i} style={{ color: i === 0 ? "var(--text-mute)" : "var(--text)" }}>
@@ -629,12 +643,23 @@ export default function Canvas() {
           ))}
         </div>
       )}
-      <div className="pointer-events-none absolute bottom-3 left-3 flex gap-2 text-[10.5px] mono text-mute">
-        <span className="glass rounded-md px-2 py-1">x {cursor.x} · y {cursor.y}</span>
-        <span className="glass rounded-md px-2 py-1">Raster {GRID} px</span>
-      </div>
+      {editing && (
+        <input
+          autoFocus
+          className="input mono absolute z-40 w-44"
+          style={{ left: editing.sx + 8, top: editing.sy - 13, boxShadow: "var(--shadow)" }}
+          placeholder={editing.kind === "label" ? "Netzname …" : "Notiz …"}
+          aria-label={editing.kind === "label" ? "Netzname eingeben" : "Notiz eingeben"}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") commitEditing((e.target as HTMLInputElement).value);
+            else if (e.key === "Escape") commitEditing(null);
+          }}
+          onBlur={(e) => commitEditing(e.target.value)}
+        />
+      )}
       <div className="absolute bottom-3 right-3 flex flex-col gap-1.5">
-        <ZoomButtons onFit={fitView} />
+        <ZoomButtons onFit={() => useEditor.getState().fitView()} />
       </div>
     </div>
   );
@@ -644,11 +669,10 @@ function ZoomButtons({ onFit }: { onFit: () => void }) {
   const view = useEditor((s) => s.view);
   const setView = useEditor((s) => s.setView);
   return (
-    <div className="glass flex flex-col overflow-hidden rounded-lg text-xs">
+    <div className="flex flex-col overflow-hidden rounded-lg text-xs" style={{ background: "var(--panel-solid)", border: "1px solid var(--border)" }}>
       <button className="btn rounded-none" onClick={() => setView({ zoom: Math.min(6, view.zoom * 1.25) })} title="Vergrößern">
         +
       </button>
-      <div className="px-2 py-1 text-center text-[10px] mono text-mute">{Math.round(view.zoom * 100)}%</div>
       <button className="btn rounded-none" onClick={() => setView({ zoom: Math.max(0.12, view.zoom / 1.25) })} title="Verkleinern">
         −
       </button>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SquareActivity, Waves, X, Zap,
+  Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
@@ -398,7 +398,7 @@ function Multimeter({ win }: { win: InstrumentWindow }) {
 
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
-      <div className="rounded-xl p-3" style={{ background: "linear-gradient(180deg, rgba(20,220,180,.08), transparent)", border: "1px solid var(--border)" }}>
+      <div className="rounded-xl p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
         <div className="mono text-right text-[34px] font-semibold leading-none tabular-nums" style={{ color: running ? "var(--ok)" : "var(--text-mute)" }}>
           {running ? formatValue(value, "") : "– – –"}
         </div>
@@ -951,6 +951,43 @@ function PatternGenerator() {
 }
 
 /* ------------------------------------------------------------------ */
+/* frequency counter                                                   */
+/* ------------------------------------------------------------------ */
+function FrequencyCounter({ win }: { win: InstrumentWindow }) {
+  const update = useEditor((s) => s.updateInstrument);
+  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const running = useEditor((s) => s.sim.running);
+  const tick = useEditor((s) => s.sim.tick);
+  void tick;
+  const cfg = (win.config.counter as { net: string }) ?? { net: nets.find((n) => n !== "0") ?? "" };
+
+  const ch = engine.channel(cfg.net, 8192);
+  const f = ch.v.length > 32 ? estimateFrequency(ch.t, ch.v) : 0;
+  const avg = ch.v.length ? mean(ch.v) : 0;
+  const duty = ch.v.length ? (ch.v.filter((v) => v > avg).length / ch.v.length) * 100 : 0;
+
+  return (
+    <div className="flex h-full flex-col gap-2 p-2.5">
+      <div className="rounded-xl p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
+        <div className="mono text-right text-[30px] font-semibold leading-none tabular-nums" style={{ color: running && f > 0 ? "var(--text)" : "var(--text-mute)" }}>
+          {running && f > 0 ? formatValue(f, "") : "– – –"}
+        </div>
+        <div className="mono mt-1 text-right text-[12px] text-mute">Hz</div>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <Stat label="Periode" value={f > 0 ? formatValue(1 / f, "s") : "—"} />
+        <Stat label="Tastgrad" value={f > 0 ? `${duty.toFixed(1)} %` : "—"} />
+      </div>
+      <label className="text-[10.5px] text-mute">
+        Messknoten
+        <NetSelect value={cfg.net} onChange={(v) => update(win.id, { config: { ...win.config, counter: { net: v } } })} />
+      </label>
+      {!running && <div className="text-[11px] text-mute">Zählt, sobald die Simulation läuft.</div>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* window chrome + dock                                                */
 /* ------------------------------------------------------------------ */
 function Window({ win }: { win: InstrumentWindow }) {
@@ -1005,6 +1042,8 @@ function Window({ win }: { win: InstrumentWindow }) {
         return <SpectrumAnalyzer win={win} />;
       case "pattern":
         return <PatternGenerator />;
+      case "counter":
+        return <FrequencyCounter win={win} />;
       default:
         return null;
     }
@@ -1012,12 +1051,12 @@ function Window({ win }: { win: InstrumentWindow }) {
 
   return (
     <div
-      className="glass rise pointer-events-auto absolute flex flex-col overflow-hidden rounded-2xl"
-      style={{ left: win.x, top: win.y, width: win.w, height: win.minimized ? 38 : win.h, zIndex: win.z, boxShadow: "var(--shadow)" }}
+      className="rise pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl"
+      style={{ left: win.x, top: win.y, width: win.w, height: win.minimized ? 36 : win.h, zIndex: win.z, background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }}
       onPointerDown={() => focusInstrument(win.id)}
     >
       <div
-        className="flex h-[38px] shrink-0 cursor-grab items-center gap-2 px-3"
+        className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3"
         style={{ borderBottom: "1px solid var(--border)" }}
         onPointerDown={(e) => {
           drag.current = { x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
@@ -1067,6 +1106,8 @@ function iconFor(kind: InstrumentKind) {
       return <SquareActivity size={s} />;
     case "spectrum":
       return <BarChart3 size={s} />;
+    case "counter":
+      return <Timer size={s} />;
     default:
       return <Radio size={s} />;
   }
@@ -1089,6 +1130,7 @@ export function InstrumentDock() {
     ["scope", "Oszilloskop"],
     ["dmm", "Multimeter"],
     ["funcgen", "Funktionsgenerator"],
+    ["counter", "Frequenzzähler"],
     ["bode", "Bode-Plotter"],
     ["logic", "Logikanalysator"],
     ["watt", "Wattmeter"],

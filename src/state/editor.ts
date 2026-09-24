@@ -4,9 +4,11 @@ import { create } from "zustand";
 import { PART_MAP, PartDef, defaultParams } from "@/lib/library/catalog";
 import {
   Instance,
+  NetLabel,
   NetlistBuildResult,
   Rotation,
   SchematicDoc,
+  TextNote,
   Wire,
   buildNets,
   emptyDoc,
@@ -32,7 +34,8 @@ export type InstrumentKind =
   | "watt"
   | "iv"
   | "pattern"
-  | "spectrum";
+  | "spectrum"
+  | "counter";
 
 export interface InstrumentWindow {
   id: string;
@@ -60,11 +63,19 @@ export interface AnalysisState {
   error?: string;
   data?: unknown;
   durationMs?: number;
+  /** Die Parameter der letzten Analyse (Quellen, Knoten …) — für Achsenbeschriftung im Grapher. */
+  meta?: Record<string, unknown>;
+}
+
+export interface ClipboardData {
+  instances: Instance[];
+  wires: Wire[];
+  labels: NetLabel[];
+  notes: TextNote[];
 }
 
 export interface EditorState {
   doc: SchematicDoc;
-  projectId: number | null;
   selection: string[];
   hoverNet: string | null;
   tool: Tool;
@@ -78,7 +89,7 @@ export interface EditorState {
   past: SchematicDoc[];
   future: SchematicDoc[];
   logs: LogEntry[];
-  bottomTab: "console" | "netlist" | "errors" | "scope" | "bom" | "code";
+  bottomTab: "console" | "netlist" | "errors" | "probes" | "bom" | "results";
   bottomOpen: boolean;
   leftOpen: boolean;
   rightOpen: boolean;
@@ -96,6 +107,7 @@ export interface EditorState {
   };
   favorites: string[];
   recent: string[];
+  clipboard: ClipboardData | null;
 
   /* actions */
   setDoc: (doc: SchematicDoc, pushHistory?: boolean) => void;
@@ -110,10 +122,15 @@ export interface EditorState {
   mirrorSelection: () => void;
   moveSelection: (dx: number, dy: number) => void;
   setSelection: (ids: string[]) => void;
+  selectAll: () => void;
+  copySelection: () => void;
+  pasteClipboard: () => void;
+  duplicateSelection: () => void;
   setParam: (instanceId: string, key: string, value: number | string | boolean) => void;
   setInstanceText: (instanceId: string, text: string) => void;
   addWire: (w: Wire) => void;
   setView: (v: Partial<{ x: number; y: number; zoom: number }>) => void;
+  fitView: () => void;
   toggleTheme: () => void;
   log: (level: LogEntry["level"], message: string) => void;
   clearLogs: () => void;
@@ -153,9 +170,12 @@ function nextLabel(doc: SchematicDoc, part: PartDef): string {
 
 const clone = (doc: SchematicDoc): SchematicDoc => JSON.parse(JSON.stringify(doc)) as SchematicDoc;
 
+const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+const newId = (prefix: string) => `${prefix}_` + Math.random().toString(36).slice(2, 10);
+
 export const useEditor = create<EditorState>((set, get) => ({
   doc: PRESETS[2].build(),
-  projectId: null,
   selection: [],
   hoverNet: null,
   tool: "select",
@@ -182,6 +202,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   sim: { running: false, timeScale: 1, sampleRate: 200000, method: "trap", temperature: 27, tick: 0, fps: 0 },
   favorites: ["resistor", "capacitor", "led", "npn_2n3904", "opamp_lm741", "ne555"],
   recent: [],
+  clipboard: null,
 
   setDoc: (doc, pushHistory = true) => {
     const prev = get().doc;
@@ -294,6 +315,75 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setSelection: (ids) => set({ selection: ids }),
 
+  selectAll: () => {
+    const { doc } = get();
+    set({
+      selection: [
+        ...doc.instances.map((i) => i.id),
+        ...doc.wires.map((w) => w.id),
+        ...doc.labels.map((l) => l.id),
+        ...doc.notes.map((n) => n.id),
+      ],
+    });
+  },
+
+  copySelection: () => {
+    const { doc, selection } = get();
+    const sel = new Set(selection);
+    set({
+      clipboard: {
+        instances: doc.instances.filter((i) => sel.has(i.id)).map(cloneJson),
+        wires: doc.wires.filter((w) => sel.has(w.id)).map(cloneJson),
+        labels: doc.labels.filter((l) => sel.has(l.id)).map(cloneJson),
+        notes: doc.notes.filter((n) => sel.has(n.id)).map(cloneJson),
+      },
+    });
+    if (sel.size) get().log("info", `${sel.size} Element${sel.size > 1 ? "e" : ""} kopiert`);
+  },
+
+  pasteClipboard: () => {
+    const cb = get().clipboard;
+    if (!cb) return;
+    const total = cb.instances.length + cb.wires.length + cb.labels.length + cb.notes.length;
+    if (!total) return;
+    // Versatz, damit die Kopie neben dem Original landet (Multisim: versetztes Einfügen).
+    const DX = 20;
+    const DY = 20;
+    const used = new Set(get().doc.instances.map((i) => i.label));
+    const freshInstances: Instance[] = cb.instances.map((src) => {
+      const part = PART_MAP[src.partId];
+      let label = src.label;
+      if (part) {
+        let n = 1;
+        while (used.has(`${part.ref}${n}`)) n++;
+        label = `${part.ref}${n}`;
+      }
+      used.add(label);
+      return { ...cloneJson(src), id: newId("i"), label, x: src.x + DX, y: src.y + DY };
+    });
+    const freshWires: Wire[] = cb.wires.map((src) => ({
+      ...cloneJson(src),
+      id: newId("w"),
+      points: src.points.map((p) => ({ x: p.x + DX, y: p.y + DY })),
+    }));
+    const freshLabels: NetLabel[] = cb.labels.map((src) => ({ ...cloneJson(src), id: newId("l"), x: src.x + DX, y: src.y + DY }));
+    const freshNotes: TextNote[] = cb.notes.map((src) => ({ ...cloneJson(src), id: newId("n"), x: src.x + DX, y: src.y + DY }));
+    get().commit((d) => {
+      d.instances.push(...freshInstances);
+      d.wires.push(...freshWires);
+      d.labels.push(...freshLabels);
+      d.notes.push(...freshNotes);
+    });
+    set({ selection: [...freshInstances.map((i) => i.id), ...freshWires.map((w) => w.id)] });
+    get().log("ok", `${total} Element${total > 1 ? "e" : ""} eingefügt`);
+  },
+
+  duplicateSelection: () => {
+    if (!get().selection.length) return;
+    get().copySelection();
+    get().pasteClipboard();
+  },
+
   setParam: (instanceId, key, value) => {
     get().commit((d) => {
       const inst = d.instances.find((i) => i.id === instanceId);
@@ -321,6 +411,30 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   setView: (v) => set((s) => ({ view: { ...s.view, ...v } })),
+
+  fitView: () => {
+    const st = get();
+    const { w: cw, h: ch } = useHud.getState().viewport;
+    if (!st.doc.instances.length || cw < 10 || ch < 10) {
+      st.setView({ zoom: 1, x: 0, y: 0 });
+      return;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const inst of st.doc.instances) {
+      const b = instanceBounds(inst);
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.w);
+      maxY = Math.max(maxY, b.y + b.h);
+    }
+    const pad = 80;
+    const zoom = Math.min((cw - pad * 2) / Math.max(maxX - minX, 1), (ch - pad * 2) / Math.max(maxY - minY, 1), 2.5);
+    st.setView({ zoom, x: (minX + maxX) / 2 - cw / zoom / 2, y: (minY + maxY) / 2 - ch / zoom / 2 });
+  },
+
   toggleTheme: () => set((s) => ({ theme: s.theme === "dark" ? "light" : "dark" })),
 
   log: (level, message) =>
@@ -343,6 +457,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       iv: "IV-Analyzer",
       pattern: "Mustergenerator",
       spectrum: "Spektrumanalysator",
+      counter: "Frequenzzähler",
     };
     const existing = get().instruments.find((i) => i.kind === kind);
     if (existing) {
@@ -360,6 +475,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       funcgen: { w: 360, h: 430 },
       watt: { w: 360, h: 300 },
       pattern: { w: 420, h: 340 },
+      counter: { w: 300, h: 250 },
     };
     const size = sizes[kind] ?? { w: 420, h: 340 };
     const count = get().instruments.length;
@@ -456,14 +572,14 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   runAnalysis: async (kind, payload = {}) => {
     const { doc } = get();
-    set({ analysis: { kind, running: true } });
+    set({ analysis: { kind, running: true, meta: { ...(payload as Record<string, unknown>) } } });
     get().log("info", `Analyse »${kind}« gestartet …`);
     // Den `running`-Zustand erst rendern lassen, bevor der Kernel den
     // Main-Thread belegt — ehrliche Zwischenstufe statt eingefrorenem UI.
     await new Promise((r) => setTimeout(r, 0));
     try {
       const report = runAnalysisLocal(doc, kind, payload);
-      set({ analysis: { kind, running: false, data: report.result, durationMs: report.durationMs } });
+      set((s) => ({ analysis: { kind, running: false, data: report.result, durationMs: report.durationMs, meta: s.analysis.meta } }));
       get().log("ok", `Analyse »${kind}« beendet in ${report.durationMs} ms`);
       for (const w of report.warnings) get().log("warn", w);
       for (const e of report.errors) get().log("error", e);
@@ -508,6 +624,16 @@ export const useEditor = create<EditorState>((set, get) => ({
     const result = buildNets(get().doc);
     set({ netResult: result });
   },
+}));
+
+/**
+ * HUD-State (Cursor …) als eigener Store: wird bei jeder Mausbewegung
+ * geschrieben, aber nur die Statusleiste hört zu — der Editor-Store
+ * (und damit alle Panels) rendert dadurch nicht neu.
+ */
+export const useHud = create<{ cursor: { x: number; y: number }; viewport: { w: number; h: number } }>(() => ({
+  cursor: { x: 0, y: 0 },
+  viewport: { w: 0, h: 0 },
 }));
 
 /** Utility used by canvas hit tests. */

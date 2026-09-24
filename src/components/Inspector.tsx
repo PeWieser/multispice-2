@@ -87,7 +87,7 @@ export default function Inspector() {
   }
 
   return (
-    <aside className="panel flex h-full w-[300px] shrink-0 flex-col" style={{ borderWidth: "0 0 0 1px" }}>
+    <aside className="flex h-full w-[280px] shrink-0 flex-col" style={{ background: "var(--panel)", borderLeft: "1px solid var(--border)" }}>
       <div className="flex items-center gap-1 px-2 pt-2">
         <button className="tab" data-active={tab === "props"} onClick={() => setTab("props")}>
           <span className="flex items-center gap-1.5">
@@ -298,21 +298,6 @@ export default function Inspector() {
               <Row k="Simulationszeit" v={live ? formatValue(live.time, "s") : "0 s"} />
               <Row k="Echtzeitfaktor" v={live ? `${live.realtimeFactor.toExponential(2)}` : "—"} />
               <Row k="Schritte/s" v={live ? live.stepsPerSecond.toFixed(0) : "—"} />
-              <Row k="Render" v={`${st.sim.fps.toFixed(0)} FPS`} />
-            </div>
-            <div className="flex gap-1.5">
-              <label className="flex flex-1 items-center gap-1.5 text-[11.5px] text-dim">
-                <input type="checkbox" checked={st.showGrid} onChange={() => useEditor.setState({ showGrid: !st.showGrid })} className="accent-[var(--accent)]" />
-                Raster
-              </label>
-              <label className="flex flex-1 items-center gap-1.5 text-[11.5px] text-dim">
-                <input type="checkbox" checked={st.snap} onChange={() => useEditor.setState({ snap: !st.snap })} className="accent-[var(--accent)]" />
-                Snap
-              </label>
-              <label className="flex flex-1 items-center gap-1.5 text-[11.5px] text-dim">
-                <input type="checkbox" checked={st.autoRoute} onChange={() => useEditor.setState({ autoRoute: !st.autoRoute })} className="accent-[var(--accent)]" />
-                A*-Routing
-              </label>
             </div>
           </div>
         )}

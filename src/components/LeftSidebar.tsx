@@ -80,8 +80,7 @@ export default function LeftSidebar() {
   const favorites = useEditor((s) => s.favorites);
   const recent = useEditor((s) => s.recent);
   const netResult = useEditor((s) => s.netResult);
-  const placing = useEditor((s) => s.placingPartId);
-  const setPlacing = useEditor((s) => s.setPlacing);
+  const setDoc = useEditor((s) => s.setDoc);
 
   const tree = useMemo(() => buildCategoryTree(PARTS), []);
   const results = useMemo(() => (query ? searchParts(query) : []), [query]);
@@ -127,16 +126,6 @@ export default function LeftSidebar() {
             </div>
           </div>
 
-          {placing && (
-            <div className="mx-2 mb-2 flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px]"
-              style={{ background: "color-mix(in srgb, var(--accent) 16%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)" }}>
-              <span className="flex-1">Platziere <b>{PART_MAP[placing]?.name}</b> — Klick auf Canvas</span>
-              <button onClick={() => setPlacing(null)}>
-                <X size={13} />
-              </button>
-            </div>
-          )}
-
           <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-3">
             {query ? (
               <div className="pt-1">
@@ -169,15 +158,18 @@ export default function LeftSidebar() {
               </>
             )}
           </div>
-          <div className="px-3 py-2 text-[10px] text-mute" style={{ borderTop: "1px solid var(--border)" }}>
-            {PARTS.length} Modelle · SPICE-Subcircuits · SMD/THT
-          </div>
         </>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           <div className="mb-2 rounded-lg p-2" style={{ background: "var(--panel-2)" }}>
-            <div className="text-[12px] font-semibold">{doc.name}</div>
-            <div className="mono mt-0.5 text-[10px] text-mute">
+            <input
+              className="input py-1 text-[12px] font-semibold"
+              value={doc.name}
+              onChange={(e) => setDoc({ ...doc, name: e.target.value }, false)}
+              aria-label="Projektname"
+              spellCheck={false}
+            />
+            <div className="mono mt-1 text-[10px] text-mute">
               {doc.instances.length} Bauteile · {doc.wires.length} Leitungen · {netResult.nets.length} Netze
             </div>
           </div>

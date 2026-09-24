@@ -10,7 +10,7 @@
 | Prinzip | Befund | Maßnahme | Status |
 |---|---|---|---|
 | Fokus | Menüs haben zu viele Einträge gleicher Bedeutung | Jede Funktion genau 1 Ort (§4) | ✅ Done |
-| Einfachheit | `window.prompt()` für Labels/Notizen | Inline-Input im Canvas ersetzt Prompts | 🟡 Planned |
+| Einfachheit | `window.prompt()` für Labels/Notizen | Inline-Editor im Canvas (Enter setzt, Esc bricht ab) | ✅ Done |
 | Korrekt > schnell > schön | tsc fehlerfrei, build passing | Jeder Merge: `tsc --noEmit` + `npm run build` | ✅ Done |
 | Detailbesessenheit | Keine Flacker-Breiten bei Zahlen | `font-variant-numeric: tabular-nums` in globals.css | ✅ Done |
 | Heiliger Geschmack | Keine Dark Patterns, keine aufdringlichen Effekte | Keine Nudges, kein Auto-Popup | ✅ Done |
@@ -78,17 +78,27 @@
 |---|---|---|---|
 | Bauteil platzieren | Linke Sidebar → Suchfeld + Klick | — | ✅ |
 | Leitung zeichnen | Toolbar → Wire (oder W) | W | ✅ |
-| Netzname setzen | Toolbar → Label (oder L) | L | 🟡 uses prompt |
-| Notiz einfügen | Toolbar → Text (oder T) | T | 🟡 uses prompt |
+| Netzname setzen | Toolbar → Label | L | ✅ |
+| Notiz einfügen | Toolbar → Notiz | T | ✅ |
 | Messsonde | Toolbar → Probe (oder P) | P | ✅ |
 | Rückgängig | Toolbar / Menü | Strg+Z | ✅ |
 | Wiederholen | Toolbar / Menü | Strg+Y | ✅ |
 | Drehen | Inspector / Tastatur | R | ✅ |
 | Spiegeln | Inspector / Tastatur | M | ✅ |
 | Löschen | Inspector / Tastatur | Delete | ✅ |
-| Simulation Start | AppBar Transport | Space | ✅ |
-| Simulation Pause | AppBar Transport | Space | ✅ |
-| Simulation Stopp | AppBar Transport | — | ✅ |
+| Kopieren | Menü Bearbeiten | Strg+C | ✅ |
+| Einfügen (versetzt) | Menü Bearbeiten | Strg+V | ✅ |
+| Duplizieren | Menü Bearbeiten | Strg+D | ✅ |
+| Alles auswählen | Menü Bearbeiten | Strg+A | ✅ |
+| Ansicht einpassen | Menü Ansicht / Canvas / Statusleiste | F | ✅ |
+| Pan-Werkzeug | Toolbar | H | ✅ |
+| Analyse-Dialoge (tran/ac/dc/noise/thd/mc/wc/temp) | Menü Analysen | — | ✅ |
+| DC-Arbeitspunkt (direkt) | Menü Analysen | — | ✅ |
+| Grapher-Export PNG/CSV | Ergebnisse-Tab | — | ✅ |
+| Frequenzzähler | Geräte-Dock | — | ✅ |
+| Simulation Start | Menüleiste Transport | Space | ✅ |
+| Simulation Pause | Menüleiste Transport | Space | ✅ |
+| Simulation Stopp | Menüleiste Transport | — | ✅ |
 | Zoom Ein/Aus | Mausrad / Buttons | F (Fit) | ✅ |
 | Projekt speichern | Menü → Datei | Strg+S | ✅ |
 | SPICE-Export | Menü → Datei → Export | — | ✅ |
@@ -136,6 +146,7 @@
 | Check | Methode | Status |
 |---|---|---|
 | `tsc --noEmit` fehlerfrei | CI | ✅ |
+| `npm run lint` ohne Errors | CI | ✅ 0 Errors, 2 pre-existing Warnings (Instruments `exhaustive-deps`) |
 | `npm run build` erfolgreich | CI | ✅ |
 | Jeder Klick hat Antwort | Manuelles Testen | ✅ |
 | Escape beendet Modus | `onKeyDown` Handler | ✅ |
@@ -188,7 +199,12 @@ src/
     page.tsx             ← Entry Point (statisch prägerendert)
   components/
     Canvas.tsx           ← Schematic Rendering (WebGL/Canvas)
-    AppBar.tsx           ← Top Bar + Menüs
+    MenuBar.tsx          ← Menüleiste + Simulationstransport
+    Toolbar.tsx          ← Werkzeuge + Raster/Snap/Routing + Modusanzeige
+    StatusBar.tsx        ← Kontexthinweis + DRC + Zeitskala + Cursor + Zoom + Zeit
+    AnalysisDialog.tsx   ← Analyse-Parameterdialoge (schema-getrieben)
+    Grapher.tsx          ← Ergebnisdiagramme + PNG/CSV-Export
+    ui.tsx               ← Menü, Dialog, Formularfelder, Download-Helfer
     LeftSidebar.tsx      ← Komponenten-Baum
     Inspector.tsx        ← Properties + Solver-Settings
     Instruments.tsx      ← Virtuelle Instrumente (Floating)
@@ -200,6 +216,7 @@ src/
       engine.ts          ← MNA-Solver
       analyses.ts        ← .OP, .DC, .AC, .TRAN, .NOISE, .FOUR
       runner.ts          ← Client-Analyse-Runner (war: /api/simulate)
+      analysis_defs.ts   ← Analyse-Metadaten (Dialog-Schemas, Payload-Bau, Validierung)
       fft.ts             ← Spektralanalyse
       realtime.ts        ← Live-Engine
       digital.ts         ← Digital-Co-Simulation
@@ -211,3 +228,28 @@ src/
   state/
     editor.ts            ← Zustand Store + Undo/Redo
 ```
+
+---
+
+## 2026-09-24 · UI-Neugestaltung + Multisim-Lücken geschlossen
+
+> Befund des Nutzers: „unglaublich hässlich (AI Slop, überladen, unübersichtlich)“.
+> Maßnahme: Shell neu (Menü-/Werkzeug-/Statusleiste), alle Kernlücken eines
+> Multisim-Klons geschlossen. Grundlage: Manifest §1–§5.
+
+| # | Befund | Maßnahme | Status |
+|---|---|---|---|
+| 1 | Header überladen: FPS/kS/s-Cluster, Live-Dot, Breadcrumb-Input, HintBar, Glas überall | **MenuBar** (6 Menüs + Transport + Toggles), **Toolbar** (Werkzeuge + View-Toggles + Modusanzeige), **StatusBar** (Hinweis, DRC, Zeitskala, Cursor, Zoom, Zeit) — solide Flächen, ein Ort pro Funktion | ✅ Done |
+| 2 | Analyse-Parameter hartcodiert (DC-Sweep immer 0–12 V, Rauschen fest, THD fest) | **Analyse-Dialoge** für tran/ac/dc/noise/thd/mc/wc/temp: schema-getrieben (`analysis_defs.ts`), Netz-/Quellenauswahl aus der Doku, Einheiten-Parser, Validierung mit lesbarer Fehlermeldung, letzte Werte je Analyse gemerkt | ✅ Done |
+| 3 | Analyse-Ergebnisse als JSON-Dump (ac/dc/tran) | **Grapher**: Bode (2 Panels), Transient, DC-Sweep, Rauschen (log/log), IV, Temp, THD-Spektrum — mit Achsen, Legende, Hover-Fadenkreuz, **PNG/CSV-Export** (§4: Export ist das Produkt) | ✅ Done |
+| 4 | Kein Copy/Paste/Duplizieren, kein Alles-auswählen | Clipboard im Store (Instanzen + Leitungen + Labels + Notizen), versetztes Einfügen, neue Referenzlabels, Undo-fähig; Strg+C/V/D/A + Bearbeiten-Menü | ✅ Done |
+| 5 | `window.prompt()` für Netzname/Notiz | Inline-Editor am Klickort (Enter setzt, Esc/Blur regeln Ende, kein Doppel-Commit) | ✅ Done |
+| 6 | Kürzel L/T aus DESIGN.md fehlten im Code; Pan als „Space“ beschriftet, obwohl Space die Sim startet | L/T/H verdrahtet, Pan-Shortcut ehrlich H; Doppelklick öffnet Inspector | ✅ Done |
+| 7 | Frequenzzähler fehlt (Multisim-Standardgerät) | 10. Gerät: Frequenz + Periode + Tastgrad am Messknoten | ✅ Done |
+| 8 | `fitView` als lokale Canvas-Funktion (ESLint-Fehler: Zugriff vor Deklaration) | In den Store gezogen — Menü, F-Taste und Canvas-Button gehen denselben Weg (§4) | ✅ Done |
+| 9 | Cursor-Position würde bei Store-Ablage alle Panels neu rendern | Eigener `useHud`-Store (Cursor + Viewport) — nur die Statusleiste hört zu | ✅ Done |
+| 10 | ESLint: 9 Errors | 0 Errors (Canvas-Tooltip liest Ref im Handler statt im Render); 2 pre-existing Warnings bleiben | ✅ Done |
+
+**Bewusst nicht umgesetzt (§1: Nein sagen):** Logic Converter, Wortgenerator-Vollausbau,
+Distortion Analyzer (THD-Analyse deckt ab), hierarchische Blätter, PCB-Transfer,
+3D-Breadboard — alles dokumentierte Nicht-Ziele, kein vergessener Rest.
