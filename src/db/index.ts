@@ -21,4 +21,12 @@ if (process.env.NODE_ENV !== "production") {
   globalForDb.__arenaNextJsPostgresqlPool = pool;
 }
 
-export const db = drizzle(pool);
+// Nur laden wenn DATABASE_URL gesetzt ist
+export const db = process.env.DATABASE_URL
+  ? (() => {
+      const { drizzle } = require("drizzle-orm/node-postgres");
+      const { Pool } = require("pg");
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      return drizzle(pool);
+    })()
+  : null;
