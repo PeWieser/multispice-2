@@ -139,8 +139,8 @@ export default function AppBar() {
         <Item onClick={() => st.newDocument()} hint="Strg+N">
           <FilePlus2 size={14} /> Neuer Schaltplan
         </Item>
-        <Item onClick={() => void st.saveProject()} hint="Strg+S">
-          <Save size={14} /> In Datenbank speichern
+        <Item onClick={() => st.saveProject()} hint="Strg+S">
+          <Save size={14} /> Lokal speichern
         </Item>
         <Item onClick={() => fileRef.current?.click()}>
           <Upload size={14} /> Importieren (.json/.cir)

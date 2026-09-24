@@ -14,6 +14,8 @@ import {
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
 import { RealtimeEngine } from "@/lib/sim/realtime";
+import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
+import { loadLibraryLocal, loadProjectLocal, saveLibraryLocal, saveProjectLocal } from "@/lib/storage";
 import { IntegrationMethod } from "@/lib/sim/engine";
 import { DEFAULT_MCU_SKETCH } from "@/lib/sim/digital";
 
@@ -132,9 +134,9 @@ export interface EditorState {
   loadPreset: (id: string) => void;
   newDocument: () => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
-  runAnalysis: (kind: string, payload?: Record<string, unknown>) => Promise<void>;
-  saveProject: (name?: string) => Promise<void>;
-  loadProject: (id: number) => Promise<void>;
+  runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
+  saveProject: (name?: string) => void;
+  restoreLocalProject: () => void;
   markFavorite: (partId: string) => void;
   refreshNets: () => void;
 }
@@ -456,63 +458,50 @@ export const useEditor = create<EditorState>((set, get) => ({
     const { doc } = get();
     set({ analysis: { kind, running: true } });
     get().log("info", `Analyse »${kind}« gestartet …`);
+    // Den `running`-Zustand erst rendern lassen, bevor der Kernel den
+    // Main-Thread belegt — ehrliche Zwischenstufe statt eingefrorenem UI.
+    await new Promise((r) => setTimeout(r, 0));
     try {
-      const res = await fetch("/api/simulate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ doc, kind, ...payload }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Analyse fehlgeschlagen");
-      set({ analysis: { kind, running: false, data: json.result, durationMs: json.durationMs } });
-      get().log("ok", `Analyse »${kind}« beendet in ${json.durationMs} ms`);
-      for (const w of json.warnings ?? []) get().log("warn", w);
-      for (const e of json.errors ?? []) get().log("error", e);
+      const report = runAnalysisLocal(doc, kind, payload);
+      set({ analysis: { kind, running: false, data: report.result, durationMs: report.durationMs } });
+      get().log("ok", `Analyse »${kind}« beendet in ${report.durationMs} ms`);
+      for (const w of report.warnings) get().log("warn", w);
+      for (const e of report.errors) get().log("error", e);
     } catch (e) {
       set({ analysis: { kind, running: false, error: (e as Error).message } });
       get().log("error", `Analyse »${kind}«: ${(e as Error).message}`);
     }
   },
 
-  saveProject: async (name) => {
-    const { doc, projectId } = get();
-    const body = { name: name ?? doc.name, doc };
-    try {
-      if (projectId) {
-        await fetch(`/api/projects/${projectId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        get().log("ok", `Projekt gespeichert (#${projectId})`);
-      } else {
-        const res = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const json = await res.json();
-        set({ projectId: json.project?.id ?? null });
-        get().log("ok", `Projekt angelegt (#${json.project?.id})`);
-      }
-    } catch (e) {
-      get().log("error", `Speichern fehlgeschlagen: ${(e as Error).message}`);
+  saveProject: (name) => {
+    const { doc } = get();
+    const next = name && name !== doc.name ? { ...doc, name } : doc;
+    if (next !== doc) get().setDoc(next, false);
+    const { ok, bytes } = saveProjectLocal(next);
+    if (ok) {
+      get().log("ok", `Projekt lokal gespeichert (${(bytes / 1024).toFixed(1)} KB)`);
+    } else {
+      get().log("error", "Lokal speichern fehlgeschlagen (Speicher voll?) — sichere dein Projekt per Export (JSON).");
     }
   },
 
-  loadProject: async (id) => {
-    try {
-      const res = await fetch(`/api/projects/${id}`);
-      const json = await res.json();
-      const doc = json.schematics?.[0]?.doc as SchematicDoc | undefined;
-      if (!doc) throw new Error("Projekt enthält keinen Schaltplan");
-      set({ doc, projectId: id, selection: [], past: [], future: [] });
+  restoreLocalProject: () => {
+    const stored = loadProjectLocal();
+    if (stored) {
+      set({ doc: stored.doc, selection: [], past: [], future: [] });
       get().refreshNets();
-      get().log("ok", `Projekt #${id} geladen`);
-    } catch (e) {
-      get().log("error", `Laden fehlgeschlagen: ${(e as Error).message}`);
+      const when = new Date(stored.savedAt);
+      const stamp = Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString("de-DE")})`;
+      get().log("ok", `Zuletzt gespeicherter Stand wiederhergestellt${stamp}`);
     }
+    const lib = loadLibraryLocal();
+    if (lib) set({ favorites: lib.favorites.length ? lib.favorites : get().favorites, recent: lib.recent });
   },
 
   markFavorite: (partId) => {
-    set((s) => ({ recent: [partId, ...s.recent.filter((p) => p !== partId)].slice(0, 12) }));
-    fetch("/api/library", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "use", partId }),
-    }).catch(() => undefined);
+    const recent = [partId, ...get().recent.filter((p) => p !== partId)].slice(0, 12);
+    set({ recent });
+    saveLibraryLocal(get().favorites, recent);
   },
 
   refreshNets: () => {

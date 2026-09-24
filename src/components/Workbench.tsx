@@ -35,6 +35,12 @@ export default function Workbench() {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  // Einmalig beim Start: gespeicherten Stand aus dem Browser wiederherstellen.
+  // Still, wenn nichts da ist (Erststart → Beispielschaltung bleibt liegen).
+  useEffect(() => {
+    useEditor.getState().restoreLocalProject();
+  }, []);
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
       <AppBar />

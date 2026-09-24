@@ -160,6 +160,24 @@ Canvas-Tokens (`--mw-canvas`, `--mw-wire`, etc.) sind die einzigen Farbwerte, di
 
 ---
 
+## 2026-09-24 · Statischer Export als Standard (Cloudflare Pages)
+
+> Grundlage: Manifest §1 (Fokus heißt Nein sagen), §5 (statischer Export als Abnahmekriterium).
+
+| # | Befund | Maßnahme | Status |
+|---|---|---|---|
+| 1 | `npm run build` scheiterte ohne `DATABASE_URL` (`src/db` warf beim Import) | `output: "export"` in `next.config.ts`, `images.unoptimized`, `force-dynamic` aus `page.tsx` entfernt | ✅ Done |
+| 2 | API-Routen sind mit statischem Export inkompatibel, Simulation lief aber faktisch schon im Browser | `src/app/api/*` gelöscht; `/api/simulate`-Logik 1:1 nach `src/lib/sim/runner.ts` (`runAnalysisLocal`) verlegt — gleiche Ergebnisstruktur, kein Fetch | ✅ Done |
+| 3 | `runAnalysis` blockiert jetzt kurz den Main-Thread (kein Server mehr) | `running`-Zustand wird vor dem Rechnen ein Frame zum Rendern gegeben (ehrliche Zwischenstufe, §3) | ✅ Done |
+| 4 | Projekte/Favoriten lagen in Postgres (ohne UI je gelesen: kein Aufrufer für Projektliste) | `src/lib/storage.ts`: versioniertes localStorage; `saveProject` → lokal, stiller Restore beim Start, `markFavorite` persistiert `recent` | ✅ Done |
+| 5 | `projectId`, `loadProject(id)` ohne Leser/Aufrufer im UI | Ersatzlos gestrichen (§1: fehlt es, wenn es weg ist?) | ✅ Done |
+| 6 | Menü log „In Datenbank speichern" | Umbenannt in „Lokal speichern" (§1: Ehrlichkeit) | ✅ Done |
+| 7 | Toter Code: `src/db/*`, `drizzle.config.json`, `src/app/tailwind.css` (nie importiert), Deps `drizzle-orm/pg/dotenv/nanoid/clsx/tailwind-merge/drizzle-kit` (0 Verwendungen) | Gelöscht; Paketname `nextjs-postgresql-template` → `multispice` | ✅ Done |
+| 8 | Keine `.gitignore` (`.next/`, `node_modules/` untracked), keine Node-Pinning, keine Cache-Header | `.gitignore`, `.node-version` (22), `public/_headers` (immutable für `_next/static`, `no-cache` für `/`) | ✅ Done |
+| 9 | Kernel-Smoke-Tests zeigen 2 pre-existing FAILs (`RC -3dB`-Toleranz, `buck`-Konvergenz) | Nicht angefasst: unberührter Kernel-Code, kein Regressionsrisiko durch diese Änderung — separater Befund | 🟡 Offen |
+
+---
+
 ## Komponenten-Struktur
 
 ```
@@ -167,11 +185,7 @@ src/
   app/
     globals.css          ← Design-Tokens
     layout.tsx           ← HTML Shell
-    page.tsx             ← Entry Point
-    api/
-      simulate/route.ts  ← SPICE-Analyse API
-      projects/route.ts  ← CRUD API
-      library/route.ts   ← Favoriten API
+    page.tsx             ← Entry Point (statisch prägerendert)
   components/
     Canvas.tsx           ← Schematic Rendering (WebGL/Canvas)
     AppBar.tsx           ← Top Bar + Menüs
@@ -181,9 +195,11 @@ src/
     BottomPanel.tsx      ← Console + Netlist + BOM
     Workbench.tsx        ← Layout-Shell
   lib/
+    storage.ts           ← localStorage-Persistenz (Projekt + Bibliothek)
     sim/
       engine.ts          ← MNA-Solver
       analyses.ts        ← .OP, .DC, .AC, .TRAN, .NOISE, .FOUR
+      runner.ts          ← Client-Analyse-Runner (war: /api/simulate)
       fft.ts             ← Spektralanalyse
       realtime.ts        ← Live-Engine
       digital.ts         ← Digital-Co-Simulation
@@ -194,7 +210,4 @@ src/
       catalog.ts         ← Komponenten-Bibliothek (80+ Teile)
   state/
     editor.ts            ← Zustand Store + Undo/Redo
-  db/
-    schema.ts            ← Drizzle ORM Schema
-    index.ts             ← DB Connection
 ```
