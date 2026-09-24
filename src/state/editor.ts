@@ -477,6 +477,10 @@ export const useEditor = create<EditorState>((set, get) => ({
   saveProject: async (name) => {
     const { doc, projectId } = get();
     const body = { name: name ?? doc.name, doc };
+    if (typeof window !== "undefined" && !process.env.NEXT_PUBLIC_DATABASE_URL) {
+      saveLocal(doc);
+      return;
+    }
     try {
       if (projectId) {
         await fetch(`/api/projects/${projectId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
