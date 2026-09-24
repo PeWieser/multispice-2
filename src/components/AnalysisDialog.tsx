@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ANALYSIS_MAP, AnalysisContext, FieldValue, defaultValues } from "@/lib/sim/analysis_defs";
 import { useEditor } from "@/state/editor";
 import { Dialog, NetsField, NumberField, SelectField, TextField } from "./ui";
@@ -13,7 +13,8 @@ const lastValues = new Map<string, Record<string, FieldValue>>();
 export default function AnalysisDialog({ kind, onClose }: { kind: string; onClose: () => void }) {
   const def = ANALYSIS_MAP[kind];
   const doc = useEditor((s) => s.doc);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const probes = useEditor((s) => s.probes);
   const running = useEditor((s) => s.analysis.running);
   const runAnalysis = useEditor((s) => s.runAnalysis);
@@ -30,13 +31,17 @@ export default function AnalysisDialog({ kind, onClose }: { kind: string; onClos
   }, [nets, probes, doc.instances]);
 
   const [values, setValues] = useState<Record<string, FieldValue>>(() => {
+    if (!def) return {};
     const saved = lastValues.get(kind);
     const fresh = defaultValues(def, ctx);
     if (!saved) return fresh;
     // Gespeicherte Werte übernehmen, aber gegen die aktuelle Schaltung prüfen.
     const merged = { ...fresh, ...saved };
     for (const f of def.fields) {
-      if (f.kind === "nets") merged[f.key] = (saved[f.key] as string[]).filter((n) => ctx.nets.includes(n));
+      if (f.kind === "nets") {
+        const arr = saved[f.key];
+        merged[f.key] = Array.isArray(arr) ? (arr as string[]).filter((n) => ctx.nets.includes(n)) : fresh[f.key];
+      }
       if (f.kind === "net" && !ctx.nets.includes(saved[f.key] as string)) merged[f.key] = fresh[f.key];
       if (f.kind === "source" && !ctx.sources.includes(saved[f.key] as string)) merged[f.key] = fresh[f.key];
     }

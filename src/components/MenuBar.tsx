@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import {
   CircuitBoard, Moon, PanelBottom, PanelLeft, PanelRight, Pause, Play, Redo2, Square, Sun, Undo2,
 } from "lucide-react";
@@ -35,7 +35,8 @@ export default function MenuBar({ onAnalysis }: { onAnalysis: (kind: string) => 
   const leftOpen = useEditor((s) => s.leftOpen);
   const rightOpen = useEditor((s) => s.rightOpen);
   const bottomOpen = useEditor((s) => s.bottomOpen);
-  const openKinds = useEditor((s) => s.instruments.map((i) => i.kind));
+  const instruments = useEditor((s) => s.instruments);
+  const openKinds = useMemo(() => instruments.map((i) => i.kind), [instruments]);
   const fileRef = useRef<HTMLInputElement>(null);
   const st = useEditor.getState;
 

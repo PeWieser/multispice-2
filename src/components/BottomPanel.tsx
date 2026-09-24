@@ -33,7 +33,10 @@ export default function BottomPanel() {
   const bom = useMemo(() => buildBom(doc), [doc]);
 
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+    const el = logRef.current;
+    if (!el) return;
+    if (typeof el.scrollTo === "function") el.scrollTo({ top: el.scrollHeight });
+    else el.scrollTop = el.scrollHeight;
   }, [logs.length]);
 
   return (
@@ -171,7 +174,8 @@ export default function BottomPanel() {
 
 function LiveStrip() {
   const probes = useEditor((s) => s.probes);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name).filter((n) => n !== "0"));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name).filter((n) => n !== "0"), [netResult.nets]);
   const shown = probes.length ? probes : nets.slice(0, 4);
   const ref = useRef<HTMLCanvasElement>(null);
 

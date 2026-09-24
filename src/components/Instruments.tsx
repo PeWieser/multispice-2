@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
@@ -83,7 +83,8 @@ function grid(ctx: CanvasRenderingContext2D, w: number, h: number, cols = 10, ro
 }
 
 function NetSelect({ value, onChange, allowNone }: { value: string; onChange: (v: string) => void; allowNone?: boolean }) {
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   return (
     <select className="input py-0.5 text-[11px]" value={value} onChange={(e) => onChange(e.target.value)}>
       {allowNone && <option value="">—</option>}
@@ -111,7 +112,8 @@ interface ScopeConfig {
 
 function Oscilloscope({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const cfg = (win.config.scope as ScopeConfig) ?? {
     channels: [nets.find((n) => n !== "0") ?? "", "", "", ""],
     timebase: 0.002,
@@ -355,7 +357,8 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
 /* ------------------------------------------------------------------ */
 function Multimeter({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const running = useEditor((s) => s.sim.running);
   const tick = useEditor((s) => s.sim.tick);
   const cfg = (win.config.dmm as { a: string; b: string; mode: string; range: string }) ?? {
@@ -523,7 +526,8 @@ function BodePlotter({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
   const runAnalysis = useEditor((s) => s.runAnalysis);
   const analysis = useEditor((s) => s.analysis);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const cfg = (win.config.bode as { out: string; fmin: number; fmax: number }) ?? { out: nets.find((n) => n !== "0") ?? "", fmin: 1, fmax: 1e6 };
   const set = (p: Partial<typeof cfg>) => update(win.id, { config: { ...win.config, bode: { ...cfg, ...p } } });
   const data = analysis.kind === "ac" ? (analysis.data as { freq: number[]; magDb: Record<string, number[]>; phase: Record<string, number[]> } | undefined) : undefined;
@@ -609,7 +613,8 @@ function BodePlotter({ win }: { win: InstrumentWindow }) {
 /* ------------------------------------------------------------------ */
 function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name).filter((n) => n !== "0"));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name).filter((n) => n !== "0"), [netResult.nets]);
   const cfg = (win.config.logic as { channels: string[]; span: number; threshold: number; radix: "hex" | "bin" }) ?? {
     channels: nets.slice(0, 8),
     span: 0.05,
@@ -713,7 +718,8 @@ function Wattmeter({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
   const doc = useEditor((s) => s.doc);
   const tick = useEditor((s) => s.sim.tick);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const cfg = (win.config.watt as { vnet: string; gnd: string; device: string }) ?? {
     vnet: nets.find((n) => n !== "0") ?? "",
     gnd: "0",
@@ -869,7 +875,8 @@ function IvAnalyzer() {
 /* ------------------------------------------------------------------ */
 function SpectrumAnalyzer({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const cfg = (win.config.spec as { net: string }) ?? { net: nets.find((n) => n !== "0") ?? "" };
   const render = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number) => {
@@ -955,7 +962,8 @@ function PatternGenerator() {
 /* ------------------------------------------------------------------ */
 function FrequencyCounter({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name));
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const running = useEditor((s) => s.sim.running);
   const tick = useEditor((s) => s.sim.tick);
   void tick;
