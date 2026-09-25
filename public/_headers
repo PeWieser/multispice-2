@@ -13,6 +13,8 @@
   Cache-Control: public, max-age=604800
 /apple-icon.png
   Cache-Control: public, max-age=604800
+/apple-icon1.png
+  Cache-Control: public, max-age=604800
 /og.png
   Cache-Control: public, max-age=604800
 /manifest.json

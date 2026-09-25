@@ -20,7 +20,13 @@ export const metadata: Metadata = {
       { url: "/icon.svg", type: "image/svg+xml" },
     ],
     shortcut: "/favicon.png",
-    apple: "/favicon.png",
+    // Apple-Touch-Icons: 180 px (iPhone/Home-Screen, Apple-HIG) + 512 px
+    // (iPad/Zoom-resistent). Next 16 liefert die Files via File-Convention,
+    // die <link rel="apple-touch-icon">-Tags kommen aus der Metadata.
+    apple: [
+      { url: "/apple-icon.png", sizes: "180x180", type: "image/png" },
+      { url: "/apple-icon1.png", sizes: "512x512", type: "image/png" },
+    ],
   },
   manifest: "/manifest.json",
   openGraph: {

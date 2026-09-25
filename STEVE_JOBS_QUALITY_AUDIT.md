@@ -50,7 +50,7 @@ Legende: **S** = Sev­erität (1 kritisch … 4 Kosmetik) · Status ✅ = in die
 | F17 | Tempo | 1,3 MB JS (unkomprimiert) beim Erststart, ein Bundle für alles | 3 | 4 | 📋 siehe Backlog B1 |
 | F18 | Stimme | UI-Sprache mischt DE/EN („Select“, „Wire“, „Fit“ neben deutschem Chrome) | 3 | 1, 3 | 📋 siehe Backlog B2 |
 | F19 | Rückseite | ESLint-Warnings: frische Fallback-Objekte in `Instruments` (Identitäts-Flackern), fehlende Dep in `LibraryPalette`, undokumentierter Live-Takt in `ProbeTable` (+ tote Code-Schleife dort) | 3 | 1 | ✅ Defaults in `useMemo`, Dep ergänzt, Taktgeber kommentiert, Totcode entfernt → `eslint .` = 0/0 |
-| F20 | Verpackung | `apple-icon.png` nur als 512er-Kopie (Apple empfiehlt 180 px) | 4 | 4 | 📋 Backlog B4 |
+| F20 | Verpackung | `apple-icon.png` nur als 512er-Kopie (Apple-HIG will 180 px); Next 16 emittiert für File-Convention-Apples zudem keine `<link>`-Tags | 4 | 4 | ✅ `apple-icon.png` = 180 px + `apple-icon1.png` = 512 px, Links mit `sizes` aus `metadata.icons.apple` |
 
 **Kritischste Erkenntnis der Runde:** Die sichtbaren Flächen (Canvas, Instrumente, Bibliothek)
 sind bereits nahe „insanely great“ (Runden 1–2). Gebrochen war die *Peripherie*: Markenstimme,
@@ -103,7 +103,6 @@ Statischer Smoke-Test (serve out/): /, /icon.svg, /apple-icon.png, /favicon.ico,
 - **B3 CI:** Circuit-Szenarien (`src/lib/tests`) + typecheck/build/lint als GitHub-Action —
   Qualität muss automatisch wachen, nicht pro Session. (Lint ist seit dieser Runde bei 0/0;
   die Absicht dahinter ist jetzt im Code dokumentiert.)
-- **B4 Apple-Icon 180 px** als zweite `apple-icon`-Variante nachreichen.
 
 ---
 
