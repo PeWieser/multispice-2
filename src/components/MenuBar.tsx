@@ -7,6 +7,7 @@ import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
 import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, ThemePref, useEditor } from "@/state/editor";
 import { Menu, MenuItem, MenuSeparator, downloadText, safeName, Tooltip } from "./ui";
+import { isValidProjectDoc, normalizeProjectDoc } from "@/lib/storage";
 
 const INSTRUMENT_ITEMS: Array<[InstrumentKind, string]> = [
   ["dmm", "Digitalmultimeter"],
@@ -79,7 +80,11 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, isMobile = 
       const text = String(reader.result ?? "");
       try {
         if (file.name.endsWith(".json")) {
-          st().setDoc(JSON.parse(text));
+          const parsed: unknown = JSON.parse(text);
+          if (!isValidProjectDoc(parsed)) {
+            throw new Error("Die Datei sieht nicht wie ein Multispice-Projekt aus (JSON-Struktur unbekannt).");
+          }
+          st().setDoc(normalizeProjectDoc(parsed));
           st().log("ok", `${file.name} importiert`);
         } else {
           import("@/lib/schematic/model").then((m) => {
@@ -157,7 +162,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, isMobile = 
 
       <Menu label="Datei" tooltip="Datei – neues Projekt, Speichern, Import/Export, Druck">
         <MenuItem hint="⌘N" onClick={() => st().newDocument()} tooltip="Neuer Schaltplan – löscht aktuellen Plan (Undo möglich)\nTipp: Vorher speichern">Neuer Schaltplan</MenuItem>
-        <MenuItem hint="⌘S" onClick={() => st().saveProject()} tooltip="Lokal speichern – speichert im Browser localStorage\nAuto-Save alle 2s, bleibt nach Reload erhalten">Lokal speichern</MenuItem>
+        <MenuItem hint="⌘S" onClick={() => st().saveProject()} tooltip="Lokal speichern im Browser (localStorage)\nAuto-Save: 2 s nach jeder Änderung · ⌘S speichert sofort">Lokal speichern</MenuItem>
         <MenuItem onClick={() => fileRef.current?.click()} tooltip="Importieren – lädt .json oder .cir/.sp SPICE-Netzlisten">Importieren (.json/.cir)</MenuItem>
         <MenuSeparator />
         <MenuItem onClick={exportSpice} tooltip="Export SPICE (.cir) – erzeugt SPICE-Netzliste für LTspice/NGSpice\nEnthält alle Bauteile und Verbindungen">Export SPICE (.cir)</MenuItem>

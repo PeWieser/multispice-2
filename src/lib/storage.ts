@@ -113,3 +113,7 @@ export function loadLibraryLocal(): StoredLibrary | null {
     return null;
   }
 }
+
+/* Für Import-Pfade (Datei-Dialog): dieselbe Ehrlichkeit wie beim Laden —
+   erst prüfen und normalisieren, dann in den Editor lassen. */
+export { isDoc as isValidProjectDoc, migrateDoc as normalizeProjectDoc };

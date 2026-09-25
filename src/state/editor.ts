@@ -22,6 +22,21 @@ import { loadLibraryLocal, loadProjectLocal, saveLibraryLocal, saveProjectLocal 
 import { IntegrationMethod } from "@/lib/sim/engine";
 import { DEFAULT_MCU_SKETCH } from "@/lib/sim/digital";
 
+/* Auto-Save: 2 s nach der letzten Schaltplan-Änderung in den localStorage.
+   Still bei Erfolg, ehrlich bei Fehler (Quota, Privatmodus) – das Produkt
+   hält sein Versprechen aus dem Menü, statt es nur zu behaupten. */
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleAutosave() {
+  if (typeof window === "undefined") return;
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null;
+    const { doc, log } = useEditor.getState();
+    const { ok } = saveProjectLocal(doc);
+    if (!ok) log("warn", "Auto-Save fehlgeschlagen (Speicher voll?) — Projekt bitte per Export JSON sichern.");
+  }, 2000);
+}
+
 export const engine = new RealtimeEngine();
 
 export type Tool = "select" | "wire" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
@@ -790,6 +805,9 @@ export const useEditor = create<EditorState>((set, get) => ({
       // silent update without history push
       set({ doc: nextDoc });
     }
+    // Jede Netz-Aktualisierung folgt auf eine Doc-Änderung → ein einziger
+    // Hook-Punkt für den debounceten Auto-Save.
+    scheduleAutosave();
   },
 }));
 
