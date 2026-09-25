@@ -1635,7 +1635,7 @@ export default function Canvas() {
   }, []);
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-hidden" role="application" aria-label="Schaltplan Canvas – Bauteile platzieren, Leitungen ziehen, Probes setzen. Shortcuts: R Widerstand, W Wire, F Fit, Leertaste Start, ⌘K Bibliothek">
+    <div ref={wrapRef} className="relative h-full w-full overflow-hidden" role="application" aria-label="Schaltplan Canvas – Bauteile platzieren, Leitungen ziehen, Probes setzen. Shortcuts: R Drehen, W Wire, F Fit, Leertaste Start, ⌘K Bibliothek, ? Hilfe">
       <canvas
         ref={canvasRef}
         className="block h-full w-full touch-none"

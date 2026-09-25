@@ -163,7 +163,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
       <span className="mr-2 hidden max-w-[140px] truncate text-[11px] text-mute lg:inline">{docName}</span>
 
       <Menu label="Datei" tooltip="Datei – neues Projekt, Speichern, Import/Export, Druck">
-        <MenuItem hint="⌘N" onClick={() => st().newDocument()} tooltip="Neuer Schaltplan – löscht aktuellen Plan (Undo möglich)\nTipp: Vorher speichern">Neuer Schaltplan</MenuItem>
+        <MenuItem onClick={() => st().newDocument()} tooltip="Neuer Schaltplan – löscht aktuellen Plan (Undo möglich)\nTipp: Auto-Save hält die Arbeitskopie, Projekte-Dialog hält Snapshots">Neuer Schaltplan</MenuItem>
         <MenuItem hint="⌘S" onClick={() => st().saveProject()} tooltip="Lokal speichern im Browser (localStorage)\nAuto-Save: 2 s nach jeder Änderung · ⌘S speichert sofort">Lokal speichern</MenuItem>
         <MenuItem onClick={() => onProjects?.()} tooltip="Projekte – benannte Snapshots speichern, öffnen, umbenennen, löschen\nDie Arbeitskopie speichert zusätzlich automatisch">Projekte …</MenuItem>
         <MenuItem onClick={() => fileRef.current?.click()} tooltip="Importieren – .json Projekt, .cir/.net/.sp Netzliste (Auto-Verdrahtung), .asc LTspice">Importieren (.json/.cir/.asc)</MenuItem>
@@ -217,7 +217,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
 
       <Menu label="Geräte" tooltip="Geräte – Messinstrumente wie Oszilloskop (4 Kanäle), DMM, Bode, Spektrum">
         {INSTRUMENT_ITEMS.map(([kind, title]) => (
-          <MenuItem key={kind} onClick={() => st().openInstrument(kind)} tooltip={`${title} öffnen – Messgerät als schwebendes Fenster\nVerschiebbar, andockbar unten`}>{title}</MenuItem>
+          <MenuItem key={kind} onClick={() => st().openInstrument(kind)} tooltip={`${title} öffnen – Messgerät als schwebendes Fenster\nVerschiebbar, fokussierbar, schließbar – Konfiguration folgt in Projekt-Speicherung (Restliste R7)`}>{title}</MenuItem>
         ))}
       </Menu>
 

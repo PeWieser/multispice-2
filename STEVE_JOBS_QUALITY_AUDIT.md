@@ -116,6 +116,31 @@ DnD-Stufe; Touch bleibt bei Klick-Platzierung (kein HTML5-DnD auf Touch).
 
 ---
 
+## 4c · Runde 5 — Menüleiste, Instrumente, Bedienung (Tastatur & Maus)
+
+Gleicher Blick, dritte Ebene: nicht die Flächen, sondern die **Griffe** — Menüs, Tasten,
+Gerätefenster. Befunde mit Code-Beweis:
+
+| ID | Bereich | Befund | Status |
+|----|---------|--------|--------|
+| F29 | Menü Datei | Hint „⌘N“ für „Neuer Schaltplan“: Browser reservieren ⌘/Strg+N (nicht interceptbar) — der Hint verspricht Unmögliches, Tastendruck öffnet ein Browser-Fenster | ✅ Hint entfernt (Runde 5) |
+| F30 | Menü Geräte | Tooltip versprach „andockbar unten“ — Docking existiert nicht (nur Kommentar-Ruine im Code) | ✅ Copy wahr gemacht (Runde 5); echtes Docking = Restliste R10 |
+| F31 | Canvas-a11y | aria-label sagte „R Widerstand“, Empty-State und Binding sagen „R Drehen“ — widersprüchliche Doku | ✅ aria korrigiert (Runde 5) |
+| F32 | Tastatur | Strg/⌘+R nicht gebunden → Multisim-Muskelgedächtnis (Rotieren) löst Tab-Reload aus; Auto-Save fängt den Verlust, nicht den Schreck | 📋 R4 |
+| F33 | Tastatur | Leertaste togglet Simulation auch wenn ein BUTTON fokussiert ist (Tag-Check nur INPUT/TEXTAREA/SELECT) → Doppelaktion nach Menü-Klick | 📋 R5 |
+| F34 | Tastatur | Strom-Probe ohne Taste (Spannung = V), Grid/Snap ohne Taste; ⌘Z/⇧⌘Z/⌘Y/S/C/⌘V/⌘D/A//R/⇧R/M/W/L/T/E/H/F/Space/?/⌘K/Esc dagegen vollständig & konsistent | 📋 R9 |
+| F35 | Vertrauen | Auto-Save existiert (2 s, Runde 3), ist aber unsichtbar — kein „gespeichert“-Feedback in der Statusleiste; Vertrauen braucht Beweis | 📋 R6 |
+| F36 | Persistenz | `instruments` (geöffnete Geräte, Fensterlage, Scope-Config, Cursors) lebt nur im Editor-State: Reload/Export/Projekt-Snapshot verlieren alle Geräte — ein Oszi, das nach Neustart verschwindet, ist kein Gerät | 📋 R7 |
+| F37 | Instrumente | CRT/Scope & Grapher ohne Wheel-Gesten (Timebase/Volts nur via Knobs, Plots ohne Zoom/Pan); Cursor- und Trigger-Drags sind dagegen vorbildlich | 📋 R10/R11 |
+| F38 | Ausgabe | Drucken = Browser-Print der Webseite; ein Lehrender will ein Blatt: Titelblock, sauberes SVG/PDF des Schaltplans | 📋 R8 |
+
+**Direkt beantwortet (Fragen der Runde):** Auto-Save: **ja**, 2-s-Debounce seit Commit
+`3bf404d`, quota-ehrlich — aber unsichtbar (R6). ⌘/Strg+Z: **ja**, funktioniert (Undo,
+⇧⌘Z/⌘Y Redo, 50 Schritte History, korrekt deaktiviert in Eingabefeldern). Strg+R: **nein** —
+rotieren tut das nackte `R` (⇧R rückwärts); Strg+R reloadet den Tab (F32).
+
+---
+
 ## 5 · Backlog — bewusst nicht jetzt
 
 - **B1 Tempo („Saving Lives“):** Ein Bundle für Editor + Instrumente + Analysen. Plan:
@@ -143,6 +168,56 @@ hätte: Tab, Teilen-Karte, Fehler, leere Leinwand, README. Offen bleiben zwei be
 
 > „Design is not just what it looks like and feels like. Design is how it works.“ —
 > jetzt gilt das auch für `/favicon.ico`.
+
+---
+
+## 7 · Restliste — alle übrigen Schritte (Master, Stand Runde 5)
+
+Aufwand: S = <1 h · M = halbtag · L = tag+. „Wahrheit“ = muss, weil das Produkt sonst
+etwas behauptet, das es nicht ist. „Magie“ = darf, weil es den Unterschied macht.
+
+### A · Wahrheit & Vertrauen
+| # | Schritt | Aufwand | Status |
+|---|---------|---------|--------|
+| R1 | ⌘N-Hint entfernt (Browser-reserviert) | S | ✅ Runde 5 |
+| R2 | aria-Shortcut-Widerspruch (R = Drehen) behoben | S | ✅ Runde 5 |
+| R3 | „andockbar unten“-Copy-Lüge bereinigt | S | ✅ Runde 5 |
+| R4 | Strg/⌘+R abfangen (preventDefault) = Rotieren, Multisim-Muskelgedächtnis schützen | S | offen |
+| R5 | Leertaste: ignorieren wenn BUTTON/A fokussiert (Doppelaktion verhindern) | S | offen |
+| R6 | Statusleiste: sichtbarer Auto-Save-Beweis („✓ gespeichert 14:32“ / „● ausstehend“) | S | offen |
+| R7 | Instrumente persistieren: Geräte, Fensterlage, Configs in Projekt-Snapshot + JSON-Export/Import (Migration inkl.) | M | offen |
+| R8 | Druck/PDF-Blattansicht: Titelblock, sauberes Schaltplan-SVG statt Webseiten-Print | M | offen |
+
+### B · Bedienung vervollständigen
+| # | Schritt | Aufwand | Status |
+|---|---------|---------|--------|
+| R9 | Tasten: A = Strom-Probe, G = Grid, ⇧G = Snap; ?-Hilfe-Overlay zur vollen Referenz inkl. Wheel-Gesten ausbauen | S | offen |
+| R10 | Scope/CRT: Wheel = Timebase, ⇧Wheel = Volts/Div; echtes Docking an Bottom-Panel (versprochene Magie nachliefern) | M | offen |
+| R11 | Grapher: Wheel-Zoom (X/Y), Drag-Pan, Doppelklick = Autoscale | M | offen |
+| R12 | Touch-Gesten komplettieren & dokumentieren (2-Finger-Pan, Pinch existiert, Long-Press existiert) | M | offen |
+
+### C · Magie-Kandidaten
+| # | Schritt | Aufwand | Status |
+|---|---------|---------|--------|
+| R13 | Strom-Sparkline im Hover-Tooltip (Engine-`channel` für Ströme erweitern; ex B6) | M | offen |
+| R14 | Datei-Drop: .cir/.asc direkt auf den Canvas ziehen (Importer existieren; ex B7) | S | offen |
+| R15 | Manifest: 192-px-Icon für PWA-Installierbarkeit | S | offen |
+| R16 | Sprachstimme DE/EN entscheiden: Fachbegriffe als Eigenname dokumentieren oder konsequent übersetzen (ex B2) | S+M | offen |
+| R17 | Tempo: Erst-Ladezeit messen (RUM/light), dann Instruments/Analysen code-splitten (ex B1) | M/L | offen |
+
+### D · Qualitäts-Wachen
+| # | Schritt | Aufwand | Status |
+|---|---------|---------|--------|
+| R18 | CI (GitHub Action): typecheck, lint, build, `importtest`, `simtest` bei jedem Push (ex B3) | S/M | offen |
+| R19 | README-Badges aus CI + Testreport als Artefakt | S | offen |
+
+### E · Produkt-Backlog (bewusstes Nein aus FINAL_AUDIT, unverändert)
+Symbol-Editor, hierarchische Subcircuit-Simulation, 3D/Foto-Ansicht — Power-User-Tiefe,
+die 90 % der Lernenden nie anfassen. Wird nicht vergessen, aber nicht jetzt.
+
+**Summe offen: 16 Schritte (6×S, 7×M, 2×L, 1×S+M).** Reihenfolge-Empfehlung: R4→R5→R6
+(Wahrheit, je <1 h) → R7 (Geräte-Persistenz, größte Vertrauenslücke) → R9/R14 (schnelle
+Magie) → R10/R11/R8 (Geräte- & Ausgabe-Tiefe) → R18/R19 (Wachen) → Rest.
 
 ---
 
