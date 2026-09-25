@@ -154,6 +154,8 @@
   --text-dim: var(--mw-text-dim);
   --text-mute: var(--mw-text-mute);
   --accent: var(--mw-accent);
+  --accent-soft: var(--mw-accent-soft);
+  --accent-mid: var(--mw-accent-mid);
   --accent-2: #0891b2;
   --accent-3: #7c3aed;
   --ok: var(--mw-ok);
@@ -279,7 +281,6 @@ body {
   background: var(--mw-accent);
   color: white;
   border-color: color-mix(in srgb, var(--mw-accent) 60%, black);
-  box-shadow: 0 2px 10px color-mix(in srgb, var(--mw-accent) 30%, transparent);
 }
 .btn-primary:hover { filter: brightness(1.08); color: white; }
 .btn-primary:active { transform: scale(0.97); }
@@ -383,13 +384,6 @@ input[type="range"]::-moz-range-thumb {
 }
 .fade-in { animation: fade-in var(--dur) var(--ease) both; }
 
-/* §1: Kein Bounce, kein Konfetti */
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-.live-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
-
 /* ---------- Print (§4: Exportqualität ist Renderingqualität) ---------- */
 @media print {
   body { background: white; color: black; }
@@ -397,10 +391,31 @@ input[type="range"]::-moz-range-thumb {
   canvas { image-rendering: high-quality; }
 }
 
-/* ---------- Reduced Motion (§3) ---------- */
+/* ---------- Reduced Motion (§3) + Focus Visible (WCAG 2.4.7) ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+  [data-current-flow] { display: none !important; }
+}
+:focus-visible {
+  outline: 2px solid var(--mw-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
 }

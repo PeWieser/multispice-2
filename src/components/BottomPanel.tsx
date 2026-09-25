@@ -1,35 +1,50 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, FlaskConical, ListTree, Table2, Terminal, Waves } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, FlaskConical, ListTree, Radio, Table2, Terminal } from "lucide-react";
 import { buildBom, fromSpiceNetlist, toSpiceNetlist } from "@/lib/schematic/model";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor } from "@/state/editor";
+import Grapher from "./Grapher";
+import ProbeTable from "./ProbeTable";
 
 const TABS = [
   ["console", "Konsole", <Terminal key="c" size={12} />],
+  ["results", "Ergebnisse", <FlaskConical key="a" size={12} />],
   ["netlist", "SPICE-Netzliste", <ListTree key="n" size={12} />],
-  ["errors", "Fehler & Prüfung", <AlertTriangle key="e" size={12} />],
-  ["scope", "Live-Signale", <Waves key="s" size={12} />],
+  ["errors", "Prüfung", <AlertTriangle key="e" size={12} />],
+  ["probes", "Sonden", <Radio key="s" size={12} />],
   ["bom", "Stückliste", <Table2 key="b" size={12} />],
-  ["code", "Analyse-Ergebnisse", <FlaskConical key="a" size={12} />],
 ] as const;
 
+type TabId = (typeof TABS)[number][0];
+
 export default function BottomPanel() {
-  const st = useEditor();
+  const bottomOpen = useEditor((s) => s.bottomOpen);
+  const bottomTab = useEditor((s) => s.bottomTab);
+  const setBottomTab = useEditor((s) => s.setBottomTab);
+  const toggleBottom = useEditor((s) => s.toggleBottom);
+  const logs = useEditor((s) => s.logs);
+  const log = useEditor((s) => s.log);
+  const doc = useEditor((s) => s.doc);
+  const setDoc = useEditor((s) => s.setDoc);
+  const netResult = useEditor((s) => s.netResult);
   const logRef = useRef<HTMLDivElement>(null);
-  const netlistText = useMemo(() => toSpiceNetlist(st.doc, ".tran 10u 20m"), [st.doc]);
-  const bom = useMemo(() => buildBom(st.doc), [st.doc]);
+  const netlistText = useMemo(() => toSpiceNetlist(doc, ".tran 10u 20m"), [doc]);
+  const bom = useMemo(() => buildBom(doc), [doc]);
 
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [st.logs.length]);
+    const el = logRef.current;
+    if (!el) return;
+    if (typeof el.scrollTo === "function") el.scrollTo({ top: el.scrollHeight });
+    else el.scrollTop = el.scrollHeight;
+  }, [logs.length]);
 
   return (
-    <div className="panel flex flex-col" style={{ borderWidth: "1px 0 0 0", height: st.bottomOpen ? 232 : 34 }}>
-      <div className="flex h-[34px] shrink-0 items-center gap-1 px-2">
+    <div className="flex flex-col" style={{ background: "var(--panel)", borderTop: "1px solid var(--border)", height: bottomOpen ? 248 : 34 }}>
+      <div className="flex h-[34px] shrink-0 items-center gap-0.5 px-2">
         {TABS.map(([id, label, icon]) => (
-          <button key={id} className="tab" data-active={st.bottomTab === id && st.bottomOpen} onClick={() => st.setBottomTab(id)}>
+          <button key={id} className="tab" data-active={bottomTab === id && bottomOpen} onClick={() => setBottomTab(id as TabId)}>
             <span className="flex items-center gap-1.5">
               {icon}
               {label}
@@ -37,21 +52,16 @@ export default function BottomPanel() {
           </button>
         ))}
         <div className="flex-1" />
-        {!!st.netResult.errors.length && (
-          <span className="mono rounded px-1.5 py-0.5 text-[10px]" style={{ background: "color-mix(in srgb, var(--err) 18%, transparent)", color: "var(--err)" }}>
-            {st.netResult.errors.length} Fehler
-          </span>
-        )}
-        <button className="btn px-1.5" onClick={st.toggleBottom}>
-          {st.bottomOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        <button className="btn px-1.5" onClick={toggleBottom} title={bottomOpen ? "Leiste einklappen" : "Leiste ausklappen"}>
+          {bottomOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
         </button>
       </div>
 
-      {st.bottomOpen && (
+      {bottomOpen && (
         <div className="min-h-0 flex-1 overflow-hidden">
-          {st.bottomTab === "console" && (
-            <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-[11.5px] leading-[1.6]">
-              {st.logs.map((l) => (
+          {bottomTab === "console" && (
+            <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-[11.5px] leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
+              {logs.map((l) => (
                 <div key={l.id} className="flex gap-2">
                   <span className="text-mute">{l.time}</span>
                   <span
@@ -68,26 +78,28 @@ export default function BottomPanel() {
             </div>
           )}
 
-          {st.bottomTab === "netlist" && (
+          {bottomTab === "results" && <Grapher />}
+
+          {bottomTab === "netlist" && (
             <div className="flex h-full flex-col gap-1.5 p-2">
               <div className="flex items-center gap-2">
-                <span className="text-[10.5px] text-mute">SPICE3/ngspice-kompatibel — bearbeitbar, Import überschreibt den Schaltplan</span>
+                <span className="text-[10.5px] text-mute">SPICE3/ngspice-kompatibel — Import überschreibt den Schaltplan</span>
                 <div className="flex-1" />
                 <button
-                  className="btn"
+                  className="btn py-1 text-[11.5px]"
                   onClick={() => {
                     navigator.clipboard?.writeText(netlistText);
-                    st.log("ok", "Netzliste in die Zwischenablage kopiert");
+                    log("ok", "Netzliste in die Zwischenablage kopiert");
                   }}
                 >
                   Kopieren
                 </button>
                 <button
-                  className="btn"
+                  className="btn py-1 text-[11.5px]"
                   onClick={() => {
                     const text = (document.getElementById("netlist-editor") as HTMLTextAreaElement)?.value ?? "";
-                    st.setDoc(fromSpiceNetlist(text));
-                    st.log("warn", "Netzliste importiert — Platzierung automatisch generiert");
+                    setDoc(fromSpiceNetlist(text));
+                    log("warn", "Netzliste importiert — Platzierung automatisch generiert");
                   }}
                 >
                   Importieren
@@ -97,36 +109,66 @@ export default function BottomPanel() {
             </div>
           )}
 
-          {st.bottomTab === "errors" && (
+          {bottomTab === "errors" && (
             <div className="h-full overflow-y-auto p-3 text-[12px]">
-              {st.netResult.errors.length === 0 && st.netResult.warnings.length === 0 ? (
+              {netResult.errors.length === 0 && netResult.warnings.length === 0 ? (
                 <div className="text-[12px]" style={{ color: "var(--ok)" }}>
-                  ✓ Design Rule Check bestanden — keine offenen Netze oder unbekannten Bauteile gefunden.
+                  ✓ Prüfung bestanden — keine offenen Netze, keine unbekannten Bauteile.
                 </div>
               ) : (
                 <ul className="space-y-1">
-                  {st.netResult.errors.map((e, i) => (
-                    <li key={"e" + i} style={{ color: "var(--err)" }}>
-                      ✕ {e}
+                  {netResult.errors.map((e, i) => (
+                    <li key={"e" + i} className="flex items-center gap-2" style={{ color: "var(--err)" }}>
+                      <span className="flex-1">✕ {e}</span>
+                      <button className="btn h-6 px-2 text-[10px]" onClick={()=>{
+                        // Zoom to error – find instance by label in error message
+                        const doc = useEditor.getState().doc;
+                        for (const inst of doc.instances) {
+                          if (e.includes(inst.label)) {
+                            useEditor.getState().setView({ x: inst.x - 200, y: inst.y - 150, zoom: 1.2 });
+                            useEditor.getState().setSelection([inst.id]);
+                            break;
+                          }
+                        }
+                      }}>Zoom to error</button>
                     </li>
                   ))}
-                  {st.netResult.warnings.map((w, i) => (
-                    <li key={"w" + i} style={{ color: "var(--warn)" }}>
-                      ⚠ {w}
+                  {netResult.warnings.map((w, i) => (
+                    <li key={"w" + i} className="flex items-center gap-2" style={{ color: "var(--warn)" }}>
+                      <span className="flex-1">⚠ {w}</span>
+                      <button className="btn h-6 px-2 text-[10px]" onClick={()=>{
+                        const doc = useEditor.getState().doc;
+                        for (const inst of doc.instances) {
+                          if (w.includes(inst.label)) {
+                            useEditor.getState().setView({ x: inst.x - 200, y: inst.y - 150, zoom: 1.2 });
+                            useEditor.getState().setSelection([inst.id]);
+                            break;
+                          }
+                        }
+                      }}>Zoom</button>
                     </li>
                   ))}
                 </ul>
               )}
               <div className="mt-3 text-[11px] text-mute">
-                Knoten: {st.netResult.nets.length} · Bauteile: {st.netResult.netlist.devices.length} · Matrix:{" "}
-                {engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"}
+                Knoten: {netResult.nets.length} · Bauteile: {netResult.netlist.devices.length} · Matrix:{" "}
+                {engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"} · ERC visuell an (rote Marker direkt am Bauteil, wie Multisim)
               </div>
             </div>
           )}
 
-          {st.bottomTab === "scope" && <LiveStrip />}
+          {bottomTab === "probes" && (
+            <div className="flex h-full flex-col md:flex-row">
+              <div className="flex-1 min-h-0 overflow-hidden border-r" style={{ borderColor: "var(--border)" }}>
+                <ProbeTable />
+              </div>
+              <div className="h-[140px] md:h-full md:w-[320px] shrink-0">
+                <LiveStrip />
+              </div>
+            </div>
+          )}
 
-          {st.bottomTab === "bom" && (
+          {bottomTab === "bom" && (
             <div className="h-full overflow-auto p-2">
               <table className="w-full text-[11.5px]">
                 <thead className="text-mute">
@@ -155,8 +197,6 @@ export default function BottomPanel() {
               </table>
             </div>
           )}
-
-          {st.bottomTab === "code" && <AnalysisResults />}
         </div>
       )}
     </div>
@@ -165,8 +205,18 @@ export default function BottomPanel() {
 
 function LiveStrip() {
   const probes = useEditor((s) => s.probes);
-  const nets = useEditor((s) => s.netResult.nets.map((n) => n.name).filter((n) => n !== "0"));
-  const shown = probes.length ? probes : nets.slice(0, 4);
+  const docProbes = useEditor((s) => s.doc.probes);
+  const netResult = useEditor((s) => s.netResult);
+  const nets = useMemo(() => netResult.nets.map((n) => n.name).filter((n) => n !== "0"), [netResult.nets]);
+  // Multisim-like: show measurement probes + legacy probes
+  const shownNets = useMemo(()=>{
+    const mpNets = docProbes.map(p=> ({ net: p.net ?? "", probe: p })).filter(x=> x.net && x.net!=="0");
+    const legacy = probes.map(n=> ({ net: n, probe: null as any }));
+    const combined = [...mpNets, ...legacy.filter(l=> !mpNets.some(m=> m.net===l.net))];
+    if (combined.length) return combined;
+    return nets.slice(0,4).map(n=> ({ net: n, probe: null as any }));
+  }, [probes, docProbes, nets]);
+
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -185,12 +235,14 @@ function LiveStrip() {
         if (ctx) {
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           ctx.clearRect(0, 0, w, h);
-          const rows = Math.max(shown.length, 1);
+          const rows = Math.max(shownNets.length, 1);
           const rowH = h / rows;
-          shown.forEach((net, i) => {
+          shownNets.forEach((item, i) => {
+            const net = item.net;
             const ch = engine.channel(net, 1800);
-            const color = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"][i % 4];
-            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(color.slice(4, -1)).trim() || "#38bdf8";
+            const col = item.probe?.color ?? (["--ch1", "--ch2", "--ch3", "--ch4"][i % 4]);
+            if (col.startsWith("#")) ctx.strokeStyle = col;
+            else ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(col).trim() || "#38bdf8";
             ctx.lineWidth = 1.4;
             ctx.beginPath();
             if (ch.v.length > 1) {
@@ -207,7 +259,8 @@ function LiveStrip() {
             ctx.stroke();
             ctx.fillStyle = "rgba(128,140,165,.9)";
             ctx.font = "9.5px ui-monospace, monospace";
-            ctx.fillText(`${net}  ${formatValue(engine.lastState.nets[net] ?? 0, "V")}`, 6, i * rowH + 11);
+            const label = item.probe ? `${item.probe.name ?? item.probe.kind.toUpperCase()} (${net}) ${formatValue(engine.lastState.nets[net] ?? 0, "V")}` : `${net}  ${formatValue(engine.lastState.nets[net] ?? 0, "V")}`;
+            ctx.fillText(label, 6, i * rowH + 11);
           });
         }
       }
@@ -215,161 +268,11 @@ function LiveStrip() {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [shown]);
+  }, [shownNets]);
 
   return (
     <div className="h-full p-2">
       <canvas ref={ref} className="h-full w-full rounded-lg" style={{ background: "var(--canvas)", border: "1px solid var(--border)" }} />
     </div>
-  );
-}
-
-function AnalysisResults() {
-  const analysis = useEditor((s) => s.analysis);
-  if (analysis.running) return <div className="p-4 text-[12px] text-mute">Analyse »{analysis.kind}« läuft …</div>;
-  if (analysis.error)
-    return (
-      <div className="p-4 text-[12px]" style={{ color: "var(--err)" }}>
-        ✕ {analysis.error}
-      </div>
-    );
-  if (!analysis.data) return <div className="p-4 text-[12px] text-mute">Noch keine Analyse ausgeführt. Menü »Analysen« oder Bode-Plotter verwenden.</div>;
-
-  const d = analysis.data as Record<string, unknown>;
-
-  if (analysis.kind === "op") {
-    const nodes = (d.nodes ?? {}) as Record<string, number>;
-    const currents = (d.currents ?? {}) as Record<string, number>;
-    return (
-      <div className="grid h-full grid-cols-2 gap-3 overflow-auto p-3 text-[11.5px] mono">
-        <div>
-          <div className="mb-1 text-[10px] uppercase text-mute">Knotenspannungen</div>
-          {Object.entries(nodes).map(([k, v]) => (
-            <div key={k} className="flex justify-between">
-              <span className="text-mute">V({k})</span>
-              <span>{formatValue(v, "V")}</span>
-            </div>
-          ))}
-        </div>
-        <div>
-          <div className="mb-1 text-[10px] uppercase text-mute">Zweigströme</div>
-          {Object.entries(currents).slice(0, 40).map(([k, v]) => (
-            <div key={k} className="flex justify-between">
-              <span className="text-mute">{k}</span>
-              <span>{formatValue(v, "A")}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (analysis.kind === "montecarlo") {
-    const hist = (d.histogram ?? []) as Array<{ x: number; count: number }>;
-    const max = Math.max(...hist.map((h) => h.count), 1);
-    return (
-      <div className="flex h-full gap-4 p-3">
-        <div className="mono space-y-0.5 text-[11.5px]">
-          <div className="text-[10px] uppercase text-mute">Monte-Carlo</div>
-          <div>µ = {formatValue(Number(d.mean), "V")}</div>
-          <div>σ = {formatValue(Number(d.sigma), "V")}</div>
-          <div>min = {formatValue(Number(d.min), "V")}</div>
-          <div>max = {formatValue(Number(d.max), "V")}</div>
-          <div style={{ color: "var(--ok)" }}>Yield 3σ: {Number(d.yieldPct).toFixed(1)} %</div>
-        </div>
-        <div className="flex flex-1 items-end gap-1">
-          {hist.map((h, i) => (
-            <div key={i} className="flex-1 rounded-t" style={{ height: `${(h.count / max) * 100}%`, background: "linear-gradient(180deg,var(--accent),var(--accent-3))" }} title={`${formatValue(h.x, "V")}: ${h.count}`} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (analysis.kind === "thd") {
-    const harmonics = (d.harmonics ?? []) as Array<{ n: number; freq: number; mag: number; relative: number }>;
-    return (
-      <div className="flex h-full gap-4 p-3">
-        <div className="mono space-y-0.5 text-[11.5px]">
-          <div className="text-[10px] uppercase text-mute">Klirrfaktor</div>
-          <div style={{ color: "var(--warn)" }}>THD = {Number(d.thdPercent).toFixed(3)} %</div>
-          <div>{Number(d.thdDb).toFixed(1)} dB</div>
-        </div>
-        <div className="flex flex-1 items-end gap-1.5">
-          {harmonics.map((h) => (
-            <div key={h.n} className="flex flex-1 flex-col items-center gap-1">
-              <div className="w-full rounded-t" style={{ height: `${Math.max(h.relative * 100, 0.5)}%`, background: h.n === 1 ? "var(--accent)" : "var(--accent-3)" }} />
-              <span className="mono text-[9px] text-mute">{h.n}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (analysis.kind === "noise") {
-    const contributors = (d.contributors ?? []) as Array<{ id: string; contribution: number }>;
-    return (
-      <div className="flex h-full gap-6 p-3 text-[11.5px] mono">
-        <div>
-          <div className="text-[10px] uppercase text-mute">Rauschen</div>
-          <div>Total RMS: {formatValue(Number(d.totalRms), "V")}</div>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <div className="text-[10px] uppercase text-mute">Hauptverursacher</div>
-          {contributors.map((c) => (
-            <div key={c.id} className="flex justify-between">
-              <span className="text-mute">{c.id}</span>
-              <span>{formatValue(Math.sqrt(c.contribution), "V/√Hz")}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (analysis.kind === "worstcase") {
-    const sens = (d.sensitivities ?? []) as Array<{ id: string; param: string; sensitivity: number }>;
-    return (
-      <div className="flex h-full gap-6 p-3 text-[11.5px] mono">
-        <div className="space-y-0.5">
-          <div className="text-[10px] uppercase text-mute">Worst-Case</div>
-          <div>Nominal: {formatValue(Number(d.nominal), "V")}</div>
-          <div style={{ color: "var(--err)" }}>Min: {formatValue(Number(d.low), "V")}</div>
-          <div style={{ color: "var(--ok)" }}>Max: {formatValue(Number(d.high), "V")}</div>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <div className="text-[10px] uppercase text-mute">Empfindlichkeiten</div>
-          {sens.map((s) => (
-            <div key={s.id + s.param} className="flex justify-between">
-              <span className="text-mute">
-                {s.id}.{s.param}
-              </span>
-              <span>{s.sensitivity.toFixed(3)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (analysis.kind === "temp") {
-    const temps = (d.temps ?? []) as number[];
-    const values = (d.values ?? []) as number[];
-    return (
-      <div className="h-full overflow-auto p-3 text-[11.5px] mono">
-        <div className="mb-1 text-[10px] uppercase text-mute">Temperatur-Sweep</div>
-        {temps.map((t, i) => (
-          <div key={t} className="flex w-52 justify-between">
-            <span className="text-mute">{t} °C</span>
-            <span>{formatValue(values[i], "V")}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <pre className="mono h-full overflow-auto p-3 text-[10.5px] leading-relaxed text-dim">{JSON.stringify(analysis.data, null, 2).slice(0, 8000)}</pre>
   );
 }

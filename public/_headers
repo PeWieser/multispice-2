@@ -1,0 +1,5 @@
+# Cloudflare Pages: gehashte Build-Assets ewig cachen, HTML immer frisch holen.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+/
+  Cache-Control: no-cache
