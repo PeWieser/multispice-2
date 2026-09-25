@@ -6,6 +6,15 @@ export const metadata: Metadata = {
   title: "CircuitLab Studio — EDA & SPICE Simulator",
   description:
     "Moderner EDA-Arbeitsplatz mit SPICE-Simulationskern: Schaltplan-Editor, Echtzeitsimulation, virtuelle Messgeräte, Monte-Carlo- und Rauschanalyse.",
+  icons: {
+    icon: [
+      { url: "/favicon.png", type: "image/png", sizes: "512x512" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/favicon.png",
+    apple: "/favicon.png",
+  },
+  manifest: "/manifest.json",
 };
 
 export const viewport: Viewport = {

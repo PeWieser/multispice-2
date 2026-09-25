@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" role="img" aria-label="Multispice">
+  <!-- Grundplatte -->
+  <rect width="100" height="100" rx="22" fill="#0b0d12" />
+  <rect x="0.75" y="0.75" width="98.5" height="98.5" rx="21.25" fill="none" stroke="#1f2634" stroke-width="1.5" />
+  <!-- Oszilloskop-Raster (sehr dezent) -->
+  <g stroke="#1a2130" stroke-width="1" opacity="0.9">
+    <path d="M14 30 H86 M14 50 H86 M14 70 H86" />
+    <path d="M30 20 V80 M50 20 V80 M70 20 V80" />
+  </g>
+  <!-- Trace -->
+  <path
+    d="M14 62 H28 L34 34 H44 L50 68 H60 L66 42 H74 L80 62 H86"
+    fill="none"
+    stroke="#5b8cff"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <!-- Messpunkte -->
+  <circle cx="39" cy="34" r="6" fill="#fbbf24" />
+  <circle cx="70" cy="42" r="6" fill="#22d3ee" />
+</svg>
