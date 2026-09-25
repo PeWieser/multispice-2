@@ -816,9 +816,10 @@ export const useEditor = create<EditorState>((set, get) => ({
  * geschrieben, aber nur die Statusleiste hört zu — der Editor-Store
  * (und damit alle Panels) rendert dadurch nicht neu.
  */
-export const useHud = create<{ cursor: { x: number; y: number }; viewport: { w: number; h: number } }>(() => ({
+export const useHud = create<{ cursor: { x: number; y: number }; viewport: { w: number; h: number }; dragPart: string | null }>(() => ({
   cursor: { x: 0, y: 0 },
   viewport: { w: 0, h: 0 },
+  dragPart: null,
 }));
 
 /** Utility used by canvas hit tests. */

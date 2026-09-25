@@ -16,7 +16,10 @@ Typografie und Farbe als Information. Der Maßstab: „Insanely great“ oder ni
 - **Bibliothek**: 400+ kuratierte Bauteile, Command Palette (⌘K), Favoriten, Suche wie „r 10k“, handgezeichnete farbcodierte Symbole
 - **Simulation**: Transientenanalyse im Browser (MNA + Newton-Raphson), OP, AC, Sweep, Monte-Carlo, Rauschen, FFT
 - **Messgeräte**: 4-Kanal-Oszilloskop, Multimeter, Funktionsgenerator, Bode-Plotter — live während der Simulation
-- **Probes**: Spannungs-/Strom-Messpunkte mit Live-Werten, skalieren unabhängig vom Zoom
+- **Probes**: Spannungs-/Strom-Messpunkte mit Live-Werten, skalieren unabhängig vom Zoom;
+  Ghost zeigt vor dem Platzieren bereits Wert + Zielnetz
+- **Magie im Detail**: Hover über ein Netz = Wert + Mini-Wellenform (laufend ohne Taste,
+  pausiert mit ⌥) · Doppelklick auf Bauteil = Inline-Werteditor · Drag & Drop aus der Bibliothek
 - **Import**: SPICE-Netzlisten (.cir/.net/.sp) mit echter Auto-Verdrahtung (Netz → orthogonale
   Leitung, GND-Symbol, Netz-Labels), LTspice-Schaltpläne (.asc mit Geometrie, Drähten, Flags),
   Projekt-JSON (validiert)

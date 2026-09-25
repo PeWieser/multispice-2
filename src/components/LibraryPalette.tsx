@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Star, X, Grip, FileText, ExternalLink, Zap, LayoutGrid, List, Command } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
-import { useEditor } from "@/state/editor";
+import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
 import { getDatasheet, getDatasheetSearchUrl, getOctopartUrl } from "@/lib/library/datasheets";
 import { resolveSymbolStyle } from "@/lib/settings";
@@ -148,6 +148,13 @@ const PartRow = React.memo(function PartRow({
       onClick={() => onPick(part.id)}
       onMouseEnter={() => onHover(part)}
       onMouseLeave={() => onHover(null)}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/multispice-part", part.id);
+        e.dataTransfer.effectAllowed = "copy";
+        useHud.setState({ dragPart: part.id });
+      }}
+      onDragEnd={() => useHud.setState({ dragPart: null })}
       title={`${part.name} — ${part.category} — ${part.description ?? ""}`}
     >
       <SymbolPreview part={part} size={36} />
@@ -502,6 +509,13 @@ export default function LibraryPalette() {
                       onClick={() => { setSelectedIdx(idx); onPick(p.id); }}
                       onMouseEnter={() => { setHovered(p); setSelectedIdx(idx); }}
                       onMouseLeave={() => setHovered(null)}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/multispice-part", p.id);
+                        e.dataTransfer.effectAllowed = "copy";
+                        useHud.setState({ dragPart: p.id });
+                      }}
+                      onDragEnd={() => useHud.setState({ dragPart: null })}
                     >
                       <div className="flex justify-center mb-1.5">
                         <SymbolPreview part={p} size={48} />
@@ -622,7 +636,7 @@ export default function LibraryPalette() {
 
               <div className="rounded-lg p-2 text-[10.5px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
                 <div className="font-medium text-[11px] mb-1">💡 Tipp</div>
-                Klick zum Platzieren, nochmal klicken zum Abbrechen. Rechtsklick → Favorit. Drag & Drop bald verfügbar. Suche mit „r 10k“ für Widerstand 10k.
+                Klick zum Platzieren, nochmal klicken zum Abbrechen. Rechtsklick → Favorit. Drag & Drop: Bauteil direkt auf die Fläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
               </div>
 
               <button

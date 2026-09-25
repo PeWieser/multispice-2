@@ -18,6 +18,7 @@ import { engine, hitTestInstance, useEditor, useHud } from "@/state/editor";
 import { Library as LibIcon, Sparkles } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
+import { parseSpiceValue } from "@/lib/schematic/importers";
 
 interface Pt { x: number; y: number; }
 
@@ -26,6 +27,44 @@ const css = (name: string, fallback: string) => {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return v || fallback;
 };
+
+/** Mini-Wellenform im Hover-Tooltip: der Oszilloskop-Blick ohne Klick. */
+function Sparkline({ data }: { data: number[] }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c || data.length < 2) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    const w = c.width;
+    const h = c.height;
+    ctx.clearRect(0, 0, w, h);
+    let min = Infinity;
+    let max = -Infinity;
+    for (const v of data) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    const span = max - min || 1;
+    const yOf = (v: number) => h - 3 - ((v - min) / span) * (h - 6);
+    ctx.strokeStyle = "rgba(255,255,255,0.16)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(2, yOf(0));
+    ctx.lineTo(w - 2, yOf(0));
+    ctx.stroke();
+    ctx.strokeStyle = "#5b8cff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    data.forEach((v, i) => {
+      const x = (i / (data.length - 1)) * (w - 4) + 2;
+      if (i) ctx.lineTo(x, yOf(v));
+      else ctx.moveTo(x, yOf(v));
+    });
+    ctx.stroke();
+  }, [data]);
+  return <canvas ref={ref} width={132} height={34} className="mt-1 rounded" style={{ background: "rgba(0,0,0,0.28)" }} aria-hidden="true" />;
+}
 
 type CtxTarget =
   | { kind: "empty"; net: string | null }
@@ -37,8 +76,8 @@ export default function Canvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState<Pt>({ x: 0, y: 0 });
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[] } | null>(null);
-  const [editing, setEditing] = useState<{ kind: "label" | "text"; x: number; y: number; sx: number; sy: number } | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[]; spark?: number[] | null } | null>(null);
+  const [editing, setEditing] = useState<{ kind: "label" | "text" | "value"; x: number; y: number; sx: number; sy: number; instId?: string; initial?: string } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; wx: number; wy: number; target: CtxTarget } | null>(null);
   const editingDone = useRef(false);
   const spaceDown = useRef(false);
@@ -66,6 +105,11 @@ export default function Canvas() {
     const { snap: doSnap } = useEditor.getState();
     if (!doSnap) return p;
     return { x: Math.round(p.x / GRID) * GRID, y: Math.round(p.y / GRID) * GRID };
+  }, []);
+
+  const toScreen = useCallback((p: Pt): { x: number; y: number } => {
+    const { view } = useEditor.getState();
+    return { x: (p.x - view.x) * view.zoom, y: (p.y - view.y) * view.zoom };
   }, []);
 
   const findPin = useCallback((doc: SchematicDoc, p: Pt, r = 9): Pt | null => {
@@ -133,7 +177,7 @@ export default function Canvas() {
     if (!ctx) return;
     const st = useEditor.getState();
     const { doc, view, selection, showGrid, netResult, sim, showCurrentFlow, showVoltageColors } = st;
-    const live = sim.running ? engine.lastState : null;
+    const live = sim.running || engine.lastState.time > 0 ? engine.lastState : null;
     const now = performance.now();
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -699,8 +743,9 @@ export default function Canvas() {
       ctx.beginPath(); sr.wirePreview.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke(); ctx.setLineDash([]);
     }
 
-    if (st.tool === "place" && st.placingPartId) {
-      const part = PART_MAP[st.placingPartId];
+    if (st.tool === "place" && st.placingPartId || useHud.getState().dragPart) {
+      const partId = st.placingPartId ?? useHud.getState().dragPart;
+      const part = PART_MAP[partId ?? ""];
       if (part) {
         // Ghost with shadow – delightful placement feedback
         ctx.save();
@@ -708,7 +753,7 @@ export default function Canvas() {
         ctx.shadowBlur = 12 / Math.max(view.zoom, 0.5);
         ctx.shadowOffsetY = 6 / Math.max(view.zoom, 0.5);
         ctx.globalAlpha = 0.65;
-        drawInstance(ctx, { id: "ghost", partId: st.placingPartId, x: cursor.x, y: cursor.y, rot: 0, label: part.ref + "?", params: {} }, false, view.zoom, null);
+        drawInstance(ctx, { id: "ghost", partId: part.id, x: cursor.x, y: cursor.y, rot: 0, label: part.ref + "?", params: {} }, false, view.zoom, null);
         ctx.restore();
         // Snap indicator
         const snapped = snap(cursor);
@@ -732,6 +777,17 @@ export default function Canvas() {
       ctx.globalAlpha = 0.7;
       drawProbe(ctx, { id: "ghost", kind: st.placingProbeKind, x: cursor.x, y: cursor.y } as MeasurementProbe, false, view.zoom, live, netResult, netCurrentMap);
       ctx.restore();
+      // Live-Vorschau: Ring zeigt das Netz, dessen Wert der Ghost bereits anzeigt
+      const gNet = nearestNetName(cursor, 18);
+      if (gNet) {
+        ctx.save();
+        ctx.strokeStyle = css("--accent-2", "#22d3ee");
+        ctx.lineWidth = 1.5 / Math.max(view.zoom, 0.3);
+        ctx.beginPath();
+        ctx.arc(cursor.x, cursor.y, 7 / Math.max(view.zoom, 0.3), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     if (sr.marquee) {
@@ -1086,6 +1142,21 @@ export default function Canvas() {
     const st = useEditor.getState(); const cur = editing; setEditing(null); st.setTool("select");
     if (cur && text && text.trim()) {
       const clean = text.trim();
+      if (cur.kind === "value" && cur.instId) {
+        const inst0 = st.doc.instances.find((i) => i.id === cur.instId);
+        const key = inst0 ? PART_MAP[inst0.partId]?.params[0]?.key : undefined;
+        const v = parseSpiceValue(clean);
+        if (inst0 && key && Number.isFinite(v)) {
+          st.commit((d) => {
+            const ins = d.instances.find((i) => i.id === cur.instId);
+            if (ins) ins.params[key] = v;
+          });
+          st.log("ok", `${inst0.label} = ${clean}`);
+        } else {
+          st.log("warn", `Wert „${clean}“ ist nicht lesbar (Beispiele: 10k, 4u7, 100n) – unverändert.`);
+        }
+        return;
+      }
       if (cur.kind === "label") {
         st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, name: clean }));
         st.log("ok", `Netzname „${clean}“`);
@@ -1287,8 +1358,12 @@ export default function Canvas() {
 
     // Human Design: Tooltips everywhere – explain how to edit, no flicker
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    const showAltTooltip = st.sim.running && (e.altKey || (isMobile && (e as any).buttons===0 && false));
-    const showWireHint = !st.sim.running && !e.altKey;
+    // Live-Einblick: solange Simulationsdaten existieren, zeigt Hover über ein
+    // Netz Wert + Mini-Kurve ohne Zusatztaste (Apple: Tiefe ohne Hürde).
+    // Pausiert holt ⌥ den Einblick zurück; sonst gewinnen die Editier-Hinweise.
+    const hasLiveData = st.sim.running || engine.lastState.time > 0;
+    const showAltTooltip = hasLiveData && (st.sim.running || e.altKey);
+    const showWireHint = !showAltTooltip && !e.altKey;
     const now = performance.now();
     const last = (stateRef.current as any)._lastTooltipNet;
     const lastTime = (stateRef.current as any)._lastTooltipTime ?? 0;
@@ -1335,7 +1410,12 @@ export default function Canvas() {
           if (pwr !== undefined) lines.push(`P=${formatValue(Math.abs(pwr), "W")}`);
         }
         const wr = wrapRef.current?.getBoundingClientRect();
-        setTooltip({ x: e.clientX - (wr?.left ?? 0), y: e.clientY - (wr?.top ?? 0), lines });
+        let spark: number[] | null = null;
+        try {
+          const ch = engine.channel(net, 96);
+          if (ch.v.length > 8) spark = ch.v;
+        } catch {}
+        setTooltip({ x: e.clientX - (wr?.left ?? 0), y: e.clientY - (wr?.top ?? 0), lines, spark });
         (stateRef.current as any)._lastTooltipNet = net;
         (stateRef.current as any)._lastTooltipTime = now;
       } else if (!net) {
@@ -1353,7 +1433,7 @@ export default function Canvas() {
         lines = [`Messpunkt ${probe.kind} ${probe.name ?? ""}`, `Netz: ${probe.net ?? net ?? "auto"}`, `Doppelklick: Inspector`, `Rechtsklick: Typ/REF/Reverse/Löschen`, `Drag: verschiebt Body, Leader bleibt`];
       } else if (inst) {
         const part = PART_MAP[inst.partId];
-        lines = [`${part?.name ?? inst.partId} ${inst.label}`, `Doppelklick: Eigenschaften`, `R: Drehen, M: Spiegeln, Entf: Löschen`, `Rechtsklick: Probe hinzufügen`, `Drag: verschieben, Strg+Drag: duplizieren`];
+        lines = [`${part?.name ?? inst.partId} ${inst.label}`, `Doppelklick: Wert ändern · ⌥Doppelklick: Inspector`, `R: Drehen, M: Spiegeln, Entf: Löschen`, `Rechtsklick: Probe hinzufügen`, `Drag: verschieben, Strg+Drag: duplizieren`];
       } else if (wireId) {
         lines = [`Leitung ${wireId.slice(0,6)} – Netz ${net ?? "?"}`, `Klick: auswählen (zeigt Handles)`, `Drag Handle: Punkt verschieben`, `Drag Leitung: ganze Leitung verschieben`, `Rechtsklick: Probe setzen / Löschen`, `Doppelklick: Inspector`];
       } else if (net) {
@@ -1454,7 +1534,18 @@ export default function Canvas() {
       }
     }
     const hit = hitTestInstance(st.doc, world.x, world.y);
-    if (hit) { st.setSelection([hit.id]); useEditor.setState({ rightOpen: true }); }
+    if (hit) {
+      st.setSelection([hit.id]);
+      const part = PART_MAP[hit.partId];
+      const key = part?.params[0]?.key;
+      if (key && !e.altKey) {
+        // Inline-Wertedit direkt auf der Fläche – Direct Manipulation statt Dialog.
+        const scr = toScreen({ x: hit.x, y: hit.y });
+        setEditing({ kind: "value", instId: hit.id, x: hit.x, y: hit.y, sx: scr.x, sy: scr.y, initial: String(hit.params[key] ?? "") });
+      } else {
+        useEditor.setState({ rightOpen: true });
+      }
+    }
     else {
       const probe = hitTestProbe(st.doc, world);
       if (probe) {
@@ -1557,6 +1648,28 @@ export default function Canvas() {
         onPointerUp={onPointerUp}
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes("text/multispice-part")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            const w = snap(toWorld(e.clientX, e.clientY));
+            setCursor(w);
+            useHud.setState({ cursor: w });
+          }
+        }}
+        onDrop={(e) => {
+          const id = e.dataTransfer.getData("text/multispice-part");
+          useHud.setState({ dragPart: null });
+          if (id && PART_MAP[id]) {
+            e.preventDefault();
+            const stt = useEditor.getState();
+            const w = snap(toWorld(e.clientX, e.clientY));
+            const newId = stt.addInstance(id, w.x, w.y);
+            if (newId) stt.setSelection([newId]);
+            stt.log("ok", `${PART_MAP[id].name} per Drag & Drop platziert`);
+          }
+        }}
+        onDragLeave={() => useHud.setState({ dragPart: null })}
         onTouchStart={(e) => {
           if (e.touches.length === 2) {
             const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -1614,12 +1727,17 @@ export default function Canvas() {
       />
       {tooltip && (
         <div className="glass pointer-events-none absolute z-30 rounded-lg px-2.5 py-1.5 text-[11px] mono shadow-xl" style={{ left: tooltip.x + 14, top: tooltip.y + 14 }}>
-          {tooltip.lines.map((l, i) => <div key={i} style={{ color: i === 0 ? "var(--text-mute)" : "var(--text)" }}>{l}</div>)}
+          {tooltip.lines.map((l, i) => (
+            <div key={i} style={{ color: i === 0 ? "var(--text-mute)" : "var(--text)" }}>{l}</div>
+          ))}
+          {tooltip.spark && tooltip.spark.length > 8 && <Sparkline data={tooltip.spark} />}
         </div>
       )}
       {editing && (
         <input autoFocus className="input mono absolute z-40 w-44" style={{ left: editing.sx + 8, top: editing.sy - 13, boxShadow: "var(--shadow)" }}
-          placeholder={editing.kind === "label" ? "Netzname …" : "Notiz …"}
+          key={`${editing.kind}_${editing.instId ?? ""}`}
+          defaultValue={editing.initial}
+          placeholder={editing.kind === "label" ? "Netzname …" : editing.kind === "value" ? "Wert … z. B. 10k, 4u7" : "Notiz …"}
           onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") commitEditing((e.target as HTMLInputElement).value); else if (e.key === "Escape") commitEditing(null); }}
           onBlur={(e) => commitEditing(e.target.value)} />
       )}

@@ -92,6 +92,30 @@ Statischer Smoke-Test (serve out/): /, /icon.svg, /apple-icon.png, /favicon.ico,
 
 ---
 
+## 4b · Runde 4 — Tiefe drei Flächen: Bibliothek, Baufenster, Probes
+
+Frage der Runde: *Wo liegt die Anstrengung?* Alle drei Flächen hatten Tiefe — aber sie war
+hinter Tasten, Dialogen und Versprechen versteckt. Apple-Magie ist nicht mehr Funktion,
+sondern **mühelose** Funktion.
+
+| ID | Fläche | Befund | Status |
+|----|--------|--------|--------|
+| F25 | Bibliothek | Drag & Drop zweifach versprochen („bald verfügbar“, Empty-State „ziehe Bauteile …“) aber nicht vorhanden — gebrochene Versprechen sind Vertrauensschaden | ✅ echtes DnD: Palette (Liste+Grid) → Canvas, Live-Ghost + Snap-Anzeige während des Ziehens, Drop platziert & selektiert; Copy-Versprechen jetzt wahr |
+| F26 | Baufenster | Live-Einblick (V/I/P/f beim Hover) existierte, aber nur mit ⌥ und nur laufend; pausiert = blind | ✅ mühelos: laufend = Hover über Netz zeigt Wert **+ Mini-Wellenform (Sparkline)** ohne Taste; pausiert holt ⌥ den Einblick; eingefrorene Werte bleiben sichtbar (`live` = letzter Engine-State) |
+| F27 | Baufenster | Wertänderung nur via Inspector-Dialog; Doppelklick öffnete Panel statt Wert | ✅ Doppelklick = Inline-Werteditor auf der Fläche (Suffix-Parser 10k/4u7/…, ehrliche Warnung bei Parse-Fehler, Undo via commit), ⌥Doppelklick = Inspector wie bisher; Tooltips/README angepasst |
+| F28 | Probes | Probe-Ghost vor dem Platzieren stumm (kein Wert, kein Netz-Feedback) — „try before you commit“ fehlte | ✅ Ghost zeigt Live-/Hold-Wert des Nets unter dem Cursor + cyan Ring am zukünftigen Messnetz |
+
+**Das „gewisse Etwas“ dieser Runde:** der Oszilloskop-Blick beim Hover — die Mini-Kurve im
+Tooltip. Man sieht ins Innere der Schaltung, bevor man etwas anfasst; wer es einmal hatte,
+vermisst es überall sonst. Dazu: eingefrorene Probes zeigen nach Pause weiterhin ihren
+letzten Wert (Hold-Zustand wie ein echtes Messgerät).
+
+**Ehrlicher Rest (Backlog B6/B7):** Sparkline derzeit nur Spannung (Strom-Kurve pro Netz
+braucht Engine-Erweiterung); Datei-Drop (.cir direkt auf den Canvas) wäre die nächste
+DnD-Stufe; Touch bleibt bei Klick-Platzierung (kein HTML5-DnD auf Touch).
+
+---
+
 ## 5 · Backlog — bewusst nicht jetzt
 
 - **B1 Tempo („Saving Lives“):** Ein Bundle für Editor + Instrumente + Analysen. Plan:
@@ -103,6 +127,10 @@ Statischer Smoke-Test (serve out/): /, /icon.svg, /apple-icon.png, /favicon.ico,
 - **B3 CI:** Circuit-Szenarien (`src/lib/tests`) + typecheck/build/lint als GitHub-Action —
   Qualität muss automatisch wachen, nicht pro Session. (Lint ist seit dieser Runde bei 0/0;
   die Absicht dahinter ist jetzt im Code dokumentiert.)
+- **B6 Sparkline-Stromkurve:** Mini-Kurve zeigt bislang Spannung; Strom pro Netz braucht
+  eine Engine-Erweiterung (`channel` für Ströme) — erst dann sinnvoll einbaubar.
+- **B7 Datei-Drop:** .cir/.asc direkt auf den Canvas ziehen (Importer existieren bereits) —
+  natürliche nächste DnD-Stufe nach dem Bibliotheks-DnD.
 
 ---
 
