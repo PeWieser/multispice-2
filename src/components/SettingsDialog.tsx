@@ -136,7 +136,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
               </label>
             </div>
           </div>
-          <div className="text-[11px] text-mute">Suche: Text mit Command Palette, Autocomplete Live, "/" Fokus, "r 10k" für Widerstand 10k. Handcrafted Icons farbcodiert für schnelles Scannen.</div>
+          <div className="text-[11px] text-mute">Suche: Text mit Command Palette, Autocomplete Live, „/“ Fokus, „r 10k“ für Widerstand 10k. Handcrafted Icons farbcodiert für schnelles Scannen.</div>
         </div>
       )}
 

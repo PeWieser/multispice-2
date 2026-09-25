@@ -3,3 +3,23 @@
   Cache-Control: public, max-age=31536000, immutable
 /
   Cache-Control: no-cache
+
+# Icons, OG-Bild & Manifest: ungehasht, aber stabil → eine Woche Cache.
+/icon.svg
+  Cache-Control: public, max-age=604800
+/favicon.png
+  Cache-Control: public, max-age=604800
+/favicon.ico
+  Cache-Control: public, max-age=604800
+/apple-icon.png
+  Cache-Control: public, max-age=604800
+/og.png
+  Cache-Control: public, max-age=604800
+/manifest.json
+  Cache-Control: public, max-age=3600
+
+# Grundvertrauen: kein MIME-Sniffing, zurückhaltende Referrer, keine sensiblen Sensoren.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()

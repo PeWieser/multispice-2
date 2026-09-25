@@ -1,4 +1,4 @@
-# CircuitLab Studio — Deployment (Cloudflare Pages)
+# Multispice — Deployment (Cloudflare Pages)
 
 Standard und einzige unterstützte Strategie: **statischer Export**.
 `npm run build` erzeugt `out/` — reines HTML/CSS/JS, ohne Server, ohne

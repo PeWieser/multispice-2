@@ -429,7 +429,7 @@ const sp = (v: number) => {
 
 export function toSpiceNetlist(doc: SchematicDoc, analysis?: string): string {
   const { netlist, errors } = buildNets(doc);
-  const lines: string[] = [`* ${doc.name} — exportiert aus CircuitLab Studio`, "* SPICE3/ngspice kompatible Netzliste", ""];
+  const lines: string[] = [`* ${doc.name} — exportiert aus Multispice`, "* SPICE3/ngspice kompatible Netzliste", ""];
   const models = new Set<string>();
   for (const d of netlist.devices) {
     const n = d.nodes.map((x) => x || "0");

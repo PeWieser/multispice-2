@@ -13,7 +13,7 @@ import Inspector from "./Inspector";
 import SettingsDialog from "./SettingsDialog";
 import WizardsDialog from "./WizardsDialog";
 import { useEditor, ThemePref } from "@/state/editor";
-import { useIsMobile, useIsTablet, useIsPortrait } from "@/lib/hooks/useMediaQuery";
+import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { Menu, X, Library, SlidersHorizontal, Play, Pause } from "lucide-react";
 
 function resolveTheme(pref: ThemePref, systemDark: boolean): "dark" | "light" {
@@ -153,7 +153,6 @@ export default function Workbench() {
   const bottomOpen = useEditor((s) => s.bottomOpen);
   const libraryOpen = useEditor((s) => s.libraryOpen);
   const [dialogKind, setDialogKind] = useState<string | null>(null);
-  const [systemDark, setSystemDark] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [wizardsOpen, setWizardsOpen] = useState(false);
@@ -162,19 +161,8 @@ export default function Workbench() {
   const isTablet = useIsTablet();
   const isPortrait = useIsPortrait();
 
-  // System theme detection
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    setSystemDark(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    if (mq.addEventListener) mq.addEventListener("change", handler);
-    else (mq as any).addListener(handler);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", handler);
-      else (mq as any).removeListener(handler);
-    };
-  }, []);
+  // System-Theme folgt live dem Betriebssystem (useSyncExternalStore, kein Effect-SetState).
+  const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
 
   useEffect(() => {
     try {

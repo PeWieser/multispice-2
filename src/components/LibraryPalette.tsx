@@ -345,8 +345,6 @@ export default function LibraryPalette() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, toggle]);
 
-  if (!open) return null;
-
   const onPick = (id: string) => {
     const current = useEditor.getState().placingPartId;
     const part = PART_MAP[id];
@@ -379,7 +377,9 @@ export default function LibraryPalette() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, selectedIdx, query, tab]);
+  }, [open, selectedIdx, query, tab, results]);
+
+  if (!open) return null;
 
   return (
     <div
@@ -490,7 +490,7 @@ export default function LibraryPalette() {
           {query ? (
             <div>
               <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute flex items-center gap-1.5">
-                <Command size={10} /> {results.length} Treffer für "{query}" – Enter zum Platzieren
+                <Command size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
               </div>
               {viewMode === "grid" ? (
                 <div className="grid grid-cols-2 gap-1.5 p-1">
@@ -622,7 +622,7 @@ export default function LibraryPalette() {
 
               <div className="rounded-lg p-2 text-[10.5px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
                 <div className="font-medium text-[11px] mb-1">💡 Tipp</div>
-                Klick zum Platzieren, nochmal klicken zum Abbrechen. Rechtsklick → Favorit. Drag & Drop bald verfügbar. Suche mit "r 10k" für Widerstand 10k.
+                Klick zum Platzieren, nochmal klicken zum Abbrechen. Rechtsklick → Favorit. Drag & Drop bald verfügbar. Suche mit „r 10k“ für Widerstand 10k.
               </div>
 
               <button

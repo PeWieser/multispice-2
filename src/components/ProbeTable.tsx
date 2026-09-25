@@ -28,14 +28,6 @@ export default function ProbeTable() {
       const refV = refName && refName !== "0" ? (live?.nets[refName] ?? 0) : 0;
       let i = 0;
       // estimate current from netCurrentMap-like logic
-      try {
-        const st = useEditor.getState();
-        for (const inst of st.doc.instances) {
-          const part = (st.doc.instances.find((x) => x.id === inst.id) ? null : null) as any;
-        }
-      } catch {}
-      // simple: use live currents? For net current we approximate via power? We'll use 0 for now, real I from engine not per net easily
-      // For demo, use 0 – actual I is shown in Canvas via netCurrentMap
       const dv = refName && refName !== "0" ? v - refV : v;
 
       let vrms = 0,
@@ -70,6 +62,7 @@ export default function ProbeTable() {
         refV,
       };
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- now/netResult sind Taktgeber: Live-Werte liest die Engine imperativ (engine.channel), nicht reaktiv.
   }, [probes, live, now, netResult]);
 
   if (!probes.length) {

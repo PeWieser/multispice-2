@@ -1,22 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
+/**
+ * Media-Query als externer Store (useSyncExternalStore):
+ * kein setState im Effect, kein Zusatz-Render beim Mount, SSR-sicher.
+ */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const store = useMemo(() => {
+    if (typeof window === "undefined") return null;
     const mq = window.matchMedia(query);
-    setMatches(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
-    if (mq.addEventListener) mq.addEventListener("change", handler);
-    else (mq as any).addListener(handler);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", handler);
-      else (mq as any).removeListener(handler);
+    return {
+      subscribe: (cb: () => void) => {
+        mq.addEventListener("change", cb);
+        return () => mq.removeEventListener("change", cb);
+      },
+      get: () => mq.matches,
     };
   }, [query]);
-  return matches;
+
+  return useSyncExternalStore(
+    store ? store.subscribe : () => () => {},
+    store ? store.get : () => false,
+    () => false
+  );
 }
 
 export function useIsMobile() {

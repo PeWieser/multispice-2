@@ -1,4 +1,4 @@
-# CircuitLab Studio — DESIGN.md
+# Multispice — DESIGN.md
 
 > Jedes Feature mit: Befund → Maßnahme → Status.
 > Grundlage: Design-Manifest §1–§5.

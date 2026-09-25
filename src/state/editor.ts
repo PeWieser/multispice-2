@@ -229,7 +229,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   past: [],
   future: [],
   logs: [
-    { id: logId++, level: "ok", time: now(), message: "CircuitLab Studio bereit — MNA/Newton-Raphson Kernel initialisiert." },
+    { id: logId++, level: "ok", time: now(), message: "Multispice bereit — MNA/Newton-Raphson-Kernel initialisiert." },
     { id: logId++, level: "info", time: now(), message: "Beispielschaltung »555 Blinker« geladen. Drücke ▶ für die Echtzeitsimulation." },
   ],
   bottomTab: "console",

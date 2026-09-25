@@ -368,19 +368,23 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
   const netResult = useEditor((s) => s.netResult);
   const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
-  const cfg = (win.config.scope as ScopeConfig) ?? {
-    channels: [nets.find((n) => n !== "0") ?? "", "", "", ""],
-    timebase: 0.002,
-    volts: [2,2,2,2],
-    offsets: [0,0,0,0],
-    trigger: { source:0, level:0.5, edge:"rising", mode:"auto" },
-    mode:"yt",
-    math:"a-b",
-    cursors: { enabled:false, mode:"time", ax:0.25, bx:0.75, ay:0.25, by:0.75 },
-    intensity:0.8,
-    focus:0.5,
-    runMode:"run",
-  };
+  const fallbackCfg = useMemo<ScopeConfig>(
+    () => ({
+      channels: [nets.find((n) => n !== "0") ?? "", "", "", ""],
+      timebase: 0.002,
+      volts: [2, 2, 2, 2],
+      offsets: [0, 0, 0, 0],
+      trigger: { source:0, level:0.5, edge:"rising", mode:"auto" },
+      mode:"yt",
+      math:"a-b",
+      cursors: { enabled:false, mode:"time", ax:0.25, bx:0.75, ay:0.25, by:0.75 },
+      intensity:0.8,
+      focus:0.5,
+      runMode:"run",
+    }),
+    [nets]
+  );
+  const cfg = (win.config.scope as ScopeConfig) ?? fallbackCfg;
   const cursors = cfg.cursors ?? { enabled:false, mode:"time" as const, ax:0.25, bx:0.75, ay:0.25, by:0.75 };
   const set = (patch: Partial<ScopeConfig>) => update(win.id, { config: { ...win.config, scope: { ...cfg, ...patch } } });
 
@@ -923,12 +927,16 @@ function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
   const netResult = useEditor((s) => s.netResult);
   const nets = useMemo(() => netResult.nets.map((n) => n.name).filter((n) => n !== "0"), [netResult.nets]);
-  const cfg = (win.config.logic as { channels: string[]; span: number; threshold: number; radix: "hex" | "bin" }) ?? {
-    channels: nets.slice(0, 8),
-    span: 0.05,
-    threshold: 2.5,
-    radix: "hex",
-  };
+  const fallbackCfg = useMemo<{ channels: string[]; span: number; threshold: number; radix: "hex" | "bin" }>(
+    () => ({
+      channels: nets.slice(0, 8),
+      span: 0.05,
+      threshold: 2.5,
+      radix: "hex",
+    }),
+    [nets]
+  );
+  const cfg = (win.config.logic as { channels: string[]; span: number; threshold: number; radix: "hex" | "bin" }) ?? fallbackCfg;
   const set = (p: Partial<typeof cfg>) => update(win.id, { config: { ...win.config, logic: { ...cfg, ...p } } });
 
   const render = useCallback(

@@ -15,6 +15,7 @@ import {
 } from "@/lib/schematic/model";
 import { obstaclesFor, routeOrthogonal } from "@/lib/schematic/tools";
 import { engine, hitTestInstance, useEditor, useHud } from "@/state/editor";
+import { Library as LibIcon, Sparkles } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
 
@@ -772,7 +773,7 @@ export default function Canvas() {
     }
 
     ctx.restore();
-  }, [cursor.x, cursor.y]);
+  }, [cursor, snap]);
 
   useEffect(() => {
     let raf = 0, last = performance.now(), frames = 0, fpsTime = last;
@@ -1632,11 +1633,13 @@ export default function Canvas() {
           return (
             <div className="pointer-events-none absolute inset-0 grid place-items-center">
               <div className="pointer-events-auto rounded-2xl p-6 text-center shadow-2xl backdrop-blur-xl max-w-[380px]" style={{ background: "color-mix(in srgb, var(--panel-solid) 92%, transparent)", border: "1px solid var(--border-strong)" }}>
-                <div className="mx-auto mb-3 h-12 w-12 rounded-xl grid place-items-center text-xl" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>✨</div>
-                <div className="text-[14px] font-semibold">Leere Leinwand – los geht's!</div>
+                <div className="mx-auto mb-3 h-12 w-12 rounded-xl grid place-items-center" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)", color: "var(--accent)" }}>
+                  <Sparkles size={20} />
+                </div>
+                <div className="text-[14px] font-semibold">Leere Leinwand – los geht’s!</div>
                 <div className="mt-1 text-[12px] text-mute">Drücke <kbd className="kbd">⌘K</kbd> für die Bauteil-Bibliothek oder ziehe Bauteile aus der Seitenleiste.</div>
                 <div className="mt-3 flex flex-wrap gap-1.5 justify-center">
-                  <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => useEditor.setState({ libraryOpen: true })}>📚 Bibliothek öffnen</button>
+                  <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => useEditor.setState({ libraryOpen: true })}><LibIcon size={12} /> Bibliothek öffnen</button>
                   <button className="btn h-7 px-3 text-[11px]" onClick={() => { const id = useEditor.getState().addInstance("resistor", 0, 0); if (id) useEditor.getState().setSelection([id]); }}>+ R Widerstand</button>
                   <button className="btn h-7 px-3 text-[11px]" onClick={() => useEditor.getState().setPlacingProbe("voltage")}>∿ Probe</button>
                 </div>
