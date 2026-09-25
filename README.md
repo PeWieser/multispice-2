@@ -17,7 +17,13 @@ Typografie und Farbe als Information. Der Maßstab: „Insanely great“ oder ni
 - **Simulation**: Transientenanalyse im Browser (MNA + Newton-Raphson), OP, AC, Sweep, Monte-Carlo, Rauschen, FFT
 - **Messgeräte**: 4-Kanal-Oszilloskop, Multimeter, Funktionsgenerator, Bode-Plotter — live während der Simulation
 - **Probes**: Spannungs-/Strom-Messpunkte mit Live-Werten, skalieren unabhängig vom Zoom
-- **Qualität**: 100+ Circuit-Szenarien als Testmatrix, TypeScript strict, statischer Export
+- **Import**: SPICE-Netzlisten (.cir/.net/.sp) mit echter Auto-Verdrahtung (Netz → orthogonale
+  Leitung, GND-Symbol, Netz-Labels), LTspice-Schaltpläne (.asc mit Geometrie, Drähten, Flags),
+  Projekt-JSON (validiert)
+- **Projekt-Manager**: benannte Snapshots im Browser (öffnen/umbenennen/löschen) plus
+  Auto-Save-Arbeitskopie (2 s nach jeder Änderung)
+- **Qualität**: 100+ Circuit-Szenarien als Testmatrix, Importer-Smoke-Tests (`npx tsx scripts/importtest.ts`),
+  TypeScript strict, statischer Export
 
 ## Entwickeln
 

@@ -533,49 +533,6 @@ export function toSpiceNetlist(doc: SchematicDoc, analysis?: string): string {
   return lines.join("\n");
 }
 
-/** Very small SPICE importer: R/C/L/V/I/D/Q lines are placed on a grid. */
-export function fromSpiceNetlist(text: string): SchematicDoc {
-  const doc = emptyDoc("Importierte Netzliste");
-  const lines = text.split(/\r?\n/);
-  let x = 120;
-  let y = 120;
-  const advance = () => {
-    x += 140;
-    if (x > 900) {
-      x = 120;
-      y += 140;
-    }
-  };
-  const map: Record<string, string> = { R: "resistor", C: "capacitor", L: "inductor", V: "vdc", I: "idc", D: "diode_1n4148", Q: "npn_2n3904", M: "nmos" };
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line || line.startsWith("*") || line.startsWith(".")) continue;
-    const parts = line.split(/\s+/);
-    const type = parts[0][0].toUpperCase();
-    const partId = map[type];
-    if (!partId) continue;
-    const valueTok = parts[type === "Q" || type === "M" ? 4 : 3] ?? "0";
-    const value = Number(valueTok.replace(/meg/i, "e6").replace(/k$/i, "e3").replace(/m$/i, "e-3").replace(/u$/i, "e-6").replace(/n$/i, "e-9").replace(/p$/i, "e-12"));
-    const params: Record<string, number | string | boolean> = {};
-    if (type === "R") params.r = Number.isFinite(value) ? value : 1000;
-    if (type === "C") params.c = Number.isFinite(value) ? value : 1e-7;
-    if (type === "L") params.l = Number.isFinite(value) ? value : 1e-3;
-    if (type === "V") params.dc = Number.isFinite(value) ? value : 5;
-    doc.instances.push({
-      id: "i_" + Math.random().toString(36).slice(2, 9),
-      partId,
-      x,
-      y,
-      rot: 0,
-      label: parts[0].toUpperCase(),
-      params,
-    });
-    doc.notes.push({ id: "n_" + Math.random().toString(36).slice(2, 8), x, y: y + 40, text: `Knoten: ${parts.slice(1, 3).join(", ")}`, size: 9 });
-    advance();
-  }
-  return doc;
-}
-
 /** Bill of materials */
 export interface BomRow {
   ref: string;

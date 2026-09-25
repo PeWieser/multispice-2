@@ -25,7 +25,7 @@ const INSTRUMENT_ITEMS: Array<[InstrumentKind, string]> = [
   ["network", "Network Analyzer"],
 ];
 
-export default function MenuBar({ onAnalysis, onSettings, onWizards, isMobile = false }: { onAnalysis: (kind: string) => void; onSettings?: () => void; onWizards?: () => void; isMobile?: boolean }) {
+export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects, isMobile = false }: { onAnalysis: (kind: string) => void; onSettings?: () => void; onWizards?: () => void; onProjects?: () => void; isMobile?: boolean }) {
   const docName = useEditor((s) => s.doc.name);
   const doc = useEditor((s) => s.doc);
   const canUndo = useEditor((s) => s.past.length > 0);
@@ -87,9 +87,10 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, isMobile = 
           st().setDoc(normalizeProjectDoc(parsed));
           st().log("ok", `${file.name} importiert`);
         } else {
-          import("@/lib/schematic/model").then((m) => {
-            st().setDoc(m.fromSpiceNetlist(text));
-            st().log("ok", `SPICE-Datei ${file.name} importiert`);
+          import("@/lib/schematic/importers").then((m) => {
+            const doc = m.isLtspiceAsc(text) ? m.fromLtspiceAsc(text) : m.fromSpiceNetlist(text);
+            st().setDoc(doc);
+            st().log("ok", `${file.name} importiert – ${doc.instances.length} Bauteile, ${doc.wires.length} Leitungen`);
           });
         }
       } catch (e) {
@@ -116,6 +117,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, isMobile = 
           <div className="text-[10px] uppercase tracking-wide text-mute px-2">Datei</div>
           <button className="btn w-full justify-start" onClick={() => st().newDocument()}>Neuer Schaltplan</button>
           <button className="btn w-full justify-start" onClick={() => st().saveProject()}>Lokal speichern</button>
+          <button className="btn w-full justify-start" onClick={() => onProjects?.()}>Projekte …</button>
           <button className="btn w-full justify-start" onClick={() => fileRef.current?.click()}>Importieren</button>
           <button className="btn w-full justify-start" onClick={exportSpice}>Export SPICE</button>
           <button className="btn w-full justify-start" onClick={exportJson}>Export JSON</button>
@@ -149,7 +151,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, isMobile = 
             <button className="btn w-full justify-start" onClick={() => onWizards?.()}>Wizards ✨</button>
           </div>
         </div>
-        <input ref={fileRef} type="file" accept=".json,.cir,.net,.sp,.txt" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }} />
+        <input ref={fileRef} type="file" accept=".json,.cir,.net,.sp,.txt,.asc" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }} />
       </div>
     );
   }
@@ -163,7 +165,8 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, isMobile = 
       <Menu label="Datei" tooltip="Datei – neues Projekt, Speichern, Import/Export, Druck">
         <MenuItem hint="⌘N" onClick={() => st().newDocument()} tooltip="Neuer Schaltplan – löscht aktuellen Plan (Undo möglich)\nTipp: Vorher speichern">Neuer Schaltplan</MenuItem>
         <MenuItem hint="⌘S" onClick={() => st().saveProject()} tooltip="Lokal speichern im Browser (localStorage)\nAuto-Save: 2 s nach jeder Änderung · ⌘S speichert sofort">Lokal speichern</MenuItem>
-        <MenuItem onClick={() => fileRef.current?.click()} tooltip="Importieren – lädt .json oder .cir/.sp SPICE-Netzlisten">Importieren (.json/.cir)</MenuItem>
+        <MenuItem onClick={() => onProjects?.()} tooltip="Projekte – benannte Snapshots speichern, öffnen, umbenennen, löschen\nDie Arbeitskopie speichert zusätzlich automatisch">Projekte …</MenuItem>
+        <MenuItem onClick={() => fileRef.current?.click()} tooltip="Importieren – .json Projekt, .cir/.net/.sp Netzliste (Auto-Verdrahtung), .asc LTspice">Importieren (.json/.cir/.asc)</MenuItem>
         <MenuSeparator />
         <MenuItem onClick={exportSpice} tooltip="Export SPICE (.cir) – erzeugt SPICE-Netzliste für LTspice/NGSpice\nEnthält alle Bauteile und Verbindungen">Export SPICE (.cir)</MenuItem>
         <MenuItem onClick={exportJson} tooltip="Export JSON – komplettes Projekt mit Canvas-Zustand\nZum Teilen oder Backup">Export JSON</MenuItem>
@@ -282,7 +285,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, isMobile = 
       <input
         ref={fileRef}
         type="file"
-        accept=".json,.cir,.net,.sp,.txt"
+        accept=".json,.cir,.net,.sp,.txt,.asc"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp, FlaskConical, ListTree, Radio, Table2, Terminal } from "lucide-react";
-import { buildBom, fromSpiceNetlist, toSpiceNetlist } from "@/lib/schematic/model";
+import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
+import { fromLtspiceAsc, fromSpiceNetlist, isLtspiceAsc } from "@/lib/schematic/importers";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor } from "@/state/editor";
 import Grapher from "./Grapher";
@@ -98,8 +99,9 @@ export default function BottomPanel() {
                   className="btn py-1 text-[11.5px]"
                   onClick={() => {
                     const text = (document.getElementById("netlist-editor") as HTMLTextAreaElement)?.value ?? "";
-                    setDoc(fromSpiceNetlist(text));
-                    log("warn", "Netzliste importiert — Platzierung automatisch generiert");
+                    const imported = isLtspiceAsc(text) ? fromLtspiceAsc(text) : fromSpiceNetlist(text);
+                    setDoc(imported);
+                    log("warn", `Netzliste importiert – ${imported.instances.length} Bauteile, ${imported.wires.length} Leitungen automatisch verdrahtet`);
                   }}
                 >
                   Importieren

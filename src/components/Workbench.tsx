@@ -12,6 +12,7 @@ import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
 import SettingsDialog from "./SettingsDialog";
 import WizardsDialog from "./WizardsDialog";
+import ProjectsDialog from "./ProjectsDialog";
 import { useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { Menu, X, Library, SlidersHorizontal, Play, Pause } from "lucide-react";
@@ -156,6 +157,7 @@ export default function Workbench() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [wizardsOpen, setWizardsOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
 
   const isMobile = useIsMobile();
   const isTablet = useIsTablet();
@@ -221,7 +223,7 @@ export default function Workbench() {
                       <X size={14} />
                     </button>
                   </div>
-                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} isMobile />
+                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} isMobile />
                 </div>
               </div>
             )}
@@ -237,6 +239,7 @@ export default function Workbench() {
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
+        {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         <UndoToast />
       </div>
     );
@@ -246,7 +249,7 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
-        <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} />
+        <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
         <ComponentStrip />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
@@ -278,6 +281,7 @@ export default function Workbench() {
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
+        {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         <UndoToast />
       </div>
     );
@@ -286,7 +290,7 @@ export default function Workbench() {
   // Desktop – original layout but with dvh and better flex
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
-      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} />
+      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
       <ComponentStrip />
       <div className="relative flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
@@ -318,6 +322,7 @@ export default function Workbench() {
       {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
+        {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
       <UndoToast />
     </div>
   );

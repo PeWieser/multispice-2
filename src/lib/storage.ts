@@ -117,3 +117,65 @@ export function loadLibraryLocal(): StoredLibrary | null {
 /* Für Import-Pfade (Datei-Dialog): dieselbe Ehrlichkeit wie beim Laden —
    erst prüfen und normalisieren, dann in den Editor lassen. */
 export { isDoc as isValidProjectDoc, migrateDoc as normalizeProjectDoc };
+
+/* ------------------------------------------------------------------ */
+/* Projekt-Slots: benannte Snapshots neben der Auto-Save-Arbeitskopie  */
+/* ------------------------------------------------------------------ */
+
+const PROJECTS_KEY = "multispice.projects.v1";
+
+export interface ProjectSlot extends StoredProject {
+  id: string;
+}
+
+function readSlots(): ProjectSlot[] {
+  if (!canStore()) return [];
+  try {
+    const raw = window.localStorage.getItem(PROJECTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ProjectSlot[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((s) => s && typeof s.id === "string" && isDoc(s.doc));
+  } catch {
+    return [];
+  }
+}
+
+function writeSlots(slots: ProjectSlot[]): boolean {
+  if (!canStore()) return false;
+  try {
+    window.localStorage.setItem(PROJECTS_KEY, JSON.stringify(slots));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Alle gespeicherten Projekte, neueste zuerst. */
+export function listProjectSlots(): ProjectSlot[] {
+  return readSlots().sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
+}
+
+/** Aktuellen Stand als benanntes Projekt speichern (id = überschreiben). */
+export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string): { ok: boolean; id: string } {
+  const slots = readSlots();
+  const slotId = id ?? "p_" + Math.random().toString(36).slice(2, 9);
+  const slot: ProjectSlot = { id: slotId, name, doc: JSON.parse(JSON.stringify(doc)) as SchematicDoc, savedAt: new Date().toISOString() };
+  const i = slots.findIndex((s) => s.id === slotId);
+  if (i >= 0) slots[i] = slot;
+  else slots.push(slot);
+  return { ok: writeSlots(slots), id: slotId };
+}
+
+export function deleteProjectSlot(id: string): void {
+  writeSlots(readSlots().filter((s) => s.id !== id));
+}
+
+export function renameProjectSlot(id: string, name: string): void {
+  const slots = readSlots();
+  const s = slots.find((x) => x.id === id);
+  if (s) {
+    s.name = name;
+    writeSlots(slots);
+  }
+}
