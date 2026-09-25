@@ -68,6 +68,11 @@ function MobileBottomToolbar() {
     { id: "erase", label: "Erase", icon: "⌫" },
   ] as const;
 
+  // Einmalig beim Start: gespeicherten Stand aus dem Browser wiederherstellen.
+  useEffect(() => {
+    useEditor.getState().restoreLocalProject();
+  }, []);
+
   return (
     <div className="flex h-[56px] shrink-0 items-center gap-1 overflow-x-auto px-2" style={{ background: "var(--panel-solid)", borderTop: "1px solid var(--border)" }}>
       {tools.map((t) => {
@@ -120,6 +125,8 @@ function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open
         </div>
         <div className="min-h-0 flex-1 overflow-auto">{children}</div>
       </div>
+      <StatusBar />
+      {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
     </div>
   );
 }
