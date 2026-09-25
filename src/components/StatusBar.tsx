@@ -6,6 +6,10 @@ import { engine, useEditor, useHud } from "@/state/editor";
 
 function hintFor(tool: string, placing: boolean, running: boolean): string {
   if (placing) return "Klick platziert das Bauteil · Shift für Serie · Esc bricht ab";
+  if (tool.startsWith("probe")) {
+    const kind = tool.split("_")[1] || "probe";
+    return `Messpunkt ${kind} – Klick auf Leitung platzieren · Rechtsklick für Menü · Esc bricht ab`;
+  }
   switch (tool) {
     case "wire":
       return "Klick setzt Punkte · Doppelklick beendet · Esc bricht ab";
@@ -20,15 +24,16 @@ function hintFor(tool: string, placing: boolean, running: boolean): string {
     case "pan":
       return "Ziehen verschiebt die Ansicht · Rad zoomt";
     default:
-      if (running) return "Live: Schalter klicken · Poti mit Klick / Shift+Klick stellen";
-      return "Ziehen wählt aus · Rad zoomt · Leertaste startet die Simulation";
+      if (running) return "Live: Schalter klicken · Poti mit Klick / Shift+Klick · Rechtsklick für Messpunkt";
+      return "Ziehen wählt aus · Rad zoomt · Leertaste startet Simulation · Rechtsklick Messpunkt · ⌘K Bibliothek";
   }
 }
 
-export default function StatusBar() {
+export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) {
   const tool = useEditor((s) => s.tool);
   const placing = useEditor((s) => s.placingPartId);
   const running = useEditor((s) => s.sim.running);
+  const selection = useEditor((s) => s.selection);
   const timeScale = useEditor((s) => s.sim.timeScale);
   const setSimOption = useEditor((s) => s.setSimOption);
   const zoom = useEditor((s) => s.view.zoom);
@@ -41,11 +46,29 @@ export default function StatusBar() {
   void tick;
   const simTime = running ? engine.lastState.time : 0;
 
+  if (isMobile) {
+    return (
+      <footer
+        className="flex h-[32px] shrink-0 items-center gap-2 px-3 text-[11px] text-mute"
+        style={{ background: "var(--panel-solid)", borderTop: "1px solid var(--border)" }}
+      >
+        <span className="mono">{Math.round(zoom * 100)} %</span>
+        <span className="flex-1 truncate text-[10px]">{hintFor(tool, !!placing, running)}</span>
+        <span className="mono text-[10px]">{running ? formatValue(simTime, "s") : "bereit"}</span>
+      </footer>
+    );
+  }
+
   return (
     <footer
       className="flex h-[26px] shrink-0 items-center gap-3 px-3 text-[11px] text-mute"
       style={{ background: "var(--panel)", borderTop: "1px solid var(--border)" }}
     >
+      {selection.length > 0 && (
+        <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "var(--accent-soft)", color: "var(--accent)", border: "1px solid var(--accent-mid)" }}>
+          {selection.length} ausgewählt • R drehen • Entf löschen • ⌘D duplizieren
+        </span>
+      )}
       <span className="min-w-0 flex-1 truncate">{hintFor(tool, !!placing, running)}</span>
 
       <button

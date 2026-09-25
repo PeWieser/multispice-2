@@ -20,15 +20,18 @@ export default function AnalysisDialog({ kind, onClose }: { kind: string; onClos
   const runAnalysis = useEditor((s) => s.runAnalysis);
   const setBottomTab = useEditor((s) => s.setBottomTab);
 
+  const measurementProbeNets = useMemo(()=> doc.probes.map(p=> p.net).filter(Boolean) as string[], [doc.probes]);
   const ctx: AnalysisContext = useMemo(() => {
     const nonGnd = nets.filter((n) => n !== "0");
-    const suggested = [...probes.filter((p) => nonGnd.includes(p)), ...nonGnd.filter((n) => !probes.includes(n))].slice(0, 4);
+    // Multisim-like: auto-add measurement probes to Grapher output
+    const probePool = [...new Set([...probes, ...measurementProbeNets])];
+    const suggested = [...probePool.filter((p) => nonGnd.includes(p)), ...nonGnd.filter((n) => !probePool.includes(n))].slice(0, 8);
     return {
       nets,
       sources: doc.instances.filter((i) => SOURCE_PARTS.has(i.partId)).map((i) => i.label),
       suggestedOutputs: suggested,
     };
-  }, [nets, probes, doc.instances]);
+  }, [nets, probes, measurementProbeNets, doc.instances]);
 
   const [values, setValues] = useState<Record<string, FieldValue>>(() => {
     if (!def) return {};

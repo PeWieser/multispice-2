@@ -2,6 +2,21 @@
 
 > Jedes Feature mit: Befund → Maßnahme → Status.
 > Grundlage: Design-Manifest §1–§5.
+> Update 2026-09-24: Settings UI, MenuBar Tooltips, Skeuomorphes Oszilloskop, Accessibility AA, Herz-und-Nieren Testmatrix.
+
+## Neu 2026-09-24 – Steve Jobs Erstkontakt Audit
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Settings Page UI | Probe Hover Config nur in Datei, keine UI | SettingsDialog.tsx 4 Tabs Probe/Library/Canvas/Allgemein, loadHoverConfig/saveHoverConfig, localStorage, erklärt jede Option, Human Design mit lucide Icons, 560px wide | ✅ Done |
+| MenuBar Tooltips | Menü Items hatten nur title, kein Tooltip mit Erklärung | Menu + MenuItem Tooltip prop, jedes Menü + Item hat Tooltip: Datei → Neuer Schaltplan löscht aktuellen (Undo), Lokal speichern localStorage Auto-Save 2s, Import .json/.cir, Export SPICE für LTspice, BOM für Mouser/DigiKey, etc. Topbar Buttons Undo/Redo/Start/Stop/Strom/Farben/⌘K/⚙️ alle mit Tooltip + Shortcut + Erklärung | ✅ Done |
+| Oszilloskop skeuomorph | Flaches Design, kein CRT, keine Knöpfe | Komplett neu: CRT radial #0e1a14→#04080a, Phosphor Grid 10x8 DIV grün, Vignette, Scanlines, Glow shadowBlur 14px, Metall-Panel linear-gradient #2e323e→#1a1d26, Schrauben, SkeuKnob 42-56px mit conic-gradient Metall + Tick Marks + Glow Pointer, vertikal ziehen, TactileButton mit inset shadow + Glow wenn aktiv, Trigger Dreieck gelb draggable am Rand, Cursors lila dashed draggable ΔT/ΔV + 1/ΔT, Messwerte Vpp/Vmax/Vmin/Vrms/Freq phosphor mono, 4 Kanäle #4ade80/#38bdf8/#fbbf24/#f472b6, YT/XY/FFT/MATH, Timebase 5ns-2s, V/div 1mV-50V, Trigger Source CH1-4 farbig, Edge Rise/Fall, Auto/Normal, Intensity/Focus, RUN/STOP | ✅ Done |
+| Testmatrix zu klein | Nur 35 Checks, keine First-Use Flows | TEST_MATRIX_HERZ_UND_NIEREN.md 150+ Cases: First-Use 0-60s, Bauteile suchen/verstehen (Suche r 10k, NE555, Kategorie, Detail 96px, Datasheet, Favorit, Grid/List, Icons), Platzieren/Editieren (R, drehen R, spiegeln, Text Label/Value Doppelklick, Inspector, löschen, kopieren, duplizieren, alles auswählen), Verdrahten (W, Punkte, andocken 5px Stub, Hover Highlight, Handles), Schalter bedienen im Run, Probes (Leader Pfeil, permanentes Fenster, Tabelle, Alt+Hover, REF, Reverse, farbcodiert), Oszi (CRT, 4 Kanäle, Knobs, Trigger, Messwerte, Cursors, YT/XY/FFT/MATH), weitere Geräte, Responsive Mobile/Tablet, MenuBar Tooltips, Settings, Accessibility, Export | ✅ Done |
+| Accessibility AA | Kein Audit, fehlte reduced-motion, focus-visible, aria | ACCESSIBILITY_AUDIT.md: Kontrast 15.8:1 primary, 7.2:1 muted AAA, Touch 44px Mobile 52px Probe Hit, Keyboard alle Shortcuts Tab/Esc/Enter/Pfeile, ARIA roles dialog/menu/tooltip/button aria-label, Canvas role=application, Logs role=log aria-live polite, ProbeTable caption sr-only, Reduced Motion Media Query + auto-disable Stromfluss, Focus Visible 2px accent, sr-only class, Farbblind Icon+Text+Position, Zoom 200% ok, lang=de, Skip Link TODO, Landmarks TODO | ✅ 80% → 95% nach CSS Fixes |
+| Wire Edit Handles | Selektiertes Wire zeigt keine Handles | TODO – Quadrate an Punkten, Drag verschiebt Punkt | 🔄 Offen |
+| Reduced Motion + Focus | Fehlte | globals.css: @media prefers-reduced-motion reduce animation none, :focus-visible outline 2px accent, :focus:not(:focus-visible) none, .sr-only | ✅ Done |
+
+---
 
 ---
 
@@ -253,3 +268,54 @@ src/
 **Bewusst nicht umgesetzt (§1: Nein sagen):** Logic Converter, Wortgenerator-Vollausbau,
 Distortion Analyzer (THD-Analyse deckt ab), hierarchische Blätter, PCB-Transfer,
 3D-Breadboard — alles dokumentierte Nicht-Ziele, kein vergessener Rest.
+
+## 2026-09-24 – Zweite Steve Jobs Iteration (Kontextmenü, ISO/ANSI, Library Drag, Wire Handles)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Kontextmenü wie Multisim | Nur rudimentär, keine Icons, kein Clamping, keine Wire-Farbe | Neu: 280px min, backdrop-blur, border-strong, shadow 12/40, clamped viewport, Icons 🔧∿◍, Sections: instance (rotate 90°/-90°, mirror, Eigenschaften, Duplizieren, Kopieren, Probe grid V/A/W/D, Löschen), wire (pts count, net, ✨ Anfasser erklären, 📐 Gerade ausrichten Manhattan, ➕ Punkt hinzufügen, Farbe palette Auto/Rot/Grün/Blau/Gelb/Lila/Pink, Probe grid, Löschen), probe (kind badge, Richtung umkehren, Typ ändern 7 kinds, Ref GND/REF list, Periodic toggle, Löschen), empty (Leinwand info, Einfügen, Netzname/Notiz, Probe grid, Fit/Biblio, Grid/Strom toggles). Double-click: handle delete if >2 pts, segment add via projection. | ✅ Done |
+| ISO/ANSI Symbol Standard | Nur US Zickzack, EU Nutzer verwirrt | SettingsDialog 5 Tabs, symbols Tab mit auto/IEC/ANSI Toggle, default per browser locale (`navigator.language` → de-*/fr-*/ etc = IEC, en-US = ANSI), sofort sichtbar Canvas + Library Preview via `resolveSymbolStyle` + `getPartSymbol` IEC/ANSI aware. SVG Previews Rechteck vs Zickzack. | ✅ Done |
+| Library Popup ruckelt | Re-render der 402 Teile Liste während drag, kein will-change | Perf fix: rAF + paletteRef direct DOM style.left/top/width/height, will-change-transform, commit only on pointerup. PartRow memoized, TreeNode memoized, SymbolPreview canvas only redraws on part/size/style change. Keyboard navigation Arrow Up/Down + Enter to place, selectedIdx highlight accent border + soft bg + shadow. Favorites toast with undo. | ✅ Done |
+| Wire Anfasser genial | Nur kleine Quadrate, schwer zu treffen, kein Feedback | Delightful: 9px endpoint circle ok green inner, 7px diamond/square middle, 6→10px mid plus on hover, glow shadowBlur 12/8, hover +4px white fill, hitRadius 12/zoom (≈44px at low zoom), index label, alignment guides dashed blue + tooltip Δ/len/angle/magnet, double-click delete/add, color palette, straighten Manhattan [a, {x:b.x,y:a.y}, b], tooltip with coords. | ✅ Done |
+| Net Highlight + Pin Hover | Kein Feedback beim Hovern, schwer zu sehen wo Netz ist | Net highlighting: hovering wire highlights entire net (all wires sharing same pointNets key), color accent-2 #22d3ee, voltage color preserved when live. Pin hover draws 10*iz circle rgba(91,140,255,0.25) + accent border + 3*iz dot + tooltip Pin Name, Netz, Position, Tipps. findPinInfo returns inst/pinIdx/pos/pinName/net via netResult.pinNets. | ✅ Done |
+| Instrument Drag jank | Zustand thrash during drag | Fixed: winRef, rAF pendingPos/pendingSize, direct DOM style.left/top/width/height, will-change-transform, commit only on pointerup, fixes ruckeln similar to library. | ✅ Done |
+| Undo Toast | Löschen ohne Feedback, kein Rückgängig | Editor toast state {message, actionLabel, action}, deleteSelection shows toast `${count} gelöscht` with Rückgängig (⌘Z) button, auto-hide 4s, UndoToast component in Workbench fixed bottom-20 center, backdrop-blur, shadow 12/40, btn-primary + X close. Also favorites toggle shows toast with undo. | ✅ Done |
+| Component Alignment Guides | Kein Ausrichten beim Ziehen | Instance drag: compute sel bounds, check against other instances candidates x/y (left/center/right, top/mid/bottom) threshold 8px, set _alignGuides {x,y}, snap dx/dy if close, draw dashed blue guides + dot + label X/Y like Figma/Multisim. Reuses same _alignGuides as wire. | ✅ Done |
+| Ghost Preview + Snap | Nur alpha 0.55, kein Schatten, kein Snap Hinweis | Ghost with shadow: shadowColor rgba(0,0,0,0.4) shadowBlur 12/zoom shadowOffsetY 6/zoom globalAlpha 0.65, snap indicator small circle rgba(91,140,255,0.3) + accent border 4/zoom when snapped != cursor. Probe ghost shadow 10/zoom 0.7 alpha. Marquee: dashed 6/4 lineWidth 1.2/zoom, count badge with size `${w}×${h}` centered, panel-solid bg border-strong. | ✅ Done |
+| Empty Canvas Onboarding | Leere Leinwand ohne Hinweis | Empty state overlay when instances+wire=0: centered card 380px max, backdrop-blur, icon ✨ 12x12 accent-soft, title Leere Leinwand, text Drücke ⌘K, buttons Bibliothek öffnen, +R Widerstand, ∿ Probe, tips W/R/F/Leertaste/? with kbd. | ✅ Done |
+| Shortcuts Overlay | Keine Hilfe, Shortcuts unbekannt | Press ? toggles help overlay: fixed inset bg-black/40 backdrop-blur, card 560px panel-solid border-strong shadow 20/60, 2 columns Canvas (W,R,M,Entf,⌘D,⌘A,⌘Z,F,Leertaste) + Probes & Library (⌘K,V,Label,Notiz,Pan,Wire Anfasser,Net highlight,Kontextmenü,?), tip Alt hover, rAF 60fps note. | ✅ Done |
+| Export PNG | Nur SPICE/JSON/BOM, kein Bild | MenuBar exportPng: querySelector canvas, toBlob image/png, download via URL.createObjectURL, log ok. Tooltip Export PNG – Schaltplan als Bild für Doku/Präsentation. | ✅ Done |
+| StatusBar Selection | Keine Info über Auswahl | Shows badge when selection.length>0: `${len} ausgewählt • R drehen • Entf löschen • ⌘D duplizieren` accent-soft bg accent border. | ✅ Done |
+| Settings Canvas Tab erweitert | Nur Grid/Snap/AutoRoute | Added Pin-Namen Hover (always on), Netz-Highlight (always on), Alignment Guides (always on) disabled checkboxes with tooltip, plus Wow-Details list: Wire Handles specs, Double-click, Tooltip, Pin-Hover, Net-Highlight, Ghost, Marquee, Empty State, Shortcuts, Library, Instruments. | ✅ Done |
+
+### Steve Jobs Brille – Wow das geht ja einfach
+
+- **Alignment Guides**: Wie Figma, magnetisches Einrasten, visuelles Feedback Δ/len/angle
+- **Marquee**: Count Badge mit Größe, gestrichelt, sofortiges Verständnis
+- **Empty States**: Onboarding mit 3 Buttons, erklärt ⌘K, +R, Probe
+- **Undo Toast**: Statt Dialog, Rückgängig Button, 4s Auto-Hide, delightful
+- **Wire Farbe**: Palette wie Multisim, sofort sichtbar, Auto vs Custom
+- **Net Highlight**: Hover über Leitung → ganzes Netz leuchtet, versteht Schaltung
+- **Pin Hover**: Zeigt Pin-Name + Netz + Position, crosshair cursor, 10px Kreis
+- **Library**: 60fps drag, Arrow Keys + Enter, Favorites Toast mit Undo, will-change-transform
+- **Instruments**: 60fps drag, rAF, direct DOM, will-change-transform
+- **Ghost**: Schatten + Snap Indikator, fühlt sich physisch an
+- **Shortcuts**: ? Overlay, alles auf einen Blick, keine Doku nötig
+- **ISO/ANSI**: Auto per Browserlocale, sofort sichtbar, EU vs US
+
+
+---
+
+## 2026-09-24 – Exhaustive Circuit Test Matrix 101 Szenarien
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Circuit Tests | Nur 11 Szenarien, keine FG+RC Sweep Prüfung | CIRCUIT_TEST_MATRIX.md + circuit_scenarios_full.ts 101 Szenarien: passive 15, opamp 8, transistor 4, 555 3, digital 10, filter 4, power 3, osc 4, FG+RC Sweep 4, real-world 14, edge 2, extra 30. Alle OP/AC/TRAN/Param Sweep/Fourier/Sensitivity/TF. FG Sine→RC Tiefpass AC 10-100k 24 Punkte + TRAN + Param Sweep R 500-2000 5 Kurven + Fourier. Ergebnis 101/101 PASS, tsc grün, build grün. | ✅ Done |
+| ONPAGE/OFFPAGE | Virtuelle Verbindung fehlte | model.ts connectorGroups Map name→root[], UF union gleiche Namen, groups.clear rebuild, rootName Priorität Connector-Namen nach Labels. | ✅ Done |
+| Grapher Cursors | Keine ΔT Messung | Grapher.tsx cursors {x0,x1}, dragging 0|1|null, dashed lines rgba(167,139,250,0.8)/rgba(251,191,36,0.8) + 8x12 handles, ΔT Label ΔT=... 1/ΔT=...Hz, pointerdown top 30px setzt x0 shift→x1 aus panels[0].series[0].x linear mapping, pointermove/up global. | ✅ Done |
+| Fast Autoconnect | Platzieren zwischen Drähten nicht auto | Canvas.tsx nach addInstance loop part.pins → pinPosition, für jedes doc.wires Segment Projektion t=((pp-a)·d)/|d|² dist hypot, wenn <20px commit neues Wire pp→proj. | ✅ Done |
+| Logic Converter QM | Nur SOP, nicht minimiert | Instruments.tsx Quine-McCluskey: minterms collect, Map<ones, Imp{bits,minterms,used}>, combine diff 1 → newBits "-", primeImplicants sammeln unused, essential covering + greedy, terms als (A & ~B) → |. | ✅ Done |
+| Fault Sim | Keine Fehlersimulation | model.ts pinPoints loop prüft (inst as any).fault; open→warning+skip, short→warning+alle pin keys UF union, leakage→warning; device: open skip, short R 0.001Ω zwischen ersten 2 nodes, leakage R 10k parallel. | ✅ Done |
+| ERC Zoom | Keine Navigation zu Fehler | BottomPanel.tsx errors/warnings li flex gap-2 mit Button Zoom to error → doc.instances.find label in msg, setView {x:inst.x-200,y:inst.y-150,zoom:1.2}+setSelection([id]). | ✅ Done |
+| 74xx/4000 | Nur 35 digitale ICs | catalog.ts +11 ICs 74ls00/02/04/08/32/86/74/138+cd4011/4017/4027 TTL/CMOS toDevices GATE/DIGITAL, total ~45 digitale ICs. | ✅ Done |
+

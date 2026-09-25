@@ -73,6 +73,56 @@ export function LinePlot({
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<{ px: number; py: number } | null>(null);
+  const [cursors, setCursors] = useState<{ x0: number | null; x1: number | null }>({ x0: null, x1: null });
+  const [dragging, setDragging] = useState<0 | 1 | null>(null);
+
+  // Cursor interaction – supports logX correctly
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const getXDomain = () => {
+      let x0 = Infinity, x1 = -Infinity;
+      for (const p of panels) for (const s of p.series) for (const v of s.x) {
+        if (v < x0) x0 = v;
+        if (v > x1) x1 = v;
+      }
+      if (!(x1 > x0)) { x0 = 0; x1 = 1; }
+      return { x0, x1, lx0: logX ? Math.log10(Math.max(x0,1e-30)) : x0, lx1: logX ? Math.log10(Math.max(x1,1e-29)) : x1 };
+    };
+    const xFromClient = (clientX: number, rect: DOMRect) => {
+      const padL = 58, padR = 10;
+      const plotW = rect.width - padL - padR;
+      const t = Math.min(1, Math.max(0, (clientX - rect.left - padL) / plotW));
+      const { x0, x1, lx0, lx1 } = getXDomain();
+      const xv = logX ? Math.pow(10, lx0 + t * (lx1 - lx0)) : x0 + t * (x1 - x0);
+      return xv;
+    };
+    const onDown = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      if (e.clientY - rect.top < 30) {
+        const xv = xFromClient(e.clientX, rect);
+        if (e.shiftKey) setCursors(c=> ({ ...c, x1: xv }));
+        else setCursors(c=> ({ ...c, x0: xv }));
+        setDragging(e.shiftKey ? 1 : 0);
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      if (dragging === null) return;
+      const rect = canvas.getBoundingClientRect();
+      const xv = xFromClient(e.clientX, rect);
+      if (dragging === 0) setCursors(c=> ({ ...c, x0: xv }));
+      else setCursors(c=> ({ ...c, x1: xv }));
+    };
+    const onUp = () => setDragging(null);
+    canvas.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      canvas.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [panels, dragging, logX]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -184,6 +234,52 @@ export function LinePlot({
       }
       ctx.textAlign = "right";
       ctx.fillText(xLabel, w - padR, h - 11);
+
+      // Cursors – like Multisim Grapher, draggable ΔT/ΔV
+      if (cursors.x0 !== null) {
+        ctx.strokeStyle = "rgba(167,139,250,0.8)";
+        ctx.setLineDash([6,4]);
+        ctx.lineWidth = 1;
+        const x = xOf(cursors.x0);
+        ctx.beginPath();
+        ctx.moveTo(x, padT);
+        ctx.lineTo(x, h - padB);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // handle
+        ctx.fillStyle = "#a78bfa";
+        ctx.fillRect(x-4, padT, 8, 12);
+      }
+      if (cursors.x1 !== null) {
+        ctx.strokeStyle = "rgba(251,191,36,0.8)";
+        ctx.setLineDash([6,4]);
+        ctx.lineWidth = 1;
+        const x = xOf(cursors.x1);
+        ctx.beginPath();
+        ctx.moveTo(x, padT);
+        ctx.lineTo(x, h - padB);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillRect(x-4, padT, 8, 12);
+      }
+      if (cursors.x0 !== null && cursors.x1 !== null) {
+        const x0 = xOf(cursors.x0);
+        const x1 = xOf(cursors.x1);
+        const mid = (x0+x1)/2;
+        const dx = Math.abs(cursors.x1 - cursors.x0);
+        ctx.fillStyle = "var(--panel-solid)";
+        ctx.strokeStyle = "var(--border-strong)";
+        ctx.lineWidth = 1;
+        const txt = `ΔT=${dx.toExponential(2)}s ${dx>0 ? `1/ΔT=${(1/dx).toFixed(1)}Hz` : ""}`;
+        ctx.font = "10px ui-monospace, monospace";
+        const tw = ctx.measureText(txt).width;
+        ctx.fillRect(mid - tw/2 - 6, padT + 16, tw + 12, 16);
+        ctx.strokeRect(mid - tw/2 - 6, padT + 16, tw + 12, 16);
+        ctx.fillStyle = "var(--text)";
+        ctx.textAlign = "center";
+        ctx.fillText(txt, mid, padT + 26);
+      }
 
       // Serien.
       panels.forEach((panel, pi) => {

@@ -36,8 +36,22 @@ function isDoc(value: unknown): value is SchematicDoc {
     Array.isArray(doc.instances) &&
     Array.isArray(doc.wires) &&
     Array.isArray(doc.labels) &&
-    Array.isArray(doc.notes)
+    Array.isArray(doc.notes) &&
+    (doc.probes === undefined || Array.isArray(doc.probes))
   );
+}
+
+function migrateDoc(doc: SchematicDoc): SchematicDoc {
+  if (!Array.isArray((doc as any).probes)) (doc as any).probes = [];
+  // Migrate each probe to new professional format
+  for (const pr of (doc as any).probes as any[]) {
+    if (pr.direction === undefined) pr.direction = 0;
+    if (pr.rotation === undefined) pr.rotation = 0;
+    if (pr.periodic === undefined) pr.periodic = false;
+    if (pr.show === undefined) pr.show = { vdc: true };
+    if (pr.thresholds === undefined) pr.thresholds = { low: 0.8, high: 2.0 };
+  }
+  return doc;
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -69,6 +83,7 @@ export function loadProjectLocal(): StoredProject | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StoredProject;
     if (typeof parsed?.name !== "string" || !isDoc(parsed?.doc)) return null;
+    parsed.doc = migrateDoc(parsed.doc);
     return parsed;
   } catch {
     return null;

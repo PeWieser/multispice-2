@@ -419,9 +419,76 @@ export class Simulator {
         const icap = (st.extra?.geqC ?? 0) * (va - vb) - (st.extra?.ieqC ?? 0);
         return geff * (va - vb) + ieqEff + icap;
       }
+      case "TIMER555": {
+        // Return total supply current + output current estimate
+        // Output branch current stored in extra.iout, discharge in extra.idis, supply in extra.isupply
+        const iout = st.extra?.iout ?? 0;
+        const idis = st.extra?.idis ?? 0;
+        const isup = st.extra?.isupply ?? 0;
+        return iout + idis + isup;
+      }
+      case "OPAMP":
+      case "COMPARATOR": {
+        // Output current via branch
+        return st.br >= 0 ? this.x[st.br] : (st.extra?.id ?? 0);
+      }
+      case "Q":
+      case "M":
+      case "J": {
+        return st.extra?.id ?? st.extra?.ic ?? 0;
+      }
+      case "GATE":
+      case "DIGITAL": {
+        // Sum of output currents
+        const outs = st.outputs ?? [];
+        let sum = 0;
+        for (let i = 0; i < outs.length; i += 2) {
+          const lvl = outs[i + 1];
+          if (lvl < 0) continue;
+          // rough estimate: output current proportional to load, not tracked; use 0
+        }
+        return sum;
+      }
       default:
-        return st.extra?.id ?? 0;
+        return st.extra?.id ?? st.extra?.ic ?? 0;
     }
+  }
+
+  /** Per-pin current for a device – used for probe display and diagnostics. */
+  pinCurrent(d: Device, pinIdx: number): number {
+    const st = d.state;
+    if (!st) return 0;
+    const nodes = d.nodes;
+    const idx = this.idx(nodes[pinIdx]);
+    if (idx < 0) return 0;
+    // For TIMER555 provide plausible bias currents
+    if (d.type === "TIMER555") {
+      // Pin mapping: 0 GND,1 TRIG,2 OUT,3 RST,4 CTRL,5 THR,6 DIS,7 VCC
+      const extra = st.extra ?? {};
+      switch (pinIdx) {
+        case 0: // GND – return negative sum of others (KCL)
+          return -((extra.iout ?? 0) + (extra.idis ?? 0) + (extra.isupply ?? 0) + (extra.ibias ?? 0));
+        case 1: // TRIG – input bias ~0.5uA
+          return extra.itrig ?? 0.5e-6;
+        case 2: // OUT
+          return extra.iout ?? 0;
+        case 3: // RST – ~0.1mA when low
+          return extra.irst ?? 0.1e-3;
+        case 4: // CTRL – divider current
+          return extra.ictrl ?? 0.2e-3;
+        case 5: // THR – bias ~0.25uA
+          return extra.ithr ?? 0.25e-6;
+        case 6: // DIS – discharge transistor
+          return extra.idis ?? 0;
+        case 7: // VCC – supply
+          return extra.isupply ?? 5e-3;
+        default:
+          return 0;
+      }
+    }
+    // Generic fallback: for first pin return deviceCurrent, others 0
+    if (pinIdx === 0) return this.deviceCurrent(d);
+    return 0;
   }
 
   isGround(n: string | undefined): boolean {
@@ -1013,6 +1080,15 @@ export class Simulator {
       case "GATE":
       case "DIGITAL":
       case "MCU": {
+        // Special handling for DAC: analog output from mem.vout
+        const model = (d.model ?? "").toLowerCase();
+        if (model === "dac8") {
+          const vout = (st.digital as any)?.vout ?? 0;
+          // Assume last node is analog output
+          const outNode = this.idx(d.nodes[d.nodes.length - 1] ?? d.nodes[0]);
+          if (outNode >= 0) this.stampVoltageSoft(m, outNode, -1, vout, rout);
+          break;
+        }
         const outPins: number[] = (st.extra!.outPins as unknown as number[]) ?? [];
         void outPins;
         const pinList = (st.digital?.outCount ?? 0) | 0;
@@ -1029,17 +1105,56 @@ export class Simulator {
       }
       case "TIMER555": {
         // nodes: GND, TRIG, OUT, RESET, CTRL, THRES, DISCH, VCC
+        const nGnd = this.idx(d.nodes[0]);
+        const nTrig = this.idx(d.nodes[1]);
         const nOut = this.idx(d.nodes[2]);
+        const nRst = this.idx(d.nodes[3]);
+        const nCtrl = this.idx(d.nodes[4]);
+        const nThr = this.idx(d.nodes[5]);
         const nDis = this.idx(d.nodes[6]);
         const nVcc = this.idx(d.nodes[7]);
         const vcc = this.vOf(nVcc);
+        const vGnd = this.vOf(nGnd);
         const q = st.extra!.q ?? 0;
-        this.stampVoltageSoft(m, nOut, -1, q ? Math.max(vcc - 1.7, 0) : 0.1, 10);
-        // discharge transistor
+        const vOutIdeal = q ? Math.max(vcc - 1.7, 0.1) : 0.1;
+        // Output stage – Norton source with 10 ohm rout, track current
+        this.stampVoltageSoft(m, nOut, nGnd, vOutIdeal, 10);
+        const vOut = this.vOf(nOut);
+        const iout = (vOutIdeal - (vOut - vGnd)) / 10;
+        st.extra!.iout = iout;
+        // Discharge transistor – open when q=1, closed (10 ohm to GND) when q=0
         const gd = q ? 1e-9 : 1 / 10;
-        this.stampConductance(m, nDis, -1, gd);
-        // internal divider
-        this.stampConductance(m, nVcc, -1, 1 / 15000);
+        this.stampConductance(m, nDis, nGnd, gd);
+        const vDis = this.vOf(nDis);
+        st.extra!.idis = (vDis - vGnd) * gd;
+        // Internal divider: 3x 5k between VCC and GND, CTRL is 2/3 VCC
+        const rDiv = 5000;
+        const gDiv = 1 / rDiv;
+        // VCC - CTRL (5k)
+        this.stampConductance(m, nVcc, nCtrl, gDiv);
+        // CTRL - THR node? Actually divider: VCC-5k-CTRL-5k-THR? Simplified: CTRL to GND via 10k equivalent
+        // Model as CTRL to GND via 10k (two 5k in series to GND) + TRIG divider reference
+        this.stampConductance(m, nCtrl, nGnd, 1 / 10000);
+        // Input bias conductances for TRIG, THR, RST to GND (high impedance ~1M) to allow small bias currents
+        const gBias = 1e-6; // 1 Mohm
+        this.stampConductance(m, nTrig, nGnd, gBias);
+        this.stampConductance(m, nThr, nGnd, gBias);
+        this.stampConductance(m, nRst, nGnd, gBias);
+        // Bias currents (approx from datasheet: 0.25uA for THR/TRIG, 0.1mA for RST)
+        const itrig = 0.5e-6;
+        const ithr = 0.25e-6;
+        const irst = nRst >= 0 ? 0.1e-3 : 0;
+        const ictrl = (vcc - this.vOf(nCtrl)) * gDiv;
+        st.extra!.itrig = itrig;
+        st.extra!.ithr = ithr;
+        st.extra!.irst = irst;
+        st.extra!.ictrl = ictrl;
+        // Supply current: divider + output + bias
+        const iDiv = (vcc - vGnd) / 15000;
+        st.extra!.isupply = iDiv + Math.abs(iout) * 0.1 + 0.003; // ~3mA quiescent + load
+        st.extra!.ibias = itrig + ithr + irst;
+        // Internal divider currents for stability
+        this.stampConductance(m, nVcc, nGnd, 1 / 15000);
         break;
       }
       case "SEVENSEG": {

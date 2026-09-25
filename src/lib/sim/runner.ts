@@ -11,12 +11,18 @@ import { buildNets, SchematicDoc } from "@/lib/schematic/model";
 import {
   runAcSweep,
   runDcSweep,
+  runFourier,
   runIvCurve,
   runMonteCarlo,
   runNoise,
+  runNoiseFigure,
   runOperatingPoint,
+  runParamSweep,
+  runPoleZero,
+  runSensitivity,
   runTempSweep,
   runThd,
+  runTransferFunction,
   runTransient,
   runWorstCase,
   SweepSpec,
@@ -31,6 +37,7 @@ export interface AnalysisPayload {
   sourceId?: string;
   outNode?: string;
   fundamental?: number;
+  harmonics?: number;
   runs?: number;
   tolerance?: number;
   temps?: number[];
@@ -38,6 +45,8 @@ export interface AnalysisPayload {
   stepSourceId?: string | null;
   stepValues?: number[];
   measureDeviceId?: string;
+  param?: string;
+  mode?: string;
 }
 
 export interface AnalysisReport {
@@ -152,6 +161,42 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
       );
       result = { curves: r };
       summary = { curves: r.length };
+      break;
+    }
+    case "param": {
+      const r = runParamSweep(netlist, options, payload.param ?? "R1.resistance", sweep, outputs.length ? outputs : [outNode], payload.tran);
+      result = r;
+      summary = { values: r.values.length, ok: r.ok };
+      break;
+    }
+    case "fourier": {
+      const r = runFourier(netlist, options, payload.fundamental ?? 1000, outNode, payload.harmonics ?? 9);
+      result = r;
+      summary = { thd: r.thd, ok: r.ok };
+      break;
+    }
+    case "sensitivity": {
+      const r = runSensitivity(netlist, options, outNode, (payload.mode as any) ?? "dc");
+      result = r;
+      summary = { count: r.sensitivities.length, ok: r.ok };
+      break;
+    }
+    case "tf": {
+      const r = runTransferFunction(netlist, options, outNode, payload.sourceId ?? "");
+      result = r;
+      summary = { gain: r.gain, ok: r.ok };
+      break;
+    }
+    case "pz": {
+      const r = runPoleZero(netlist, options, outNode, payload.sourceId ?? "");
+      result = r;
+      summary = { poles: r.poles.length, zeros: r.zeros.length, ok: r.ok };
+      break;
+    }
+    case "noisefigure": {
+      const r = runNoiseFigure(netlist, options, outNode, payload.sourceId ?? "", sweep);
+      result = r;
+      summary = { points: r.freq.length, ok: r.ok };
       break;
     }
     default:

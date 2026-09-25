@@ -257,6 +257,89 @@ export const ANALYSIS_DEFS: AnalysisDef[] = [
       return parseTemps(str(v.temps)).length >= 2 ? null : "Mindestens zwei Temperaturen angeben (z. B. „0 25 85“).";
     },
   },
+  {
+    kind: "param",
+    title: "Parameter-Sweep",
+    spice: ".step param",
+    hint: "Sweep Bauteilwert (z.B. R 1k-10k) – Was wenn? – Unabdingbar für Lehre.",
+    fields: [
+      { key: "out", kind: "net", label: "Messknoten" },
+      { key: "param", kind: "text", label: "Bauteil.Parameter (z.B. R1.resistance)", def: "R1.resistance", placeholder: "R1.resistance oder C1.capacitance" },
+      { key: "start", kind: "number", label: "Startwert", def: 1000 },
+      { key: "stop", kind: "number", label: "Stoppwert", def: 10000 },
+      { key: "points", kind: "int", label: "Punkte", def: 5, min: 2, max: 50 },
+    ],
+    build: (v) => ({
+      outNode: str(v.out),
+      outputs: [str(v.out)],
+      param: str(v.param),
+      sweep: { start: num(v.start, 1000), stop: num(v.stop, 10000), points: Math.round(num(v.points, 5)), type: "lin" as const },
+    }),
+    validate: (v, ctx) => needNet(v, ctx) ?? (str(v.param) ? null : "Parameter angeben (z.B. R1.resistance)"),
+  },
+  {
+    kind: "fourier",
+    title: "Fourier-Analyse",
+    spice: ".four",
+    hint: "Harmonische Zerlegung – Spektrum bei Grundfrequenz.",
+    fields: [
+      { key: "out", kind: "net", label: "Ausgangsknoten" },
+      { key: "fundamental", kind: "number", label: "Grundfrequenz", unit: "Hz", def: 1000 },
+      { key: "harmonics", kind: "int", label: "Harmonische", def: 9, min: 2, max: 50 },
+    ],
+    build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], fundamental: num(v.fundamental, 1000), harmonics: Math.round(num(v.harmonics, 9)) }),
+    validate: (v, ctx) => needNet(v, ctx) ?? positive(v, "fundamental", "Grundfrequenz"),
+  },
+  {
+    kind: "sensitivity",
+    title: "Sensitivitätsanalyse",
+    spice: ".sens",
+    hint: "Welche Bauteile beeinflussen Ausgang am meisten? – Unabdingbar für Design.",
+    fields: [
+      { key: "out", kind: "net", label: "Messknoten" },
+      { key: "mode", kind: "select", label: "Modus", def: "dc", options: [{ value: "dc", label: "DC" }, { value: "ac", label: "AC" }] },
+    ],
+    build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], mode: str(v.mode) || "dc" }),
+    validate: (v, ctx) => needNet(v, ctx),
+  },
+  {
+    kind: "tf",
+    title: "Transferfunktion",
+    spice: ".tf",
+    hint: "Übertragungsfunktion Vout/Vin, Eingangs-/Ausgangswiderstand.",
+    fields: [
+      { key: "out", kind: "net", label: "Ausgangsknoten" },
+      { key: "source", kind: "source", label: "Eingangsquelle" },
+    ],
+    build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], sourceId: str(v.source) }),
+    validate: (v, ctx) => needNet(v, ctx) ?? needSource(v, ctx),
+  },
+  {
+    kind: "pz",
+    title: "Pol-Nullstellen",
+    spice: ".pz",
+    hint: "Pole und Nullstellen der Übertragungsfunktion.",
+    fields: [
+      { key: "out", kind: "net", label: "Ausgangsknoten" },
+      { key: "source", kind: "source", label: "Eingangsquelle" },
+    ],
+    build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], sourceId: str(v.source) }),
+    validate: (v, ctx) => needNet(v, ctx) ?? needSource(v, ctx),
+  },
+  {
+    kind: "noisefigure",
+    title: "Rauschzahl",
+    spice: ".noise",
+    hint: "Rauschzahl (Noise Figure) – RF.",
+    fields: [
+      { key: "out", kind: "net", label: "Ausgangsknoten" },
+      { key: "source", kind: "source", label: "Eingangsquelle" },
+      { key: "fmin", kind: "number", label: "Startfrequenz", unit: "Hz", def: 10 },
+      { key: "fmax", kind: "number", label: "Stoppfrequenz", unit: "Hz", def: 1e6 },
+    ],
+    build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], sourceId: str(v.source), sweep: { start: num(v.fmin, 10), stop: num(v.fmax, 1e6), points: 20, type: "dec" as const } }),
+    validate: (v, ctx) => needNet(v, ctx) ?? needSource(v, ctx),
+  },
 ];
 
 export const ANALYSIS_MAP: Record<string, AnalysisDef> = Object.fromEntries(ANALYSIS_DEFS.map((d) => [d.kind, d]));

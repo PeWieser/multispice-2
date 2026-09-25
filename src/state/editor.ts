@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { PART_MAP, PartDef, defaultParams } from "@/lib/library/catalog";
+import { SymbolStylePref } from "@/lib/settings";
 import {
   Instance,
   NetLabel,
@@ -23,7 +24,7 @@ import { DEFAULT_MCU_SKETCH } from "@/lib/sim/digital";
 
 export const engine = new RealtimeEngine();
 
-export type Tool = "select" | "wire" | "place" | "pan" | "probe" | "erase" | "text" | "label";
+export type Tool = "select" | "wire" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
 
 export type InstrumentKind =
   | "dmm"
@@ -35,7 +36,10 @@ export type InstrumentKind =
   | "iv"
   | "pattern"
   | "spectrum"
-  | "counter";
+  | "counter"
+  | "logicconv"
+  | "distortion"
+  | "network";
 
 export interface InstrumentWindow {
   id: string;
@@ -72,7 +76,10 @@ export interface ClipboardData {
   wires: Wire[];
   labels: NetLabel[];
   notes: TextNote[];
+  probes: import("@/lib/schematic/model").MeasurementProbe[];
 }
+
+export type ThemePref = "system" | "dark" | "light";
 
 export interface EditorState {
   doc: SchematicDoc;
@@ -81,10 +88,16 @@ export interface EditorState {
   tool: Tool;
   placingPartId: string | null;
   view: { x: number; y: number; zoom: number };
-  theme: "dark" | "light";
+  theme: ThemePref;
+  symbolStyle: SymbolStylePref;
   showGrid: boolean;
   snap: boolean;
   autoRoute: boolean;
+  showCurrentFlow: boolean;
+  showVoltageColors: boolean;
+  showInlineValues: boolean;
+  showErcMarkers: boolean;
+  showRated: boolean;
   netResult: NetlistBuildResult;
   past: SchematicDoc[];
   future: SchematicDoc[];
@@ -93,6 +106,9 @@ export interface EditorState {
   bottomOpen: boolean;
   leftOpen: boolean;
   rightOpen: boolean;
+  libraryOpen: boolean;
+  libraryPos: { x: number; y: number };
+  librarySize: { w: number; h: number };
   instruments: InstrumentWindow[];
   probes: string[];
   analysis: AnalysisState;
@@ -108,6 +124,8 @@ export interface EditorState {
   favorites: string[];
   recent: string[];
   clipboard: ClipboardData | null;
+  toast: { message: string; actionLabel?: string; action?: () => void } | null;
+  placingProbeKind: import("@/lib/schematic/model").ProbeKind | null;
 
   /* actions */
   setDoc: (doc: SchematicDoc, pushHistory?: boolean) => void;
@@ -116,6 +134,7 @@ export interface EditorState {
   redo: () => void;
   setTool: (t: Tool) => void;
   setPlacing: (partId: string | null) => void;
+  setPlacingProbe: (kind: import("@/lib/schematic/model").ProbeKind | null) => void;
   addInstance: (partId: string, x: number, y: number) => string | null;
   deleteSelection: () => void;
   rotateSelection: (dir?: 1 | -1) => void;
@@ -129,8 +148,13 @@ export interface EditorState {
   setParam: (instanceId: string, key: string, value: number | string | boolean) => void;
   setInstanceText: (instanceId: string, text: string) => void;
   addWire: (w: Wire) => void;
+  addMeasurementProbe: (kind: import("@/lib/schematic/model").ProbeKind, x: number, y: number) => string | null;
+  updateMeasurementProbe: (id: string, patch: Partial<import("@/lib/schematic/model").MeasurementProbe>) => void;
+  removeMeasurementProbe: (id: string) => void;
   setView: (v: Partial<{ x: number; y: number; zoom: number }>) => void;
   fitView: () => void;
+  setTheme: (t: ThemePref) => void;
+  setSymbolStyle: (s: SymbolStylePref) => void;
   toggleTheme: () => void;
   log: (level: LogEntry["level"], message: string) => void;
   clearLogs: () => void;
@@ -138,11 +162,21 @@ export interface EditorState {
   toggleBottom: () => void;
   toggleLeft: () => void;
   toggleRight: () => void;
+  toggleLibrary: () => void;
+  setLibraryPos: (pos: { x: number; y: number }) => void;
+  setLibrarySize: (size: { w: number; h: number }) => void;
+  setToast: (t: { message: string; actionLabel?: string; action?: () => void } | null) => void;
+  clearToast: () => void;
   openInstrument: (kind: InstrumentKind) => void;
   closeInstrument: (id: string) => void;
   updateInstrument: (id: string, patch: Partial<InstrumentWindow>) => void;
   focusInstrument: (id: string) => void;
   toggleProbe: (net: string) => void;
+  toggleCurrentFlow: () => void;
+  toggleVoltageColors: () => void;
+  toggleInlineValues: () => void;
+  toggleErcMarkers: () => void;
+  toggleRated: () => void;
   startSim: () => void;
   pauseSim: () => void;
   stopSim: () => void;
@@ -181,10 +215,16 @@ export const useEditor = create<EditorState>((set, get) => ({
   tool: "select",
   placingPartId: null,
   view: { x: 60, y: 20, zoom: 1 },
-  theme: "dark",
+  theme: "system",
+  symbolStyle: "auto",
   showGrid: true,
   snap: true,
   autoRoute: true,
+  showCurrentFlow: false,
+  showVoltageColors: false,
+  showInlineValues: true,
+  showErcMarkers: true,
+  showRated: true,
   netResult: { netlist: { devices: [] }, nets: [], pinNets: {}, pointNets: {}, errors: [], warnings: [] },
   past: [],
   future: [],
@@ -193,9 +233,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     { id: logId++, level: "info", time: now(), message: "Beispielschaltung »555 Blinker« geladen. Drücke ▶ für die Echtzeitsimulation." },
   ],
   bottomTab: "console",
-  bottomOpen: true,
-  leftOpen: true,
-  rightOpen: true,
+  bottomOpen: false,
+  leftOpen: false,
+  rightOpen: false,
+  libraryOpen: false,
+  libraryPos: { x: 24, y: 80 },
+  librarySize: { w: 360, h: 520 },
   instruments: [],
   probes: [],
   analysis: { kind: "", running: false },
@@ -203,6 +246,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   favorites: ["resistor", "capacitor", "led", "npn_2n3904", "opamp_lm741", "ne555"],
   recent: [],
   clipboard: null,
+  toast: null,
+  placingProbeKind: null,
 
   setDoc: (doc, pushHistory = true) => {
     const prev = get().doc;
@@ -240,8 +285,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().log("info", "Wiederholen");
   },
 
-  setTool: (t) => set({ tool: t, placingPartId: t === "place" ? get().placingPartId : null }),
-  setPlacing: (partId) => set({ placingPartId: partId, tool: partId ? "place" : "select" }),
+  setTool: (t) => set({ tool: t, placingPartId: t === "place" ? get().placingPartId : null, placingProbeKind: t.startsWith("probe") ? get().placingProbeKind : null }),
+  setPlacing: (partId) => set({ placingPartId: partId, tool: partId ? "place" : "select", placingProbeKind: null }),
+  setPlacingProbe: (kind) => set({ placingProbeKind: kind, tool: kind ? (`probe_${kind}` as Tool) : "select", placingPartId: null }),
 
   addInstance: (partId, x, y) => {
     const part = PART_MAP[partId];
@@ -274,6 +320,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       d.wires = d.wires.filter((w) => !sel.has(w.id));
       d.labels = d.labels.filter((l) => !sel.has(l.id));
       d.notes = d.notes.filter((n) => !sel.has(n.id));
+      d.probes = d.probes.filter((pr) => !sel.has(pr.id));
     });
     set({ selection: [] });
   },
@@ -310,6 +357,10 @@ export const useEditor = create<EditorState>((set, get) => ({
         n.x += dx;
         n.y += dy;
       }
+      for (const pr of d.probes) if (sel.has(pr.id)) {
+        pr.x += dx;
+        pr.y += dy;
+      }
     });
   },
 
@@ -323,6 +374,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         ...doc.wires.map((w) => w.id),
         ...doc.labels.map((l) => l.id),
         ...doc.notes.map((n) => n.id),
+        ...doc.probes.map((pr) => pr.id),
       ],
     });
   },
@@ -336,6 +388,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         wires: doc.wires.filter((w) => sel.has(w.id)).map(cloneJson),
         labels: doc.labels.filter((l) => sel.has(l.id)).map(cloneJson),
         notes: doc.notes.filter((n) => sel.has(n.id)).map(cloneJson),
+        probes: doc.probes.filter((pr) => sel.has(pr.id)).map(cloneJson),
       },
     });
     if (sel.size) get().log("info", `${sel.size} Element${sel.size > 1 ? "e" : ""} kopiert`);
@@ -344,9 +397,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   pasteClipboard: () => {
     const cb = get().clipboard;
     if (!cb) return;
-    const total = cb.instances.length + cb.wires.length + cb.labels.length + cb.notes.length;
+    const total = cb.instances.length + cb.wires.length + cb.labels.length + cb.notes.length + cb.probes.length;
     if (!total) return;
-    // Versatz, damit die Kopie neben dem Original landet (Multisim: versetztes Einfügen).
     const DX = 20;
     const DY = 20;
     const used = new Set(get().doc.instances.map((i) => i.label));
@@ -368,13 +420,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     }));
     const freshLabels: NetLabel[] = cb.labels.map((src) => ({ ...cloneJson(src), id: newId("l"), x: src.x + DX, y: src.y + DY }));
     const freshNotes: TextNote[] = cb.notes.map((src) => ({ ...cloneJson(src), id: newId("n"), x: src.x + DX, y: src.y + DY }));
+    const freshProbes = cb.probes.map((src) => ({ ...cloneJson(src), id: newId("pr"), x: src.x + DX, y: src.y + DY }));
     get().commit((d) => {
       d.instances.push(...freshInstances);
       d.wires.push(...freshWires);
       d.labels.push(...freshLabels);
       d.notes.push(...freshNotes);
+      d.probes.push(...freshProbes);
     });
-    set({ selection: [...freshInstances.map((i) => i.id), ...freshWires.map((w) => w.id)] });
+    set({ selection: [...freshInstances.map((i) => i.id), ...freshWires.map((w) => w.id), ...freshProbes.map((pr) => pr.id)] });
     get().log("ok", `${total} Element${total > 1 ? "e" : ""} eingefügt`);
   },
 
@@ -410,6 +464,75 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
   },
 
+  addMeasurementProbe: (kind, x, y) => {
+    const id = newId("pr");
+    const defaults: Record<string, any> = {
+      voltage: { color: "#fbbf24", show: { vdc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
+      current: { color: "#22d3ee", show: { idc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
+      voltage_current: { color: "#f59e0b", show: { vdc: true, idc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
+      power: { color: "#a78bfa", show: { power: true, vdc: true, idc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
+      diff: { color: "#f472b6", show: { vdc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
+      ref: { color: "#94a3b8", show: { vdc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
+      digital: { color: "#4ade80", show: { vdc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
+    };
+    const def = defaults[kind] ?? defaults.voltage;
+    // auto-assign net from current netResult if possible
+    let autoNet: string | undefined;
+    let anchorX = x, anchorY = y;
+    try {
+      const nr = get().netResult;
+      // find nearest net point
+      let best: string | undefined, bestD = 30*30;
+      let bestPt: {x:number,y:number} | null = null;
+      for (const net of nr.nets) for (const pt of net.points) {
+        const d = (pt.x - x)**2 + (pt.y - y)**2;
+        if (d < bestD) { bestD = d; best = net.name; bestPt = pt; }
+      }
+      autoNet = best;
+      if (bestPt) { anchorX = bestPt.x; anchorY = bestPt.y; }
+    } catch {}
+    // V2: body offset from anchor (like Multisim magnifier)
+    const offsetX = 32, offsetY = -28;
+    const probe = { id, kind, x: anchorX+offsetX, y: anchorY+offsetY, anchorX, anchorY, offsetX, offsetY, leader: "arrow" as const, net: autoNet, ref: "0", ...def } as import("@/lib/schematic/model").MeasurementProbe;
+    if (!probe.name) probe.name = `${kind.charAt(0).toUpperCase()}${get().doc.probes.filter(p=>p.kind===kind).length+1}`;
+    get().commit((d) => {
+      d.probes.push(probe);
+    });
+    // auto-add to legacy probes for grapher
+    if (autoNet && autoNet!=="0" && !get().probes.includes(autoNet)) {
+      set((s)=> ({ probes: [...s.probes, autoNet].slice(-12) }));
+    }
+    set({ selection: [id], rightOpen: true, bottomTab: "probes" as any });
+    get().log("ok", `Messpunkt ${kind} ${probe.name} @ ${autoNet ?? "auto"} – Multisim-like: V vs GND/REF, I mit Richtung, Rechtsklick Reverse, Doppelklick Inspector`);
+    return id;
+  },
+
+  updateMeasurementProbe: (id, patch) => {
+    get().commit((d) => {
+      const pr = d.probes.find((p) => p.id === id);
+      if (pr) Object.assign(pr, patch);
+    });
+    // Auto-add to legacy probes for grapher (Transient/AC)
+    const pr = get().doc.probes.find((p) => p.id === id);
+    if (pr && (pr as any).net) {
+      const net = (pr as any).net as string;
+      if (net && net!=="0" && !get().probes.includes(net)) {
+        set((s) => ({ probes: [...s.probes, net].slice(-12) }));
+      }
+    }
+    // If probe is REF, propagate its net to dependent probes? No-op, resolved at render
+    if (patch.kind) {
+      get().log("info", `Probe ${id.slice(0,6)} Typ → ${patch.kind}`);
+    }
+  },
+
+  removeMeasurementProbe: (id) => {
+    get().commit((d) => {
+      d.probes = d.probes.filter((p) => p.id !== id);
+    });
+    set((s) => ({ selection: s.selection.filter((sid) => sid !== id) }));
+  },
+
   setView: (v) => set((s) => ({ view: { ...s.view, ...v } })),
 
   fitView: () => {
@@ -435,7 +558,14 @@ export const useEditor = create<EditorState>((set, get) => ({
     st.setView({ zoom, x: (minX + maxX) / 2 - cw / zoom / 2, y: (minY + maxY) / 2 - ch / zoom / 2 });
   },
 
-  toggleTheme: () => set((s) => ({ theme: s.theme === "dark" ? "light" : "dark" })),
+  setTheme: (t) => set({ theme: t }),
+  setSymbolStyle: (s) => set({ symbolStyle: s }),
+  toggleTheme: () => set((s) => ({ theme: s.theme === "dark" ? "light" : s.theme === "light" ? "system" : "dark" })),
+  toggleCurrentFlow: () => set((s) => ({ showCurrentFlow: !s.showCurrentFlow })),
+  toggleVoltageColors: () => set((s) => ({ showVoltageColors: !s.showVoltageColors })),
+  toggleInlineValues: () => set((s) => ({ showInlineValues: !s.showInlineValues })),
+  toggleErcMarkers: () => set((s) => ({ showErcMarkers: !s.showErcMarkers })),
+  toggleRated: () => set((s) => ({ showRated: !s.showRated })),
 
   log: (level, message) =>
     set((s) => ({ logs: [...s.logs.slice(-300), { id: logId++, level, time: now(), message }] })),
@@ -445,6 +575,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   toggleBottom: () => set((s) => ({ bottomOpen: !s.bottomOpen })),
   toggleLeft: () => set((s) => ({ leftOpen: !s.leftOpen })),
   toggleRight: () => set((s) => ({ rightOpen: !s.rightOpen })),
+  toggleLibrary: () => set((s) => ({ libraryOpen: !s.libraryOpen })),
+  setLibraryPos: (pos) => set({ libraryPos: pos }),
+  setLibrarySize: (size) => set({ librarySize: size }),
+  setToast: (t) => set({ toast: t }),
+  clearToast: () => set({ toast: null }),
 
   openInstrument: (kind) => {
     const titles: Record<InstrumentKind, string> = {
@@ -453,11 +588,14 @@ export const useEditor = create<EditorState>((set, get) => ({
       funcgen: "Funktionsgenerator",
       bode: "Bode-Plotter",
       logic: "Logikanalysator",
+      logicconv: "Logic Converter",
       watt: "Wattmeter",
       iv: "IV-Analyzer",
       pattern: "Mustergenerator",
       spectrum: "Spektrumanalysator",
       counter: "Frequenzzähler",
+      distortion: "Distortion Analyzer",
+      network: "Network Analyzer",
     };
     const existing = get().instruments.find((i) => i.kind === kind);
     if (existing) {
@@ -469,12 +607,15 @@ export const useEditor = create<EditorState>((set, get) => ({
       scope: { w: 640, h: 460 },
       bode: { w: 600, h: 430 },
       logic: { w: 640, h: 420 },
+      logicconv: { w: 480, h: 500 },
       iv: { w: 580, h: 420 },
       spectrum: { w: 600, h: 400 },
       dmm: { w: 330, h: 300 },
       funcgen: { w: 360, h: 430 },
       watt: { w: 360, h: 300 },
       pattern: { w: 420, h: 340 },
+      distortion: { w: 360, h: 260 },
+      network: { w: 600, h: 400 },
       counter: { w: 300, h: 250 },
     };
     const size = sizes[kind] ?? { w: 420, h: 340 };
@@ -604,6 +745,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   restoreLocalProject: () => {
     const stored = loadProjectLocal();
     if (stored) {
+      const doc = stored.doc as any;
+      if (!Array.isArray(doc.probes)) doc.probes = [];
       set({ doc: stored.doc, selection: [], past: [], future: [] });
       get().refreshNets();
       const when = new Date(stored.savedAt);
@@ -612,6 +755,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
     const lib = loadLibraryLocal();
     if (lib) set({ favorites: lib.favorites.length ? lib.favorites : get().favorites, recent: lib.recent });
+    // Theme aus localStorage lesen (falls vorhanden)
+    try {
+      const t = typeof window !== "undefined" ? window.localStorage.getItem("multispice.theme") : null;
+      if (t === "dark" || t === "light" || t === "system") set({ theme: t as any });
+      try { const sy = localStorage.getItem("multispice.symbolStyle") as any; if (sy) set({ symbolStyle: sy }); } catch {}
+    } catch {}
   },
 
   markFavorite: (partId) => {
@@ -623,6 +772,24 @@ export const useEditor = create<EditorState>((set, get) => ({
   refreshNets: () => {
     const result = buildNets(get().doc);
     set({ netResult: result });
+    // Auto-assign net for probes that have no explicit net or net is stale
+    const st = get();
+    let changed = false;
+    const nextDoc = { ...st.doc, probes: st.doc.probes.map(pr=>{
+      if (pr.net && result.nets.some(n=>n.name===pr.net)) return pr;
+      // find nearest net point
+      let best: string | undefined, bestD = 28*28;
+      for (const net of result.nets) for (const pt of net.points) {
+        const d = (pt.x - pr.x)**2 + (pt.y - pr.y)**2;
+        if (d < bestD) { bestD = d; best = net.name; }
+      }
+      if (best && best!==pr.net) { changed = true; return { ...pr, net: best }; }
+      return pr;
+    }) };
+    if (changed) {
+      // silent update without history push
+      set({ doc: nextDoc });
+    }
   },
 }));
 

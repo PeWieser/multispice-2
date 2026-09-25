@@ -35,7 +35,7 @@ export function safeName(name: string): string {
 /* Menü (Dropdown in der Menüleiste)                                    */
 /* ------------------------------------------------------------------ */
 
-export function Menu({ label, children }: { label: string; children: React.ReactNode }) {
+export function Menu({ label, tooltip, children }: { label: string; tooltip?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -55,9 +55,20 @@ export function Menu({ label, children }: { label: string; children: React.React
   }, [open ]);
   return (
     <div className="relative" ref={ref}>
-      <button className="btn" data-active={open} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
-        {label}
-      </button>
+      <span className="inline-flex">
+        {tooltip ? (
+          <span className="group relative inline-flex">
+            <button className="btn h-7 min-w-[44px]" data-active={open} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={label}>
+              {label}
+            </button>
+            <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden max-w-[280px] -translate-x-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{tooltip}</span>
+          </span>
+        ) : (
+          <button className="btn h-7 min-w-[44px]" data-active={open} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={label}>
+            {label}
+          </button>
+        )}
+      </span>
       {open && (
         <div
           role="menu"
@@ -80,6 +91,7 @@ export function MenuItem({
   danger,
   disabled,
   disabledReason,
+  tooltip,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
@@ -88,21 +100,27 @@ export function MenuItem({
   danger?: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  tooltip?: string;
 }) {
   return (
     <button
       role="menuitem"
-      className="flex w-full items-center justify-between gap-8 rounded-md px-2.5 py-[7px] text-left text-[12.5px] text-dim hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-dim"
+      className="group/item relative flex w-full items-center justify-between gap-8 rounded-md px-2.5 py-[7px] text-left text-[12.5px] text-dim hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-dim"
       style={danger ? { color: "var(--err)" } : undefined}
       onClick={onClick}
       disabled={disabled}
-      title={disabled ? disabledReason : undefined}
+      title={disabled ? disabledReason : tooltip}
     >
       <span className="flex min-w-0 items-center gap-2">
         <span className="grid w-4 shrink-0 place-items-center">{checked ? <Check size={13} /> : null}</span>
         <span className="flex min-w-0 items-center gap-2">{children}</span>
       </span>
-      {hint && <span className="mono shrink-0 text-[10.5px] text-mute">{hint}</span>}
+      <span className="flex items-center gap-2">
+        {hint && <span className="mono shrink-0 text-[10.5px] text-mute">{hint}</span>}
+      </span>
+      {tooltip && (
+        <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-w-[300px] -translate-y-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover/item:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{tooltip}</span>
+      )}
     </button>
   );
 }
@@ -303,5 +321,90 @@ export function NetsField({
         ))}
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Tooltip – Human Design: immer sichtbar, kein Flackern, 44px safe    */
+/* ------------------------------------------------------------------ */
+export function Tooltip({
+  content,
+  children,
+  side = "top",
+}: {
+  content: React.ReactNode;
+  children: React.ReactNode;
+  side?: "top" | "bottom" | "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  const show = () => {
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => setOpen(true), 300) as any;
+  };
+  const hide = () => {
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => setOpen(false), 100) as any;
+  };
+
+  const sideClass =
+    side === "top"
+      ? "bottom-full left-1/2 -translate-x-1/2 mb-2"
+      : side === "bottom"
+        ? "top-full left-1/2 -translate-x-1/2 mt-2"
+        : side === "left"
+          ? "right-full top-1/2 -translate-y-1/2 mr-2"
+          : "left-full top-1/2 -translate-y-1/2 ml-2";
+
+  return (
+    <span className="relative inline-flex" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
+      {children}
+      {open && (
+        <span
+          className={`pointer-events-none absolute z-50 max-w-[260px] rounded-lg px-2.5 py-1.5 text-[11px] leading-snug shadow-xl ${sideClass}`}
+          style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", color: "var(--text)", whiteSpace: "pre-wrap" }}
+          role="tooltip"
+        >
+          {content}
+        </span>
+      )}
+    </span>
+  );
+}
+
+export function ToolButton({
+  active,
+  onClick,
+  icon,
+  label,
+  hint,
+  kbd,
+}: {
+  active?: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  kbd?: string;
+}) {
+  return (
+    <Tooltip content={`${label}\n${hint}${kbd ? ` (${kbd})` : ""}`} side="bottom">
+      <button
+        className="grid h-7 min-w-[32px] place-items-center rounded-md border px-2 text-[11px] font-medium transition-colors"
+        style={
+          active
+            ? { background: "var(--accent)", color: "var(--accent-contrast)", borderColor: "var(--accent)" }
+            : { background: "var(--panel-2)", color: "var(--text-dim)", borderColor: "var(--border)" }
+        }
+        onClick={onClick}
+        aria-label={label}
+      >
+        <span className="flex items-center gap-1.5">
+          {icon}
+          <span className="hidden sm:inline">{label}</span>
+        </span>
+      </button>
+    </Tooltip>
   );
 }

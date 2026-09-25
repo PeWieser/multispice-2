@@ -21,12 +21,16 @@ export interface Instance {
   params: Record<string, number | string | boolean>;
   /** MCU source code / free text */
   text?: string;
+  fault?: "none" | "open" | "short" | "leakage";
 }
 
 export interface Wire {
   id: string;
   points: Array<{ x: number; y: number }>;
   color?: string;
+  isBus?: boolean;
+  busName?: string;
+  busWidth?: number;
 }
 
 export interface NetLabel {
@@ -44,6 +48,48 @@ export interface TextNote {
   size?: number;
 }
 
+export type ProbeKind = "voltage" | "current" | "power" | "diff" | "ref" | "digital" | "voltage_current";
+
+export interface ProbeShow {
+  vdc?: boolean;
+  vrms?: boolean;
+  vpp?: boolean;
+  vavg?: boolean;
+  freq?: boolean;
+  idc?: boolean;
+  irms?: boolean;
+  ipp?: boolean;
+  power?: boolean;
+}
+
+export interface MeasurementProbe {
+  id: string;
+  kind: ProbeKind;
+  x: number;
+  y: number;
+  net?: string;
+  ref?: string; // net name or REF probe id
+  color?: string;
+  name?: string;
+  direction?: number; // 0 = forward, 1 = reverse for current
+  rotation?: number;
+  periodic?: boolean;
+  show?: ProbeShow;
+  thresholds?: {
+    low?: number;
+    high?: number;
+  };
+  // For diff probes, second point
+  x2?: number;
+  y2?: number;
+  // V2: Leader from anchor (on wire) to body (offset)
+  anchorX?: number;
+  anchorY?: number;
+  offsetX?: number;
+  offsetY?: number;
+  leader?: "arrow" | "line" | "magnifier";
+}
+
 export interface SchematicDoc {
   id: string;
   name: string;
@@ -51,10 +97,11 @@ export interface SchematicDoc {
   wires: Wire[];
   labels: NetLabel[];
   notes: TextNote[];
+  probes: MeasurementProbe[];
 }
 
 export function emptyDoc(name = "Neue Schaltung"): SchematicDoc {
-  return { id: "sch_" + Math.random().toString(36).slice(2, 9), name, instances: [], wires: [], labels: [], notes: [] };
+  return { id: "sch_" + Math.random().toString(36).slice(2, 9), name, instances: [], wires: [], labels: [], notes: [], probes: [] };
 }
 
 /* ----------------------------- geometry ----------------------------- */
@@ -175,13 +222,37 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     }
   }
 
-  // pins snap onto wires (also mid-segment T connections)
+  // pins snap onto wires (also mid-segment T connections) + fault handling
   const pinPoints: Array<{ instanceId: string; pinIndex: number; pinName: string; x: number; y: number }> = [];
+  const faultShortGroups: Array<string[]> = [];
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) {
       errors.push(`Unbekanntes Bauteil "${inst.partId}" (${inst.label})`);
       continue;
+    }
+    const fault = (inst as any).fault as string | undefined;
+    if (fault === "open") {
+      warnings.push(`${inst.label}: Fault OPEN – Bauteil wird als unterbrochen simuliert`);
+      continue; // don't add pins, so device will be NC and not affect circuit, but we still need to handle device creation later
+    }
+    if (fault === "short") {
+      warnings.push(`${inst.label}: Fault SHORT – Pins werden kurzgeschlossen`);
+      // Collect pin keys to short together
+      const keys: string[] = [];
+      part.pins.forEach((pin, idx) => {
+        const pos = pinPosition(inst, idx);
+        keys.push(key(pos.x, pos.y));
+        pinPoints.push({ instanceId: inst.id, pinIndex: idx, pinName: pin.name, x: pos.x, y: pos.y });
+        uf.find(key(pos.x, pos.y));
+      });
+      if (keys.length > 1) {
+        for (let i=1; i<keys.length; i++) uf.union(keys[0], keys[i]);
+      }
+      continue;
+    }
+    if (fault === "leakage") {
+      warnings.push(`${inst.label}: Fault LEAKAGE – 10k Leckwiderstand wird hinzugefügt (vereinfacht)`);
     }
     part.pins.forEach((pin, idx) => {
       const pos = pinPosition(inst, idx);
@@ -215,7 +286,36 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     groups.set(root, arr);
   }
 
-  // naming: ground first, then labels, then auto
+  // on-page / off-page connectors: same name = same net (virtual connection)
+  const connectorGroups = new Map<string, string[]>(); // name -> root[]
+  for (const inst of doc.instances) {
+    if (inst.partId === "onpage_connector" || inst.partId === "offpage_connector") {
+      const name = String(inst.params.name ?? "NET_A").trim() || "NET_A";
+      const pos = pinPosition(inst, 0);
+      const root = uf.find(key(pos.x, pos.y));
+      const arr = connectorGroups.get(name) ?? [];
+      arr.push(root);
+      connectorGroups.set(name, arr);
+    }
+  }
+  for (const [name, roots] of connectorGroups) {
+    if (roots.length > 1) {
+      const first = roots[0];
+      for (let i=1; i<roots.length; i++) {
+        uf.union(first, roots[i]);
+      }
+    }
+  }
+  // Rebuild groups after connector union
+  groups.clear();
+  for (const pk of allPoints) {
+    const root = uf.find(pk);
+    const arr = groups.get(root) ?? [];
+    arr.push(pk);
+    groups.set(root, arr);
+  }
+
+  // naming: ground first, then labels, then auto, then onpage/offpage names
   const rootName = new Map<string, string>();
   for (const inst of doc.instances) {
     if (inst.partId === "gnd") {
@@ -226,6 +326,13 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   for (const l of doc.labels) {
     const root = uf.find(key(l.x, l.y));
     if (rootName.get(root) !== "0") rootName.set(root, l.name.trim() || rootName.get(root) || "");
+  }
+  // onpage/offpage names have priority over auto
+  for (const [name, roots] of connectorGroups) {
+    if (roots.length) {
+      const root = uf.find(roots[0]);
+      if (rootName.get(root) !== "0") rootName.set(root, name);
+    }
   }
   let counter = 1;
   for (const root of groups.keys()) {
@@ -266,15 +373,34 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     });
   }
 
-  // devices
+  // devices + fault handling
   const devices: Device[] = [];
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) continue;
+    const fault = (inst as any).fault as string | undefined;
+    if (fault === "open") {
+      // Skip device – open circuit
+      continue;
+    }
     const nodes = part.pins.map((_, idx) => pinNets[`${inst.id}:${idx}`] ?? `${inst.id}_nc${idx}`);
     const like: PartInstanceLike = { id: inst.label || inst.id, partId: inst.partId, params: inst.params, text: inst.text };
     try {
-      devices.push(...part.toDevices(like, nodes));
+      const devs = part.toDevices(like, nodes);
+      if (fault === "short") {
+        // For short fault, replace with wire (0 ohm) between first two nodes if possible
+        if (nodes.length >= 2) {
+          devices.push({ id: inst.label + "_short", type: "R", nodes: [nodes[0], nodes[1]], params: { r: 0.001 } });
+        }
+      } else if (fault === "leakage") {
+        devices.push(...devs);
+        // Add 10k leakage between pins
+        if (nodes.length >= 2) {
+          devices.push({ id: inst.label + "_leak", type: "R", nodes: [nodes[0], nodes[1]], params: { r: 10000 } });
+        }
+      } else {
+        devices.push(...devs);
+      }
     } catch (e) {
       errors.push(`${inst.label}: ${(e as Error).message}`);
     }

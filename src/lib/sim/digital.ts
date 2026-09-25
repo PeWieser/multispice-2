@@ -216,6 +216,169 @@ export function evalDigital(dev: DigitalDeviceLike, ctx: DigitalContext): Digita
       out.push({ pin: 0, level: phase < 0.5 ? 1 : 0 });
       break;
     }
+    // ---- extended counters ----
+    case "counter10": {
+      const [clk, rst, en] = inputs;
+      let cnt = mem.cnt ?? 0;
+      if (rising("clk", clk) && en !== 0) cnt = (cnt + 1) % 10;
+      if (rst === 1) cnt = 0;
+      mem.cnt = cnt;
+      for (let i = 0; i < 4; i++) out.push({ pin: 3 + i, level: (cnt >> i) & 1 });
+      break;
+    }
+    case "counter12": {
+      const [clk, rst, en] = inputs;
+      let cnt = mem.cnt ?? 0;
+      if (rising("clk", clk) && en !== 0) cnt = (cnt + 1) & 0xfff;
+      if (rst === 1) cnt = 0;
+      mem.cnt = cnt;
+      for (let i = 0; i < 12; i++) out.push({ pin: 3 + i, level: (cnt >> i) & 1 });
+      break;
+    }
+    case "counter14": {
+      const [clk, rst] = inputs;
+      let cnt = mem.cnt ?? 0;
+      if (rising("clk", clk)) cnt = (cnt + 1) & 0x3fff;
+      if (rst === 1) cnt = 0;
+      mem.cnt = cnt;
+      for (let i = 0; i < 14; i++) out.push({ pin: 2 + i, level: (cnt >> i) & 1 });
+      break;
+    }
+    case "counter16": {
+      const [clk, rst] = inputs;
+      let cnt = mem.cnt ?? 0;
+      if (rising("clk", clk)) cnt = (cnt + 1) & 0xffff;
+      if (rst === 1) cnt = 0;
+      mem.cnt = cnt;
+      for (let i = 0; i < 16; i++) out.push({ pin: 2 + i, level: (cnt >> i) & 1 });
+      break;
+    }
+    case "mux8": {
+      const sel = (inputs[8] ?? 0) | ((inputs[9] ?? 0) << 1) | ((inputs[10] ?? 0) << 2);
+      out.push({ pin: 11, level: inputs[sel] ?? 0 });
+      break;
+    }
+    case "mux2": {
+      const sel = inputs[2] ?? 0;
+      out.push({ pin: 3, level: sel ? inputs[1] ?? 0 : inputs[0] ?? 0 });
+      break;
+    }
+    case "demux8": {
+      const sel = (inputs[1] ?? 0) | ((inputs[2] ?? 0) << 1) | ((inputs[3] ?? 0) << 2);
+      for (let i = 0; i < 8; i++) out.push({ pin: 4 + i, level: i === sel ? inputs[0] ?? 0 : 0 });
+      break;
+    }
+    case "decoder416": {
+      const sel = (inputs[0] ?? 0) | ((inputs[1] ?? 0) << 1) | ((inputs[2] ?? 0) << 2) | ((inputs[3] ?? 0) << 3);
+      for (let i = 0; i < 16; i++) out.push({ pin: 4 + i, level: i === sel ? 1 : 0 });
+      break;
+    }
+    case "decoder24": {
+      const sel = (inputs[0] ?? 0) | ((inputs[1] ?? 0) << 1);
+      for (let i = 0; i < 4; i++) out.push({ pin: 2 + i, level: i === sel ? 1 : 0 });
+      break;
+    }
+    case "encoder42": {
+      // 4 to 2 priority encoder
+      let code = 0;
+      for (let i = 3; i >=0; i--) if (inputs[i]) { code = i; break; }
+      out.push({ pin: 4, level: (code>>0)&1 }, { pin:5, level:(code>>1)&1 });
+      break;
+    }
+    case "switch4": {
+      // quad analog switch – if control high, output = input
+      for (let i=0;i<4;i++) {
+        const inp = inputs[i*3] ?? 0;
+        const ctrl = inputs[i*3+2] ?? 0;
+        out.push({ pin: i*3+1, level: ctrl ? inp : 0 });
+      }
+      break;
+    }
+    case "dac8": {
+      // 8-bit DAC: Vout = (digital/255)*Vref
+      const bits = inputs.slice(0,8).reduce((s,b,i)=>s|(b<<i),0);
+      const vref = dev.params.vref ?? ctx.vdd;
+      const vout = (bits/255)*vref;
+      // We push analog as level? For behavioral we store vout in mem
+      mem.vout = vout;
+      // Digital output not used, but we can output analog via special pin handling in engine – for now output high if vout > vth
+      out.push({ pin: 8, level: vout > ctx.vth ? 1 : 0 });
+      break;
+    }
+    case "adc8": {
+      const vin = v[0] ?? 0;
+      const vref = dev.params.vref ?? ctx.vdd;
+      const code = Math.max(0, Math.min(255, Math.round((vin/vref)*255)));
+      for (let i=0;i<8;i++) out.push({ pin: 1+i, level: (code>>i)&1 });
+      break;
+    }
+    case "bcdcounter": {
+      const [clk, rst, en] = inputs;
+      let cnt = mem.cnt ?? 0;
+      if (rising("clk", clk) && en !== 0) cnt = (cnt + 1) % 10;
+      if (rst === 1) cnt = 0;
+      mem.cnt = cnt;
+      for (let i=0;i<4;i++) out.push({ pin: 3+i, level: (cnt>>i)&1 });
+      break;
+    }
+    case "7seg_common": {
+      const val = (inputs[0] ?? 0) | ((inputs[1] ?? 0) << 1) | ((inputs[2] ?? 0) << 2) | ((inputs[3] ?? 0) << 3);
+      const table = [0x3f,0x06,0x5b,0x4f,0x66,0x6d,0x7d,0x07,0x7f,0x6f];
+      const seg = table[val%10] ?? 0;
+      for (let i=0;i<7;i++) out.push({ pin: 4+i, level: (seg>>i)&1 });
+      break;
+    }
+    case "pll4046": {
+      // simple VCO: output freq proportional to Vin
+      const vin = v[0] ?? 0;
+      const f = (vin/ctx.vdd)* (dev.params.fmax ?? 10000);
+      const phase = (ctx.time * f) % 1;
+      out.push({ pin: 1, level: phase < 0.5 ? 1 : 0 });
+      break;
+    }
+    case "monostable": {
+      const [trig, rst] = inputs;
+      let q = mem.q ?? 0;
+      let t0 = mem.t0 ?? 0;
+      const pw = dev.params.pw ?? 0.001;
+      if (rst === 1) { q=0; }
+      else if (trig === 1 && q===0) { q=1; t0=ctx.time; }
+      else if (q===1 && ctx.time - t0 > pw) q=0;
+      mem.q=q; mem.t0=t0;
+      out.push({ pin: 2, level: q }, { pin:3, level: 1-q });
+      break;
+    }
+    case "latch4": {
+      // quad D latch
+      for (let i=0;i<4;i++) {
+        const d = inputs[i*2] ?? 0;
+        const en = inputs[i*2+1] ?? 0;
+        if (en===1) mem["q"+i]=d;
+        out.push({ pin: 8+i, level: mem["q"+i] ?? 0 });
+      }
+      break;
+    }
+    case "ram8": {
+      // simple 256x8 RAM – address 8 bits, data 8 bits, WE, OE, CS
+      const addr = inputs.slice(0,8).reduce((s,b,i)=>s|(b<<i),0);
+      const we = inputs[8] ?? 0;
+      const oe = inputs[9] ?? 0;
+      const cs = inputs[10] ?? 1;
+      (mem as any).ram ??= {};
+      const ram = (mem as any).ram as Record<number,number>;
+      if (cs===0 && we===1) {
+        // write: data pins are inputs 11..18
+        const data = inputs.slice(11,19).reduce((s,b,i)=>s|(b<<i),0);
+        ram[addr]=data;
+      }
+      if (cs===0 && oe===0) {
+        const data = ram[addr] ?? 0;
+        for (let i=0;i<8;i++) out.push({ pin: 11+i, level: (data>>i)&1 });
+      } else {
+        for (let i=0;i<8;i++) out.push({ pin: 11+i, level: -1 });
+      }
+      break;
+    }
     default:
       gate((a) => (a.every((x) => x === 1) ? 1 : 0));
       break;

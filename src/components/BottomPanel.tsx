@@ -6,6 +6,7 @@ import { buildBom, fromSpiceNetlist, toSpiceNetlist } from "@/lib/schematic/mode
 import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor } from "@/state/editor";
 import Grapher from "./Grapher";
+import ProbeTable from "./ProbeTable";
 
 const TABS = [
   ["console", "Konsole", <Terminal key="c" size={12} />],
@@ -59,7 +60,7 @@ export default function BottomPanel() {
       {bottomOpen && (
         <div className="min-h-0 flex-1 overflow-hidden">
           {bottomTab === "console" && (
-            <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-[11.5px] leading-[1.6]" role="log" aria-label="Konsolenausgaben">
+            <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-[11.5px] leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
               {logs.map((l) => (
                 <div key={l.id} className="flex gap-2">
                   <span className="text-mute">{l.time}</span>
@@ -117,25 +118,55 @@ export default function BottomPanel() {
               ) : (
                 <ul className="space-y-1">
                   {netResult.errors.map((e, i) => (
-                    <li key={"e" + i} style={{ color: "var(--err)" }}>
-                      ✕ {e}
+                    <li key={"e" + i} className="flex items-center gap-2" style={{ color: "var(--err)" }}>
+                      <span className="flex-1">✕ {e}</span>
+                      <button className="btn h-6 px-2 text-[10px]" onClick={()=>{
+                        // Zoom to error – find instance by label in error message
+                        const doc = useEditor.getState().doc;
+                        for (const inst of doc.instances) {
+                          if (e.includes(inst.label)) {
+                            useEditor.getState().setView({ x: inst.x - 200, y: inst.y - 150, zoom: 1.2 });
+                            useEditor.getState().setSelection([inst.id]);
+                            break;
+                          }
+                        }
+                      }}>Zoom to error</button>
                     </li>
                   ))}
                   {netResult.warnings.map((w, i) => (
-                    <li key={"w" + i} style={{ color: "var(--warn)" }}>
-                      ⚠ {w}
+                    <li key={"w" + i} className="flex items-center gap-2" style={{ color: "var(--warn)" }}>
+                      <span className="flex-1">⚠ {w}</span>
+                      <button className="btn h-6 px-2 text-[10px]" onClick={()=>{
+                        const doc = useEditor.getState().doc;
+                        for (const inst of doc.instances) {
+                          if (w.includes(inst.label)) {
+                            useEditor.getState().setView({ x: inst.x - 200, y: inst.y - 150, zoom: 1.2 });
+                            useEditor.getState().setSelection([inst.id]);
+                            break;
+                          }
+                        }
+                      }}>Zoom</button>
                     </li>
                   ))}
                 </ul>
               )}
               <div className="mt-3 text-[11px] text-mute">
                 Knoten: {netResult.nets.length} · Bauteile: {netResult.netlist.devices.length} · Matrix:{" "}
-                {engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"}
+                {engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"} · ERC visuell an (rote Marker direkt am Bauteil, wie Multisim)
               </div>
             </div>
           )}
 
-          {bottomTab === "probes" && <LiveStrip />}
+          {bottomTab === "probes" && (
+            <div className="flex h-full flex-col md:flex-row">
+              <div className="flex-1 min-h-0 overflow-hidden border-r" style={{ borderColor: "var(--border)" }}>
+                <ProbeTable />
+              </div>
+              <div className="h-[140px] md:h-full md:w-[320px] shrink-0">
+                <LiveStrip />
+              </div>
+            </div>
+          )}
 
           {bottomTab === "bom" && (
             <div className="h-full overflow-auto p-2">
@@ -174,9 +205,18 @@ export default function BottomPanel() {
 
 function LiveStrip() {
   const probes = useEditor((s) => s.probes);
+  const docProbes = useEditor((s) => s.doc.probes);
   const netResult = useEditor((s) => s.netResult);
   const nets = useMemo(() => netResult.nets.map((n) => n.name).filter((n) => n !== "0"), [netResult.nets]);
-  const shown = probes.length ? probes : nets.slice(0, 4);
+  // Multisim-like: show measurement probes + legacy probes
+  const shownNets = useMemo(()=>{
+    const mpNets = docProbes.map(p=> ({ net: p.net ?? "", probe: p })).filter(x=> x.net && x.net!=="0");
+    const legacy = probes.map(n=> ({ net: n, probe: null as any }));
+    const combined = [...mpNets, ...legacy.filter(l=> !mpNets.some(m=> m.net===l.net))];
+    if (combined.length) return combined;
+    return nets.slice(0,4).map(n=> ({ net: n, probe: null as any }));
+  }, [probes, docProbes, nets]);
+
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -195,12 +235,14 @@ function LiveStrip() {
         if (ctx) {
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           ctx.clearRect(0, 0, w, h);
-          const rows = Math.max(shown.length, 1);
+          const rows = Math.max(shownNets.length, 1);
           const rowH = h / rows;
-          shown.forEach((net, i) => {
+          shownNets.forEach((item, i) => {
+            const net = item.net;
             const ch = engine.channel(net, 1800);
-            const color = ["--ch1", "--ch2", "--ch3", "--ch4"][i % 4];
-            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(color).trim() || "#38bdf8";
+            const col = item.probe?.color ?? (["--ch1", "--ch2", "--ch3", "--ch4"][i % 4]);
+            if (col.startsWith("#")) ctx.strokeStyle = col;
+            else ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(col).trim() || "#38bdf8";
             ctx.lineWidth = 1.4;
             ctx.beginPath();
             if (ch.v.length > 1) {
@@ -217,7 +259,8 @@ function LiveStrip() {
             ctx.stroke();
             ctx.fillStyle = "rgba(128,140,165,.9)";
             ctx.font = "9.5px ui-monospace, monospace";
-            ctx.fillText(`${net}  ${formatValue(engine.lastState.nets[net] ?? 0, "V")}`, 6, i * rowH + 11);
+            const label = item.probe ? `${item.probe.name ?? item.probe.kind.toUpperCase()} (${net}) ${formatValue(engine.lastState.nets[net] ?? 0, "V")}` : `${net}  ${formatValue(engine.lastState.nets[net] ?? 0, "V")}`;
+            ctx.fillText(label, 6, i * rowH + 11);
           });
         }
       }
@@ -225,7 +268,7 @@ function LiveStrip() {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [shown]);
+  }, [shownNets]);
 
   return (
     <div className="h-full p-2">
