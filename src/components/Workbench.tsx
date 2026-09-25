@@ -126,7 +126,23 @@ function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open
         <div className="min-h-0 flex-1 overflow-auto">{children}</div>
       </div>
       <StatusBar />
-      {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
+    </div>
+  );
+}
+
+function UndoToast() {
+  const toast = useEditor((s) => s.toast);
+  const clear = useEditor((s) => s.clearToast);
+  if (!toast) return null;
+  return (
+    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 rounded-xl px-4 py-2.5 text-[12px] shadow-2xl backdrop-blur-xl" style={{ background: "color-mix(in srgb, var(--panel-solid) 92%, transparent)", border: "1px solid var(--border-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+      <span className="text-dim">{toast.message}</span>
+      {toast.action && toast.actionLabel && (
+        <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => toast.action?.()}>
+          {toast.actionLabel}
+        </button>
+      )}
+      <button className="btn h-7 w-7 p-0" onClick={() => clear()}><X size={12} /></button>
     </div>
   );
 }
@@ -280,23 +296,6 @@ export default function Workbench() {
   }
 
   // Desktop – original layout but with dvh and better flex
-function UndoToast() {
-  const toast = useEditor((s) => s.toast);
-  const clear = useEditor((s) => s.clearToast);
-  if (!toast) return null;
-  return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 rounded-xl px-4 py-2.5 text-[12px] shadow-2xl backdrop-blur-xl" style={{ background: "color-mix(in srgb, var(--panel-solid) 92%, transparent)", border: "1px solid var(--border-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
-      <span className="text-dim">{toast.message}</span>
-      {toast.action && toast.actionLabel && (
-        <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => toast.action?.()}>
-          {toast.actionLabel}
-        </button>
-      )}
-      <button className="btn h-7 w-7 p-0" onClick={() => clear()}><X size={12} /></button>
-    </div>
-  );
-}
-
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} />
