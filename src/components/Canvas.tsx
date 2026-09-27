@@ -20,6 +20,7 @@ import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
 import { openFileInEditor } from "@/lib/schematic/openFile";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 interface Pt { x: number; y: number; }
 
@@ -74,6 +75,7 @@ type CtxTarget =
   | { kind: "probe"; id: string; probe: MeasurementProbe; net: string | null };
 
 export default function Canvas() {
+  const apple = useIsApple();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState<Pt>({ x: 0, y: 0 });
@@ -1445,7 +1447,7 @@ export default function Canvas() {
         lines = [`Messpunkt ${probe.kind} ${probe.name ?? ""}`, `Netz: ${probe.net ?? net ?? "auto"}`, `Doppelklick: Inspector`, `Rechtsklick: Typ/REF/Reverse/Löschen`, `Drag: verschiebt Body, Leader bleibt`];
       } else if (inst) {
         const part = PART_MAP[inst.partId];
-        lines = [`${part?.name ?? inst.partId} ${inst.label}`, `Doppelklick: Wert ändern · ⌥Doppelklick: Inspector`, `R: Drehen, M: Spiegeln, Entf: Löschen`, `Rechtsklick: Probe hinzufügen`, `Drag: verschieben, Strg+Drag: duplizieren`];
+        lines = [`${part?.name ?? inst.partId} ${inst.label}`, adaptShortcut("Doppelklick: Wert ändern · ⌥Doppelklick: Inspector", apple), `R: Drehen, M: Spiegeln, Entf: Löschen`, `Rechtsklick: Probe hinzufügen`, `Drag: verschieben, Strg+Drag: duplizieren`];
       } else if (wireId) {
         lines = [`Leitung ${wireId.slice(0,6)} – Netz ${net ?? "?"}`, `Klick: auswählen (zeigt Handles)`, `Drag Handle: Punkt verschieben`, `Drag Leitung: ganze Leitung verschieben`, `Rechtsklick: Probe setzen / Löschen`, `Doppelklick: Inspector`];
       } else if (net) {
@@ -1656,7 +1658,7 @@ export default function Canvas() {
   }, []);
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-hidden" role="application" aria-label="Schaltplan Canvas – Bauteile platzieren, Leitungen ziehen, Probes setzen. Shortcuts: R Drehen, W Wire, F Fit, Leertaste Start, ⌘K Bibliothek, ? Hilfe">
+    <div ref={wrapRef} className="relative h-full w-full overflow-hidden" role="application" aria-label={adaptShortcut("Schaltplan Canvas – Bauteile platzieren, Leitungen ziehen, Probes setzen. Shortcuts: R Drehen, W Wire, F Fit, Leertaste Start, ⌘K Bibliothek, ? Hilfe", apple)}>
       <canvas
         id="schematic-canvas"
         ref={canvasRef}
@@ -1794,7 +1796,7 @@ export default function Canvas() {
                   <Sparkles size={20} />
                 </div>
                 <div className="text-[14px] font-semibold">Leere Leinwand – los geht’s!</div>
-                <div className="mt-1 text-[12px] text-mute">Drücke <kbd className="kbd">⌘K</kbd> für die Bauteil-Bibliothek oder ziehe Bauteile aus der Seitenleiste.</div>
+                <div className="mt-1 text-[12px] text-mute">Drücke <kbd className="kbd">{adaptShortcut("⌘K", apple)}</kbd> für die Bauteil-Bibliothek oder ziehe Bauteile aus der Seitenleiste.</div>
                 <div className="mt-3 flex flex-wrap gap-1.5 justify-center">
                   <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => useEditor.setState({ libraryOpen: true })}><LibIcon size={12} /> Bibliothek öffnen</button>
                   <button className="btn h-7 px-3 text-[11px]" onClick={() => { const id = useEditor.getState().addInstance("resistor", 0, 0); if (id) useEditor.getState().setSelection([id]); }}>+ R Widerstand</button>
@@ -1819,15 +1821,15 @@ export default function Canvas() {
                 <div className="text-[10px] uppercase text-mute mb-1">Canvas</div>
                 <div className="space-y-1">
                   <div className="flex justify-between"><span>W Wire</span><kbd className="kbd">W</kbd></div>
-                  <div className="flex justify-between"><span>Bauteil drehen</span><kbd className="kbd">R</kbd> / <kbd className="kbd">⇧R</kbd> / <kbd className="kbd">⌘R</kbd></div>
+                  <div className="flex justify-between"><span>Bauteil drehen</span><kbd className="kbd">R</kbd> / <kbd className="kbd">{adaptShortcut("⇧R", apple)}</kbd> / <kbd className="kbd">{adaptShortcut("⌘R", apple)}</kbd></div>
                   <div className="flex justify-between"><span>Spiegeln</span><kbd className="kbd">M</kbd></div>
-                  <div className="flex justify-between"><span>Grid / Snap</span><kbd className="kbd">G</kbd> / <kbd className="kbd">⇧G</kbd></div>
-                  <div className="flex justify-between"><span>Zoom / Pan</span><kbd className="kbd">Rad</kbd> / <kbd className="kbd">⇧Rad</kbd></div>
+                  <div className="flex justify-between"><span>Grid / Snap</span><kbd className="kbd">G</kbd> / <kbd className="kbd">{adaptShortcut("⇧G", apple)}</kbd></div>
+                  <div className="flex justify-between"><span>Zoom / Pan</span><kbd className="kbd">Rad</kbd> / <kbd className="kbd">{adaptShortcut("⇧Rad", apple)}</kbd></div>
                   <div className="flex justify-between"><span>Touch</span><span className="text-mute">2 Finger = Zoom + Pan, lang halten = Menü</span></div>
                   <div className="flex justify-between"><span>Löschen</span><kbd className="kbd">Entf</kbd></div>
-                  <div className="flex justify-between"><span>Duplizieren</span><kbd className="kbd">⌘D</kbd></div>
-                  <div className="flex justify-between"><span>Alles wählen</span><kbd className="kbd">⌘A</kbd></div>
-                  <div className="flex justify-between"><span>Rückgängig/Wiederholen</span><kbd className="kbd">⌘Z</kbd> / <kbd className="kbd">⇧⌘Z</kbd></div>
+                  <div className="flex justify-between"><span>Duplizieren</span><kbd className="kbd">{adaptShortcut("⌘D", apple)}</kbd></div>
+                  <div className="flex justify-between"><span>Alles wählen</span><kbd className="kbd">{adaptShortcut("⌘A", apple)}</kbd></div>
+                  <div className="flex justify-between"><span>Rückgängig/Wiederholen</span><kbd className="kbd">{adaptShortcut("⌘Z", apple)}</kbd> / <kbd className="kbd">{adaptShortcut("⇧⌘Z", apple)}</kbd></div>
                   <div className="flex justify-between"><span>Fit View</span><kbd className="kbd">F</kbd></div>
                   <div className="flex justify-between"><span>Simulation Start/Pause</span><kbd className="kbd">Leertaste</kbd></div>
                 </div>
@@ -1835,7 +1837,7 @@ export default function Canvas() {
               <div>
                 <div className="text-[10px] uppercase text-mute mb-1">Probes & Library</div>
                 <div className="space-y-1">
-                  <div className="flex justify-between"><span>Bibliothek</span><kbd className="kbd">⌘K</kbd></div>
+                  <div className="flex justify-between"><span>Bibliothek</span><kbd className="kbd">{adaptShortcut("⌘K", apple)}</kbd></div>
                   <div className="flex justify-between"><span>V-Probe</span><kbd className="kbd">V</kbd> + Klick</div>
                   <div className="flex justify-between"><span>A-Probe (Strom)</span><kbd className="kbd">A</kbd> + Klick</div>
                   <div className="flex justify-between"><span>Label setzen</span><kbd className="kbd">L</kbd></div>
@@ -1860,6 +1862,7 @@ export default function Canvas() {
 }
 
 function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: number; wy: number; target: CtxTarget }; onClose: () => void }) {
+  const apple = useIsApple();
   const st = useEditor.getState();
   const { target, wx, wy } = menu;
   const netLabel = target.net ? ` – ${target.net}` : "";
@@ -1906,12 +1909,12 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
             </div>
             <div className="grid grid-cols-3 gap-1 mb-1">
               <button className="row justify-center" onClick={() => { st.rotateSelection(1); onClose(); }} title="Drehen 90° (R)">↻ 90°</button>
-              <button className="row justify-center" onClick={() => { st.rotateSelection(-1); onClose(); }} title="Drehen -90° (⇧R)">↺ -90°</button>
+              <button className="row justify-center" onClick={() => { st.rotateSelection(-1); onClose(); }} title={adaptShortcut("Drehen -90° (⇧R)", apple)}>↺ -90°</button>
               <button className="row justify-center" onClick={() => { st.mirrorSelection(); onClose(); }} title="Spiegeln (M)">⇆ Spiegel</button>
             </div>
             <button className="row" onClick={() => { st.setSelection([target.id]); useEditor.setState({ rightOpen: true }); onClose(); }}><span>⚙️ Eigenschaften…</span><span className="ml-auto text-[10px] text-mute">Doppelklick</span></button>
-            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-[10px] text-mute">⌘D</span></button>
-            <button className="row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-[10px] text-mute">⌘C</span></button>
+            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
+            <button className="row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘C", apple)}</span></button>
             <div className="sep" />
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Probe auf Netz{netLabel} – Multisim Style</div>
             <div className="grid grid-cols-2 gap-1">
@@ -2094,7 +2097,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               <div className="text-[10px] text-mute">Netz {target.net ?? "–"} • {doc.instances.length} Bauteile</div>
             </div>
           </div>
-          {st.clipboard && <button className="row" onClick={() => { st.pasteClipboard(); onClose(); }}><span>⎘ Einfügen</span><span className="ml-auto text-[10px] text-mute">⌘V</span></button>}
+          {st.clipboard && <button className="row" onClick={() => { st.pasteClipboard(); onClose(); }}><span>⎘ Einfügen</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘V", apple)}</span></button>}
           <button className="row" onClick={() => { st.setTool("label" as any); onClose(); }}><span>🏷️ Netzname hinzufügen</span><span className="ml-auto text-[10px] text-mute">L</span></button>
           <button className="row" onClick={() => { st.setTool("text" as any); onClose(); }}><span>📝 Notiz hinzufügen</span><span className="ml-auto text-[10px] text-mute">T</span></button>
           <div className="sep" />
@@ -2115,7 +2118,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
           <div className="sep" />
           <div className="grid grid-cols-2 gap-1">
             <button className="row justify-center" onClick={() => { st.fitView(); onClose(); }}><span>⛶ Einpassen</span><span className="ml-auto text-[10px] text-mute">F</span></button>
-            <button className="row justify-center" onClick={() => { st.toggleLibrary(); onClose(); }}><span>📚 Bibliothek</span><span className="ml-auto text-[10px] text-mute">⌘K</span></button>
+            <button className="row justify-center" onClick={() => { st.toggleLibrary(); onClose(); }}><span>📚 Bibliothek</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘K", apple)}</span></button>
           </div>
           <div className="grid grid-cols-2 gap-1 mt-1">
             <button className="row justify-center" onClick={() => { useEditor.setState({ showGrid: !st.showGrid }); onClose(); }}><span>{st.showGrid?"☑":"☐"} Grid</span></button>

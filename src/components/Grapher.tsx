@@ -6,6 +6,7 @@ import { formatValue } from "@/lib/library/catalog";
 import { ANALYSIS_MAP } from "@/lib/sim/analysis_defs";
 import { useEditor } from "@/state/editor";
 import { downloadBlob, downloadText, safeName } from "./ui";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 const cssVar = (n: string, f: string) => {
   if (typeof window === "undefined") return f;
@@ -83,6 +84,7 @@ export function LinePlot({
   const view = viewState && viewState.forPanels === panels ? viewState.v : null;
   const setView = (v: View | null) => setViewState(v ? { forPanels: panels, v } : null);
   const [panning, setPanning] = useState(false);
+  const apple = useIsApple();
   const panRef = useRef<{ px: number; py: number; base: View } | null>(null);
 
   const fitDomains = useCallback((): View => {
@@ -465,7 +467,7 @@ export function LinePlot({
     <div
       ref={wrapRef}
       className="relative h-full w-full"
-      title="Mausrad = X-Zoom · ⇧Rad = Y-Zoom · Ziehen = Schwenken · Doppelklick = automatisch einpassen"
+      title={adaptShortcut("Mausrad = X-Zoom · ⇧Rad = Y-Zoom · Ziehen = Schwenken · Doppelklick = automatisch einpassen", apple)}
       onDoubleClick={() => setView(null)}
       onMouseMove={(e) => {
         const r = canvasRef.current?.getBoundingClientRect();

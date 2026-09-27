@@ -8,6 +8,7 @@ import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, ThemePref, useEditor } from "@/state/editor";
 import { Menu, MenuItem, MenuSeparator, downloadText, safeName, Tooltip } from "./ui";
 import { openFileInEditor } from "@/lib/schematic/openFile";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 const INSTRUMENT_ITEMS: Array<[InstrumentKind, string]> = [
   ["dmm", "Digitalmultimeter"],
@@ -26,6 +27,7 @@ const INSTRUMENT_ITEMS: Array<[InstrumentKind, string]> = [
 ];
 
 export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects, isMobile = false }: { onAnalysis: (kind: string) => void; onSettings?: () => void; onWizards?: () => void; onProjects?: () => void; isMobile?: boolean }) {
+  const apple = useIsApple();
   const docName = useEditor((s) => s.doc.name);
   const doc = useEditor((s) => s.doc);
   const canUndo = useEditor((s) => s.past.length > 0);
@@ -222,12 +224,12 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
       <div className="mx-2 h-4 w-px" style={{ background: "var(--border)" }} />
 
       <div className="flex items-center gap-0.5">
-        <Tooltip content="Rückgängig – macht letzte Aktion rückgängig (50 Schritte History)\nShortcut: ⌘Z / Strg+Z" side="bottom">
+        <Tooltip content="Rückgängig – macht letzte Aktion rückgängig (50 Schritte History)\nShortcut: ⌘Z" side="bottom">
           <button className="btn h-6 px-1.5" onClick={() => st().undo()} disabled={!canUndo}>
             <Undo2 size={13} />
           </button>
         </Tooltip>
-        <Tooltip content="Wiederholen – stellt rückgängig gemachte Aktion wieder her\nShortcut: ⇧⌘Z / Strg+Y" side="bottom">
+        <Tooltip content="Wiederholen – stellt rückgängig gemachte Aktion wieder her\nShortcut: ⇧⌘Z oder ⌘Y" side="bottom">
           <button className="btn h-6 px-1.5" onClick={() => st().redo()} disabled={!canRedo}>
             <Redo2 size={13} />
           </button>
@@ -270,7 +272,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         </Tooltip>
         <Tooltip content="Bibliothek öffnen – zeigt alle 402 Bauteile mit Symbol-Vorschau und Datenblatt\nShortcut: ⌘K" side="bottom">
           <button className="btn h-6 px-2 text-[10px]" onClick={() => st().toggleLibrary()}>
-            ⌘K
+            {adaptShortcut("⌘K", apple)}
           </button>
         </Tooltip>
         <Tooltip content="Einstellungen – Probes, Library, Canvas, Theme, Accessibility\nHier konfigurierbar was Alt+Hover anzeigt" side="bottom">

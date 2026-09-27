@@ -5,6 +5,7 @@ import { PARTS, PartDef } from "@/lib/library/catalog";
 import { ProbeKind } from "@/lib/schematic/model";
 import { CategoryIcon } from "@/lib/library/icons";
 import { Tooltip } from "./ui";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 const QUICK: Array<{ id: string; label: string; desc: string }> = [
   { id: "resistor", label: "R", desc: "Widerstand – begrenzt Strom, z.B. 10kΩ" },
@@ -30,6 +31,7 @@ const PROBES: Array<{ k: ProbeKind; l: string; t: string; c: string; desc: strin
 ];
 
 export default function ComponentStrip() {
+  const apple = useIsApple();
   const placing = useEditor((s) => s.placingPartId);
   const placingProbe = useEditor((s) => s.placingProbeKind);
   const setPlacing = useEditor((s) => s.setPlacing);
@@ -94,9 +96,9 @@ export default function ComponentStrip() {
 
       <div className="mx-2 h-4 w-px shrink-0" style={{ background: "var(--border)" }} />
 
-      <Tooltip content={`Bibliothek öffnen\nZeigt alle 402 Bauteile mit Symbol-Vorschau, Beschreibung, Datenblatt\nShortcut: ⌘K oder Strg+K\n"/" fokussiert Suche`} side="bottom">
+      <Tooltip content={`Bibliothek öffnen\nZeigt alle 402 Bauteile mit Symbol-Vorschau, Beschreibung, Datenblatt\nShortcut: ⌘K\n"/" fokussiert Suche`} side="bottom">
         <button className="btn h-8 px-3 text-[11px]" onClick={toggleLibrary}>
-          📚 Bibliothek… ⌘K
+          📚 Bibliothek… {adaptShortcut("⌘K", apple)}
         </button>
       </Tooltip>
 

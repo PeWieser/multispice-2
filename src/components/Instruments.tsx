@@ -8,6 +8,7 @@ import { formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
 import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
 import { InstrumentKind, InstrumentWindow, engine, useEditor } from "@/state/editor";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
 const SCOPE_COLORS = ["#4ade80", "#38bdf8", "#fbbf24", "#f472b6"];
@@ -214,6 +215,7 @@ function TactileButton({ active, onClick, children, color, title }: { active?: b
 }
 
 function CrtScreen({ render, cursors, setCursors, trigger, timebase, volts, onTriggerDrag, onWheelZoom }: { render: (ctx: CanvasRenderingContext2D, w:number,h:number)=>void; cursors: NonNullable<ScopeConfig["cursors"]>; setCursors: (c:any)=>void; trigger: ScopeConfig["trigger"]; timebase:number; volts:number[]; onTriggerDrag:(y:number)=>void; onWheelZoom?:(deltaY:number, shift:boolean)=>void }) {
+  const apple = useIsApple();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<null | {kind:"ax"|"bx"|"ay"|"by"|"trig"}>(null);
@@ -350,7 +352,7 @@ function CrtScreen({ render, cursors, setCursors, trigger, timebase, volts, onTr
   };
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-hidden rounded-[10px]" title={onWheelZoom ? "Mausrad = Zeit/DIV zoomen · ⇧Rad = V/DIV des Trigger-Kanals" : undefined} style={{ background:"#04080a", boxShadow:"inset 0 0 0 1px #000, inset 0 0 40px rgba(0,0,0,0.9), inset 0 0 120px rgba(10,40,20,0.2)" }}>
+    <div ref={wrapRef} className="relative h-full w-full overflow-hidden rounded-[10px]" title={onWheelZoom ? adaptShortcut("Mausrad = Zeit/DIV zoomen · ⇧Rad = V/DIV des Trigger-Kanals", apple) : undefined} style={{ background:"#04080a", boxShadow:"inset 0 0 0 1px #000, inset 0 0 40px rgba(0,0,0,0.9), inset 0 0 120px rgba(10,40,20,0.2)" }}>
       <Plot render={plotRender} className="h-full w-full" />
       {/* invisible drag handles */}
       {cursors.enabled && (

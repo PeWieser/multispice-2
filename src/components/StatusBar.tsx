@@ -3,6 +3,7 @@
 import { Gauge } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor, useHud } from "@/state/editor";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 function hintFor(tool: string, placing: boolean, running: boolean): string {
   if (placing) return "Klick platziert das Bauteil · Shift für Serie · Esc bricht ab";
@@ -30,6 +31,7 @@ function hintFor(tool: string, placing: boolean, running: boolean): string {
 }
 
 export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) {
+  const apple = useIsApple();
   const tool = useEditor((s) => s.tool);
   const placing = useEditor((s) => s.placingPartId);
   const running = useEditor((s) => s.sim.running);
@@ -71,10 +73,10 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
     >
       {selection.length > 0 && (
         <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "var(--accent-soft)", color: "var(--accent)", border: "1px solid var(--accent-mid)" }}>
-          {selection.length} ausgewählt • R drehen • Entf löschen • ⌘D duplizieren
+          {adaptShortcut(`${selection.length} ausgewählt • R drehen • Entf löschen • ⌘D duplizieren`, apple)}
         </span>
       )}
-      <span className="min-w-0 flex-1 truncate">{hintFor(tool, !!placing, running)}</span>
+      <span className="min-w-0 flex-1 truncate">{adaptShortcut(hintFor(tool, !!placing, running), apple)}</span>
 
       <button
         className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]"
@@ -117,7 +119,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
           savePending
             ? "Änderung ausstehend – Auto-Save schreibt in ≤ 2 s"
             : lastSavedAt
-              ? `Zuletzt gespeichert um ${new Date(lastSavedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} (Auto-Save oder ⌘S)`
+              ? `Zuletzt gespeichert um ${new Date(lastSavedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} (Auto-Save oder ${adaptShortcut("⌘S", apple)})`
               : "Auto-Save aktiv – schreibt 2 s nach jeder Änderung"
         }
       >

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { formatValue, parseValue } from "@/lib/library/catalog";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 /* ------------------------------------------------------------------ */
 /* Datei-Download (Exporte) — ein Ort für alle Download-Helfer          */
@@ -38,6 +39,7 @@ export function safeName(name: string): string {
 export function Menu({ label, tooltip, children }: { label: string; tooltip?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const apple = useIsApple();
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -61,7 +63,7 @@ export function Menu({ label, tooltip, children }: { label: string; tooltip?: st
             <button className="btn h-7 min-w-[44px]" data-active={open} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={label}>
               {label}
             </button>
-            <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden max-w-[280px] -translate-x-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{tooltip}</span>
+            <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden max-w-[280px] -translate-x-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{adaptShortcut(tooltip, apple)}</span>
           </span>
         ) : (
           <button className="btn h-7 min-w-[44px]" data-active={open} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={label}>
@@ -102,6 +104,10 @@ export function MenuItem({
   disabledReason?: string;
   tooltip?: string;
 }) {
+  const apple = useIsApple();
+  const hintText = hint ? adaptShortcut(hint, apple) : undefined;
+  const tooltipText = tooltip ? adaptShortcut(tooltip, apple) : undefined;
+  const childrenText = typeof children === "string" ? adaptShortcut(children, apple) : children;
   return (
     <button
       role="menuitem"
@@ -109,17 +115,17 @@ export function MenuItem({
       style={danger ? { color: "var(--err)" } : undefined}
       onClick={onClick}
       disabled={disabled}
-      title={disabled ? disabledReason : tooltip}
+      title={disabled ? disabledReason : tooltipText}
     >
       <span className="flex min-w-0 items-center gap-2">
         <span className="grid w-4 shrink-0 place-items-center">{checked ? <Check size={13} /> : null}</span>
-        <span className="flex min-w-0 items-center gap-2">{children}</span>
+        <span className="flex min-w-0 items-center gap-2">{childrenText}</span>
       </span>
       <span className="flex items-center gap-2">
-        {hint && <span className="mono shrink-0 text-[10.5px] text-mute">{hint}</span>}
+        {hintText && <span className="mono shrink-0 text-[10.5px] text-mute">{hintText}</span>}
       </span>
-      {tooltip && (
-        <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-w-[300px] -translate-y-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover/item:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{tooltip}</span>
+      {tooltipText && (
+        <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-w-[300px] -translate-y-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover/item:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{tooltipText}</span>
       )}
     </button>
   );
@@ -338,6 +344,8 @@ export function Tooltip({
 }) {
   const [open, setOpen] = useState(false);
   const timerRef = useRef<number | null>(null);
+  const apple = useIsApple();
+  const contentText = typeof content === "string" ? adaptShortcut(content, apple) : content;
 
   const show = () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -366,7 +374,7 @@ export function Tooltip({
           style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", color: "var(--text)", whiteSpace: "pre-wrap" }}
           role="tooltip"
         >
-          {content}
+          {contentText}
         </span>
       )}
     </span>

@@ -5,8 +5,10 @@ import { Settings, X, Zap, Search, Monitor, Palette, Gauge, Component, Globe } f
 import { Dialog } from "./ui";
 import { ProbeHoverConfig, DEFAULT_HOVER, loadHoverConfig, saveHoverConfig, SymbolStylePref, loadSymbolStyle, saveSymbolStyle, resolveSymbolStyle, detectLocaleSymbol } from "@/lib/settings";
 import { useEditor } from "@/state/editor";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 export default function SettingsDialog({ onClose }: { onClose: () => void }) {
+  const apple = useIsApple();
   const [tab, setTab] = useState<"probe" | "library" | "canvas" | "general" | "symbols">("probe");
   const [symbolStyle, setSymbolStyleState] = useState<SymbolStylePref>(() => loadSymbolStyle());
   const [hoverCfg, setHoverCfg] = useState<ProbeHoverConfig>(() => loadHoverConfig());
@@ -200,7 +202,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
             • Net-Highlight: Hover über Leitung → ganzes Netz accent-2<br/>
             • Ghost: Schatten 12px/6px, Snap-Indikator, 65% Opacity<br/>
             • Marquee: gestrichelt 6/4, Count Badge mit Größe<br/>
-            • Empty State: Onboarding mit ⌘K, +R, Probe<br/>
+            • Empty State: Onboarding mit {adaptShortcut("⌘K", apple)}, +R, Probe<br/>
             • Shortcuts Overlay: ? Taste<br/>
             • Library: Arrow Keys + Enter, will-change-transform drag 60fps<br/>
             • Instruments: rAF + direct DOM, will-change-transform, commit on up

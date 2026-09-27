@@ -11,6 +11,7 @@ import {
   type ProjectSlot,
 } from "@/lib/storage";
 import { useEditor, type InstrumentWindow } from "@/state/editor";
+import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 function stamp(iso: string): string {
   const d = new Date(iso);
@@ -26,6 +27,7 @@ function sizeOf(slot: ProjectSlot): string {
 }
 
 export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
+  const apple = useIsApple();
   const [version, setVersion] = useState(0);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
@@ -151,7 +153,7 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
       )}
 
       <div className="mt-4 text-[10.5px] leading-relaxed text-mute">
-        Hinweis: „Öffnen“ ersetzt den aktuellen Plan – der vorherige Stand bleibt über Undo (⌘Z) und die
+        Hinweis: „Öffnen“ ersetzt den aktuellen Plan – der vorherige Stand bleibt über Undo ({adaptShortcut("⌘Z", apple)}) und die
         Auto-Save-Arbeitskopie erreichbar, bis du weiterarbeitest.
       </div>
     </Dialog>
