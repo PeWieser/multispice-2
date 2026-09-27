@@ -529,3 +529,81 @@ Geräte-Bildschirme = mattes Phosphorgrün (flach, kein Neon); Stromflusspunkte 
   wandernde Puffer-Frames: 2 Fensterphasen im Abstand genau 1 Sample (25 µs) →
   bildfest (alte Version: kontinuierliches Wandern). tsc 0 · eslint 0 · Tests grün ·
   Build grün.
+
+---
+
+## 10 · Runde 10 — Offene Punkte: W3, W10, W12 (Plan)
+
+### 10.1 · W3 · Pin-Deckungsgleichheit — Befund verschärft
+Nicht nur „off-grid": `icSymbol()` zeichnet Stubs mit **eigener Teilung**
+(`-h/2+22+i*16`, x=±w/2+5), während die elektrischen `pins`-Arrays andere Koordinaten
+haben (NE555: Pins ±36/±12, Stubs −26/−10/6/22 → bis 14 px Lüge; 7442: Pins 14er-Teilung
+±49…±35, Stubs 16er-Teilung; 53 icSymbol-Call-Sites betroffen). `bjtSymbol`: Pins
+C(12,−30)/B(−30,0)/E(12,30), Stub-Enden (12,−28)/(−20,0)/(12,28) → 2–10 px Lücke.
+`mosSymbol` ebenso (±28 statt ±30, Gate −20 statt −30). Wire-Snap fängt Pins dagegen
+schon exakt (`findPin`) — die Diskrepanz ist rein visuell, aber genau die sieht der Nutzer.
+
+**Fix (eine Quelle der Wahrheit):**
+1. `icSymbol(w, h, label, pins: PinDef[])` — Stubs + Namen werden AUS dem pins-Array
+   erzeugt: Stub von Body-Kante (±w/2) exakt bis (pin.x, pin.y), Name innen an der Kante.
+2. Alle 53 Call-Sites maschinell umgestellt: pins-Literale werden zu benannten Konstanten
+   gehoistet (`pins_<id>`), Teil-Bauteile übergeben die lokal gebaute `pins`-Variable.
+3. `bjtSymbol`/`mosSymbol`: Stub-Endpunkte auf die Pin-Koordinaten verlängert.
+4. **Laufzeit-Kongruenz-Checker** (node, transpiliertes catalog): JEDER Pin JEDES Teils
+   muss exakter Endpunkt einer Symbol-Linie sein → Befundliste → Restlücken schließen.
+*Akzeptanz:* Checker 0 Fehler; NE555 bei 400 %: Leitungsende exakt auf Stub-Ende.
+
+### 10.2 · W10 · Geräte-Bar rechts, Inspector als Fenster
+1. `InstrumentKind` + `"inspector"`; Titel/Fenstermaß 320×480; `openInstrument`
+   öffnet/fokussiert wie bei Geräten.
+2. `InstrumentLayer`-Window: `case "inspector" → <Inspector/>` — gleiche Chrome
+   (ziehen, docken, minimieren, schließen) wie Geräte.
+3. **DeviceBar** (neu): schmale Icon-Bar (44 px) am rechten Rand des Canvas-Bereichs
+   (Desktop + Tablet), 13 Geräte-Icons (Bestand aus `iconFor`) + Inspector-Toggle unten;
+   Klick öffnet/fokussiert; offene Geräte markiert; Kurz-`title` pro Knopf.
+4. Desktop/Tablet: festes `rightOpen`-Panel entfernt; rechter Rand = nur die Bar.
+   Mobile: BottomSheet bleibt (touch-nativ).
+5. Öffner: Doppelklick auf Bauteil/Probe (Canvas) → Inspector-Fenster statt Panel;
+   Kontextmenü „Eigenschaften…" dito (⚙️-Emoji entfernt); Strg+I/⌘I global;
+   `addMeasurementProbe` öffnet kein Panel mehr.
+6. Toter Code `InstrumentDock` (nie gerendert) gelöscht.
+*Akzeptanz:* Rechter Rand = immer nur Bar; Oszi = 1 Klick; Doppelklick R1 =
+Inspector-Fenster (verschiebbar/dockbar); Strg+I toggelt.
+
+### 10.3 · W12 · Slop-Sweep (Befunde dieser Runde)
+- ⚙️-Emoji: MobileTopBar-Einstellungsknopf, Canvas-Kontextmenü „Eigenschaften…" (2×) → lucide/text.
+- `addMeasurementProbe` loggt einen Tutorial-Satz („Multisim-like: V vs GND/REF…") → Kurzmeldung.
+- BottomPanel „ERC visuell an (rote Marker direkt am Bauteil, wie Multisim)" → ohne Eigenlob.
+- MobileBottomToolbar: tote `label`-Props, englische Titel → deutsche aria-labels; „Fit" → „Einpassen".
+- `Date.now()`-Animationen: Motor/7-Segment/Rauch bereits auf `live.time` (Runde 9) — Sweep bestätigt 0 Reste in Canvas/Instruments.
+- Checker-Läufe: Emoji-Sweep über alle Dialoge; tote Exporte (InstrumentDock).
+
+### 10.4 · Umsetzungsstand Runde 10 (2026-09-27)
+
+- **W3 ✅:** `icSymbol(w, h, label, pins: PinDef[])` — Stubs + Namen entstehen aus dem
+  pins-Array (52 Call-Sites maschinell umgestellt, 49 pins-Literale zu Konstanten
+  gehoistet). `bjtSymbol`/`mosSymbol` auf Pin-Koordinaten verlängert; IGBT bekam eigene
+  Stubs (x=12); Box-Chips (sevenseg, bargraph, lcd, 6 handgeschriebene MCUs via
+  `mcuBoxSymbol`, funcgen) erhielten Stubs/Kanten exakt bis zu den Pins.
+  **Dauertest:** `scripts/check-pin-congruence.ts` prüft jeden Pin jedes Teils gegen
+  das Symbol (Linie/Segment/Rect-Kante/Kreis) — 409 Teile, 2092 Pins, PASS; hängt in
+  `npm test`.
+- **W10 ✅:** `InstrumentKind` + `"inspector"`; Inspector-Fenster mit gleicher Chrome
+  (ziehen/docken/minimieren/schließen, lazy geladen); `toggleInspector()`;
+  **DeviceBar** (44px, rechter Rand, Desktop + Tablet): 13 Geräte-Icons + Inspector-Toggle,
+  offene Geräte markiert, Klick öffnet/fokussiert; feste Right-Panels entfernt
+  (Mobile-BottomSheet bleibt); Öffner: Doppelklick Bauteil/Probe, Kontextmenü
+  „Eigenschaften…", Strg+I/⌘I, Ansicht-Menü; Alt+Doppelklick behält den Inline-Wertedit.
+  Toter `InstrumentDock` gelöscht.
+- **W12 ✅ (erster Voll-Pass):** 9× „wie Multisim / Multisim-like"-Eigenlob aus
+  sichtbaren Strings entfernt; 🔥-Überlast-Emoji → ⚠; ⚙️-MobileTopBar → lucide;
+  „Bibliothek (⌘K)" im Menü → echtes `hint`-Prop (plattformadaptiert); Tutorial-Logs
+  gekürzt (Messpunkt, Leitungspunkt); MobileBottomToolbar: tote Labels → deutsche
+  aria-labels/titles, „Fit" → „Einpassen"; Emoji-Sweep über alle Dialoge: nur
+  funktionale Glyphen (✕ ⚠ ✓ ›) übrig; `Date.now()`-Animationen: 0 Reste.
+
+**Damit sind W1–W15 vollständig umgesetzt.** Bewusst offen bleibt nur der E-Block (§5:
+Symbol-Editor, Subcircuits, 3D).
+
+Verifikation: tsc 0 · eslint 0/0 · `npm test` grün (inkl. Pin-Kongruenz 2092/2092) ·
+`next build` grün.

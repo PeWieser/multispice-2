@@ -236,10 +236,10 @@ export function getPartSymbol(part: PartDef, style: SymbolStyle): SymbolPrim[] {
 
 function bjtSymbol(pnp: boolean): SymbolPrim[] {
   return [
-    L(-20, 0, -6, 0),
+    L(-30, 0, -6, 0),
     L(-6, -16, -6, 16),
-    L(-6, -8, 12, -18, 12, -28),
-    L(-6, 8, 12, 18, 12, 28),
+    L(-6, -8, 12, -18, 12, -30),
+    L(-6, 8, 12, 18, 12, 30),
     pnp ? L(-2, -2, -6, -8, 4, -6, -2, -2) : L(6, 14, 12, 18, 4, 22, 6, 14),
     CIR(0, 0, 24),
   ];
@@ -247,13 +247,13 @@ function bjtSymbol(pnp: boolean): SymbolPrim[] {
 
 function mosSymbol(p: boolean): SymbolPrim[] {
   return [
-    L(-20, 0, -8, 0),
+    L(-30, 0, -8, 0),
     L(-8, -16, -8, 16),
     L(-2, -16, -2, -6),
     L(-2, -5, -2, 5),
     L(-2, 6, -2, 16),
-    L(-2, -11, 14, -11, 14, -28),
-    L(-2, 11, 14, 11, 14, 28),
+    L(-2, -11, 14, -11, 14, -30),
+    L(-2, 11, 14, 11, 14, 30),
     L(-2, 0, 14, 0, 14, 11),
     p ? L(8, -4, 2, 0, 8, 4, 8, -4) : L(4, -4, 10, 0, 4, 4, 4, -4),
     CIR(0, 0, 24),
@@ -262,19 +262,17 @@ function mosSymbol(p: boolean): SymbolPrim[] {
 
 const gndSymbol: SymbolPrim[] = [L(0, -14, 0, 0), L(-14, 0, 14, 0), L(-9, 5, 9, 5), L(-4, 10, 4, 10)];
 
-function icSymbol(w: number, h: number, label: string, pinsLeft: string[], pinsRight: string[]): SymbolPrim[] {
-  // Steve Jobs: Pins must be exactly at wire tip, no gap – use 5px stub for clean look
+function icSymbol(w: number, h: number, label: string, pins: PinDef[]): SymbolPrim[] {
+  // W3: Eine Quelle der Wahrheit – Stubs und Pin-Namen entstehen AUS dem
+  // pins-Array, das auch die elektrischen Anschlusspunkte definiert.
+  // Stub: Body-Kante → exakt (pin.x, pin.y). Kein Versatz, keine eigene Teilung.
   const prims: SymbolPrim[] = [RECT(-w / 2, -h / 2, w, h, 4), TXT(0, -h / 2 + 12, label, 10)];
-  pinsLeft.forEach((p, i) => {
-    const y = -h / 2 + 22 + i * 16;
-    prims.push(L(-w / 2 - 5, y, -w / 2, y));
-    prims.push({ t: "text", x: -w / 2 + 6, y: y + 3, s: p, size: 7, align: "left" });
-  });
-  pinsRight.forEach((p, i) => {
-    const y = -h / 2 + 22 + i * 16;
-    prims.push(L(w / 2, y, w / 2 + 5, y));
-    prims.push({ t: "text", x: w / 2 - 6, y: y + 3, s: p, size: 7, align: "right" });
-  });
+  for (const pin of pins) {
+    const left = pin.x < 0;
+    const edgeX = left ? -w / 2 : w / 2;
+    if (pin.x !== edgeX) prims.push(L(edgeX, pin.y, pin.x, pin.y));
+    prims.push({ t: "text", x: left ? edgeX + 6 : edgeX - 6, y: pin.y + 3, s: pin.name, size: 7, align: left ? "left" : "right" });
+  }
   return prims;
 }
 
@@ -525,7 +523,7 @@ add({
   mount: "virtual",
   interactive: "generator",
   pins: [{ name: "+", x: -30, y: 20 }, { name: "COM", x: 0, y: 30 }, { name: "-", x: 30, y: 20 }],
-  symbol: [RECT(-34, -24, 68, 48, 6), TXT(0, -6, "XFG", 11), TXT(0, 10, "~", 14)],
+  symbol: [RECT(-34, -24, 68, 44, 2), L(0, 20, 0, 30), TXT(0, -6, "XFG", 11), TXT(0, 10, "~", 14)],
   params: waveParams,
   toDevices: (i, n) => [
     { id: i.id, type: "V", nodes: [n[0], n[1]], params: { rser: 50 }, source: sourceFromParams(i) },
@@ -847,6 +845,11 @@ add({
   toDevices: (i, n) => [{ id: i.id, type: "COMPARATOR", nodes: [n[0], n[1], n[2], conn(n[3]), conn(n[4])], params: { gain: num(i, "gain", 2e5), rout: num(i, "rout", 100), vcc: num(i, "vcc", 5), vee: num(i, "vee", 0), vdrop: 0.6 } }],
 });
 
+const pins_ne555: PinDef[] = [
+    { name: "GND", x: -40, y: 36 }, { name: "TRIG", x: -40, y: 12 }, { name: "OUT", x: 40, y: -12 },
+    { name: "RST", x: -40, y: -12 }, { name: "CTRL", x: 40, y: 36 }, { name: "THR", x: 40, y: 12 },
+    { name: "DIS", x: -40, y: -36 }, { name: "VCC", x: 40, y: -36 },
+  ];
 add({
   id: "ne555",
   name: "NE555 Timer",
@@ -855,12 +858,8 @@ add({
   tags: ["555", "timer", "ne555", "astabil"],
   mount: "both",
   footprint: "DIP-8",
-  pins: [
-    { name: "GND", x: -40, y: 36 }, { name: "TRIG", x: -40, y: 12 }, { name: "OUT", x: 40, y: -12 },
-    { name: "RST", x: -40, y: -12 }, { name: "CTRL", x: 40, y: 36 }, { name: "THR", x: 40, y: 12 },
-    { name: "DIS", x: -40, y: -36 }, { name: "VCC", x: 40, y: -36 },
-  ],
-  symbol: icSymbol(70, 96, "555", ["DIS", "RST", "TRG", "GND"], ["VCC", "OUT", "THR", "CTL"]),
+  pins: pins_ne555,
+  symbol: icSymbol(70, 96, "555", pins_ne555),
   params: [{ key: "vdd", label: "Versorgungsspannung", unit: "V", type: "number", def: 9 }],
   toDevices: (i, n) => [{ id: i.id, type: "TIMER555", nodes: [n[0], n[1], n[2], conn(n[3]), conn(n[4]), n[5], n[6], n[7]], params: { vdd: num(i, "vdd", 9) } }],
 });
@@ -971,7 +970,7 @@ for (const s of seqSpecs) {
     tags: ["logik", "digital", ...s.tags],
     mount: "both",
     pins,
-    symbol: icSymbol(w, h, s.name.split(" ")[0], inputs, outputs),
+    symbol: icSymbol(w, h, s.name.split(" ")[0], pins),
     params: [
       { key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 },
       { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 },
@@ -1151,6 +1150,8 @@ add({
   pins: ["a", "b", "c", "d", "e", "f", "g", "COM"].map((pn, i) => ({ name: pn, x: i < 4 ? -50 : 50, y: (i % 4) * 20 - 30 })),
   symbol: [
     RECT(-40, -45, 80, 90, 4),
+    // W3: Stubs exakt bis zu den Pin-Koordinaten (±50)
+    ...[-30, -10, 10, 30].flatMap((y): SymbolPrim[] => [L(-50, y, -40, y), L(40, y, 50, y)]),
     L(-16, -30, 16, -30), L(20, -26, 20, -4), L(20, 4, 20, 26), L(-16, 30, 16, 30), L(-20, 4, -20, 26), L(-20, -26, -20, -4), L(-16, 0, 16, 0),
   ],
   params: [
@@ -1299,7 +1300,7 @@ for (const s of cmosComplex) {
     tags: ["cmos", "4000", ...s.tags],
     mount: "both",
     pins,
-    symbol: icSymbol(w, h, s.desc, ins, outs),
+    symbol: icSymbol(w, h, s.desc, pins),
     params: [
       { key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 10 },
       { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 5 },
@@ -1408,7 +1409,7 @@ for (const ic of extra74) {
     tags: ["74hc", "ttl", ic.model],
     mount: "both",
     pins,
-    symbol: icSymbol(w, h, ic.id.toUpperCase(), ins, outs),
+    symbol: icSymbol(w, h, ic.id.toUpperCase(), pins),
     params: [
       { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
       { key: "vth", label: "VTH", unit: "V", type: "number", def: 2.5 },
@@ -2585,7 +2586,11 @@ add({
   tags: ["igbt","leistung"],
   mount: "THT",
   pins: [{ name: "C", x: 12, y: -30 }, { name: "G", x: -30, y: 0 }, { name: "E", x: 12, y: 30 }],
-  symbol: [...mosSymbol(false), TXT(0,-28,"IGBT",8)],
+  symbol: [
+    L(-30, 0, -8, 0), L(-8, -16, -8, 16), L(-2, -16, -2, -6), L(-2, -5, -2, 5), L(-2, 6, -2, 16),
+    L(-2, -11, 12, -11, 12, -30), L(-2, 11, 12, 11, 12, 30), L(-2, 0, 12, 0, 12, 11),
+    L(4, -4, 10, 0, 4, 4, 4, -4), CIR(0, 0, 24), TXT(0, -28, "IGBT", 8),
+  ],
   params: [
     { key: "vto", label: "VTO", unit: "V", type: "number", def: 4 },
     { key: "kp", label: "KP", unit: "A/V²", type: "number", def: 0.2 },
@@ -4176,6 +4181,7 @@ add({
 });
 
 
+const pins_ic_747442: PinDef[] = [{ name: "A", x: -60, y: -49 }, { name: "B", x: -60, y: -35 }, { name: "C", x: -60, y: -21 }, { name: "D", x: -60, y: -7 }, { name: "Q0", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "Q2", x: -60, y: 35 }, { name: "Q3", x: 60, y: -49 }, { name: "Q4", x: 60, y: -35 }, { name: "Q5", x: 60, y: -21 }, { name: "Q6", x: 60, y: -7 }, { name: "Q7", x: 60, y: 7 }, { name: "Q8", x: 60, y: 21 }, { name: "Q9", x: 60, y: 35 }];
 add({
   id: "ic_747442",
   name: "7442 BCD zu Dezimal Decoder",
@@ -4183,13 +4189,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","7442","decoder38"],
   mount: "both",
-  pins: [{ name: "A", x: -60, y: -49 }, { name: "B", x: -60, y: -35 }, { name: "C", x: -60, y: -21 }, { name: "D", x: -60, y: -7 }, { name: "Q0", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "Q2", x: -60, y: 35 }, { name: "Q3", x: 60, y: -49 }, { name: "Q4", x: 60, y: -35 }, { name: "Q5", x: 60, y: -21 }, { name: "Q6", x: 60, y: -7 }, { name: "Q7", x: 60, y: 7 }, { name: "Q8", x: 60, y: 21 }, { name: "Q9", x: 60, y: 35 }],
-  symbol: icSymbol(110, 142, "7442", ['A', 'B', 'C', 'D', 'Q0', 'Q1', 'Q2'], ['Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9']),
+  pins: pins_ic_747442,
+  symbol: icSymbol(110, 142, "7442", pins_ic_747442),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc7442: PinDef[] = [{ name: "A", x: -60, y: -49 }, { name: "B", x: -60, y: -35 }, { name: "C", x: -60, y: -21 }, { name: "D", x: -60, y: -7 }, { name: "Q0", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "Q2", x: -60, y: 35 }, { name: "Q3", x: 60, y: -49 }, { name: "Q4", x: 60, y: -35 }, { name: "Q5", x: 60, y: -21 }, { name: "Q6", x: 60, y: -7 }, { name: "Q7", x: 60, y: 7 }, { name: "Q8", x: 60, y: 21 }, { name: "Q9", x: 60, y: 35 }];
 add({
   id: "ic_74hc7442",
   name: "7442 BCD zu Dezimal Decoder",
@@ -4197,13 +4204,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","7442","decoder38"],
   mount: "both",
-  pins: [{ name: "A", x: -60, y: -49 }, { name: "B", x: -60, y: -35 }, { name: "C", x: -60, y: -21 }, { name: "D", x: -60, y: -7 }, { name: "Q0", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "Q2", x: -60, y: 35 }, { name: "Q3", x: 60, y: -49 }, { name: "Q4", x: 60, y: -35 }, { name: "Q5", x: 60, y: -21 }, { name: "Q6", x: 60, y: -7 }, { name: "Q7", x: 60, y: 7 }, { name: "Q8", x: 60, y: 21 }, { name: "Q9", x: 60, y: 35 }],
-  symbol: icSymbol(110, 142, "7442", ['A', 'B', 'C', 'D', 'Q0', 'Q1', 'Q2'], ['Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9']),
+  pins: pins_ic_74hc7442,
+  symbol: icSymbol(110, 142, "7442", pins_ic_74hc7442),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_747447: PinDef[] = [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }];
 add({
   id: "ic_747447",
   name: "7447 BCD zu 7-Segment",
@@ -4211,13 +4219,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","7447","bcd7seg"],
   mount: "both",
-  pins: [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "7447", ['A', 'B', 'C', 'D', 'a'], ['b', 'c', 'd', 'e', 'f', 'g']),
+  pins: pins_ic_747447,
+  symbol: icSymbol(110, 118, "7447", pins_ic_747447),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc7447: PinDef[] = [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }];
 add({
   id: "ic_74hc7447",
   name: "7447 BCD zu 7-Segment",
@@ -4225,13 +4234,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","7447","bcd7seg"],
   mount: "both",
-  pins: [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "7447", ['A', 'B', 'C', 'D', 'a'], ['b', 'c', 'd', 'e', 'f', 'g']),
+  pins: pins_ic_74hc7447,
+  symbol: icSymbol(110, 118, "7447", pins_ic_74hc7447),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_747448: PinDef[] = [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }];
 add({
   id: "ic_747448",
   name: "7448 BCD zu 7-Segment",
@@ -4239,13 +4249,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","7448","bcd7seg"],
   mount: "both",
-  pins: [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "7448", ['A', 'B', 'C', 'D', 'a'], ['b', 'c', 'd', 'e', 'f', 'g']),
+  pins: pins_ic_747448,
+  symbol: icSymbol(110, 118, "7448", pins_ic_747448),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc7448: PinDef[] = [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }];
 add({
   id: "ic_74hc7448",
   name: "7448 BCD zu 7-Segment",
@@ -4253,13 +4264,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","7448","bcd7seg"],
   mount: "both",
-  pins: [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "7448", ['A', 'B', 'C', 'D', 'a'], ['b', 'c', 'd', 'e', 'f', 'g']),
+  pins: pins_ic_74hc7448,
+  symbol: icSymbol(110, 118, "7448", pins_ic_74hc7448),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474138: PinDef[] = [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "Y0", x: -60, y: 5 }, { name: "Y1", x: -60, y: 19 }, { name: "Y2", x: 60, y: -37 }, { name: "Y3", x: 60, y: -23 }, { name: "Y4", x: 60, y: -9 }, { name: "Y5", x: 60, y: 5 }, { name: "Y6", x: 60, y: 19 }, { name: "Y7", x: 60, y: 33 }];
 add({
   id: "ic_7474138",
   name: "74138 3-zu-8 Decoder",
@@ -4267,13 +4279,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74138","decoder38"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "Y0", x: -60, y: 5 }, { name: "Y1", x: -60, y: 19 }, { name: "Y2", x: 60, y: -37 }, { name: "Y3", x: 60, y: -23 }, { name: "Y4", x: 60, y: -9 }, { name: "Y5", x: 60, y: 5 }, { name: "Y6", x: 60, y: 19 }, { name: "Y7", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "74138", ['A0', 'A1', 'A2', 'Y0', 'Y1'], ['Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7']),
+  pins: pins_ic_7474138,
+  symbol: icSymbol(110, 118, "74138", pins_ic_7474138),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74138: PinDef[] = [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "Y0", x: -60, y: 5 }, { name: "Y1", x: -60, y: 19 }, { name: "Y2", x: 60, y: -37 }, { name: "Y3", x: 60, y: -23 }, { name: "Y4", x: 60, y: -9 }, { name: "Y5", x: 60, y: 5 }, { name: "Y6", x: 60, y: 19 }, { name: "Y7", x: 60, y: 33 }];
 add({
   id: "ic_74hc74138",
   name: "74138 3-zu-8 Decoder",
@@ -4281,13 +4294,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74138","decoder38"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "Y0", x: -60, y: 5 }, { name: "Y1", x: -60, y: 19 }, { name: "Y2", x: 60, y: -37 }, { name: "Y3", x: 60, y: -23 }, { name: "Y4", x: 60, y: -9 }, { name: "Y5", x: 60, y: 5 }, { name: "Y6", x: 60, y: 19 }, { name: "Y7", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "74138", ['A0', 'A1', 'A2', 'Y0', 'Y1'], ['Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7']),
+  pins: pins_ic_74hc74138,
+  symbol: icSymbol(110, 118, "74138", pins_ic_74hc74138),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474139: PinDef[] = [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "Y0", x: -60, y: 10 }, { name: "Y1", x: 60, y: -18 }, { name: "Y2", x: 60, y: -4 }, { name: "Y3", x: 60, y: 10 }];
 add({
   id: "ic_7474139",
   name: "74139 Dual 2-zu-4 Decoder",
@@ -4295,13 +4309,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74139","decoder24"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "Y0", x: -60, y: 10 }, { name: "Y1", x: 60, y: -18 }, { name: "Y2", x: 60, y: -4 }, { name: "Y3", x: 60, y: 10 }],
-  symbol: icSymbol(110, 80, "74139", ['A0', 'A1', 'Y0'], ['Y1', 'Y2', 'Y3']),
+  pins: pins_ic_7474139,
+  symbol: icSymbol(110, 80, "74139", pins_ic_7474139),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder24", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74139: PinDef[] = [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "Y0", x: -60, y: 10 }, { name: "Y1", x: 60, y: -18 }, { name: "Y2", x: 60, y: -4 }, { name: "Y3", x: 60, y: 10 }];
 add({
   id: "ic_74hc74139",
   name: "74139 Dual 2-zu-4 Decoder",
@@ -4309,13 +4324,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74139","decoder24"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "Y0", x: -60, y: 10 }, { name: "Y1", x: 60, y: -18 }, { name: "Y2", x: 60, y: -4 }, { name: "Y3", x: 60, y: 10 }],
-  symbol: icSymbol(110, 80, "74139", ['A0', 'A1', 'Y0'], ['Y1', 'Y2', 'Y3']),
+  pins: pins_ic_74hc74139,
+  symbol: icSymbol(110, 80, "74139", pins_ic_74hc74139),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder24", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474154: PinDef[] = [{ name: "A0", x: -60, y: -73 }, { name: "A1", x: -60, y: -59 }, { name: "A2", x: -60, y: -45 }, { name: "A3", x: -60, y: -31 }, { name: "Y0", x: -60, y: -17 }, { name: "Y1", x: -60, y: -3 }, { name: "Y2", x: -60, y: 11 }, { name: "Y3", x: -60, y: 25 }, { name: "Y4", x: -60, y: 39 }, { name: "Y5", x: -60, y: 53 }, { name: "Y6", x: 60, y: -73 }, { name: "Y7", x: 60, y: -59 }, { name: "Y8", x: 60, y: -45 }, { name: "Y9", x: 60, y: -31 }, { name: "Y10", x: 60, y: -17 }, { name: "Y11", x: 60, y: -3 }, { name: "Y12", x: 60, y: 11 }, { name: "Y13", x: 60, y: 25 }, { name: "Y14", x: 60, y: 39 }, { name: "Y15", x: 60, y: 53 }];
 add({
   id: "ic_7474154",
   name: "74154 4-zu-16 Decoder",
@@ -4323,13 +4339,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74154","decoder416"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -73 }, { name: "A1", x: -60, y: -59 }, { name: "A2", x: -60, y: -45 }, { name: "A3", x: -60, y: -31 }, { name: "Y0", x: -60, y: -17 }, { name: "Y1", x: -60, y: -3 }, { name: "Y2", x: -60, y: 11 }, { name: "Y3", x: -60, y: 25 }, { name: "Y4", x: -60, y: 39 }, { name: "Y5", x: -60, y: 53 }, { name: "Y6", x: 60, y: -73 }, { name: "Y7", x: 60, y: -59 }, { name: "Y8", x: 60, y: -45 }, { name: "Y9", x: 60, y: -31 }, { name: "Y10", x: 60, y: -17 }, { name: "Y11", x: 60, y: -3 }, { name: "Y12", x: 60, y: 11 }, { name: "Y13", x: 60, y: 25 }, { name: "Y14", x: 60, y: 39 }, { name: "Y15", x: 60, y: 53 }],
-  symbol: icSymbol(110, 190, "74154", ['A0', 'A1', 'A2', 'A3', 'Y0', 'Y1', 'Y2', 'Y3', 'Y4', 'Y5'], ['Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12', 'Y13', 'Y14', 'Y15']),
+  pins: pins_ic_7474154,
+  symbol: icSymbol(110, 190, "74154", pins_ic_7474154),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder416", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74154: PinDef[] = [{ name: "A0", x: -60, y: -73 }, { name: "A1", x: -60, y: -59 }, { name: "A2", x: -60, y: -45 }, { name: "A3", x: -60, y: -31 }, { name: "Y0", x: -60, y: -17 }, { name: "Y1", x: -60, y: -3 }, { name: "Y2", x: -60, y: 11 }, { name: "Y3", x: -60, y: 25 }, { name: "Y4", x: -60, y: 39 }, { name: "Y5", x: -60, y: 53 }, { name: "Y6", x: 60, y: -73 }, { name: "Y7", x: 60, y: -59 }, { name: "Y8", x: 60, y: -45 }, { name: "Y9", x: 60, y: -31 }, { name: "Y10", x: 60, y: -17 }, { name: "Y11", x: 60, y: -3 }, { name: "Y12", x: 60, y: 11 }, { name: "Y13", x: 60, y: 25 }, { name: "Y14", x: 60, y: 39 }, { name: "Y15", x: 60, y: 53 }];
 add({
   id: "ic_74hc74154",
   name: "74154 4-zu-16 Decoder",
@@ -4337,13 +4354,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74154","decoder416"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -73 }, { name: "A1", x: -60, y: -59 }, { name: "A2", x: -60, y: -45 }, { name: "A3", x: -60, y: -31 }, { name: "Y0", x: -60, y: -17 }, { name: "Y1", x: -60, y: -3 }, { name: "Y2", x: -60, y: 11 }, { name: "Y3", x: -60, y: 25 }, { name: "Y4", x: -60, y: 39 }, { name: "Y5", x: -60, y: 53 }, { name: "Y6", x: 60, y: -73 }, { name: "Y7", x: 60, y: -59 }, { name: "Y8", x: 60, y: -45 }, { name: "Y9", x: 60, y: -31 }, { name: "Y10", x: 60, y: -17 }, { name: "Y11", x: 60, y: -3 }, { name: "Y12", x: 60, y: 11 }, { name: "Y13", x: 60, y: 25 }, { name: "Y14", x: 60, y: 39 }, { name: "Y15", x: 60, y: 53 }],
-  symbol: icSymbol(110, 190, "74154", ['A0', 'A1', 'A2', 'A3', 'Y0', 'Y1', 'Y2', 'Y3', 'Y4', 'Y5'], ['Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12', 'Y13', 'Y14', 'Y15']),
+  pins: pins_ic_74hc74154,
+  symbol: icSymbol(110, 190, "74154", pins_ic_74hc74154),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder416", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474151: PinDef[] = [{ name: "I0", x: -60, y: -41 }, { name: "I1", x: -60, y: -27 }, { name: "I2", x: -60, y: -13 }, { name: "I3", x: -60, y: 1 }, { name: "I4", x: -60, y: 15 }, { name: "I5", x: -60, y: 29 }, { name: "I6", x: 60, y: -41 }, { name: "I7", x: 60, y: -27 }, { name: "S0", x: 60, y: -13 }, { name: "S1", x: 60, y: 1 }, { name: "S2", x: 60, y: 15 }, { name: "Y", x: 60, y: 29 }];
 add({
   id: "ic_7474151",
   name: "74151 8-zu-1 MUX",
@@ -4351,13 +4369,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74151","mux8"],
   mount: "both",
-  pins: [{ name: "I0", x: -60, y: -41 }, { name: "I1", x: -60, y: -27 }, { name: "I2", x: -60, y: -13 }, { name: "I3", x: -60, y: 1 }, { name: "I4", x: -60, y: 15 }, { name: "I5", x: -60, y: 29 }, { name: "I6", x: 60, y: -41 }, { name: "I7", x: 60, y: -27 }, { name: "S0", x: 60, y: -13 }, { name: "S1", x: 60, y: 1 }, { name: "S2", x: 60, y: 15 }, { name: "Y", x: 60, y: 29 }],
-  symbol: icSymbol(110, 126, "74151", ['I0', 'I1', 'I2', 'I3', 'I4', 'I5'], ['I6', 'I7', 'S0', 'S1', 'S2', 'Y']),
+  pins: pins_ic_7474151,
+  symbol: icSymbol(110, 126, "74151", pins_ic_7474151),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux8", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74151: PinDef[] = [{ name: "I0", x: -60, y: -41 }, { name: "I1", x: -60, y: -27 }, { name: "I2", x: -60, y: -13 }, { name: "I3", x: -60, y: 1 }, { name: "I4", x: -60, y: 15 }, { name: "I5", x: -60, y: 29 }, { name: "I6", x: 60, y: -41 }, { name: "I7", x: 60, y: -27 }, { name: "S0", x: 60, y: -13 }, { name: "S1", x: 60, y: 1 }, { name: "S2", x: 60, y: 15 }, { name: "Y", x: 60, y: 29 }];
 add({
   id: "ic_74hc74151",
   name: "74151 8-zu-1 MUX",
@@ -4365,13 +4384,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74151","mux8"],
   mount: "both",
-  pins: [{ name: "I0", x: -60, y: -41 }, { name: "I1", x: -60, y: -27 }, { name: "I2", x: -60, y: -13 }, { name: "I3", x: -60, y: 1 }, { name: "I4", x: -60, y: 15 }, { name: "I5", x: -60, y: 29 }, { name: "I6", x: 60, y: -41 }, { name: "I7", x: 60, y: -27 }, { name: "S0", x: 60, y: -13 }, { name: "S1", x: 60, y: 1 }, { name: "S2", x: 60, y: 15 }, { name: "Y", x: 60, y: 29 }],
-  symbol: icSymbol(110, 126, "74151", ['I0', 'I1', 'I2', 'I3', 'I4', 'I5'], ['I6', 'I7', 'S0', 'S1', 'S2', 'Y']),
+  pins: pins_ic_74hc74151,
+  symbol: icSymbol(110, 126, "74151", pins_ic_74hc74151),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux8", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474153: PinDef[] = [{ name: "I0", x: -60, y: -21 }, { name: "I1", x: -60, y: -7 }, { name: "I2", x: -60, y: 7 }, { name: "I3", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "Y", x: 60, y: 21 }];
 add({
   id: "ic_7474153",
   name: "74153 Dual 4-zu-1 MUX",
@@ -4379,13 +4399,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74153","mux4"],
   mount: "both",
-  pins: [{ name: "I0", x: -60, y: -21 }, { name: "I1", x: -60, y: -7 }, { name: "I2", x: -60, y: 7 }, { name: "I3", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "Y", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74153", ['I0', 'I1', 'I2'], ['I3', 'S0', 'S1', 'Y']),
+  pins: pins_ic_7474153,
+  symbol: icSymbol(110, 86, "74153", pins_ic_7474153),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74153: PinDef[] = [{ name: "I0", x: -60, y: -21 }, { name: "I1", x: -60, y: -7 }, { name: "I2", x: -60, y: 7 }, { name: "I3", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "Y", x: 60, y: 21 }];
 add({
   id: "ic_74hc74153",
   name: "74153 Dual 4-zu-1 MUX",
@@ -4393,13 +4414,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74153","mux4"],
   mount: "both",
-  pins: [{ name: "I0", x: -60, y: -21 }, { name: "I1", x: -60, y: -7 }, { name: "I2", x: -60, y: 7 }, { name: "I3", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "Y", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74153", ['I0', 'I1', 'I2'], ['I3', 'S0', 'S1', 'Y']),
+  pins: pins_ic_74hc74153,
+  symbol: icSymbol(110, 86, "74153", pins_ic_74hc74153),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474157: PinDef[] = [{ name: "I0", x: -60, y: -18 }, { name: "I1", x: -60, y: -4 }, { name: "S", x: 60, y: -18 }, { name: "Y", x: 60, y: -4 }];
 add({
   id: "ic_7474157",
   name: "74157 Quad 2-zu-1 MUX",
@@ -4407,13 +4429,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74157","mux2"],
   mount: "both",
-  pins: [{ name: "I0", x: -60, y: -18 }, { name: "I1", x: -60, y: -4 }, { name: "S", x: 60, y: -18 }, { name: "Y", x: 60, y: -4 }],
-  symbol: icSymbol(110, 80, "74157", ['I0', 'I1'], ['S', 'Y']),
+  pins: pins_ic_7474157,
+  symbol: icSymbol(110, 80, "74157", pins_ic_7474157),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux2", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74157: PinDef[] = [{ name: "I0", x: -60, y: -18 }, { name: "I1", x: -60, y: -4 }, { name: "S", x: 60, y: -18 }, { name: "Y", x: 60, y: -4 }];
 add({
   id: "ic_74hc74157",
   name: "74157 Quad 2-zu-1 MUX",
@@ -4421,13 +4444,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74157","mux2"],
   mount: "both",
-  pins: [{ name: "I0", x: -60, y: -18 }, { name: "I1", x: -60, y: -4 }, { name: "S", x: 60, y: -18 }, { name: "Y", x: 60, y: -4 }],
-  symbol: icSymbol(110, 80, "74157", ['I0', 'I1'], ['S', 'Y']),
+  pins: pins_ic_74hc74157,
+  symbol: icSymbol(110, 80, "74157", pins_ic_74hc74157),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux2", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474160: PinDef[] = [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }];
 add({
   id: "ic_7474160",
   name: "74160 Dekaden-Zähler",
@@ -4435,13 +4459,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74160","counter10"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74160", ['CLK', 'RST', 'EN'], ['Q0', 'Q1', 'Q2', 'Q3']),
+  pins: pins_ic_7474160,
+  symbol: icSymbol(110, 86, "74160", pins_ic_7474160),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74160: PinDef[] = [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }];
 add({
   id: "ic_74hc74160",
   name: "74160 Dekaden-Zähler",
@@ -4449,13 +4474,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74160","counter10"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74160", ['CLK', 'RST', 'EN'], ['Q0', 'Q1', 'Q2', 'Q3']),
+  pins: pins_ic_74hc74160,
+  symbol: icSymbol(110, 86, "74160", pins_ic_74hc74160),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474161: PinDef[] = [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }];
 add({
   id: "ic_7474161",
   name: "74161 4-Bit Binär-Zähler",
@@ -4463,13 +4489,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74161","counter4"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74161", ['CLK', 'RST', 'EN'], ['Q0', 'Q1', 'Q2', 'Q3']),
+  pins: pins_ic_7474161,
+  symbol: icSymbol(110, 86, "74161", pins_ic_7474161),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74161: PinDef[] = [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }];
 add({
   id: "ic_74hc74161",
   name: "74161 4-Bit Binär-Zähler",
@@ -4477,13 +4504,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74161","counter4"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74161", ['CLK', 'RST', 'EN'], ['Q0', 'Q1', 'Q2', 'Q3']),
+  pins: pins_ic_74hc74161,
+  symbol: icSymbol(110, 86, "74161", pins_ic_74hc74161),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474162: PinDef[] = [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }];
 add({
   id: "ic_7474162",
   name: "74162 Dekaden-Zähler sync",
@@ -4491,13 +4519,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74162","counter10"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74162", ['CLK', 'RST', 'EN'], ['Q0', 'Q1', 'Q2', 'Q3']),
+  pins: pins_ic_7474162,
+  symbol: icSymbol(110, 86, "74162", pins_ic_7474162),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74162: PinDef[] = [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }];
 add({
   id: "ic_74hc74162",
   name: "74162 Dekaden-Zähler sync",
@@ -4505,13 +4534,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74162","counter10"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74162", ['CLK', 'RST', 'EN'], ['Q0', 'Q1', 'Q2', 'Q3']),
+  pins: pins_ic_74hc74162,
+  symbol: icSymbol(110, 86, "74162", pins_ic_74hc74162),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474163: PinDef[] = [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }];
 add({
   id: "ic_7474163",
   name: "74163 4-Bit Binär-Zähler sync",
@@ -4519,13 +4549,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74163","counter4"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74163", ['CLK', 'RST', 'EN'], ['Q0', 'Q1', 'Q2', 'Q3']),
+  pins: pins_ic_7474163,
+  symbol: icSymbol(110, 86, "74163", pins_ic_7474163),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74163: PinDef[] = [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }];
 add({
   id: "ic_74hc74163",
   name: "74163 4-Bit Binär-Zähler sync",
@@ -4533,13 +4564,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74163","counter4"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -21 }, { name: "RST", x: -60, y: -7 }, { name: "EN", x: -60, y: 7 }, { name: "Q0", x: 60, y: -21 }, { name: "Q1", x: 60, y: -7 }, { name: "Q2", x: 60, y: 7 }, { name: "Q3", x: 60, y: 21 }],
-  symbol: icSymbol(110, 86, "74163", ['CLK', 'RST', 'EN'], ['Q0', 'Q1', 'Q2', 'Q3']),
+  pins: pins_ic_74hc74163,
+  symbol: icSymbol(110, 86, "74163", pins_ic_74hc74163),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474164: PinDef[] = [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }];
 add({
   id: "ic_7474164",
   name: "74164 8-Bit Schieberegister",
@@ -4547,13 +4579,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74164","shift8"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "74164", ['CLK', 'DATA', 'RST', 'Q0', 'Q1'], ['Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7']),
+  pins: pins_ic_7474164,
+  symbol: icSymbol(110, 118, "74164", pins_ic_7474164),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74164: PinDef[] = [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }];
 add({
   id: "ic_74hc74164",
   name: "74164 8-Bit Schieberegister",
@@ -4561,13 +4594,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74164","shift8"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "74164", ['CLK', 'DATA', 'RST', 'Q0', 'Q1'], ['Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7']),
+  pins: pins_ic_74hc74164,
+  symbol: icSymbol(110, 118, "74164", pins_ic_74hc74164),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474165: PinDef[] = [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }];
 add({
   id: "ic_7474165",
   name: "74165 8-Bit PISO Shift",
@@ -4575,13 +4609,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74165","shift8"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "74165", ['CLK', 'DATA', 'RST', 'Q0', 'Q1'], ['Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7']),
+  pins: pins_ic_7474165,
+  symbol: icSymbol(110, 118, "74165", pins_ic_7474165),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74165: PinDef[] = [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }];
 add({
   id: "ic_74hc74165",
   name: "74165 8-Bit PISO Shift",
@@ -4589,13 +4624,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74165","shift8"],
   mount: "both",
-  pins: [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "74165", ['CLK', 'DATA', 'RST', 'Q0', 'Q1'], ['Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7']),
+  pins: pins_ic_74hc74165,
+  symbol: icSymbol(110, 118, "74165", pins_ic_74hc74165),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_747474: PinDef[] = [{ name: "D1", x: -60, y: -41 }, { name: "CLK1", x: -60, y: -27 }, { name: "RST1", x: -60, y: -13 }, { name: "SET1", x: -60, y: 1 }, { name: "Q1", x: -60, y: 15 }, { name: "/Q1", x: -60, y: 29 }, { name: "D2", x: 60, y: -41 }, { name: "CLK2", x: 60, y: -27 }, { name: "RST2", x: 60, y: -13 }, { name: "SET2", x: 60, y: 1 }, { name: "Q2", x: 60, y: 15 }, { name: "/Q2", x: 60, y: 29 }];
 add({
   id: "ic_747474",
   name: "7474 Dual D-FF",
@@ -4603,13 +4639,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","7474","dff"],
   mount: "both",
-  pins: [{ name: "D1", x: -60, y: -41 }, { name: "CLK1", x: -60, y: -27 }, { name: "RST1", x: -60, y: -13 }, { name: "SET1", x: -60, y: 1 }, { name: "Q1", x: -60, y: 15 }, { name: "/Q1", x: -60, y: 29 }, { name: "D2", x: 60, y: -41 }, { name: "CLK2", x: 60, y: -27 }, { name: "RST2", x: 60, y: -13 }, { name: "SET2", x: 60, y: 1 }, { name: "Q2", x: 60, y: 15 }, { name: "/Q2", x: 60, y: 29 }],
-  symbol: icSymbol(110, 126, "7474", ['D1', 'CLK1', 'RST1', 'SET1', 'Q1', '/Q1'], ['D2', 'CLK2', 'RST2', 'SET2', 'Q2', '/Q2']),
+  pins: pins_ic_747474,
+  symbol: icSymbol(110, 126, "7474", pins_ic_747474),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dff", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc7474: PinDef[] = [{ name: "D1", x: -60, y: -41 }, { name: "CLK1", x: -60, y: -27 }, { name: "RST1", x: -60, y: -13 }, { name: "SET1", x: -60, y: 1 }, { name: "Q1", x: -60, y: 15 }, { name: "/Q1", x: -60, y: 29 }, { name: "D2", x: 60, y: -41 }, { name: "CLK2", x: 60, y: -27 }, { name: "RST2", x: 60, y: -13 }, { name: "SET2", x: 60, y: 1 }, { name: "Q2", x: 60, y: 15 }, { name: "/Q2", x: 60, y: 29 }];
 add({
   id: "ic_74hc7474",
   name: "7474 Dual D-FF",
@@ -4617,13 +4654,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","7474","dff"],
   mount: "both",
-  pins: [{ name: "D1", x: -60, y: -41 }, { name: "CLK1", x: -60, y: -27 }, { name: "RST1", x: -60, y: -13 }, { name: "SET1", x: -60, y: 1 }, { name: "Q1", x: -60, y: 15 }, { name: "/Q1", x: -60, y: 29 }, { name: "D2", x: 60, y: -41 }, { name: "CLK2", x: 60, y: -27 }, { name: "RST2", x: 60, y: -13 }, { name: "SET2", x: 60, y: 1 }, { name: "Q2", x: 60, y: 15 }, { name: "/Q2", x: 60, y: 29 }],
-  symbol: icSymbol(110, 126, "7474", ['D1', 'CLK1', 'RST1', 'SET1', 'Q1', '/Q1'], ['D2', 'CLK2', 'RST2', 'SET2', 'Q2', '/Q2']),
+  pins: pins_ic_74hc7474,
+  symbol: icSymbol(110, 126, "7474", pins_ic_74hc7474),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dff", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_747476: PinDef[] = [{ name: "J1", x: -60, y: -18 }, { name: "K1", x: -60, y: -4 }, { name: "CLK1", x: -60, y: 10 }, { name: "RST1", x: 60, y: -18 }, { name: "Q1", x: 60, y: -4 }, { name: "/Q1", x: 60, y: 10 }];
 add({
   id: "ic_747476",
   name: "7476 Dual JK-FF",
@@ -4631,13 +4669,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","7476","jkff"],
   mount: "both",
-  pins: [{ name: "J1", x: -60, y: -18 }, { name: "K1", x: -60, y: -4 }, { name: "CLK1", x: -60, y: 10 }, { name: "RST1", x: 60, y: -18 }, { name: "Q1", x: 60, y: -4 }, { name: "/Q1", x: 60, y: 10 }],
-  symbol: icSymbol(110, 80, "7476", ['J1', 'K1', 'CLK1'], ['RST1', 'Q1', '/Q1']),
+  pins: pins_ic_747476,
+  symbol: icSymbol(110, 80, "7476", pins_ic_747476),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "jkff", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc7476: PinDef[] = [{ name: "J1", x: -60, y: -18 }, { name: "K1", x: -60, y: -4 }, { name: "CLK1", x: -60, y: 10 }, { name: "RST1", x: 60, y: -18 }, { name: "Q1", x: 60, y: -4 }, { name: "/Q1", x: 60, y: 10 }];
 add({
   id: "ic_74hc7476",
   name: "7476 Dual JK-FF",
@@ -4645,13 +4684,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","7476","jkff"],
   mount: "both",
-  pins: [{ name: "J1", x: -60, y: -18 }, { name: "K1", x: -60, y: -4 }, { name: "CLK1", x: -60, y: 10 }, { name: "RST1", x: 60, y: -18 }, { name: "Q1", x: 60, y: -4 }, { name: "/Q1", x: 60, y: 10 }],
-  symbol: icSymbol(110, 80, "7476", ['J1', 'K1', 'CLK1'], ['RST1', 'Q1', '/Q1']),
+  pins: pins_ic_74hc7476,
+  symbol: icSymbol(110, 80, "7476", pins_ic_74hc7476),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "jkff", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_747483: PinDef[] = [{ name: "A0", x: -60, y: -45 }, { name: "A1", x: -60, y: -31 }, { name: "A2", x: -60, y: -17 }, { name: "A3", x: -60, y: -3 }, { name: "B0", x: -60, y: 11 }, { name: "B1", x: -60, y: 25 }, { name: "B2", x: 60, y: -45 }, { name: "B3", x: 60, y: -31 }, { name: "F0", x: 60, y: -17 }, { name: "F1", x: 60, y: -3 }, { name: "F2", x: 60, y: 11 }, { name: "F3", x: 60, y: 25 }, { name: "COUT", x: 60, y: 39 }];
 add({
   id: "ic_747483",
   name: "7483 4-Bit Addierer",
@@ -4659,13 +4699,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","7483","alu4"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -45 }, { name: "A1", x: -60, y: -31 }, { name: "A2", x: -60, y: -17 }, { name: "A3", x: -60, y: -3 }, { name: "B0", x: -60, y: 11 }, { name: "B1", x: -60, y: 25 }, { name: "B2", x: 60, y: -45 }, { name: "B3", x: 60, y: -31 }, { name: "F0", x: 60, y: -17 }, { name: "F1", x: 60, y: -3 }, { name: "F2", x: 60, y: 11 }, { name: "F3", x: 60, y: 25 }, { name: "COUT", x: 60, y: 39 }],
-  symbol: icSymbol(110, 134, "7483", ['A0', 'A1', 'A2', 'A3', 'B0', 'B1'], ['B2', 'B3', 'F0', 'F1', 'F2', 'F3', 'COUT']),
+  pins: pins_ic_747483,
+  symbol: icSymbol(110, 134, "7483", pins_ic_747483),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc7483: PinDef[] = [{ name: "A0", x: -60, y: -45 }, { name: "A1", x: -60, y: -31 }, { name: "A2", x: -60, y: -17 }, { name: "A3", x: -60, y: -3 }, { name: "B0", x: -60, y: 11 }, { name: "B1", x: -60, y: 25 }, { name: "B2", x: 60, y: -45 }, { name: "B3", x: 60, y: -31 }, { name: "F0", x: 60, y: -17 }, { name: "F1", x: 60, y: -3 }, { name: "F2", x: 60, y: 11 }, { name: "F3", x: 60, y: 25 }, { name: "COUT", x: 60, y: 39 }];
 add({
   id: "ic_74hc7483",
   name: "7483 4-Bit Addierer",
@@ -4673,13 +4714,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","7483","alu4"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -45 }, { name: "A1", x: -60, y: -31 }, { name: "A2", x: -60, y: -17 }, { name: "A3", x: -60, y: -3 }, { name: "B0", x: -60, y: 11 }, { name: "B1", x: -60, y: 25 }, { name: "B2", x: 60, y: -45 }, { name: "B3", x: 60, y: -31 }, { name: "F0", x: 60, y: -17 }, { name: "F1", x: 60, y: -3 }, { name: "F2", x: 60, y: 11 }, { name: "F3", x: 60, y: 25 }, { name: "COUT", x: 60, y: 39 }],
-  symbol: icSymbol(110, 134, "7483", ['A0', 'A1', 'A2', 'A3', 'B0', 'B1'], ['B2', 'B3', 'F0', 'F1', 'F2', 'F3', 'COUT']),
+  pins: pins_ic_74hc7483,
+  symbol: icSymbol(110, 134, "7483", pins_ic_74hc7483),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_747485: PinDef[] = [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "A3", x: -60, y: 5 }, { name: "B0", x: -60, y: 19 }, { name: "B1", x: 60, y: -37 }, { name: "B2", x: 60, y: -23 }, { name: "B3", x: 60, y: -9 }, { name: "F0", x: 60, y: 5 }, { name: "F1", x: 60, y: 19 }, { name: "F2", x: 60, y: 33 }];
 add({
   id: "ic_747485",
   name: "7485 4-Bit Komparator",
@@ -4687,13 +4729,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","7485","alu4"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "A3", x: -60, y: 5 }, { name: "B0", x: -60, y: 19 }, { name: "B1", x: 60, y: -37 }, { name: "B2", x: 60, y: -23 }, { name: "B3", x: 60, y: -9 }, { name: "F0", x: 60, y: 5 }, { name: "F1", x: 60, y: 19 }, { name: "F2", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "7485", ['A0', 'A1', 'A2', 'A3', 'B0'], ['B1', 'B2', 'B3', 'F0', 'F1', 'F2']),
+  pins: pins_ic_747485,
+  symbol: icSymbol(110, 118, "7485", pins_ic_747485),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc7485: PinDef[] = [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "A3", x: -60, y: 5 }, { name: "B0", x: -60, y: 19 }, { name: "B1", x: 60, y: -37 }, { name: "B2", x: 60, y: -23 }, { name: "B3", x: 60, y: -9 }, { name: "F0", x: 60, y: 5 }, { name: "F1", x: 60, y: 19 }, { name: "F2", x: 60, y: 33 }];
 add({
   id: "ic_74hc7485",
   name: "7485 4-Bit Komparator",
@@ -4701,13 +4744,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","7485","alu4"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "A3", x: -60, y: 5 }, { name: "B0", x: -60, y: 19 }, { name: "B1", x: 60, y: -37 }, { name: "B2", x: 60, y: -23 }, { name: "B3", x: 60, y: -9 }, { name: "F0", x: 60, y: 5 }, { name: "F1", x: 60, y: 19 }, { name: "F2", x: 60, y: 33 }],
-  symbol: icSymbol(110, 118, "7485", ['A0', 'A1', 'A2', 'A3', 'B0'], ['B1', 'B2', 'B3', 'F0', 'F1', 'F2']),
+  pins: pins_ic_74hc7485,
+  symbol: icSymbol(110, 118, "7485", pins_ic_74hc7485),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474273: PinDef[] = [{ name: "D0", x: -60, y: -65 }, { name: "D1", x: -60, y: -51 }, { name: "D2", x: -60, y: -37 }, { name: "D3", x: -60, y: -23 }, { name: "D4", x: -60, y: -9 }, { name: "D5", x: -60, y: 5 }, { name: "D6", x: -60, y: 19 }, { name: "D7", x: -60, y: 33 }, { name: "CLK", x: -60, y: 47 }, { name: "RST", x: 60, y: -65 }, { name: "Q0", x: 60, y: -51 }, { name: "Q1", x: 60, y: -37 }, { name: "Q2", x: 60, y: -23 }, { name: "Q3", x: 60, y: -9 }, { name: "Q4", x: 60, y: 5 }, { name: "Q5", x: 60, y: 19 }, { name: "Q6", x: 60, y: 33 }, { name: "Q7", x: 60, y: 47 }];
 add({
   id: "ic_7474273",
   name: "74273 Octal D-FF",
@@ -4715,13 +4759,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74273","dff"],
   mount: "both",
-  pins: [{ name: "D0", x: -60, y: -65 }, { name: "D1", x: -60, y: -51 }, { name: "D2", x: -60, y: -37 }, { name: "D3", x: -60, y: -23 }, { name: "D4", x: -60, y: -9 }, { name: "D5", x: -60, y: 5 }, { name: "D6", x: -60, y: 19 }, { name: "D7", x: -60, y: 33 }, { name: "CLK", x: -60, y: 47 }, { name: "RST", x: 60, y: -65 }, { name: "Q0", x: 60, y: -51 }, { name: "Q1", x: 60, y: -37 }, { name: "Q2", x: 60, y: -23 }, { name: "Q3", x: 60, y: -9 }, { name: "Q4", x: 60, y: 5 }, { name: "Q5", x: 60, y: 19 }, { name: "Q6", x: 60, y: 33 }, { name: "Q7", x: 60, y: 47 }],
-  symbol: icSymbol(110, 174, "74273", ['D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'CLK'], ['RST', 'Q0', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7']),
+  pins: pins_ic_7474273,
+  symbol: icSymbol(110, 174, "74273", pins_ic_7474273),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dff", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74273: PinDef[] = [{ name: "D0", x: -60, y: -65 }, { name: "D1", x: -60, y: -51 }, { name: "D2", x: -60, y: -37 }, { name: "D3", x: -60, y: -23 }, { name: "D4", x: -60, y: -9 }, { name: "D5", x: -60, y: 5 }, { name: "D6", x: -60, y: 19 }, { name: "D7", x: -60, y: 33 }, { name: "CLK", x: -60, y: 47 }, { name: "RST", x: 60, y: -65 }, { name: "Q0", x: 60, y: -51 }, { name: "Q1", x: 60, y: -37 }, { name: "Q2", x: 60, y: -23 }, { name: "Q3", x: 60, y: -9 }, { name: "Q4", x: 60, y: 5 }, { name: "Q5", x: 60, y: 19 }, { name: "Q6", x: 60, y: 33 }, { name: "Q7", x: 60, y: 47 }];
 add({
   id: "ic_74hc74273",
   name: "74273 Octal D-FF",
@@ -4729,13 +4774,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74273","dff"],
   mount: "both",
-  pins: [{ name: "D0", x: -60, y: -65 }, { name: "D1", x: -60, y: -51 }, { name: "D2", x: -60, y: -37 }, { name: "D3", x: -60, y: -23 }, { name: "D4", x: -60, y: -9 }, { name: "D5", x: -60, y: 5 }, { name: "D6", x: -60, y: 19 }, { name: "D7", x: -60, y: 33 }, { name: "CLK", x: -60, y: 47 }, { name: "RST", x: 60, y: -65 }, { name: "Q0", x: 60, y: -51 }, { name: "Q1", x: 60, y: -37 }, { name: "Q2", x: 60, y: -23 }, { name: "Q3", x: 60, y: -9 }, { name: "Q4", x: 60, y: 5 }, { name: "Q5", x: 60, y: 19 }, { name: "Q6", x: 60, y: 33 }, { name: "Q7", x: 60, y: 47 }],
-  symbol: icSymbol(110, 174, "74273", ['D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'CLK'], ['RST', 'Q0', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7']),
+  pins: pins_ic_74hc74273,
+  symbol: icSymbol(110, 174, "74273", pins_ic_74hc74273),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dff", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474373: PinDef[] = [{ name: "D0", x: -60, y: -61 }, { name: "D1", x: -60, y: -47 }, { name: "D2", x: -60, y: -33 }, { name: "D3", x: -60, y: -19 }, { name: "D4", x: -60, y: -5 }, { name: "D5", x: -60, y: 9 }, { name: "D6", x: -60, y: 23 }, { name: "D7", x: -60, y: 37 }, { name: "LE", x: 60, y: -61 }, { name: "Q0", x: 60, y: -47 }, { name: "Q1", x: 60, y: -33 }, { name: "Q2", x: 60, y: -19 }, { name: "Q3", x: 60, y: -5 }, { name: "Q4", x: 60, y: 9 }, { name: "Q5", x: 60, y: 23 }, { name: "Q6", x: 60, y: 37 }, { name: "Q7", x: 60, y: 51 }];
 add({
   id: "ic_7474373",
   name: "74373 Octal Latch",
@@ -4743,13 +4789,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74373","latch4"],
   mount: "both",
-  pins: [{ name: "D0", x: -60, y: -61 }, { name: "D1", x: -60, y: -47 }, { name: "D2", x: -60, y: -33 }, { name: "D3", x: -60, y: -19 }, { name: "D4", x: -60, y: -5 }, { name: "D5", x: -60, y: 9 }, { name: "D6", x: -60, y: 23 }, { name: "D7", x: -60, y: 37 }, { name: "LE", x: 60, y: -61 }, { name: "Q0", x: 60, y: -47 }, { name: "Q1", x: 60, y: -33 }, { name: "Q2", x: 60, y: -19 }, { name: "Q3", x: 60, y: -5 }, { name: "Q4", x: 60, y: 9 }, { name: "Q5", x: 60, y: 23 }, { name: "Q6", x: 60, y: 37 }, { name: "Q7", x: 60, y: 51 }],
-  symbol: icSymbol(110, 166, "74373", ['D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7'], ['LE', 'Q0', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7']),
+  pins: pins_ic_7474373,
+  symbol: icSymbol(110, 166, "74373", pins_ic_7474373),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74373: PinDef[] = [{ name: "D0", x: -60, y: -61 }, { name: "D1", x: -60, y: -47 }, { name: "D2", x: -60, y: -33 }, { name: "D3", x: -60, y: -19 }, { name: "D4", x: -60, y: -5 }, { name: "D5", x: -60, y: 9 }, { name: "D6", x: -60, y: 23 }, { name: "D7", x: -60, y: 37 }, { name: "LE", x: 60, y: -61 }, { name: "Q0", x: 60, y: -47 }, { name: "Q1", x: 60, y: -33 }, { name: "Q2", x: 60, y: -19 }, { name: "Q3", x: 60, y: -5 }, { name: "Q4", x: 60, y: 9 }, { name: "Q5", x: 60, y: 23 }, { name: "Q6", x: 60, y: 37 }, { name: "Q7", x: 60, y: 51 }];
 add({
   id: "ic_74hc74373",
   name: "74373 Octal Latch",
@@ -4757,13 +4804,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74373","latch4"],
   mount: "both",
-  pins: [{ name: "D0", x: -60, y: -61 }, { name: "D1", x: -60, y: -47 }, { name: "D2", x: -60, y: -33 }, { name: "D3", x: -60, y: -19 }, { name: "D4", x: -60, y: -5 }, { name: "D5", x: -60, y: 9 }, { name: "D6", x: -60, y: 23 }, { name: "D7", x: -60, y: 37 }, { name: "LE", x: 60, y: -61 }, { name: "Q0", x: 60, y: -47 }, { name: "Q1", x: 60, y: -33 }, { name: "Q2", x: 60, y: -19 }, { name: "Q3", x: 60, y: -5 }, { name: "Q4", x: 60, y: 9 }, { name: "Q5", x: 60, y: 23 }, { name: "Q6", x: 60, y: 37 }, { name: "Q7", x: 60, y: 51 }],
-  symbol: icSymbol(110, 166, "74373", ['D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7'], ['LE', 'Q0', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7']),
+  pins: pins_ic_74hc74373,
+  symbol: icSymbol(110, 166, "74373", pins_ic_74hc74373),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch4", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474244: PinDef[] = [{ name: "A0", x: -60, y: -25 }, { name: "A1", x: -60, y: -11 }, { name: "A2", x: -60, y: 3 }, { name: "A3", x: -60, y: 17 }, { name: "Y0", x: 60, y: -25 }, { name: "Y1", x: 60, y: -11 }, { name: "Y2", x: 60, y: 3 }, { name: "Y3", x: 60, y: 17 }];
 add({
   id: "ic_7474244",
   name: "74244 Octal Buffer",
@@ -4771,13 +4819,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74244","buffer"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -25 }, { name: "A1", x: -60, y: -11 }, { name: "A2", x: -60, y: 3 }, { name: "A3", x: -60, y: 17 }, { name: "Y0", x: 60, y: -25 }, { name: "Y1", x: 60, y: -11 }, { name: "Y2", x: 60, y: 3 }, { name: "Y3", x: 60, y: 17 }],
-  symbol: icSymbol(110, 94, "74244", ['A0', 'A1', 'A2', 'A3'], ['Y0', 'Y1', 'Y2', 'Y3']),
+  pins: pins_ic_7474244,
+  symbol: icSymbol(110, 94, "74244", pins_ic_7474244),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74244: PinDef[] = [{ name: "A0", x: -60, y: -25 }, { name: "A1", x: -60, y: -11 }, { name: "A2", x: -60, y: 3 }, { name: "A3", x: -60, y: 17 }, { name: "Y0", x: 60, y: -25 }, { name: "Y1", x: 60, y: -11 }, { name: "Y2", x: 60, y: 3 }, { name: "Y3", x: 60, y: 17 }];
 add({
   id: "ic_74hc74244",
   name: "74244 Octal Buffer",
@@ -4785,13 +4834,14 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74244","buffer"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -25 }, { name: "A1", x: -60, y: -11 }, { name: "A2", x: -60, y: 3 }, { name: "A3", x: -60, y: 17 }, { name: "Y0", x: 60, y: -25 }, { name: "Y1", x: 60, y: -11 }, { name: "Y2", x: 60, y: 3 }, { name: "Y3", x: 60, y: 17 }],
-  symbol: icSymbol(110, 94, "74244", ['A0', 'A1', 'A2', 'A3'], ['Y0', 'Y1', 'Y2', 'Y3']),
+  pins: pins_ic_74hc74244,
+  symbol: icSymbol(110, 94, "74244", pins_ic_74hc74244),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_7474245: PinDef[] = [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "B0", x: -60, y: 10 }, { name: "B1", x: 60, y: -18 }, { name: "DIR", x: 60, y: -4 }, { name: "/EN", x: 60, y: 10 }];
 add({
   id: "ic_7474245",
   name: "74245 Octal Bus Transceiver",
@@ -4799,13 +4849,14 @@ add({
   category: "Digitale Logik/74",
   tags: ["74","74245","buffer"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "B0", x: -60, y: 10 }, { name: "B1", x: 60, y: -18 }, { name: "DIR", x: 60, y: -4 }, { name: "/EN", x: 60, y: 10 }],
-  symbol: icSymbol(110, 80, "74245", ['A0', 'A1', 'B0'], ['B1', 'DIR', '/EN']),
+  pins: pins_ic_7474245,
+  symbol: icSymbol(110, 80, "74245", pins_ic_7474245),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 5, vth: 2.5 } }],
 });
 
 
+const pins_ic_74hc74245: PinDef[] = [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "B0", x: -60, y: 10 }, { name: "B1", x: 60, y: -18 }, { name: "DIR", x: 60, y: -4 }, { name: "/EN", x: 60, y: 10 }];
 add({
   id: "ic_74hc74245",
   name: "74245 Octal Bus Transceiver",
@@ -4813,8 +4864,8 @@ add({
   category: "Digitale Logik/74HC",
   tags: ["74hc","74245","buffer"],
   mount: "both",
-  pins: [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "B0", x: -60, y: 10 }, { name: "B1", x: 60, y: -18 }, { name: "DIR", x: 60, y: -4 }, { name: "/EN", x: 60, y: 10 }],
-  symbol: icSymbol(110, 80, "74245", ['A0', 'A1', 'B0'], ['B1', 'DIR', '/EN']),
+  pins: pins_ic_74hc74245,
+  symbol: icSymbol(110, 80, "74245", pins_ic_74hc74245),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 5, vth: 2.5 } }],
 });
@@ -5408,6 +5459,12 @@ add({
 });
 
 
+const pins_adc_0804: PinDef[] = [
+    { name: "VIN+", x: -50, y: -30 }, { name: "VIN-", x: -50, y: -10 }, { name: "VREF", x: -50, y: 10 },
+    { name: "D0", x: 50, y: -40 }, { name: "D1", x: 50, y: -30 }, { name: "D2", x: 50, y: -20 }, { name: "D3", x: 50, y: -10 },
+    { name: "D4", x: 50, y: 0 }, { name: "D5", x: 50, y: 10 }, { name: "D6", x: 50, y: 20 }, { name: "D7", x: 50, y: 30 },
+    { name: "CLK", x: -50, y: 30 }, { name: "VCC", x: 0, y: -50 }, { name: "GND", x: 0, y: 50 },
+  ];
 add({
   id: "adc_0804",
   name: "ADC0804 8-Bit ADC",
@@ -5415,18 +5472,18 @@ add({
   category: "Gemischt/ADC-DAC",
   tags: ["adc","0804"],
   mount: "THT",
-  pins: [
-    { name: "VIN+", x: -50, y: -30 }, { name: "VIN-", x: -50, y: -10 }, { name: "VREF", x: -50, y: 10 },
-    { name: "D0", x: 50, y: -40 }, { name: "D1", x: 50, y: -30 }, { name: "D2", x: 50, y: -20 }, { name: "D3", x: 50, y: -10 },
-    { name: "D4", x: 50, y: 0 }, { name: "D5", x: 50, y: 10 }, { name: "D6", x: 50, y: 20 }, { name: "D7", x: 50, y: 30 },
-    { name: "CLK", x: -50, y: 30 }, { name: "VCC", x: 0, y: -50 }, { name: "GND", x: 0, y: 50 },
-  ],
-  symbol: icSymbol(100, 120, "0804", ["VIN+","VIN-","VREF","CLK","VCC","GND"], ["D0","D1","D2","D3","D4","D5","D6","D7"]),
+  pins: pins_adc_0804,
+  symbol: icSymbol(100, 120, "0804", pins_adc_0804),
   params: [{ key: "vref", label: "VREF", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "adc8", params: { vref: num(i,"vref",5), vdd: 5 } }],
 });
 
 
+const pins_dac_0808: PinDef[] = [
+    { name: "D0", x: -50, y: -40 }, { name: "D1", x: -50, y: -30 }, { name: "D2", x: -50, y: -20 }, { name: "D3", x: -50, y: -10 },
+    { name: "D4", x: -50, y: 0 }, { name: "D5", x: -50, y: 10 }, { name: "D6", x: -50, y: 20 }, { name: "D7", x: -50, y: 30 },
+    { name: "VREF", x: -50, y: 50 }, { name: "IOUT", x: 50, y: 0 }, { name: "VCC", x: 0, y: -50 }, { name: "VEE", x: 0, y: 50 },
+  ];
 add({
   id: "dac_0808",
   name: "DAC0808 8-Bit DAC",
@@ -5434,12 +5491,8 @@ add({
   category: "Gemischt/ADC-DAC",
   tags: ["dac","0808"],
   mount: "THT",
-  pins: [
-    { name: "D0", x: -50, y: -40 }, { name: "D1", x: -50, y: -30 }, { name: "D2", x: -50, y: -20 }, { name: "D3", x: -50, y: -10 },
-    { name: "D4", x: -50, y: 0 }, { name: "D5", x: -50, y: 10 }, { name: "D6", x: -50, y: 20 }, { name: "D7", x: -50, y: 30 },
-    { name: "VREF", x: -50, y: 50 }, { name: "IOUT", x: 50, y: 0 }, { name: "VCC", x: 0, y: -50 }, { name: "VEE", x: 0, y: 50 },
-  ],
-  symbol: icSymbol(100, 120, "0808", ["D0","D1","D2","D3","D4","D5","D6","D7","VREF","VCC","VEE"], ["IOUT"]),
+  pins: pins_dac_0808,
+  symbol: icSymbol(100, 120, "0808", pins_dac_0808),
   params: [{ key: "vref", label: "VREF", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dac8", params: { vref: num(i,"vref",5), vdd: 5 } }],
 });
@@ -5682,6 +5735,18 @@ add({
 });
 
 
+const MCU_PIN_NAMES = ["D0","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","A0","A1","A2","A3","A4","A5","VCC","GND"];
+// W3: MCU-Box-Symbol – Stubs + Namen aus den Pin-Koordinaten (eine Quelle der Wahrheit)
+function mcuBoxSymbol(label: string): SymbolPrim[] {
+  return [
+    RECT(-60, -100, 120, 200, 6),
+    TXT(0, -80, label, 11),
+    TXT(0, -62, "CO-SIM", 8),
+    ...MCU_PIN_NAMES.map((_, i): SymbolPrim => { const y = (i < 11 ? i : i - 11) * 18 - 90; return i < 11 ? L(-70, y, -60, y) : L(60, y, 70, y); }),
+    ...MCU_PIN_NAMES.map((pn, i): SymbolPrim => { const y = (i < 11 ? i : i - 11) * 18 - 90; return { t: "text", x: i < 11 ? -55 : 55, y: y + 3, s: pn, size: 7, align: i < 11 ? "left" : "right" }; }),
+  ];
+}
+
 add({
   id: "bargraph_10",
   name: "Bargraph 10 LED",
@@ -5690,7 +5755,10 @@ add({
   tags: ["bargraph","led"],
   mount: "THT",
   pins: Array.from({length:10}, (_,i)=>({ name: `LED${i}`, x: -40, y: -45+i*10 })).concat([{ name: "COM", x: 40, y: 0 }]),
-  symbol: [RECT(-30,-50,60,100,4), ...Array.from({length:10}, (_,i)=>({ t: "rect", x: -20, y: -45+i*10, w: 20, h: 6, r:1 } as SymbolPrim))],
+  symbol: [RECT(-30,-50,60,100,4),
+    ...Array.from({length:10}, (_,i)=>L(-40,-45+i*10,-30,-45+i*10) as SymbolPrim),
+    L(30,0,40,0),
+    ...Array.from({length:10}, (_,i)=>({ t: "rect", x: -20, y: -45+i*10, w: 20, h: 6, r:1 } as SymbolPrim))],
   params: [],
   toDevices: (i,n): Device[] => Array.from({length:10}, (_,k)=>({ id: `${i.id}_seg${k}`, type: "LED", nodes: [n[k], n[10]], params: { is: 1e-12, n:2.2, rs:20 } } as Device)),
 });
@@ -5704,7 +5772,13 @@ add({
   tags: ["lcd","display"],
   mount: "THT",
   pins: ["VSS","VDD","VO","RS","RW","E","D0","D1","D2","D3","D4","D5","D6","D7","A","K"].map((pn,i)=>({ name: pn, x: i<8?-60:60, y: (i%8)*12-42 })),
-  symbol: [RECT(-50,-50,100,100,4), TXT(0,0,"LCD 16x2",10)],
+  symbol: [RECT(-50,-50,100,100,4), TXT(0,0,"LCD 16x2",10),
+    ...Array.from({length:8}, (_,i)=>i*12-42).flatMap((y): SymbolPrim[] => [L(-60,y,-50,y), L(50,y,60,y)]),
+    ...Array.from({length:8}, (_,i)=>i*12-42).flatMap((y): SymbolPrim[] => [
+      { t: "text", x: -45, y: y+3, s: ["VSS","VDD","VO","RS","RW","E","D0","D1"][(y+42)/12], size: 7, align: "left" },
+      { t: "text", x: 45, y: y+3, s: ["D2","D3","D4","D5","D6","D7","A","K"][(y+42)/12], size: 7, align: "right" },
+    ]),
+  ],
   params: [],
   toDevices: () => [],
 });
@@ -5719,7 +5793,7 @@ add({
   mount: "THT",
   interactive: "mcu",
   pins: ["D0","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","A0","A1","A2","A3","A4","A5","VCC","GND"].map((pn,i)=>({ name: pn, x: i<11?-70:70, y: (i<11?i:i-11)*18-90 })),
-  symbol: [RECT(-60,-100,120,200,6), TXT(0,-80,"Arduino",11), TXT(0,-62,"CO-SIM",8)],
+  symbol: mcuBoxSymbol("Arduino"),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "MCU", nodes: n, params: { vdd: 5, rout: 40 }, text: i.text }],
 });
@@ -5734,7 +5808,7 @@ add({
   mount: "THT",
   interactive: "mcu",
   pins: ["D0","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","A0","A1","A2","A3","A4","A5","VCC","GND"].map((pn,i)=>({ name: pn, x: i<11?-70:70, y: (i<11?i:i-11)*18-90 })),
-  symbol: [RECT(-60,-100,120,200,6), TXT(0,-80,"Arduino",11), TXT(0,-62,"CO-SIM",8)],
+  symbol: mcuBoxSymbol("Arduino"),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "MCU", nodes: n, params: { vdd: 5, rout: 40 }, text: i.text }],
 });
@@ -5749,7 +5823,7 @@ add({
   mount: "THT",
   interactive: "mcu",
   pins: ["D0","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","A0","A1","A2","A3","A4","A5","VCC","GND"].map((pn,i)=>({ name: pn, x: i<11?-70:70, y: (i<11?i:i-11)*18-90 })),
-  symbol: [RECT(-60,-100,120,200,6), TXT(0,-80,"ESP32",11), TXT(0,-62,"CO-SIM",8)],
+  symbol: mcuBoxSymbol("ESP32"),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "MCU", nodes: n, params: { vdd: 5, rout: 40 }, text: i.text }],
 });
@@ -5764,7 +5838,7 @@ add({
   mount: "THT",
   interactive: "mcu",
   pins: ["D0","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","A0","A1","A2","A3","A4","A5","VCC","GND"].map((pn,i)=>({ name: pn, x: i<11?-70:70, y: (i<11?i:i-11)*18-90 })),
-  symbol: [RECT(-60,-100,120,200,6), TXT(0,-80,"STM32F103",11), TXT(0,-62,"CO-SIM",8)],
+  symbol: mcuBoxSymbol("STM32F103"),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "MCU", nodes: n, params: { vdd: 5, rout: 40 }, text: i.text }],
 });
@@ -5779,7 +5853,7 @@ add({
   mount: "THT",
   interactive: "mcu",
   pins: ["D0","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","A0","A1","A2","A3","A4","A5","VCC","GND"].map((pn,i)=>({ name: pn, x: i<11?-70:70, y: (i<11?i:i-11)*18-90 })),
-  symbol: [RECT(-60,-100,120,200,6), TXT(0,-80,"ATtiny85",11), TXT(0,-62,"CO-SIM",8)],
+  symbol: mcuBoxSymbol("ATtiny85"),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "MCU", nodes: n, params: { vdd: 5, rout: 40 }, text: i.text }],
 });
@@ -5794,7 +5868,7 @@ add({
   mount: "THT",
   interactive: "mcu",
   pins: ["D0","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","A0","A1","A2","A3","A4","A5","VCC","GND"].map((pn,i)=>({ name: pn, x: i<11?-70:70, y: (i<11?i:i-11)*18-90 })),
-  symbol: [RECT(-60,-100,120,200,6), TXT(0,-80,"PIC16F877A",11), TXT(0,-62,"CO-SIM",8)],
+  symbol: mcuBoxSymbol("PIC16F877A"),
   params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "MCU", nodes: n, params: { vdd: 5, rout: 40 }, text: i.text }],
 });

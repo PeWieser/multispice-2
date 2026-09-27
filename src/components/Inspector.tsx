@@ -135,7 +135,7 @@ export default function Inspector() {
                   <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Typ & Darstellung</div>
                   <div className="space-y-2 rounded-lg p-2.5" style={{ background: "var(--panel-2)" }}>
                     <label className="block">
-                      <span className="mb-1 block text-[11px] text-dim">Typ (Multisim-like)</span>
+                      <span className="mb-1 block text-[11px] text-dim">Typ</span>
                       <select className="input" value={selectedProbe.kind} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{kind:e.target.value as ProbeKind})}>
                         <option value="voltage">Voltage – V gegen GND/REF</option>
                         <option value="current">Current – A mit Richtung</option>

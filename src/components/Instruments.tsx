@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, BarChart3, Binary, Gauge, LineChart, Minus, PanelBottom, Radio, SquareActivity, Timer, Waves, X, Zap,
+  Activity, BarChart3, Binary, Gauge, LineChart, Minus, PanelBottom, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
 import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
@@ -1500,7 +1501,7 @@ function LogicConverter({ win }: { win: InstrumentWindow }) {
         <div className="text-[10px] text-mute mb-1">Boolescher Ausdruck (SOP)</div>
         <div className="rounded-lg p-2 mono text-[11px]" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>{cfg.expr || "– klicke → Boolean –"}</div>
       </div>
-      <div className="text-[10px] text-mute">Multisim-like: Truth Table ↔ Boolean ↔ Circuit. Für MVP: SOP via Quine-McCluskey light, Schaltung als AND/OR/NOT. Vollversion würde Gates platzieren.</div>
+      <div className="text-[10px] text-mute">Wahrheitstabelle ↔ Boolesch ↔ Schaltung (SOP via Quine-McCluskey).</div>
     </div>
   );
 }
@@ -1698,6 +1699,8 @@ function Window({ win }: { win: InstrumentWindow }) {
         return <DistortionAnalyzer win={win} />;
       case "network":
         return <NetworkAnalyzer win={win} />;
+      case "inspector":
+        return <InspectorBody />;
       default:
         return null;
     }
@@ -1759,8 +1762,7 @@ function Window({ win }: { win: InstrumentWindow }) {
   );
 }
 
-function iconFor(kind: InstrumentKind) {
-  const s = 12;
+function iconFor(kind: InstrumentKind, s = 12) {
   switch (kind) {
     case "scope":
       return <Activity size={s} />;
@@ -1786,9 +1788,80 @@ function iconFor(kind: InstrumentKind) {
       return <Activity size={s} />;
     case "network":
       return <Radio size={s} />;
+    case "inspector":
+      return <SlidersHorizontal size={s} />;
     default:
       return <Radio size={s} />;
   }
+}
+
+/** W10: Der Inspector lebt als Fenster – lazy geladen, damit die Geräte-Bar
+ *  den Erststart nicht verteuert. */
+const InspectorBody = dynamic(() => import("./Inspector"), { ssr: false });
+
+/** W10: Schmale Geräte-Bar am rechten Rand – ein Klick öffnet/fokussiert das
+ *  Gerät als Fenster; offene Geräte sind markiert. Unten: Inspector-Toggle. */
+export function DeviceBar() {
+  const apple = useIsApple();
+  const open = useEditor((s) => s.openInstrument);
+  const toggleInspector = useEditor((s) => s.toggleInspector);
+  const instruments = useEditor((s) => s.instruments);
+  const items: Array<[InstrumentKind, string]> = [
+    ["scope", "Oszilloskop"],
+    ["dmm", "Multimeter"],
+    ["funcgen", "Funktionsgenerator"],
+    ["counter", "Frequenzzähler"],
+    ["bode", "Bode-Plotter"],
+    ["logic", "Logikanalysator"],
+    ["logicconv", "Logic Converter"],
+    ["watt", "Wattmeter"],
+    ["iv", "IV-Analyzer"],
+    ["spectrum", "Spektrumanalysator"],
+    ["pattern", "Mustergenerator"],
+    ["distortion", "Distortion Analyzer"],
+    ["network", "Network Analyzer"],
+  ];
+  const isOpen = (k: InstrumentKind) => instruments.some((w) => w.kind === k);
+  return (
+    <div
+      className="pointer-events-auto absolute bottom-0 right-0 top-0 z-20 flex w-11 flex-col items-center gap-0.5 overflow-y-auto py-2"
+      style={{ background: "var(--panel-solid)", borderLeft: "1px solid var(--border)", scrollbarWidth: "none" }}
+    >
+      {items.map(([k, label]) => (
+        <button
+          key={k}
+          onClick={() => open(k)}
+          title={label}
+          aria-label={label}
+          aria-pressed={isOpen(k)}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors"
+          style={
+            isOpen(k)
+              ? { background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)" }
+              : { color: "var(--text-dim)" }
+          }
+        >
+          {iconFor(k, 15)}
+        </button>
+      ))}
+      <div className="h-2 shrink-0" />
+      <div className="w-6 shrink-0 border-t" style={{ borderColor: "var(--border)" }} />
+      <button
+        onClick={toggleInspector}
+        title={adaptShortcut("Inspector (⌘I)", apple)}
+        aria-label="Inspector"
+        aria-pressed={isOpen("inspector")}
+        className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors"
+        style={
+          isOpen("inspector")
+            ? { background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)" }
+            : { color: "var(--text-dim)" }
+        }
+      >
+        {iconFor("inspector", 15)}
+      </button>
+    </div>
+  );
 }
 
 export function InstrumentLayer() {
@@ -1813,35 +1886,6 @@ export function InstrumentLayer() {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-export function InstrumentDock() {
-  const open = useEditor((s) => s.openInstrument);
-  const items: Array<[InstrumentKind, string]> = [
-    ["scope", "Oszilloskop"],
-    ["dmm", "Multimeter"],
-    ["funcgen", "Funktionsgenerator"],
-    ["counter", "Frequenzzähler"],
-    ["bode", "Bode-Plotter"],
-    ["logic", "Logikanalysator"],
-    ["logicconv", "Logic Converter"],
-    ["watt", "Wattmeter"],
-    ["iv", "IV-Analyzer"],
-    ["spectrum", "Spektrum"],
-    ["pattern", "Mustergenerator"],
-    ["distortion", "Distortion Analyzer"],
-    ["network", "Network Analyzer"],
-  ];
-  return (
-    <div className="panel flex w-[52px] shrink-0 flex-col items-center gap-1 py-2" style={{ borderWidth: "0 0 0 1px" }}>
-      <div className="mb-1 text-[8.5px] uppercase tracking-wider text-mute">Geräte</div>
-      {items.map(([kind, title]) => (
-        <button key={kind} className="btn h-9 w-9 justify-center p-0" title={title} onClick={() => open(kind)}>
-          {iconFor(kind)}
-        </button>
-      ))}
     </div>
   );
 }

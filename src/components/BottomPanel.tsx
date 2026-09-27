@@ -157,7 +157,7 @@ export default function BottomPanel() {
               )}
               <div className="mt-3 text-[11px] text-mute">
                 Knoten: {netResult.nets.length} · Bauteile: {netResult.netlist.devices.length} · Matrix:{" "}
-                {engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"} · ERC visuell an (rote Marker direkt am Bauteil, wie Multisim)
+                {engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"} · ERC-Marker am Bauteil
               </div>
             </div>
           )}

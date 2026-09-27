@@ -214,7 +214,8 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         </MenuItem>
         <MenuSeparator />
         <MenuItem onClick={() => st().fitView()}>Einpassen (F)</MenuItem>
-        <MenuItem onClick={() => st().toggleLibrary()}>Bibliothek (⌘K)</MenuItem>
+        <MenuItem hint="⌘K" onClick={() => st().toggleLibrary()}>Bibliothek</MenuItem>
+        <MenuItem hint="⌘I" onClick={() => st().toggleInspector()}>Inspector</MenuItem>
         <MenuSeparator />
         <MenuItem checked={theme === "system"} onClick={() => setTheme("system")}>System (Auto)</MenuItem>
         <MenuItem checked={theme === "dark"} onClick={() => setTheme("dark")}>Dunkel</MenuItem>

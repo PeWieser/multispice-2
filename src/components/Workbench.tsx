@@ -12,7 +12,7 @@ import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
 import { useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
-import { Menu, X, Library, SlidersHorizontal, Play, Pause } from "lucide-react";
+import { Menu, X, Library, Settings, SlidersHorizontal, Play, Pause } from "lucide-react";
 
 // R17: Schwere, selten geöffnete Oberflächen laden wir als eigene Chunks –
 // der Erststart bezahlt nur noch Canvas, Menü und Statusleiste.
@@ -21,6 +21,7 @@ const SettingsDialog = dynamic(() => import("./SettingsDialog"), { ssr: false })
 const WizardsDialog = dynamic(() => import("./WizardsDialog"), { ssr: false });
 const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false });
 const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
+const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
 
 /** R8: Ein echtes Schaltblatt für window.print() – Rahmen, Kopf, Stempel.
  *  Der Capture läuft synchron im beforeprint-Event (direkt am <img>-Element),
@@ -113,7 +114,7 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
       <span className="text-[13px] font-semibold">Multispice</span>
       <div className="flex-1" />
       <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={onSettings} title="Einstellungen">
-        ⚙️
+        <Settings size={16} />
       </button>
       <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={toggleLibrary} title="Bibliothek">
         <Library size={16} />
@@ -139,11 +140,11 @@ function MobileBottomToolbar() {
   const placingProbe = useEditor((s) => s.placingProbeKind);
 
   const tools = [
-    { id: "select", label: "Select", icon: "↖" },
-    { id: "wire", label: "Wire", icon: "∿" },
-    { id: "probe_voltage", label: "V", icon: "V" },
-    { id: "probe_current", label: "A", icon: "A" },
-    { id: "erase", label: "Erase", icon: "⌫" },
+    { id: "select", label: "Auswahl", icon: "↖" },
+    { id: "wire", label: "Leitung", icon: "∿" },
+    { id: "probe_voltage", label: "Spannungs-Probe", icon: "V" },
+    { id: "probe_current", label: "Strom-Probe", icon: "A" },
+    { id: "erase", label: "Löschen", icon: "⌫" },
   ] as const;
 
   // Einmalig beim Start: gespeicherten Stand aus dem Browser wiederherstellen.
@@ -159,6 +160,8 @@ function MobileBottomToolbar() {
           <button
             key={t.id}
             className="grid h-[44px] min-w-[56px] place-items-center rounded-xl text-[12px] font-bold border"
+            aria-label={t.label}
+            title={t.label}
             style={
               active
                 ? { background: "var(--accent)", color: "var(--accent-contrast)", borderColor: "var(--accent)" }
@@ -179,7 +182,7 @@ function MobileBottomToolbar() {
       })}
       <div className="flex-1" />
       <button className="btn h-[44px] px-3 text-[11px]" onClick={() => useEditor.getState().fitView()}>
-        Fit
+        Einpassen
       </button>
     </div>
   );
@@ -277,6 +280,11 @@ export default function Workbench() {
         e.preventDefault();
         useEditor.getState().toggleLibrary();
       }
+      // W10: Strg+I / ⌘I toggelt das Inspector-Fenster
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        useEditor.getState().toggleInspector();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -344,22 +352,7 @@ export default function Workbench() {
               <Canvas />
               <InstrumentLayer />
               <LibraryPalette />
-              {rightOpen && (
-                <div
-                  className="absolute right-0 top-0 z-30 flex h-full w-[340px] flex-col overflow-hidden border-l"
-                  style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", boxShadow: "var(--shadow)" }}
-                >
-                  <div className="flex h-9 items-center justify-between px-3" style={{ borderBottom: "1px solid var(--border)" }}>
-                    <span className="text-[11px] font-medium">Inspector</span>
-                    <button className="btn h-6 px-1.5 text-[10px]" onClick={() => useEditor.getState().toggleRight()}>
-                      Schließen
-                    </button>
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-auto">
-                    <Inspector />
-                  </div>
-                </div>
-              )}
+              <DeviceBar />
             </div>
             {bottomOpen && <BottomPanel />}
           </div>
@@ -386,22 +379,7 @@ export default function Workbench() {
             <Canvas />
             <InstrumentLayer />
             <LibraryPalette />
-            {rightOpen && (
-              <div
-                className="absolute right-3 top-3 z-30 flex max-h-[calc(100%-24px)] w-[320px] flex-col overflow-hidden rounded-xl"
-                style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }}
-              >
-                <div className="flex h-8 items-center justify-between px-3" style={{ borderBottom: "1px solid var(--border)" }}>
-                  <span className="text-[11px] font-medium">Inspector</span>
-                  <button className="btn h-6 px-1.5 text-[10px]" onClick={() => useEditor.getState().toggleRight()}>
-                    Schließen
-                  </button>
-                </div>
-                <div className="min-h-0 flex-1 overflow-auto">
-                  <Inspector />
-                </div>
-              </div>
-            )}
+            <DeviceBar />
           </div>
           {bottomOpen && <BottomPanel />}
         </div>

@@ -57,7 +57,8 @@ export type InstrumentKind =
   | "counter"
   | "logicconv"
   | "distortion"
-  | "network";
+  | "network"
+  | "inspector";
 
 export interface InstrumentWindow {
   id: string;
@@ -194,6 +195,8 @@ export interface EditorState {
   setToast: (t: { message: string; actionLabel?: string; action?: () => void } | null) => void;
   clearToast: () => void;
   openInstrument: (kind: InstrumentKind) => void;
+  /** W10: Inspector-Fenster öffnen/schließen (Geräte-Bar, Strg+I, Kontextmenü). */
+  toggleInspector: () => void;
   closeInstrument: (id: string) => void;
   updateInstrument: (id: string, patch: Partial<InstrumentWindow>) => void;
   focusInstrument: (id: string) => void;
@@ -578,8 +581,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (autoNet && autoNet!=="0" && !get().probes.includes(autoNet)) {
       set((s)=> ({ probes: [...s.probes, autoNet].slice(-12) }));
     }
-    set({ selection: [id], rightOpen: true, bottomTab: "probes" as any });
-    get().log("ok", `Messpunkt ${kind} ${probe.name} @ ${autoNet ?? "auto"} – Multisim-like: V vs GND/REF, I mit Richtung, Rechtsklick Reverse, Doppelklick Inspector`);
+    set({ selection: [id], bottomTab: "probes" as any });
+    get().log("ok", `Messpunkt ${probe.name} @ ${autoNet ?? "auto"}`);
     return id;
   },
 
@@ -673,6 +676,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       counter: "Frequenzzähler",
       distortion: "Distortion Analyzer",
       network: "Network Analyzer",
+      inspector: "Inspector",
     };
     const existing = get().instruments.find((i) => i.kind === kind);
     if (existing) {
@@ -694,6 +698,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       distortion: { w: 360, h: 260 },
       network: { w: 600, h: 400 },
       counter: { w: 300, h: 250 },
+      inspector: { w: 320, h: 480 },
     };
     const size = sizes[kind] ?? { w: 420, h: 340 };
     const count = get().instruments.length;
@@ -714,6 +719,12 @@ export const useEditor = create<EditorState>((set, get) => ({
         },
       ],
     }));
+  },
+
+  toggleInspector: () => {
+    const ex = get().instruments.find((w) => w.kind === "inspector");
+    if (ex) get().closeInstrument(ex.id);
+    else get().openInstrument("inspector");
   },
 
   closeInstrument: (id) => set((s) => ({ instruments: s.instruments.filter((i) => i.id !== id) })),

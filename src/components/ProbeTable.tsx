@@ -94,7 +94,7 @@ export default function ProbeTable() {
     <div className="h-full overflow-auto" role="region" aria-label="Messpunkte Tabelle – permanente Anzeige aller Probes">
       <table className="sr-only"><caption>Probes Messwerte – Name, Typ, Netz, REF, Vdc, Vrms, Vpp, Vavg, Frequenz. Wie in Multisim permanente Anzeige neben Spannung.</caption></table>
       <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 text-[10px] uppercase tracking-wide text-mute" style={{ background: "var(--panel)", borderBottom: "1px solid var(--border)" }}>
-        <span>Messpunkte – Multisim-like permanente Anzeige</span>
+        <span>Messpunkte</span>
         <span className="ml-auto mono">{rows.length} Probes</span>
         <button
           className="btn h-6 px-2 text-[10px]"

@@ -87,7 +87,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
 
           <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
             <div className="text-[11px] font-medium mb-2">Probe Darstellung</div>
-            <div className="text-[11px] text-mute mb-2">Leader Stil: Pfeil von Body zu Wire wie Multisim Lupe. Body Offset 32/-28, konstante Screen Größe 10px.</div>
+            <div className="text-[11px] text-mute mb-2">Leader-Stil: Pfeil vom Bauteil zur Leitung. Body-Offset 32/−28, konstante Screen-Größe 10px.</div>
             <div className="grid grid-cols-2 gap-2 text-[11px] mono">
               <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
                 V Probe: #fbbf24 amber
@@ -145,7 +145,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
       {tab === "canvas" && (
         <div className="space-y-3">
           <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-            <div className="text-[11px] font-medium mb-2">Canvas Darstellung – wie Multisim</div>
+            <div className="text-[11px] font-medium mb-2">Canvas-Darstellung</div>
             <div className="space-y-2">
               <label className="flex items-center justify-between text-[12px]">
                 <span>Raster anzeigen</span>

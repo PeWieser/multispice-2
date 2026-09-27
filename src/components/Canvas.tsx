@@ -744,7 +744,7 @@ export default function Canvas() {
           ctx.fillStyle = "#ef4444";
           ctx.font = `bold ${9*iz}px ui-sans-serif`;
           ctx.textAlign = "center";
-          ctx.fillText(`🔥 ${formatValue(pwr,"W")} > ${maxP}W`, cx, b.y - 8*iz);
+          ctx.fillText(`⚠ ${formatValue(pwr,"W")} > ${maxP}W`, cx, b.y - 8*iz);
         }
       }
       ctx.restore();
@@ -1017,7 +1017,7 @@ export default function Canvas() {
             }
           });
           (sr as any).wirePointDrag = { wireId: handle.wireId, pointIdx: handle.pointIdx };
-          st.log("info", `Punkt hinzugefügt an Leitung ${handle.wireId.slice(0,6)} – ziehen zum Formen, Doppelklick zum Löschen`);
+          st.log("info", `Punkt an Leitung hinzugefügt`);
           return;
         } else {
           (sr as any).wirePointDrag = { wireId: handle.wireId, pointIdx: handle.pointIdx };
@@ -1563,18 +1563,19 @@ export default function Canvas() {
       st.setSelection([hit.id]);
       const part = PART_MAP[hit.partId];
       const key = part?.params[0]?.key;
-      if (key && !e.altKey) {
-        // Inline-Wertedit direkt auf der Fläche – Direct Manipulation statt Dialog.
+      if (key && e.altKey) {
+        // Alt+Doppelklick: Inline-Wertedit direkt auf der Fläche (Direct Manipulation).
         const scr = toScreen({ x: hit.x, y: hit.y });
         setEditing({ kind: "value", instId: hit.id, x: hit.x, y: hit.y, sx: scr.x, sy: scr.y, initial: String(hit.params[key] ?? "") });
       } else {
-        useEditor.setState({ rightOpen: true });
+        // W10: Doppelklick öffnet den Inspector als Fenster.
+        useEditor.getState().openInstrument("inspector");
       }
     }
     else {
       const probe = hitTestProbe(st.doc, world);
       if (probe) {
-        st.setSelection([probe.id]); useEditor.setState({ rightOpen: true });
+        st.setSelection([probe.id]); useEditor.getState().openInstrument("inspector");
       } else {
         // Double-click on wire segment adds point
         const wireId = hitWire(st.doc, world);
@@ -1824,7 +1825,7 @@ export default function Canvas() {
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={()=>setShowHelp(false)}>
           <div className="rounded-2xl p-5 w-full max-w-[560px] max-h-[80vh] overflow-auto" style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} onClick={e=>e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <div className="text-[14px] font-semibold">⌨️ Shortcuts – wie Multisim, aber schneller</div>
+              <div className="text-[14px] font-semibold">Tastenkürzel</div>
               <button className="btn h-7 w-7 p-0" onClick={()=>setShowHelp(false)}>✕</button>
             </div>
             <div className="grid grid-cols-2 gap-3 text-[11px]">
@@ -1923,7 +1924,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               <button className="row justify-center" onClick={() => { st.rotateSelection(-1); onClose(); }} title={adaptShortcut("Drehen -90° (⇧R)", apple)}>↺ -90°</button>
               <button className="row justify-center" onClick={() => { st.mirrorSelection(); onClose(); }} title="Spiegeln (M)">⇆ Spiegel</button>
             </div>
-            <button className="row" onClick={() => { st.setSelection([target.id]); useEditor.setState({ rightOpen: true }); onClose(); }}><span>⚙️ Eigenschaften…</span><span className="ml-auto text-[10px] text-mute">Doppelklick</span></button>
+            <button className="row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-[10px] text-mute">Doppelklick</span></button>
             <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
             <button className="row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘C", apple)}</span></button>
             <div className="sep" />
@@ -1984,7 +1985,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               onClose();
             }}><span>➕ Punkt hier hinzufügen</span></button>
             <div className="sep" />
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Farbe – wie Multisim Wire Color</div>
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Leitungsfarbe</div>
             <button className="row" onClick={() => {
               const w = doc.wires.find(x=>x.id===target.id);
               if (!w) return;
@@ -2067,12 +2068,12 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               <div className="text-[10px] text-mute truncate">Netz {target.probe.net ?? target.net ?? "auto"}{netLabel}</div>
             </div>
           </div>
-          <button className="row" onClick={() => { st.setSelection([target.id]); useEditor.setState({ rightOpen: true }); onClose(); }}><span>⚙️ Eigenschaften…</span><span className="ml-auto text-[10px] text-mute">Doppelklick</span></button>
+          <button className="row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-[10px] text-mute">Doppelklick</span></button>
           {(target.probe.kind==="current" || target.probe.kind==="voltage_current" || target.probe.kind==="power") && (
             <button className="row" onClick={() => { st.updateMeasurementProbe(target.id, { direction: target.probe.direction?0:1 }); onClose(); }}><span>↺ Richtung umkehren</span><span className="ml-auto text-[10px] text-mute">{target.probe.direction? "Reverse":"Normal"}</span></button>
           )}
           <div className="sep" />
-          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Typ ändern – Multisim-like</div>
+          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Typ ändern</div>
           <div className="grid grid-cols-1 gap-0.5">
           {([
             ["voltage","V – Voltage – misst gegen GND/REF","#fbbf24"],
