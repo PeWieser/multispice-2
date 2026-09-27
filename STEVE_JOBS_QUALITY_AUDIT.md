@@ -157,6 +157,39 @@ Verifikation Runde 6: tsc 0 · eslint 0/0 · `npm test` 19/19 Import-Checks + Si
 
 ---
 
+## 4e · Runde 7 — Umsetzung Block C + Rest (7 Schritte: R8, R10–R13, R16, R17)
+
+- **R8 · Drucken wird ein Schaltblatt:** `PrintSheet` rendert als Portal ein echtes Blatt —
+  Rahmen, Projektkopf, Planbild, Stempel (Bauteile/Leitungen/Netze/Blatt/Datum), A4 quer per
+  `@page`. Menü „Drucken“ passt erst ein (fitView), capturet dann synchron; `beforeprint`
+  fängt Strg+P direkt ab, damit auch der Browser-Shortcut das Blatt bekommt.
+- **R10 · Scope fühlt sich echt an:** Mausrad auf dem CRT zoomt Zeit/DIV (Faktor 1.25,
+  non-passiver Listener), ⇧Rad das V/DIV des Trigger-Kanals. Geräte docken: Dock-Knopf im
+  Titel oder Fenster am unteren Rand loslassen → Dock-Reihe teilt den Platz; `docked`
+  persistiert mit dem Projekt (R7 trägt es).
+- **R11 · Grapher zoomt:** Rad = X-Zoom um den Cursor, ⇧Rad = Y-Zoom, Ziehen = Schwenken,
+  Doppelklick/Auto-Scale-Knopf = Einpassen. Kurven werden pro Panel geclippt; Cursor-
+  Mapping, Ticks (linear + log) und Hover-Werte rechnen in der Zoom-Domäne. View ist an die
+  Daten-Identität gebunden → neue Analyse startet automatisch in Auto-Scale.
+- **R12 · Touch komplett:** Zwei Finger schwenken jetzt zusätzlich zum Pinch (eine Geste,
+  eine Bewegung — Midpoint-Delta und Skalierung in einem setView); ?-Hilfe dokumentiert
+  Pinch + Pan + Long-Press.
+- **R13 · Strom hat ein Gesicht:** `RealtimeEngine.deviceBuffers` sampeln Zweigströme pro
+  Gerät; der Hover-Tooltip zeigt über einem Bauteil die I(t)-Sparkline (sonst V(t)) — mit
+  Beschriftung, welche Größe man sieht.
+- **R16 · Eine Stimme:** DESIGN.md §„Sprache & Fachbegriffe“ — Deutsch konsequent,
+  englische Fachbegriffe nur als Eigennamen der Messtechnik, plus Regeln (Ein Begriff, ein
+  Wort; Fehler mit Ausweg) und Glossar EN→DE.
+- **R17 · Tempo gemessen, nicht geraten:** `performance.mark` + Konsole berichten die Zeit
+  bis Interaktivität; Dialoge (Analyse/Einstellungen/Wizards/Projekte), InstrumentLayer und
+  Grapher laden als eigene Chunks (`next/dynamic`, ssr:false) — ≈119 KB aus dem Einstieg
+  heraus, bezahlt wird erst beim Öffnen.
+
+Verifikation Runde 7: tsc 0 · eslint 0/0 · `npm test` grün · `next build` grün (7 Lazy-
+Chunks neben dem Einstieg) · Preview-Smoke 200.
+
+---
+
 ## 5 · Backlog — bewusst nicht jetzt
 
 - **B1 Tempo („Saving Lives“):** Ein Bundle für Editor + Instrumente + Analysen. Plan:
@@ -202,24 +235,24 @@ etwas behauptet, das es nicht ist. „Magie“ = darf, weil es den Unterschied m
 | R5 | Leertaste: ignorieren wenn BUTTON/A fokussiert (Doppelaktion verhindern) | S | ✅ Runde 6 |
 | R6 | Statusleiste: sichtbarer Auto-Save-Beweis („✓ gespeichert 14:32“ / „● ausstehend“) | S | ✅ Runde 6 |
 | R7 | Instrumente persistieren: Geräte, Fensterlage, Configs in Projekt-Snapshot + JSON-Export/Import (Migration inkl.) | M | ✅ Runde 6 |
-| R8 | Druck/PDF-Blattansicht: Titelblock, sauberes Schaltplan-SVG statt Webseiten-Print | M | offen |
+| R8 | Druck/PDF-Blattansicht: Titelblock, sauberes Schaltplan-SVG statt Webseiten-Print | M | ✅ Runde 7 |
 
 ### B · Bedienung vervollständigen
 | # | Schritt | Aufwand | Status |
 |---|---------|---------|--------|
 | R9 | Tasten: A = Strom-Probe, G = Grid, ⇧G = Snap; ?-Hilfe-Overlay zur vollen Referenz inkl. Wheel-Gesten ausbauen | S | ✅ Runde 6 |
-| R10 | Scope/CRT: Wheel = Timebase, ⇧Wheel = Volts/Div; echtes Docking an Bottom-Panel (versprochene Magie nachliefern) | M | offen |
-| R11 | Grapher: Wheel-Zoom (X/Y), Drag-Pan, Doppelklick = Autoscale | M | offen |
-| R12 | Touch-Gesten komplettieren & dokumentieren (2-Finger-Pan, Pinch existiert, Long-Press existiert) | M | offen |
+| R10 | Scope/CRT: Wheel = Timebase, ⇧Wheel = Volts/Div; echtes Docking an Bottom-Panel (versprochene Magie nachliefern) | M | ✅ Runde 7 |
+| R11 | Grapher: Wheel-Zoom (X/Y), Drag-Pan, Doppelklick = Autoscale | M | ✅ Runde 7 |
+| R12 | Touch-Gesten komplettieren & dokumentieren (2-Finger-Pan, Pinch existiert, Long-Press existiert) | M | ✅ Runde 7 |
 
 ### C · Magie-Kandidaten
 | # | Schritt | Aufwand | Status |
 |---|---------|---------|--------|
-| R13 | Strom-Sparkline im Hover-Tooltip (Engine-`channel` für Ströme erweitern; ex B6) | M | offen |
+| R13 | Strom-Sparkline im Hover-Tooltip (Engine-`channel` für Ströme erweitern; ex B6) | M | ✅ Runde 7 |
 | R14 | Datei-Drop: .cir/.asc direkt auf den Canvas ziehen (Importer existieren; ex B7) | S | ✅ Runde 6 |
 | R15 | Manifest: 192-px-Icon für PWA-Installierbarkeit | S | ✅ Runde 6 |
-| R16 | Sprachstimme DE/EN entscheiden: Fachbegriffe als Eigenname dokumentieren oder konsequent übersetzen (ex B2) | S+M | offen |
-| R17 | Tempo: Erst-Ladezeit messen (RUM/light), dann Instruments/Analysen code-splitten (ex B1) | M/L | offen |
+| R16 | Sprachstimme DE/EN entscheiden: Fachbegriffe als Eigenname dokumentieren oder konsequent übersetzen (ex B2) | S+M | ✅ Runde 7 |
+| R17 | Tempo: Erst-Ladezeit messen (RUM/light), dann Instruments/Analysen code-splitten (ex B1) | M/L | ✅ Runde 7 |
 
 ### D · Qualitäts-Wachen
 | # | Schritt | Aufwand | Status |
@@ -231,9 +264,9 @@ etwas behauptet, das es nicht ist. „Magie“ = darf, weil es den Unterschied m
 Symbol-Editor, hierarchische Subcircuit-Simulation, 3D/Foto-Ansicht — Power-User-Tiefe,
 die 90 % der Lernenden nie anfassen. Wird nicht vergessen, aber nicht jetzt.
 
-**Summe offen: 7 Schritte** — R8 (Druck-Blatt), R10 (Scope-Wheel/Docking), R11 (Grapher-
-Zoom/Pan), R12 (Touch-Gesten), R13 (Strom-Sparkline), R16 (DE/EN-Stimme), R17 (Tempo/
-Split). Runde 6 hat den kompletten A-Block plus R9/R14/R15/R18/R19 umgesetzt (9 Schritte).
+**Summe offen: 0 Schritte.** Runde 6 hat den A-Block plus R9/R14/R15/R18/R19 umgesetzt
+(9 Schritte), Runde 7 den Rest: R8, R10–R13, R16, R17 (7 Schritte). Die Master-Restliste
+R1–R19 ist damit vollständig abgearbeitet; übrig bleibt nur der bewusste E-Block (§5).
 
 ---
 

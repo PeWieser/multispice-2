@@ -6,8 +6,11 @@ import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
 import { fromLtspiceAsc, fromSpiceNetlist, isLtspiceAsc } from "@/lib/schematic/importers";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor } from "@/state/editor";
-import Grapher from "./Grapher";
+import dynamic from "next/dynamic";
 import ProbeTable from "./ProbeTable";
+
+// R17: Der Grapher (Diagramm-Engine) lädt erst, wenn der Tab „Ergebnisse“ öffnet.
+const Grapher = dynamic(() => import("./Grapher"), { ssr: false });
 
 const TABS = [
   ["console", "Konsole", <Terminal key="c" size={12} />],

@@ -384,11 +384,73 @@ input[type="range"]::-moz-range-thumb {
 }
 .fade-in { animation: fade-in var(--dur) var(--ease) both; }
 
-/* ---------- Print (§4: Exportqualität ist Renderingqualität) ---------- */
+/* ---------- Print (§4: Exportqualität ist Renderingqualität) ----------
+   R8: Gedruckt wird ein echtes Schaltblatt – Rahmen, Kopf, Stempel – statt
+   der App-Chrome. Das Blatt lebt als Portal direkt unter <body>; alles
+   andere wird ausgeblendet. */
+.print-sheet { display: none; }
+
 @media print {
-  body { background: white; color: black; }
-  .btn, .tab, input[type="range"] { display: none; }
-  canvas { image-rendering: high-quality; }
+  @page { size: A4 landscape; margin: 10mm; }
+  html, body { background: white !important; }
+  body > *:not(.print-sheet) { display: none !important; }
+  .print-sheet {
+    display: flex !important;
+    flex-direction: column;
+    width: 100%;
+    height: 100vh;
+    color: #000;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+  .print-sheet .sheet-frame {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1.2pt solid #000;
+  }
+  .print-sheet .sheet-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12pt;
+    padding: 4mm 5mm 3mm;
+    border-bottom: 0.6pt solid #000;
+  }
+  .print-sheet .sheet-title { font-size: 14pt; font-weight: 650; }
+  .print-sheet .sheet-meta { font-size: 8.5pt; color: #333; }
+  .print-sheet .sheet-img {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3mm;
+  }
+  .print-sheet .sheet-img img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    image-rendering: high-quality;
+  }
+  .print-sheet .sheet-stamp {
+    display: flex;
+    gap: 0;
+    border-top: 0.6pt solid #000;
+    font-size: 8pt;
+  }
+  .print-sheet .sheet-stamp > div {
+    padding: 2mm 4mm;
+    border-right: 0.6pt solid #000;
+    line-height: 1.35;
+  }
+  .print-sheet .sheet-stamp > div:last-child { border-right: 0; margin-left: auto; }
+  .print-sheet .stamp-label {
+    display: block;
+    font-size: 6.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #555;
+  }
 }
 
 /* ---------- Reduced Motion (§3) + Focus Visible (WCAG 2.4.7) ---------- */

@@ -1412,10 +1412,21 @@ export default function Canvas() {
         }
         const wr = wrapRef.current?.getBoundingClientRect();
         let spark: number[] | null = null;
+        let sparkIsCurrent = false;
         try {
-          const ch = engine.channel(net, 96);
-          if (ch.v.length > 8) spark = ch.v;
+          if (hit) {
+            const dc = engine.deviceChannel(hit.label, 96);
+            if (dc.v.length > 8) {
+              spark = dc.v;
+              sparkIsCurrent = true;
+            }
+          }
+          if (!spark) {
+            const ch = engine.channel(net, 96);
+            if (ch.v.length > 8) spark = ch.v;
+          }
         } catch {}
+        if (spark) lines.push(sparkIsCurrent ? "I(t)-Verlauf ↓" : "V(t)-Verlauf ↓");
         setTooltip({ x: e.clientX - (wr?.left ?? 0), y: e.clientY - (wr?.top ?? 0), lines, spark });
         (stateRef.current as any)._lastTooltipNet = net;
         (stateRef.current as any)._lastTooltipTime = now;
@@ -1647,6 +1658,7 @@ export default function Canvas() {
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden" role="application" aria-label="Schaltplan Canvas – Bauteile platzieren, Leitungen ziehen, Probes setzen. Shortcuts: R Drehen, W Wire, F Fit, Leertaste Start, ⌘K Bibliothek, ? Hilfe">
       <canvas
+        id="schematic-canvas"
         ref={canvasRef}
         className="block h-full w-full touch-none"
         aria-label="Schaltplan Zeichenfläche"
@@ -1706,16 +1718,26 @@ export default function Canvas() {
             const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
             const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
             const lastDist = touchState.current.lastDist || dist;
+            const lastMid = touchState.current.lastMid;
             const scale = dist / lastDist;
-            if (Math.abs(scale-1) > 0.02) {
-              const st = useEditor.getState();
-              const worldMid = toWorld(mx, my);
-              const newZoom = Math.max(0.15, Math.min(4, st.view.zoom * scale));
-              // zoom to midpoint
-              const wx = worldMid.x;
-              const wy = worldMid.y;
-              const nx = wx - (mx - (canvasRef.current?.getBoundingClientRect().left ?? 0))/newZoom;
-              const ny = wy - (my - (canvasRef.current?.getBoundingClientRect().top ?? 0))/newZoom;
+            const st = useEditor.getState();
+            const zooming = Math.abs(scale - 1) > 0.005;
+            const panDx = lastMid ? mx - lastMid.x : 0;
+            const panDy = lastMid ? my - lastMid.y : 0;
+            // R12: Pinch zoomt UND der Mittelpunkt schwenkt – eine Geste, eine Bewegung.
+            if (zooming || Math.hypot(panDx, panDy) > 1) {
+              const rect = canvasRef.current?.getBoundingClientRect();
+              let newZoom = st.view.zoom;
+              let nx = st.view.x;
+              let ny = st.view.y;
+              if (zooming) {
+                newZoom = Math.max(0.15, Math.min(4, st.view.zoom * scale));
+                const worldMid = toWorld(mx, my);
+                nx = worldMid.x - (mx - (rect?.left ?? 0))/newZoom;
+                ny = worldMid.y - (my - (rect?.top ?? 0))/newZoom;
+              }
+              nx -= panDx / newZoom;
+              ny -= panDy / newZoom;
               st.setView({ zoom: newZoom, x: nx, y: ny });
             }
             touchState.current.lastDist = dist;
@@ -1801,6 +1823,7 @@ export default function Canvas() {
                   <div className="flex justify-between"><span>Spiegeln</span><kbd className="kbd">M</kbd></div>
                   <div className="flex justify-between"><span>Grid / Snap</span><kbd className="kbd">G</kbd> / <kbd className="kbd">⇧G</kbd></div>
                   <div className="flex justify-between"><span>Zoom / Pan</span><kbd className="kbd">Rad</kbd> / <kbd className="kbd">⇧Rad</kbd></div>
+                  <div className="flex justify-between"><span>Touch</span><span className="text-mute">2 Finger = Zoom + Pan, lang halten = Menü</span></div>
                   <div className="flex justify-between"><span>Löschen</span><kbd className="kbd">Entf</kbd></div>
                   <div className="flex justify-between"><span>Duplizieren</span><kbd className="kbd">⌘D</kbd></div>
                   <div className="flex justify-between"><span>Alles wählen</span><kbd className="kbd">⌘A</kbd></div>

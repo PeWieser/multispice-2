@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SquareActivity, Timer, Waves, X, Zap,
+  Activity, BarChart3, Binary, Gauge, LineChart, Minus, PanelBottom, Radio, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
@@ -213,10 +213,23 @@ function TactileButton({ active, onClick, children, color, title }: { active?: b
   );
 }
 
-function CrtScreen({ render, cursors, setCursors, trigger, timebase, volts, onTriggerDrag }: { render: (ctx: CanvasRenderingContext2D, w:number,h:number)=>void; cursors: NonNullable<ScopeConfig["cursors"]>; setCursors: (c:any)=>void; trigger: ScopeConfig["trigger"]; timebase:number; volts:number[]; onTriggerDrag:(y:number)=>void }) {
+function CrtScreen({ render, cursors, setCursors, trigger, timebase, volts, onTriggerDrag, onWheelZoom }: { render: (ctx: CanvasRenderingContext2D, w:number,h:number)=>void; cursors: NonNullable<ScopeConfig["cursors"]>; setCursors: (c:any)=>void; trigger: ScopeConfig["trigger"]; timebase:number; volts:number[]; onTriggerDrag:(y:number)=>void; onWheelZoom?:(deltaY:number, shift:boolean)=>void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<null | {kind:"ax"|"bx"|"ay"|"by"|"trig"}>(null);
+
+  // R10: Rad auf dem CRT zoomt – Reacts Wheel-Listener ist passiv, deshalb
+  // hier nativ mit { passive:false }, damit die Seite nicht mitrollt.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || !onWheelZoom) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      onWheelZoom(e.deltaY, e.shiftKey);
+    };
+    wrap.addEventListener("wheel", onWheel, { passive: false });
+    return () => wrap.removeEventListener("wheel", onWheel);
+  }, [onWheelZoom]);
 
   const draw = useCallback((ctx: CanvasRenderingContext2D, w:number, h:number)=>{
     // CRT background radial
@@ -337,7 +350,7 @@ function CrtScreen({ render, cursors, setCursors, trigger, timebase, volts, onTr
   };
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-hidden rounded-[10px]" style={{ background:"#04080a", boxShadow:"inset 0 0 0 1px #000, inset 0 0 40px rgba(0,0,0,0.9), inset 0 0 120px rgba(10,40,20,0.2)" }}>
+    <div ref={wrapRef} className="relative h-full w-full overflow-hidden rounded-[10px]" title={onWheelZoom ? "Mausrad = Zeit/DIV zoomen · ⇧Rad = V/DIV des Trigger-Kanals" : undefined} style={{ background:"#04080a", boxShadow:"inset 0 0 0 1px #000, inset 0 0 40px rgba(0,0,0,0.9), inset 0 0 120px rgba(10,40,20,0.2)" }}>
       <Plot render={plotRender} className="h-full w-full" />
       {/* invisible drag handles */}
       {cursors.enabled && (
@@ -387,6 +400,21 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
   const cfg = (win.config.scope as ScopeConfig) ?? fallbackCfg;
   const cursors = cfg.cursors ?? { enabled:false, mode:"time" as const, ax:0.25, bx:0.75, ay:0.25, by:0.75 };
   const set = (patch: Partial<ScopeConfig>) => update(win.id, { config: { ...win.config, scope: { ...cfg, ...patch } } });
+
+  // R10: Rad = Zeit/DIV (1-2-5-artig, Faktor 1.25), ⇧Rad = V/DIV des Trigger-Kanals.
+  const onWheelZoom = useCallback(
+    (deltaY: number, shift: boolean) => {
+      const f = deltaY > 0 ? 1.25 : 1 / 1.25;
+      if (shift) {
+        const ch = Math.max(0, Math.min(3, cfg.trigger?.source ?? 0));
+        set({ volts: cfg.volts.map((v, i) => (i === ch ? Math.min(1000, Math.max(1e-4, v * f)) : v)) });
+      } else {
+        set({ timebase: Math.min(100, Math.max(1e-9, cfg.timebase * f)) });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cfg, update, win.id, win.config],
+  );
 
   const render = useCallback((ctx: CanvasRenderingContext2D, w:number,h:number)=>{
     const span = cfg.timebase*10;
@@ -570,7 +598,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
             <div className="absolute left-2 bottom-2 h-2 w-2 rounded-full" style={{ background:"radial-gradient(at 30% 30%, #6a6e7a, #2a2d36)", border:"1px solid #000" }} />
             <div className="absolute right-2 bottom-2 h-2 w-2 rounded-full" style={{ background:"radial-gradient(at 30% 30%, #6a6e7a, #2a2d36)", border:"1px solid #000" }} />
             <div className="h-full w-full p-1">
-              <CrtScreen render={render} cursors={cursors} setCursors={(c:any)=>set({cursors:c})} trigger={cfg.trigger} timebase={cfg.timebase} volts={cfg.volts} onTriggerDrag={handleTriggerDrag} />
+              <CrtScreen render={render} cursors={cursors} setCursors={(c:any)=>set({cursors:c})} trigger={cfg.trigger} timebase={cfg.timebase} volts={cfg.volts} onTriggerDrag={handleTriggerDrag} onWheelZoom={onWheelZoom} />
             </div>
             {/* CRT label */}
             <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-2 text-[8px] mono text-mute/60">
@@ -1606,7 +1634,13 @@ function Window({ win }: { win: InstrumentWindow }) {
     };
     const up = () => {
       if (drag.current && pendingPos) {
-        updateInstrument(win.id, pendingPos);
+        // Magnetischer unterer Rand: Titelzeile nah am Boden loslassen = andocken.
+        const parent = winRef.current?.parentElement?.getBoundingClientRect();
+        if (parent && pendingPos.y > parent.height - 56) {
+          updateInstrument(win.id, { docked: true });
+        } else {
+          updateInstrument(win.id, pendingPos);
+        }
       }
       if (resize.current && pendingSize) {
         updateInstrument(win.id, pendingSize);
@@ -1663,30 +1697,47 @@ function Window({ win }: { win: InstrumentWindow }) {
   return (
     <div
       ref={winRef}
-      className="rise pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl will-change-transform"
-      style={{ left: win.x, top: win.y, width: win.w, height: win.minimized ? 36 : win.h, zIndex: win.z, background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }}
+      className={
+        win.docked
+          ? "rise pointer-events-auto relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl"
+          : "rise pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl will-change-transform"
+      }
+      style={
+        win.docked
+          ? { background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)", height: win.minimized ? 36 : undefined, flex: win.minimized ? "0 0 auto" : undefined, minWidth: win.minimized ? 160 : 300 }
+          : { left: win.x, top: win.y, width: win.w, height: win.minimized ? 36 : win.h, zIndex: win.z, background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }
+      }
       onPointerDown={() => focusInstrument(win.id)}
     >
       <div
-        className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3"
+        className={`flex h-9 shrink-0 items-center gap-2 px-3 ${win.docked ? "" : "cursor-grab"}`}
         style={{ borderBottom: "1px solid var(--border)" }}
+        title={win.docked ? "Im Dock – mit dem Dock-Knopf wieder lösen" : "Ziehen bewegt das Fenster – am unteren Rand loslassen dockt es ein"}
         onPointerDown={(e) => {
+          if (win.docked) return;
           drag.current = { x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
         }}
       >
         <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
           {iconFor(win.kind)}
         </span>
-        <span className="flex-1 text-[12px] font-medium">{win.title}</span>
-        <button className="btn px-1 py-0.5" onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}>
+        <span className="flex-1 truncate text-[12px] font-medium">{win.title}</span>
+        <button
+          className="btn px-1 py-0.5"
+          title={win.docked ? "Aus dem Dock lösen – wird wieder freies Fenster" : "Ins Dock unten einrasten – Geräte teilen sich den unteren Rand"}
+          onClick={() => updateInstrument(win.id, { docked: !win.docked })}
+        >
+          <PanelBottom size={13} />
+        </button>
+        <button className="btn px-1 py-0.5" title="Minimieren" onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}>
           <Minus size={13} />
         </button>
-        <button className="btn px-1 py-0.5" onClick={() => closeInstrument(win.id)}>
+        <button className="btn px-1 py-0.5" title="Schließen" onClick={() => closeInstrument(win.id)}>
           <X size={13} />
         </button>
       </div>
       {!win.minimized && <div className="min-h-0 flex-1">{body()}</div>}
-      {!win.minimized && (
+      {!win.minimized && !win.docked && (
         <div
           className="absolute bottom-0 right-0 h-3.5 w-3.5 cursor-nwse-resize"
           onPointerDown={(e) => {
@@ -1733,11 +1784,26 @@ function iconFor(kind: InstrumentKind) {
 
 export function InstrumentLayer() {
   const instruments = useEditor((s) => s.instruments);
+  const floating = instruments.filter((w) => !w.docked);
+  const docked = instruments.filter((w) => w.docked);
   return (
-    <div className="pointer-events-none absolute inset-0 z-30">
-      {instruments.map((w) => (
-        <Window key={w.id} win={w} />
-      ))}
+    <div className="pointer-events-none absolute inset-0 z-30 flex flex-col">
+      <div className="relative min-h-0 flex-1">
+        {floating.map((w) => (
+          <Window key={w.id} win={w} />
+        ))}
+      </div>
+      {docked.length > 0 && (
+        <div
+          className="pointer-events-auto flex h-[38%] max-h-[360px] min-h-[140px] shrink-0 items-stretch gap-1 p-1"
+          style={{ background: "color-mix(in srgb, var(--bg) 82%, transparent)", borderTop: "1px solid var(--border-strong)", backdropFilter: "blur(10px)" }}
+          title="Geräte-Dock – Fenster teilen sich den unteren Rand; Dock-Knopf im Titel löst sie wieder"
+        >
+          {docked.map((w) => (
+            <Window key={w.id} win={w} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

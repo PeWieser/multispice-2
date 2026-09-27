@@ -68,6 +68,8 @@ export interface InstrumentWindow {
   h: number;
   z: number;
   minimized: boolean;
+  /** true = Fenster sitzt im Dock am unteren Rand (Layout statt x/y). */
+  docked?: boolean;
   config: Record<string, unknown>;
 }
 

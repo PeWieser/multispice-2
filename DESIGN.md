@@ -319,3 +319,35 @@ Distortion Analyzer (THD-Analyse deckt ab), hierarchische Blätter, PCB-Transfer
 | ERC Zoom | Keine Navigation zu Fehler | BottomPanel.tsx errors/warnings li flex gap-2 mit Button Zoom to error → doc.instances.find label in msg, setView {x:inst.x-200,y:inst.y-150,zoom:1.2}+setSelection([id]). | ✅ Done |
 | 74xx/4000 | Nur 35 digitale ICs | catalog.ts +11 ICs 74ls00/02/04/08/32/86/74/138+cd4011/4017/4027 TTL/CMOS toDevices GATE/DIGITAL, total ~45 digitale ICs. | ✅ Done |
 
+
+## 2026-09-27 · Sprache & Fachbegriffe (R16 – die eine Stimme)
+
+**Entscheidung:** Multispice spricht **Deutsch** – konsequent, in jedem Menü, Tooltip,
+Log-Eintrag und Fehler. Englisch bleibt nur, wo der Begriff ein **Eigenname der
+Messtechnik** ist; Übersetzen wäre dort unehrlich (kein Ingenieur sagt „Gatterverzögerungs­diagramm“).
+
+**Regeln**
+1. **Sätze auf Deutsch, Befehle im Infinitiv** („Bauteil drehen“, „Lokal speichern“), Anrede: keine.
+2. **Eigennamen bleiben englisch** und werden nicht eingedeutscht: Trigger, Cursor, Grid, Snap,
+   Dock, Probe, Grapher, Bode, FFT, THD, Monte Carlo, Worst Case.
+3. **Geräte heißen wie im Labor**: Oszilloskop (nicht „Scope“ im Menü), Multimeter,
+   Funktionsgenerator, Logikanalysator, Wattmeter, Frequenzzähler, Spektrumanalysator.
+4. **Einheiten & Formelzeichen international**: V, A, Ω, Hz, s, dB, ° – niemals übersetzen.
+5. **Fehler sagen, was zu tun ist** – Ursache + Ausweg, ein Satz:
+   „Die Datei sieht nicht wie ein Multispice-Projekt aus (JSON-Struktur unbekannt).“
+6. **Ein Begriff, ein Wort**: „Bauteil“ (nie „Komponente“/„Part“ gemischt), „Leitung“ (nie „Draht“),
+   „Netz“ (nie „Knoten“ für dasselbe), „Gerät“ für Instrumente.
+
+**Glossar (EN → DE-Gebrauch)**
+| EN | Deutsch verwendet als |
+|---|---|
+| wire | Leitung |
+| component / part | Bauteil |
+| net | Netz |
+| instrument | Gerät |
+| timebase | Zeit/DIV (Anzeige), Zeitbasis (Text) |
+| trigger level | Trigger-Level |
+| cursor | Cursor |
+| fit to view | Einpassen |
+| autosave | Auto-Save |
+| title block | Stempel (Druckblatt) |

@@ -68,6 +68,8 @@ export class RealtimeEngine {
   sim: Simulator | null = null;
   netlist: Netlist = { devices: [] };
   buffers = new Map<string, RingBuffer>();
+  /** R13: Zweigströme als Zeitreihe – pro Gerät ein Ringpuffer. */
+  deviceBuffers = new Map<string, RingBuffer>();
   options: RealtimeOptions = {
     sampleRate: 200000,
     timeScale: 1,
@@ -98,6 +100,7 @@ export class RealtimeEngine {
     });
     this.sim.controls = this.controls;
     this.buffers.clear();
+    this.deviceBuffers.clear();
     const op = this.sim.operatingPoint();
     this.lastState = {
       time: 0,
@@ -111,6 +114,7 @@ export class RealtimeEngine {
     };
     for (const name of this.sim.nodeNames) this.buffers.set(name, new RingBuffer(16384));
     this.buffers.set("0", new RingBuffer(64));
+    for (const d of this.netlist.devices) this.deviceBuffers.set(d.id, new RingBuffer(4096));
     this.sample();
   }
 
@@ -129,6 +133,12 @@ export class RealtimeEngine {
     for (let i = 0; i < sim.nodeNames.length; i++) {
       const b = this.buffers.get(sim.nodeNames[i]);
       if (b) b.push(sim.time, sim.x[i]);
+    }
+    if (this.deviceBuffers.size) {
+      for (const d of this.netlist.devices) {
+        const b = this.deviceBuffers.get(d.id);
+        if (b) b.push(sim.time, sim.deviceCurrent(d));
+      }
     }
   }
 
@@ -211,6 +221,13 @@ export class RealtimeEngine {
   /** Values for a scope channel. */
   channel(net: string, samples: number): { t: number[]; v: number[] } {
     const b = this.buffers.get(net);
+    if (!b) return { t: [], v: [] };
+    return b.window(samples);
+  }
+
+  /** R13: Strom durch ein Gerät als Zeitreihe (für die Hover-Sparkline). */
+  deviceChannel(deviceId: string, samples: number): { t: number[]; v: number[] } {
+    const b = this.deviceBuffers.get(deviceId);
     if (!b) return { t: [], v: [] };
     return b.window(samples);
   }

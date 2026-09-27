@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, ImageDown } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { ANALYSIS_MAP } from "@/lib/sim/analysis_defs";
@@ -75,19 +75,95 @@ export function LinePlot({
   const [hover, setHover] = useState<{ px: number; py: number } | null>(null);
   const [cursors, setCursors] = useState<{ x0: number | null; x1: number | null }>({ x0: null, x1: null });
   const [dragging, setDragging] = useState<0 | 1 | null>(null);
+  // R11: Zoom/Pan-Ansicht in Anzeige-Einheiten (log10, wenn logX/logY).
+  // Der View gehört zu genau einer panels-Identität: neue Analyse → automatisch
+  // zurück auf Auto-Scale (derived state, kein Reset-Effect nötig).
+  type View = { x0: number; x1: number; ys: Array<{ lo: number; hi: number }> };
+  const [viewState, setViewState] = useState<{ forPanels: PlotPanel[]; v: View } | null>(null);
+  const view = viewState && viewState.forPanels === panels ? viewState.v : null;
+  const setView = (v: View | null) => setViewState(v ? { forPanels: panels, v } : null);
+  const [panning, setPanning] = useState(false);
+  const panRef = useRef<{ px: number; py: number; base: View } | null>(null);
+
+  const fitDomains = useCallback((): View => {
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    for (const p of panels) for (const s of p.series) for (const v of s.x) {
+      if (v < x0) x0 = v;
+      if (v > x1) x1 = v;
+    }
+    if (!(x1 > x0)) { x0 = 0; x1 = 1; }
+    const ys = panels.map((panel) => {
+      let y0 = Infinity;
+      let y1 = -Infinity;
+      for (const s of panel.series) for (const v of s.y) {
+        if (!Number.isFinite(v)) continue;
+        if (v < y0) y0 = v;
+        if (v > y1) y1 = v;
+      }
+      if (!(y1 > y0)) {
+        const c = Number.isFinite(y0) ? y0 : 0;
+        y0 = c - 1;
+        y1 = c + 1;
+      }
+      if (!logY) {
+        const pad = (y1 - y0) * 0.08 || 1;
+        y0 -= pad;
+        y1 += pad;
+      }
+      return { lo: logY ? Math.log10(Math.max(y0, 1e-30)) : y0, hi: logY ? Math.log10(Math.max(y1, 1e-29)) : y1 };
+    });
+    return { x0: logX ? Math.log10(Math.max(x0, 1e-30)) : x0, x1: logX ? Math.log10(Math.max(x1, 1e-29)) : x1, ys };
+  }, [panels, logX, logY]);
+
+  // Refs für Event-Handler – Synchronisation ausschließlich in Effects.
+  const viewRef = useRef<View | null>(null);
+  const fitRef = useRef(fitDomains);
+  const panelsRef = useRef(panels);
+  useEffect(() => {
+    viewRef.current = view;
+    fitRef.current = fitDomains;
+    panelsRef.current = panels;
+  }, [view, fitDomains, panels]);
+
+  // Rad = X-Zoom, ⇧Rad = Y-Zoom (non-passiv, damit die Seite nicht scrollt).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const padL = 58, padR = 10, padT = 8, padB = 24;
+      const plotW = rect.width - padL - padR;
+      const plotH = rect.height - padT - padB;
+      if (plotW <= 0 || plotH <= 0) return;
+      const base = viewRef.current ?? fitRef.current();
+      const f = e.deltaY > 0 ? 1.18 : 1 / 1.18;
+      if (e.shiftKey && base.ys.length) {
+        const panelH = plotH / base.ys.length;
+        const ys = base.ys.map((y, pi) => {
+          const t = Math.min(1, Math.max(0, (e.clientY - rect.top - padT - pi * panelH) / panelH));
+          const anchor = y.hi - t * (y.hi - y.lo);
+          return { lo: anchor - (anchor - y.lo) * f, hi: anchor + (y.hi - anchor) * f };
+        });
+        setViewState({ forPanels: panelsRef.current, v: { ...base, ys } });
+      } else {
+        const t = Math.min(1, Math.max(0, (e.clientX - rect.left - padL) / plotW));
+        const anchor = base.x0 + t * (base.x1 - base.x0);
+        setViewState({ forPanels: panelsRef.current, v: { ...base, x0: anchor - (anchor - base.x0) * f, x1: anchor + (base.x1 - anchor) * f } });
+      }
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, []);
 
   // Cursor interaction – supports logX correctly
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const getXDomain = () => {
-      let x0 = Infinity, x1 = -Infinity;
-      for (const p of panels) for (const s of p.series) for (const v of s.x) {
-        if (v < x0) x0 = v;
-        if (v > x1) x1 = v;
-      }
-      if (!(x1 > x0)) { x0 = 0; x1 = 1; }
-      return { x0, x1, lx0: logX ? Math.log10(Math.max(x0,1e-30)) : x0, lx1: logX ? Math.log10(Math.max(x1,1e-29)) : x1 };
+      const d = viewRef.current ?? fitRef.current();
+      return { x0: d.x0, x1: d.x1, lx0: d.x0, lx1: d.x1 };
     };
     const xFromClient = (clientX: number, rect: DOMRect) => {
       const padL = 58, padR = 10;
@@ -104,16 +180,47 @@ export function LinePlot({
         if (e.shiftKey) setCursors(c=> ({ ...c, x1: xv }));
         else setCursors(c=> ({ ...c, x0: xv }));
         setDragging(e.shiftKey ? 1 : 0);
+      } else {
+        // R11: Ziehen im Plotbereich = Schwenken.
+        panRef.current = { px: e.clientX, py: e.clientY, base: viewRef.current ?? fitRef.current() };
+        setPanning(true);
       }
     };
     const onMove = (e: PointerEvent) => {
+      if (panRef.current) {
+        const rect = canvas.getBoundingClientRect();
+        const plotW = rect.width - 58 - 10;
+        const plotH = rect.height - 8 - 24;
+        const b = panRef.current.base;
+        if (plotW <= 0 || plotH <= 0 || !b.ys.length) return;
+        const dx = e.clientX - panRef.current.px;
+        const dy = e.clientY - panRef.current.py;
+        const shiftX = (dx / plotW) * (b.x1 - b.x0);
+        const panelH = plotH / b.ys.length;
+        setViewState({
+          forPanels: panelsRef.current,
+          v: {
+            x0: b.x0 - shiftX,
+            x1: b.x1 - shiftX,
+            ys: b.ys.map((y) => {
+              const k = (dy / panelH) * (y.hi - y.lo);
+              return { lo: y.lo + k, hi: y.hi + k };
+            }),
+          },
+        });
+        return;
+      }
       if (dragging === null) return;
       const rect = canvas.getBoundingClientRect();
       const xv = xFromClient(e.clientX, rect);
       if (dragging === 0) setCursors(c=> ({ ...c, x0: xv }));
       else setCursors(c=> ({ ...c, x1: xv }));
     };
-    const onUp = () => setDragging(null);
+    const onUp = () => {
+      setDragging(null);
+      panRef.current = null;
+      setPanning(false);
+    };
     canvas.addEventListener("pointerdown", onDown);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -156,48 +263,23 @@ export function LinePlot({
       const panelH = (h - padT - padB) / panels.length;
       ctx.font = "9.5px ui-monospace, monospace";
 
-      // Gemeinsame X-Domäne über alle Panels.
-      let x0 = Infinity;
-      let x1 = -Infinity;
-      for (const p of panels) for (const s of p.series) for (const v of s.x) {
-        if (v < x0) x0 = v;
-        if (v > x1) x1 = v;
-      }
-      if (!(x1 > x0)) {
-        x0 = 0;
-        x1 = 1;
-      }
-      const lx0 = logX ? Math.log10(Math.max(x0, 1e-30)) : x0;
-      const lx1 = logX ? Math.log10(Math.max(x1, 1e-29)) : x1;
+      // Gemeinsame X-Domäne über alle Panels – Zoom-Ansicht hat Vorrang (R11).
+      const dom = view ?? fitDomains();
+      const lx0 = dom.x0;
+      const lx1 = dom.x1;
       const xOf = (v: number) => padL + (((logX ? Math.log10(Math.max(v, 1e-30)) : v) - lx0) / (lx1 - lx0 || 1)) * plotW;
 
       const panelGeom: Array<{ top: number; yOf: (v: number) => number; series: PlotSeries[] }> = [];
       panels.forEach((panel, pi) => {
         const top = padT + pi * panelH;
-        let y0 = Infinity;
-        let y1 = -Infinity;
-        for (const s of panel.series) for (const v of s.y) {
-          if (!Number.isFinite(v)) continue;
-          if (v < y0) y0 = v;
-          if (v > y1) y1 = v;
-        }
-        if (!(y1 > y0)) {
-          const c = Number.isFinite(y0) ? y0 : 0;
-          y0 = c - 1;
-          y1 = c + 1;
-        }
-        if (!logY) {
-          const pad = (y1 - y0) * 0.08 || 1;
-          y0 -= pad;
-          y1 += pad;
-        }
-        const ly0 = logY ? Math.log10(Math.max(y0, 1e-30)) : y0;
-        const ly1 = logY ? Math.log10(Math.max(y1, 1e-29)) : y1;
+        const yd = dom.ys[pi] ?? { lo: 0, hi: 1 };
+        const ly0 = yd.lo;
+        const ly1 = yd.hi;
         const yOf = (v: number) => top + panelH - 4 - (((logY ? Math.log10(Math.max(v, 1e-30)) : v) - ly0) / (ly1 - ly0 || 1)) * (panelH - 8);
         panelGeom.push({ top, yOf, series: panel.series });
 
         // Y-Grid + Labels.
-        const ticks = logY ? logTicks(y0, y1) : niceTicks(y0, y1);
+        const ticks = logY ? logTicks(Math.pow(10, ly0), Math.pow(10, ly1)) : niceTicks(ly0, ly1);
         ctx.strokeStyle = grid;
         ctx.lineWidth = 1;
         ctx.fillStyle = mute;
@@ -220,7 +302,7 @@ export function LinePlot({
       });
 
       // X-Grid + Labels (nur unten).
-      const xticks = logX ? logTicks(x0, x1) : niceTicks(x0, x1, 8);
+      const xticks = logX ? logTicks(Math.pow(10, lx0), Math.pow(10, lx1)) : niceTicks(lx0, lx1, 8);
       ctx.strokeStyle = grid;
       ctx.fillStyle = mute;
       ctx.textAlign = "center";
@@ -281,9 +363,13 @@ export function LinePlot({
         ctx.fillText(txt, mid, padT + 26);
       }
 
-      // Serien.
+      // Serien – pro Panel geclippt, damit gezoomte Kurven nicht überlaufen.
       panels.forEach((panel, pi) => {
-        const { yOf } = panelGeom[pi];
+        const { yOf, top } = panelGeom[pi];
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(padL, top, plotW, panelH);
+        ctx.clip();
         panel.series.forEach((s, si) => {
           ctx.strokeStyle = cssVar(SERIES_COLORS[si % SERIES_COLORS.length], "#38bdf8");
           ctx.lineWidth = 1.6;
@@ -303,6 +389,7 @@ export function LinePlot({
           }
           ctx.stroke();
         });
+        ctx.restore();
       });
 
       // Hover-Fadenkreuz mit Werten (hover ist Dep des Effekts, also immer frisch).
@@ -372,19 +459,30 @@ export function LinePlot({
       onCanvas?.(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panels, xLabel, logX, logY, hover]);
+  }, [panels, xLabel, logX, logY, hover, view, fitDomains]);
 
   return (
     <div
       ref={wrapRef}
       className="relative h-full w-full"
+      title="Mausrad = X-Zoom · ⇧Rad = Y-Zoom · Ziehen = Schwenken · Doppelklick = automatisch einpassen"
+      onDoubleClick={() => setView(null)}
       onMouseMove={(e) => {
         const r = canvasRef.current?.getBoundingClientRect();
         if (r) setHover({ px: e.clientX - r.left, py: e.clientY - r.top });
       }}
       onMouseLeave={() => setHover(null)}
     >
-      <canvas ref={canvasRef} className="block h-full w-full" />
+      <canvas ref={canvasRef} className="block h-full w-full" style={{ cursor: panning ? "grabbing" : "default" }} />
+      {view && (
+        <button
+          className="btn absolute right-2 top-1 z-10 px-1.5 py-0.5 text-[10px]"
+          title="Zoom zurücksetzen – Ansicht wieder automatisch eingepasst"
+          onClick={() => setView(null)}
+        >
+          ⤢ Auto-Scale
+        </button>
+      )}
     </div>
   );
 }

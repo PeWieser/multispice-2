@@ -1,21 +1,98 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import AnalysisDialog from "./AnalysisDialog";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+import dynamic from "next/dynamic";
 import BottomPanel from "./BottomPanel";
 import Canvas from "./Canvas";
-import { InstrumentLayer } from "./Instruments";
 import MenuBar from "./MenuBar";
 import StatusBar from "./StatusBar";
 import ComponentStrip from "./ComponentStrip";
 import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
-import SettingsDialog from "./SettingsDialog";
-import WizardsDialog from "./WizardsDialog";
-import ProjectsDialog from "./ProjectsDialog";
 import { useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { Menu, X, Library, SlidersHorizontal, Play, Pause } from "lucide-react";
+
+// R17: Schwere, selten geöffnete Oberflächen laden wir als eigene Chunks –
+// der Erststart bezahlt nur noch Canvas, Menü und Statusleiste.
+const AnalysisDialog = dynamic(() => import("./AnalysisDialog"), { ssr: false });
+const SettingsDialog = dynamic(() => import("./SettingsDialog"), { ssr: false });
+const WizardsDialog = dynamic(() => import("./WizardsDialog"), { ssr: false });
+const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false });
+const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
+
+/** R8: Ein echtes Schaltblatt für window.print() – Rahmen, Kopf, Stempel.
+ *  Der Capture läuft synchron im beforeprint-Event (direkt am <img>-Element),
+ *  damit auch Strg+P aus dem Browser das aktuelle Bild bekommt. */
+function PrintSheet() {
+  const doc = useEditor((s) => s.doc);
+  const nets = useEditor((s) => s.netResult.nets);
+  // Client-only Mount ohne setState-im-Effect: useSyncExternalStore liefert
+  // serverseitig false und im Browser sofort true.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+  const [takenAt, setTakenAt] = useState(0);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  useEffect(() => {
+    const capture = () => {
+      const c = document.getElementById("schematic-canvas") as HTMLCanvasElement | null;
+      if (!c || !c.width) return;
+      try {
+        const url = c.toDataURL("image/png");
+        if (imgRef.current) imgRef.current.src = url; // synchron – wichtig für Strg+P
+        setTakenAt(Date.now());
+      } catch {}
+    };
+    (window as any).__msPrintCapture = capture;
+    window.addEventListener("beforeprint", capture);
+    return () => {
+      window.removeEventListener("beforeprint", capture);
+      delete (window as any).__msPrintCapture;
+    };
+  }, []);
+  if (!mounted) return null;
+  return createPortal(
+    <div className="print-sheet">
+      <div className="sheet-frame">
+        <div className="sheet-head">
+          <span className="sheet-title">{doc.name || "Unbenanntes Projekt"}</span>
+          <span className="sheet-meta">Multispice – Schaltplan</span>
+        </div>
+        <div className="sheet-img">
+          {/* eslint-disable-next-line @next/next/no-img-element -- Druck-Snapshot ist eine data:URL, next/image optimiert hier nichts */}
+          <img ref={imgRef} alt="Schaltplan" />
+        </div>
+        <div className="sheet-stamp">
+          <div>
+            <span className="stamp-label">Bauteile</span>
+            {doc.instances.length}
+          </div>
+          <div>
+            <span className="stamp-label">Leitungen</span>
+            {doc.wires.length}
+          </div>
+          <div>
+            <span className="stamp-label">Netze</span>
+            {nets.length}
+          </div>
+          <div>
+            <span className="stamp-label">Blatt</span>
+            1 / 1
+          </div>
+          <div>
+            <span className="stamp-label">Gedruckt</span>
+            {takenAt ? new Date(takenAt).toLocaleString("de-DE") : "–"}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 function resolveTheme(pref: ThemePref, systemDark: boolean): "dark" | "light" {
   if (pref === "system") return systemDark ? "dark" : "light";
@@ -159,6 +236,15 @@ export default function Workbench() {
   const [wizardsOpen, setWizardsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
 
+  // R17: Messen statt raten – Zeit bis Interaktivität in der Konsole sichtbar.
+  useEffect(() => {
+    performance.mark("ms-ready");
+    const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    console.info(
+      `[multispice] bereit nach ${Math.round(performance.now())} ms JS-Laufzeit${nav ? ` · DOM komplett nach ${Math.round(nav.domComplete)} ms` : ""}`,
+    );
+  }, []);
+
   const isMobile = useIsMobile();
   const isTablet = useIsTablet();
   const isPortrait = useIsPortrait();
@@ -241,6 +327,7 @@ export default function Workbench() {
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         <UndoToast />
+        <PrintSheet />
       </div>
     );
   }
@@ -283,6 +370,7 @@ export default function Workbench() {
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         <UndoToast />
+        <PrintSheet />
       </div>
     );
   }
@@ -324,6 +412,7 @@ export default function Workbench() {
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
       <UndoToast />
+        <PrintSheet />
     </div>
   );
 }

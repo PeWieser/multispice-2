@@ -45,6 +45,18 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
     downloadText(`${base}.cir`, toSpiceNetlist(doc, ".tran 10u 20m"));
     st().log("ok", "SPICE-Netzliste exportiert (.cir)");
   };
+  // R8: Erst einpassen, dann zwei Frames warten (Neuzeichnen), dann das Blatt
+  // synchron capturen und drucken. Strg+P direkt fängt der beforeprint-Hook ab.
+  const printSheet = () => {
+    st().fitView();
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        (window as any).__msPrintCapture?.();
+        setTimeout(() => window.print(), 60);
+      }),
+    );
+  };
+
   const exportJson = () => {
     const envelope = {
       format: "multispice-project",
@@ -155,10 +167,10 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <MenuItem onClick={() => fileRef.current?.click()} tooltip="Importieren – .json Projekt, .cir/.net/.sp Netzliste (Auto-Verdrahtung), .asc LTspice">Importieren (.json/.cir/.asc)</MenuItem>
         <MenuSeparator />
         <MenuItem onClick={exportSpice} tooltip="Export SPICE (.cir) – erzeugt SPICE-Netzliste für LTspice/NGSpice\nEnthält alle Bauteile und Verbindungen">Export SPICE (.cir)</MenuItem>
-        <MenuItem onClick={exportJson} tooltip="Export JSON – komplettes Projekt mit Canvas-Zustand\nZum Teilen oder Backup">Export JSON</MenuItem>
+        <MenuItem onClick={exportJson} tooltip="Export JSON – komplettes Projekt: Schaltplan + Gerätefenster\nZum Teilen oder Backup; wieder importierbar per Datei-Menü oder Drag & Drop">Export JSON</MenuItem>
         <MenuItem onClick={exportBom} tooltip="Export BOM (CSV) – Stückliste mit Ref, Bauteil, Wert, Footprint\nFür Bestellung bei Mouser/DigiKey">Export BOM (CSV)</MenuItem>
         <MenuSeparator />
-        <MenuItem hint="⌘P" onClick={() => window.print()} tooltip="Drucken – druckt Schaltplan via Browser Print">Drucken</MenuItem>
+        <MenuItem hint="⌘P" onClick={printSheet} tooltip="Drucken – echtes Schaltblatt (A4 quer) mit Rahmen, Projektkopf und Stempel\nDer Plan wird vorher automatisch eingepasst">Drucken</MenuItem>
       </Menu>
 
       <Menu label="Bearbeiten" tooltip="Bearbeiten – Undo/Redo, Kopieren, Einfügen, Duplizieren, Löschen">
