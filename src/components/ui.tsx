@@ -36,17 +36,31 @@ export function safeName(name: string): string {
 /* Menü (Dropdown in der Menüleiste)                                    */
 /* ------------------------------------------------------------------ */
 
-export function Menu({ label, tooltip, children }: { label: string; tooltip?: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+export function Menu({
+  label,
+  open,
+  onOpenChange,
+  onHoverOpen,
+  onNavigate,
+  children,
+}: {
+  label: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Menüleiste-Modus: wenn IRGENDEIN Menü offen ist, öffnet Hover dieses sofort (nativ). */
+  onHoverOpen?: () => void;
+  /** Pfeiltasten wandern zwischen Menü-Headers. */
+  onNavigate?: (dir: -1 | 1) => void;
+  children: React.ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
-  const apple = useIsApple();
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) onOpenChange(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") onOpenChange(false);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -54,29 +68,32 @@ export function Menu({ label, tooltip, children }: { label: string; tooltip?: st
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
     };
-  }, [open ]);
+  }, [open, onOpenChange]);
   return (
     <div className="relative" ref={ref}>
-      <span className="inline-flex">
-        {tooltip ? (
-          <span className="group relative inline-flex">
-            <button className="btn h-7 min-w-[44px]" data-active={open} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={label}>
-              {label}
-            </button>
-            <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden max-w-[280px] -translate-x-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{adaptShortcut(tooltip, apple)}</span>
-          </span>
-        ) : (
-          <button className="btn h-7 min-w-[44px]" data-active={open} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={label}>
-            {label}
-          </button>
-        )}
-      </span>
+      <button
+        className="btn h-7 min-w-[44px]"
+        data-active={open}
+        onClick={() => onOpenChange(!open)}
+        onMouseEnter={() => onHoverOpen?.()}
+        onKeyDown={(e) => {
+          if (onNavigate && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+            e.preventDefault();
+            onNavigate(e.key === "ArrowLeft" ? -1 : 1);
+          }
+        }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+      >
+        {label}
+      </button>
       {open && (
         <div
           role="menu"
           className="rise absolute left-0 top-[calc(100%+6px)] z-50 min-w-[248px] rounded-lg p-1"
           style={{ background: "var(--panel-solid)", border: "1px solid var(--border)", boxShadow: "var(--shadow)" }}
-          onClick={() => setOpen(false)}
+          onClick={() => onOpenChange(false)}
         >
           {children}
         </div>

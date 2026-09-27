@@ -9,11 +9,13 @@ export interface ProbeHoverConfig {
 }
 
 export const DEFAULT_HOVER: ProbeHoverConfig = {
-  showV: true,
-  showI: true,
-  showP: true,
-  showFreq: true,
-  showNetName: true,
+  // W4: Der Canvas ist still. Messwerte auf Abruf (Alt+Hover, Probes, Einstellungen),
+  // nicht als Dauerbeschuss.
+  showV: false,
+  showI: false,
+  showP: false,
+  showFreq: false,
+  showNetName: false,
 };
 
 export function loadHoverConfig(): ProbeHoverConfig {

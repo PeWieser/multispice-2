@@ -123,12 +123,10 @@ function searchAdvanced(query: string): PartDef[] {
 const PartRow = React.memo(function PartRow({
   part,
   onPick,
-  onHover,
   selected,
 }: {
   part: PartDef;
   onPick: (id: string) => void;
-  onHover: (p: PartDef | null) => void;
   selected?: boolean;
 }) {
   const placing = useEditor((s) => s.placingPartId);
@@ -146,8 +144,6 @@ const PartRow = React.memo(function PartRow({
           : { border: "1px solid transparent" }
       }
       onClick={() => onPick(part.id)}
-      onMouseEnter={() => onHover(part)}
-      onMouseLeave={() => onHover(null)}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData("text/multispice-part", part.id);
@@ -155,8 +151,7 @@ const PartRow = React.memo(function PartRow({
         useHud.setState({ dragPart: part.id });
       }}
       onDragEnd={() => useHud.setState({ dragPart: null })}
-      title={`${part.name} — ${part.category} — ${part.description ?? ""}`}
-    >
+          >
       <SymbolPreview part={part} size={36} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
@@ -211,13 +206,11 @@ function TreeNode({
   node,
   depth,
   onPick,
-  onHover,
   selectedId,
 }: {
   node: CategoryNode;
   depth: number;
   onPick: (id: string) => void;
-  onHover: (p: PartDef | null) => void;
   selectedId?: string;
 }) {
   const [open, setOpen] = useState(depth < 1);
@@ -237,11 +230,11 @@ function TreeNode({
       {open && (
         <div>
           {node.children.map((c) => (
-            <TreeNode key={c.path} node={c} depth={depth + 1} onPick={onPick} onHover={onHover} selectedId={selectedId} />
+            <TreeNode key={c.path} node={c} depth={depth + 1} onPick={onPick} selectedId={selectedId} />
           ))}
           {node.parts.map((p) => (
             <div key={p.id} style={{ paddingLeft: depth * 12 + 20 }}>
-              <PartRow part={p} onPick={onPick} onHover={onHover} selected={selectedId === p.id} />
+              <PartRow part={p} onPick={onPick} selected={selectedId === p.id} />
             </div>
           ))}
         </div>
@@ -264,14 +257,13 @@ export default function LibraryPalette() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"all" | "fav" | "recent">("all");
   const [selected, setSelected] = useState<PartDef | null>(null);
-  const [hovered, setHovered] = useState<PartDef | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const activeTab = tab === "fav" ? "favorites" : tab === "recent" ? "recent" : "all";
   // Prevent re-render of list during drag – memoize results
 
 
-  const detailPart = hovered ?? selected;
+  const detailPart = selected;  // W6: Detail folgt dem Klick, nicht der Maus
 
   const tree = useMemo(() => buildCategoryTree(PARTS), []);
   const results = useMemo(() => (query ? searchAdvanced(query) : []), [query]);
@@ -507,8 +499,6 @@ export default function LibraryPalette() {
                       className="rounded-lg p-2 border cursor-pointer hover:bg-[var(--panel-2)]"
                       style={{ borderColor: idx===selectedIdx ? "var(--accent)" : "var(--border)", background: idx===selectedIdx ? "var(--accent-soft)" : "var(--panel)", boxShadow: idx===selectedIdx ? "0 0 0 2px var(--accent-soft)" : "none" }}
                       onClick={() => { setSelectedIdx(idx); onPick(p.id); }}
-                      onMouseEnter={() => { setHovered(p); setSelectedIdx(idx); }}
-                      onMouseLeave={() => setHovered(null)}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData("text/multispice-part", p.id);
@@ -526,27 +516,27 @@ export default function LibraryPalette() {
                   ))}
                 </div>
               ) : (
-                results.map((p, idx) => <PartRow key={p.id} part={p} onPick={onPick} onHover={setHovered} selected={selected?.id === p.id || idx===selectedIdx} />)
+                results.map((p, idx) => <PartRow key={p.id} part={p} onPick={onPick} selected={selected?.id === p.id || idx===selectedIdx} />)
               )}
             </div>
           ) : activeTab === "favorites" ? (
             <div>
               {favorites.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onPick={onPick} onHover={setHovered} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onPick={onPick} selected={selected?.id === p!.id} />
               ))}
               {!favorites.length && <div className="p-6 text-center text-[12px] text-mute">Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit</div>}
             </div>
           ) : activeTab === "recent" ? (
             <div>
               {recent.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onPick={onPick} onHover={setHovered} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onPick={onPick} selected={selected?.id === p!.id} />
               ))}
               {!recent.length && <div className="p-6 text-center text-[12px] text-mute">Noch nichts verwendet – platziere Bauteile</div>}
             </div>
           ) : (
             <div className="pt-1">
               {tree.children.map((c) => (
-                <TreeNode key={c.path} node={c} depth={0} onPick={onPick} onHover={setHovered} selectedId={selected?.id} />
+                <TreeNode key={c.path} node={c} depth={0} onPick={onPick} selectedId={selected?.id} />
               ))}
             </div>
           )}

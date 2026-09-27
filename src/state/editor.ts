@@ -14,6 +14,7 @@ import {
   buildNets,
   emptyDoc,
   instanceBounds,
+  pinPosition,
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
 import { RealtimeEngine } from "@/lib/sim/realtime";
@@ -114,6 +115,8 @@ export interface EditorState {
   autoRoute: boolean;
   showCurrentFlow: boolean;
   showVoltageColors: boolean;
+  /** W1: Richtung der Stromfluss-Punkte. Default "electron" (− → +), Alternative "conventional" (+ → − außen). */
+  currentFlowDirection: "electron" | "conventional";
   showInlineValues: boolean;
   showErcMarkers: boolean;
   showRated: boolean;
@@ -197,6 +200,7 @@ export interface EditorState {
   toggleProbe: (net: string) => void;
   toggleCurrentFlow: () => void;
   toggleVoltageColors: () => void;
+  setCurrentFlowDirection: (d: "electron" | "conventional") => void;
   toggleInlineValues: () => void;
   toggleErcMarkers: () => void;
   toggleRated: () => void;
@@ -245,7 +249,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   autoRoute: true,
   showCurrentFlow: false,
   showVoltageColors: false,
-  showInlineValues: true,
+  currentFlowDirection: "electron",
+  showInlineValues: false,
   showErcMarkers: true,
   showRated: true,
   netResult: { netlist: { devices: [] }, nets: [], pinNets: {}, pointNets: {}, errors: [], warnings: [] },
@@ -367,24 +372,70 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   moveSelection: (dx, dy) => {
-    const sel = new Set(get().selection);
+    if (dx === 0 && dy === 0) return;
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    // W2: Gummiband – Leitungsendpunkte (und Probes/Labels), die auf einem Pin der
+    // bewegten Bauteile sitzen, wandern mit. Netze bleiben verbunden.
+    const movedPins: Array<{ x: number; y: number }> = [];
+    for (const inst of st0.doc.instances) {
+      if (!sel.has(inst.id)) continue;
+      const part = PART_MAP[inst.partId];
+      if (!part) continue;
+      for (let idx = 0; idx < part.pins.length; idx++) {
+        const p = pinPosition(inst, idx);
+        movedPins.push({ x: p.x, y: p.y });
+      }
+    }
+    const onMovedPin = (p: { x: number; y: number }) =>
+      movedPins.some((mp) => Math.abs(mp.x - p.x) <= 2 && Math.abs(mp.y - p.y) <= 2);
     get().commit((d) => {
       for (const i of d.instances) if (sel.has(i.id)) {
         i.x += dx;
         i.y += dy;
       }
-      for (const w of d.wires) if (sel.has(w.id)) w.points = w.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
-      for (const l of d.labels) if (sel.has(l.id)) {
-        l.x += dx;
-        l.y += dy;
+      for (const w of d.wires) {
+        if (sel.has(w.id)) {
+          w.points = w.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+          continue;
+        }
+        if (!movedPins.length || w.points.length < 2) continue;
+        const first = w.points[0];
+        const last = w.points[w.points.length - 1];
+        const fHit = onMovedPin(first);
+        const lHit = onMovedPin(last);
+        if (fHit && lHit) {
+          // Beide Enden an bewegten Bauteilen → ganze Leitung wandert.
+          w.points = w.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+        } else if (fHit || lHit) {
+          const pts = w.points.map((p) => ({ x: p.x, y: p.y }));
+          const idx = fHit ? 0 : pts.length - 1;
+          const anchor = pts[idx];
+          pts[idx] = { x: anchor.x + dx, y: anchor.y + dy };
+          // Orthogonal bleibt orthogonal: Einzelsegment bekommt einen L-Knick.
+          if (pts.length === 2 && dx !== 0 && dy !== 0 && (anchor.x === pts[1 - idx].x || anchor.y === pts[1 - idx].y)) {
+            const other = pts[1 - idx];
+            const bend = anchor.y === other.y ? { x: other.x, y: pts[idx].y } : { x: pts[idx].x, y: other.y };
+            pts.splice(1, 0, bend);
+          }
+          w.points = pts;
+        }
+      }
+      for (const l of d.labels) {
+        if (sel.has(l.id) || onMovedPin(l)) {
+          l.x += dx;
+          l.y += dy;
+        }
       }
       for (const n of d.notes) if (sel.has(n.id)) {
         n.x += dx;
         n.y += dy;
       }
-      for (const pr of d.probes) if (sel.has(pr.id)) {
-        pr.x += dx;
-        pr.y += dy;
+      for (const pr of d.probes) {
+        if (sel.has(pr.id) || onMovedPin(pr)) {
+          pr.x += dx;
+          pr.y += dy;
+        }
       }
     });
   },
@@ -588,6 +639,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   toggleTheme: () => set((s) => ({ theme: s.theme === "dark" ? "light" : s.theme === "light" ? "system" : "dark" })),
   toggleCurrentFlow: () => set((s) => ({ showCurrentFlow: !s.showCurrentFlow })),
   toggleVoltageColors: () => set((s) => ({ showVoltageColors: !s.showVoltageColors })),
+  setCurrentFlowDirection: (d) => set({ currentFlowDirection: d }),
   toggleInlineValues: () => set((s) => ({ showInlineValues: !s.showInlineValues })),
   toggleErcMarkers: () => set((s) => ({ showErcMarkers: !s.showErcMarkers })),
   toggleRated: () => set((s) => ({ showRated: !s.showRated })),

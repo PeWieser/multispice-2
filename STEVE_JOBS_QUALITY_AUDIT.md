@@ -308,7 +308,7 @@ verhält sich wie das Betriebssystem, auf dem sie läuft.
 
 **Block W — Wahrheit (Canvas-Physik)**
 
-- **W1 · Stromfluss physikalisch korrekt** (L)
+- **W1 · Stromfluss physikalisch korrekt** (L) ✅ umgesetzt
   *Frust:* Richtung oft falsch; Punkte animieren nach Start→Stopp munter weiter.
   *Befund:* `netCurrentMap` summiert `devCurrent/pins.length` pro Netz — ein
   vorzeichenbehafteter Skalar ohne Richtungssinn; die Punkt-Richtung folgt dem Polyline-
@@ -323,7 +323,7 @@ verhält sich wie das Betriebssystem, auf dem sie läuft.
   *Akzeptanz:* VDC+R-Serie: gleichmäßiger Fluss, Default − → + über den Außenkreis;
   Polaritätstausch kehrt um; Knoten teilt den Fluss (KCL sichtbar); nach Stopp ruht der
   Canvas; Einstellung wirkt sofort ohne Neustart der Sim.
-- **W2 · Verschieben trennt keine Netze** (M)
+- **W2 · Verschieben trennt keine Netze** (M) ✅ umgesetzt
   *Frust:* Bauteil verschoben → Leitungen hängen hinterher → Netz getrennt.
   *Befund:* `moveSelection` (editor.ts ~369) bewegt nur explizit ausgewählte Wires.
   *Ziel:* Gummiband: Wire-Endpunkte, die auf einem Pin des bewegten Bauteils sitzen,
@@ -343,7 +343,7 @@ verhält sich wie das Betriebssystem, auf dem sie läuft.
 
 **Block S — Stille (Info nur auf Abruf)**
 
-- **W4 · Canvas still per Default** (S)
+- **W4 · Canvas still per Default** (S) ✅ umgesetzt
   *Frust:* Zu viele Infos ohne Probes, nicht schnell abschaltbar.
   *Befund:* Hover-Config Defaults alle `true` (`loadHoverConfig`), `showInlineValues: true`
   (editor.ts ~248) schreibt V/I direkt in den Plan.
@@ -353,7 +353,7 @@ verhält sich wie das Betriebssystem, auf dem sie läuft.
   (nicht verstecken, nur nicht aufdrängen).
   *Akzeptanz:* Frische Installation, Sim läuft: Maus über Leitung → nichts; Plan ohne
   Zahlen; Alt+Hover liefert Messwerte; Probe zeigt ihren Wert.
-- **W5 · Tooltip-Wände abreißen** (S)
+- **W5 · Tooltip-Wände abreißen** (S) ✅ umgesetzt
   *Frust:* „viel zu viele Hovertexte überall“.
   *Befund:* Menü-Header **und** jedes MenuItem tragen 2–4-Zeilen-Tooltips (ui.tsx/MenuBar);
   ComponentStrip 5-Zeiler pro Knopf; Bibliotheks-Rows `title`-Blitzer; Hinweissatz
@@ -362,7 +362,7 @@ verhält sich wie das Betriebssystem, auf dem sie läuft.
   Tooltip-Inhalte im Strip, Hinweissatz). Bleiben: kurze `title` (≤ 5 Wörter) an
   icon-only-Knöpfen, wo das Icon sonst stumm wäre. Labels + Kürzel-Hints erklären genug.
   *Akzeptanz:* Maus-Wisch über Menüleiste und Streifen: **null** aufpoppende Textboxen.
-- **W6 · Bibliothek: ruhige Liste, konsistentes Detail** (S)
+- **W6 · Bibliothek: ruhige Liste, konsistentes Detail** (S) ✅ umgesetzt
   *Frust:* Info-Boxen blitzen beim Darüberfahren; Detailfeld springt.
   *Befund:* `detailPart = hovered ?? selected` (LibraryPalette ~274) — Hover kapert das
   Detailfeld; `title` pro Row (~158) blitzt nativ.
@@ -373,7 +373,7 @@ verhält sich wie das Betriebssystem, auf dem sie läuft.
 
 **Block N — Natives Chrome**
 
-- **W7 · Schlanker Streifen, Bibliothek links, kein Scrollen** (S)
+- **W7 · Schlanker Streifen, Bibliothek links, kein Scrollen** (S) ✅ umgesetzt
   *Frust:* „menü scrollbar, was scheiße ist“, „dummer Text neben der library“.
   *Befund:* ComponentStrip: `overflow-x-auto`, Label „Schnellzugriff“, 10 Quick-Parts +
   7 Probes + Bibliothek-Knopf **rechts** + Hinweissatz.
@@ -384,7 +384,7 @@ verhält sich wie das Betriebssystem, auf dem sie läuft.
   eine Tür, nicht zwei.
   *Akzeptanz:* 1280×800 und 1024×768: keine Scrollbar, nichts abgeschnitten, kein Text
   außer Knopf-Beschriftungen.
-- **W8 · Menüs verhalten sich wie Menüs** (M)
+- **W8 · Menüs verhalten sich wie Menüs** (M) ✅ umgesetzt
   *Frust:* „wenn schon ein Punkt offen ist, muss ich auf den nächsten Reiter klicken“ —
   offenes Menü blockiert den direkten Wechsel; Header-Tooltips funken dazwischen.
   *Befund:* Jedes `Menu` verwaltet isoliertes `open`; kein Hover-Wechsel; außen-Mousedown
@@ -395,7 +395,7 @@ verhält sich wie das Betriebssystem, auf dem sie läuft.
   in der MenuBar statt 6 lokaler States.
   *Akzeptanz:* „Datei“ offen, Maus auf „Bearbeiten“: offen ohne Klick. Klickpfad: 1 Klick.
   Tastatur: ←/→/Esc wie natives Menü.
-- **W9 · Geschwindigkeits-Slider rastet bei 1×** (S)
+- **W9 · Geschwindigkeits-Slider rastet bei 1×** (S) ✅ umgesetzt
   *Frust:* kein Einrasten bei Normalgeschwindigkeit.
   *Befund:* log-Slider `min -4 max 1 step 0.05` (StatusBar ~96) — 0 erreichbar, aber
   ohne Rastpunkt.
@@ -452,6 +452,21 @@ Summe: ~10 Schritte (2×L/M groß, Rest S/M). Verifikation pro Paket: tsc · esl
 Referenzschaltung (VDC+R, RC, 555-Astabile) gegen Handrechnung/Multisim-Erwartung.
 
 **Bewusst nicht in Runde 8:** E-Block (Symbol-Editor, Subcircuits, 3D) bleibt §5.
+
+### 8.4 · Umsetzungsstand Runde 8 (2026-09-27)
+
+**Erledigt:** W1 (KCL-BFS-Flussrichtung, Phase nur im Run, Einstellung −→+/+→−),
+W2 (Gummiband-Verschieben mit L-Knick-Erhalt), W4 (Hover/Inline/Pin-Tooltips Default aus,
+Alt+Hover bleibt), W5 (26 Menü-Tooltips + Essay-Inhalte entfernt, Toolbar-Kurztitel),
+W6 (Bibliothek: Detail nur bei Klick, keine title-Blitzer), W7 (Streifen: Bibliothek links,
+6 Kuratierte, kein Scrollen, keine Texte, lucide statt 📚), W8 (kontrollierte Menüs:
+Hover-Wechsel, 1-Klick-Wechsel, ←/→-Navigation), W9 (Slider-Detent 1× mit Kerbe),
+W11 (Plattform-Kürzel, vorab in 844d315).
+
+**Noch offen:** W3 (Pin-Deckungsgleichheit ICs), W10 (Geräte-Bar rechts +
+Inspector-Fenster), W12 (Slop-Sweep-Vollaudit).
+
+Verifikation: tsc 0 · eslint 0/0 · `npm test` grün · `next build` grün.
 
 ---
 

@@ -226,6 +226,104 @@ export default function Canvas() {
       }
     }
 
+    // ── W1: Flussrichtung aus KCL statt Raten ──────────────────────────
+    // Pro Netz: Einspeisepins (konventioneller Strom fließt INTO the net) als
+    // BFS-Quellen; Richtung pro Leitung = entlang wachsender BFS-Distanz.
+    // Default-Anzeige: Elektronenfluss (− → +), umschaltbar auf konventionell.
+    const flowByWire = new Map<string, { dir: number; mag: number }>();
+    const flowState = stateRef.current as any;
+    const flowLive = showCurrentFlow && live && (sim.running || live.time > 0);
+    if (flowLive) {
+      // Phase läuft NUR im Run auf – Pause friert ein, Stopp zeigt nichts.
+      if (sim.running) {
+        const dtms = flowState._flowLast ? now - flowState._flowLast : 0;
+        flowState._flowPhase = (flowState._flowPhase ?? 0) + Math.min(Math.max(dtms, 0), 100);
+      }
+      flowState._flowLast = now;
+      if (flowState._flowDoc !== doc || flowState._flowNets !== netResult) {
+        const adj = new Map<string, Set<string>>();
+        const addE = (a: string, b: string) => {
+          if (a === b) return;
+          let sa = adj.get(a);
+          if (!sa) adj.set(a, (sa = new Set()));
+          sa.add(b);
+          let sb = adj.get(b);
+          if (!sb) adj.set(b, (sb = new Set()));
+          sb.add(a);
+        };
+        for (const w of doc.wires)
+          for (let i = 0; i + 1 < w.points.length; i++)
+            addE(
+              `${Math.round(w.points[i].x)},${Math.round(w.points[i].y)}`,
+              `${Math.round(w.points[i + 1].x)},${Math.round(w.points[i + 1].y)}`,
+            );
+        flowState._flowDoc = doc;
+        flowState._flowNets = netResult;
+        flowState._flowAdj = adj;
+      }
+      const adj: Map<string, Set<string>> = flowState._flowAdj;
+      const pinsByNet = new Map<string, Array<{ key: string; entering: number }>>();
+      const netMag = new Map<string, number>();
+      for (const inst of doc.instances) {
+        const part = PART_MAP[inst.partId];
+        if (!part || part.pins.length !== 2) continue;
+        const I = live.currents[inst.label] ?? 0;
+        if (!Number.isFinite(I) || Math.abs(I) < 1e-12) continue;
+        for (let idx = 0; idx < 2; idx++) {
+          const net = netResult.pinNets[`${inst.id}:${idx}`];
+          if (!net) continue;
+          const pos = pinPosition(inst, idx);
+          const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
+          // deviceCurrent: positiv = node0 → node1 INS Gerät. Ins Netz am
+          // node1-Pin fließen +I, am node0-Pin −I (konventionell).
+          const entering = idx === 0 ? -I : I;
+          let arr = pinsByNet.get(net);
+          if (!arr) pinsByNet.set(net, (arr = []));
+          arr.push({ key: k, entering });
+          if (entering > 0) netMag.set(net, (netMag.get(net) ?? 0) + entering);
+        }
+      }
+      const dist = new Map<string, number>();
+      const netSign = new Map<string, number>();
+      for (const [net, pins] of pinsByNet) {
+        const sources = pins.filter((p) => p.entering > 1e-12).map((p) => p.key);
+        const sinks = pins.filter((p) => p.entering < -1e-12).map((p) => p.key);
+        const seeds = sources.length ? sources : sinks;
+        if (!seeds.length) continue;
+        netSign.set(net, sources.length ? 1 : -1);
+        if (!netMag.has(net)) {
+          let m = 0;
+          for (const p of pins) if (p.entering < 0) m += -p.entering;
+          netMag.set(net, m);
+        }
+        const q: Array<[string, number]> = seeds.map((k) => [k, 0]);
+        for (let qi = 0; qi < q.length; qi++) {
+          const [k, dk] = q[qi];
+          const prev = dist.get(k);
+          if (prev !== undefined && prev <= dk) continue;
+          dist.set(k, dk);
+          for (const nb of adj.get(k) ?? []) {
+            if (netResult.pointNets[nb] !== net) continue;
+            if ((dist.get(nb) ?? Infinity) > dk + 1) q.push([nb, dk + 1]);
+          }
+        }
+      }
+      const electron = st.currentFlowDirection !== "conventional";
+      for (const w of doc.wires) {
+        if (w.points.length < 2) continue;
+        const k0 = `${Math.round(w.points[0].x)},${Math.round(w.points[0].y)}`;
+        const k1 = `${Math.round(w.points[w.points.length - 1].x)},${Math.round(w.points[w.points.length - 1].y)}`;
+        const net = netResult.pointNets[k0] ?? netResult.pointNets[k1];
+        if (!net) continue;
+        const d0 = dist.get(k0);
+        const d1 = dist.get(k1);
+        const sign = netSign.get(net);
+        if (d0 === undefined || d1 === undefined || d0 === d1 || !sign) continue;
+        const conv = (d1 > d0 ? 1 : -1) * sign;
+        flowByWire.set(w.id, { dir: electron ? -conv : conv, mag: netMag.get(net) ?? 0 });
+      }
+    }
+
     const wireColor = css("--wire", "#7dd3fc");
     const selColor = css("--wire-sel", "#fbbf24");
     const voltageColorFn = (v: number): string => {
@@ -420,36 +518,33 @@ export default function Canvas() {
         ctx.restore();
       }
 
-      if (showCurrentFlow && live && wire.points.length > 1) {
-        const key = `${Math.round(wire.points[0].x)},${Math.round(wire.points[0].y)}`;
-        const netName = netResult.pointNets[key];
-        const netCurrent = netName ? (netCurrentMap.get(netName) ?? 0) : 0;
-        const absI = Math.abs(netCurrent);
-        if (absI > 1e-9) {
-          const totalLen = polyLength(wire.points);
-          if (totalLen > 2) {
-            const speed = Math.min(400, Math.max(20, Math.log10(absI + 1e-9) * 40 + 80));
-            const dir = netCurrent >= 0 ? 1 : -1;
-            const offset = ((now * speed * 0.001 * dir) % totalLen + totalLen) % totalLen;
-            const count = Math.max(1, Math.floor(totalLen / 60));
-            ctx.fillStyle = absI > 0.5 ? css("--accent", "#5b8cff") : css("--wire", "#7dd3fc");
-            for (let d = 0; d < count; d++) {
-              const pos = (offset + (d * totalLen) / count) % totalLen;
-              const pt = pointAtLength(wire.points, pos);
-              if (!pt) continue;
+      // W1: Punkte + Pfeile aus echter Flussrichtung; Phase nur im Run lebendig.
+      const flow = flowByWire.get(wire.id);
+      if (flow && flow.mag > 1e-9 && wire.points.length > 1) {
+        const absI = flow.mag;
+        const totalLen = polyLength(wire.points);
+        if (totalLen > 2) {
+          const speed = Math.min(400, Math.max(20, Math.log10(absI + 1e-9) * 40 + 80));
+          const dir = flow.dir;
+          const offset = (((flowState._flowPhase ?? 0) * speed * 0.001 * dir) % totalLen + totalLen) % totalLen;
+          const count = Math.max(1, Math.floor(totalLen / 60));
+          ctx.fillStyle = absI > 0.5 ? css("--accent", "#5b8cff") : css("--wire", "#7dd3fc");
+          for (let d = 0; d < count; d++) {
+            const pos = (offset + (d * totalLen) / count) % totalLen;
+            const pt = pointAtLength(wire.points, pos);
+            if (!pt) continue;
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 3.2 / Math.max(view.zoom, 0.5), 0, Math.PI * 2);
+            ctx.fill();
+            const tangent = tangentAtLength(wire.points, pos);
+            if (tangent) {
+              const ang = Math.atan2(tangent.y, tangent.x) + (dir < 0 ? Math.PI : 0);
+              const len = 5 / Math.max(view.zoom, 0.6);
               ctx.beginPath();
-              ctx.arc(pt.x, pt.y, 3.2 / Math.max(view.zoom, 0.5), 0, Math.PI * 2);
-              ctx.fill();
-              const tangent = tangentAtLength(wire.points, pos);
-              if (tangent) {
-                const ang = Math.atan2(tangent.y, tangent.x) + (dir < 0 ? Math.PI : 0);
-                const len = 5 / Math.max(view.zoom, 0.6);
-                ctx.beginPath();
-                ctx.moveTo(pt.x + Math.cos(ang) * len, pt.y + Math.sin(ang) * len);
-                ctx.lineTo(pt.x + Math.cos(ang + 2.4) * (len * 0.9), pt.y + Math.sin(ang + 2.4) * (len * 0.9));
-                ctx.lineTo(pt.x + Math.cos(ang - 2.4) * (len * 0.9), pt.y + Math.sin(ang - 2.4) * (len * 0.9));
-                ctx.closePath(); ctx.fill();
-              }
+              ctx.moveTo(pt.x + Math.cos(ang) * len, pt.y + Math.sin(ang) * len);
+              ctx.lineTo(pt.x + Math.cos(ang + 2.4) * (len * 0.9), pt.y + Math.sin(ang + 2.4) * (len * 0.9));
+              ctx.lineTo(pt.x + Math.cos(ang - 2.4) * (len * 0.9), pt.y + Math.sin(ang - 2.4) * (len * 0.9));
+              ctx.closePath(); ctx.fill();
             }
           }
         }
@@ -1342,31 +1437,19 @@ export default function Canvas() {
       sr.wirePreview = st.autoRoute ? routeOrthogonal(sr.wireStart, target, obstaclesFor(st.doc)) : [sr.wireStart, { x: target.x, y: sr.wireStart.y }, target];
     }
 
-    // Pin hover tooltip – delightful detail
+    // W4: Pins ändern nur den Cursor – kein Text beim Hover.
     const pinInfo = findPinInfo(st.doc, world, 12);
     if (pinInfo && !st.sim.running) {
-      const lines = [
-        `📌 Pin ${pinInfo.pinName} – ${pinInfo.inst.label}`,
-        `Netz: ${pinInfo.net ?? "nicht verbunden"}`,
-        `Position: ${pinInfo.pos.x.toFixed(0)}, ${pinInfo.pos.y.toFixed(0)}`,
-        `Klick: Bauteil auswählen, W: Leitung starten`,
-        pinInfo.net ? `Hover: ganzes Netz wird hervorgehoben` : `Tipp: Mit W von hier aus verdrahten`
-      ];
-      const wr = wrapRef.current?.getBoundingClientRect();
-      setTooltip({ x: e.clientX - (wr?.left ?? 0) + 14, y: e.clientY - (wr?.top ?? 0) + 14, lines });
-      // Also set cursor
       const canvas = canvasRef.current;
       if (canvas) canvas.style.cursor = "crosshair";
     }
 
     // Human Design: Tooltips everywhere – explain how to edit, no flicker
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    // Live-Einblick: solange Simulationsdaten existieren, zeigt Hover über ein
-    // Netz Wert + Mini-Kurve ohne Zusatztaste (Apple: Tiefe ohne Hürde).
-    // Pausiert holt ⌥ den Einblick zurück; sonst gewinnen die Editier-Hinweise.
+    // W4: Der Canvas ist still. Messwerte erscheinen nur, wenn man Alt bewusst
+    // hält (Profi-Blick auf Abruf) – niemals als Dauerbeschuss beim Darüberfahren.
     const hasLiveData = st.sim.running || engine.lastState.time > 0;
-    const showAltTooltip = hasLiveData && (st.sim.running || e.altKey);
-    const showWireHint = !showAltTooltip && !e.altKey;
+    const showAltTooltip = hasLiveData && e.altKey;
     const now = performance.now();
     const last = (stateRef.current as any)._lastTooltipNet;
     const lastTime = (stateRef.current as any)._lastTooltipTime ?? 0;
@@ -1435,44 +1518,6 @@ export default function Canvas() {
       } else if (!net) {
         setTooltip(null);
         (stateRef.current as any)._lastTooltipNet = null;
-      }
-    } else if (showWireHint) {
-      // Show wire editing hint when hovering over wire or instance – makes editing discoverable
-      const net = nearestNetName(world, isMobile ? 24 : 10);
-      const wireId = hitWire(st.doc, world);
-      const inst = hitTestInstance(st.doc, world.x, world.y);
-      const probe = hitTestProbe(st.doc, world);
-      let lines: string[] | null = null;
-      if (probe) {
-        lines = [`Messpunkt ${probe.kind} ${probe.name ?? ""}`, `Netz: ${probe.net ?? net ?? "auto"}`, `Doppelklick: Inspector`, `Rechtsklick: Typ/REF/Reverse/Löschen`, `Drag: verschiebt Body, Leader bleibt`];
-      } else if (inst) {
-        const part = PART_MAP[inst.partId];
-        lines = [`${part?.name ?? inst.partId} ${inst.label}`, adaptShortcut("Doppelklick: Wert ändern · ⌥Doppelklick: Inspector", apple), `R: Drehen, M: Spiegeln, Entf: Löschen`, `Rechtsklick: Probe hinzufügen`, `Drag: verschieben, Strg+Drag: duplizieren`];
-      } else if (wireId) {
-        lines = [`Leitung ${wireId.slice(0,6)} – Netz ${net ?? "?"}`, `Klick: auswählen (zeigt Handles)`, `Drag Handle: Punkt verschieben`, `Drag Leitung: ganze Leitung verschieben`, `Rechtsklick: Probe setzen / Löschen`, `Doppelklick: Inspector`];
-      } else if (net) {
-        lines = [`Netz ${net}`, `Rechtsklick: Probe setzen`, `Leitungswerkzeug (W): neue Leitung zeichnen`];
-      }
-      if (lines) {
-        const wr = wrapRef.current?.getBoundingClientRect();
-        // Only update if changed to avoid flicker
-        const lastLines = (stateRef.current as any)._lastTooltipLines?.join("|");
-        const curLines = lines.join("|");
-        if (lastLines !== curLines || now - lastTime > 300) {
-          setTooltip({ x: e.clientX - (wr?.left ?? 0), y: e.clientY - (wr?.top ?? 0), lines });
-          (stateRef.current as any)._lastTooltipNet = net ?? wireId ?? inst?.id ?? null;
-          (stateRef.current as any)._lastTooltipLines = lines;
-          (stateRef.current as any)._lastTooltipTime = now;
-        }
-      } else {
-        // hide with delay to avoid flicker
-        const lastHide = (stateRef.current as any)._lastHide ?? 0;
-        if (now - lastHide > 200 && tooltip) {
-          setTooltip(null);
-          (stateRef.current as any)._lastTooltipNet = null;
-          (stateRef.current as any)._lastTooltipLines = null;
-        }
-        (stateRef.current as any)._lastHide = now;
       }
     } else {
       if (tooltip) {
@@ -2118,7 +2163,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
           <div className="sep" />
           <div className="grid grid-cols-2 gap-1">
             <button className="row justify-center" onClick={() => { st.fitView(); onClose(); }}><span>⛶ Einpassen</span><span className="ml-auto text-[10px] text-mute">F</span></button>
-            <button className="row justify-center" onClick={() => { st.toggleLibrary(); onClose(); }}><span>📚 Bibliothek</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘K", apple)}</span></button>
+            <button className="row justify-center" onClick={() => { st.toggleLibrary(); onClose(); }}><span>Bibliothek</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘K", apple)}</span></button>
           </div>
           <div className="grid grid-cols-2 gap-1 mt-1">
             <button className="row justify-center" onClick={() => { useEditor.setState({ showGrid: !st.showGrid }); onClose(); }}><span>{st.showGrid?"☑":"☐"} Grid</span></button>

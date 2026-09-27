@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef } from "react";
-import { Pause, Play, Square, Undo2, Redo2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Pause, Play, Settings as SettingsIcon, Square, Undo2, Redo2 } from "lucide-react";
 import { PRESETS } from "@/lib/schematic/tools";
 import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
 import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
@@ -9,6 +9,8 @@ import { InstrumentKind, ThemePref, useEditor } from "@/state/editor";
 import { Menu, MenuItem, MenuSeparator, downloadText, safeName, Tooltip } from "./ui";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
+
+const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete"] as const;
 
 const INSTRUMENT_ITEMS: Array<[InstrumentKind, string]> = [
   ["dmm", "Digitalmultimeter"],
@@ -38,8 +40,24 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
   const theme = useEditor((s) => s.theme);
   const showCurrentFlow = useEditor((s) => s.showCurrentFlow);
   const showVoltageColors = useEditor((s) => s.showVoltageColors);
+  const showInlineValues = useEditor((s) => s.showInlineValues);
+  const flowDir = useEditor((s) => s.currentFlowDirection);
   const fileRef = useRef<HTMLInputElement>(null);
   const st = useEditor.getState;
+  // W8: Ein gemeinsamer offener Menü-State – Hover wechselt, Klick wechselt in einem Klick.
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const navMenu = (dir: -1 | 1) =>
+    setOpenMenu((m) => {
+      if (!m) return m;
+      const i = MENU_IDS.indexOf(m as (typeof MENU_IDS)[number]);
+      return MENU_IDS[(i + dir + MENU_IDS.length) % MENU_IDS.length];
+    });
+  const menuProps = (id: string) => ({
+    open: openMenu === id,
+    onOpenChange: (o: boolean) => setOpenMenu(o ? id : null),
+    onHoverOpen: () => setOpenMenu((m) => (m ? id : m)),
+    onNavigate: navMenu,
+  });
 
   const base = safeName(docName);
 
@@ -148,7 +166,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
           ))}
           <div className="space-y-1">
             <div className="text-[10px] uppercase tracking-wide text-mute px-2">Wizards</div>
-            <button className="btn w-full justify-start" onClick={() => onWizards?.()}>Wizards ✨</button>
+            <button className="btn w-full justify-start" onClick={() => onWizards?.()}>Wizards</button>
           </div>
         </div>
         <input ref={fileRef} type="file" accept=".json,.cir,.net,.sp,.txt,.asc" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }} />
@@ -162,74 +180,78 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
       {/* Minimal – no logo */}
       <span className="mr-2 hidden max-w-[140px] truncate text-[11px] text-mute lg:inline">{docName}</span>
 
-      <Menu label="Datei" tooltip="Datei – neues Projekt, Speichern, Import/Export, Druck">
-        <MenuItem onClick={() => st().newDocument()} tooltip="Neuer Schaltplan – löscht aktuellen Plan (Undo möglich)\nTipp: Auto-Save hält die Arbeitskopie, Projekte-Dialog hält Snapshots">Neuer Schaltplan</MenuItem>
-        <MenuItem hint="⌘S" onClick={() => st().saveProject()} tooltip="Lokal speichern im Browser (localStorage)\nAuto-Save: 2 s nach jeder Änderung · ⌘S speichert sofort">Lokal speichern</MenuItem>
-        <MenuItem onClick={() => onProjects?.()} tooltip="Projekte – benannte Snapshots speichern, öffnen, umbenennen, löschen\nDie Arbeitskopie speichert zusätzlich automatisch">Projekte …</MenuItem>
-        <MenuItem onClick={() => fileRef.current?.click()} tooltip="Importieren – .json Projekt, .cir/.net/.sp Netzliste (Auto-Verdrahtung), .asc LTspice">Importieren (.json/.cir/.asc)</MenuItem>
+      <Menu label="Datei" {...menuProps("datei")}>
+        <MenuItem onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
+        <MenuItem hint="⌘S" onClick={() => st().saveProject()}>Lokal speichern</MenuItem>
+        <MenuItem onClick={() => onProjects?.()}>Projekte …</MenuItem>
+        <MenuItem onClick={() => fileRef.current?.click()}>Importieren (.json/.cir/.asc)</MenuItem>
         <MenuSeparator />
-        <MenuItem onClick={exportSpice} tooltip="Export SPICE (.cir) – erzeugt SPICE-Netzliste für LTspice/NGSpice\nEnthält alle Bauteile und Verbindungen">Export SPICE (.cir)</MenuItem>
-        <MenuItem onClick={exportJson} tooltip="Export JSON – komplettes Projekt: Schaltplan + Gerätefenster\nZum Teilen oder Backup; wieder importierbar per Datei-Menü oder Drag & Drop">Export JSON</MenuItem>
-        <MenuItem onClick={exportBom} tooltip="Export BOM (CSV) – Stückliste mit Ref, Bauteil, Wert, Footprint\nFür Bestellung bei Mouser/DigiKey">Export BOM (CSV)</MenuItem>
+        <MenuItem onClick={exportSpice}>Export SPICE (.cir)</MenuItem>
+        <MenuItem onClick={exportJson}>Export JSON</MenuItem>
+        <MenuItem onClick={exportBom}>Export BOM (CSV)</MenuItem>
         <MenuSeparator />
-        <MenuItem hint="⌘P" onClick={printSheet} tooltip="Drucken – echtes Schaltblatt (A4 quer) mit Rahmen, Projektkopf und Stempel\nDer Plan wird vorher automatisch eingepasst">Drucken</MenuItem>
+        <MenuItem hint="⌘P" onClick={printSheet}>Drucken</MenuItem>
       </Menu>
 
-      <Menu label="Bearbeiten" tooltip="Bearbeiten – Undo/Redo, Kopieren, Einfügen, Duplizieren, Löschen">
-        <MenuItem hint="⌘Z" disabled={!canUndo} onClick={() => st().undo()} tooltip="Rückgängig – macht letzte Aktion rückgängig (History 50)">Rückgängig</MenuItem>
-        <MenuItem hint="⇧⌘Z" disabled={!canRedo} onClick={() => st().redo()} tooltip="Wiederholen – stellt rückgängig gemachte Aktion wieder her">Wiederholen</MenuItem>
+      <Menu label="Bearbeiten" {...menuProps("bearbeiten")}>
+        <MenuItem hint="⌘Z" disabled={!canUndo} onClick={() => st().undo()}>Rückgängig</MenuItem>
+        <MenuItem hint="⇧⌘Z" disabled={!canRedo} onClick={() => st().redo()}>Wiederholen</MenuItem>
         <MenuSeparator />
-        <MenuItem hint="⌘C" disabled={!hasSelection} onClick={() => st().copySelection()} tooltip="Kopieren – kopiert ausgewählte Bauteile + Leitungen">Kopieren</MenuItem>
-        <MenuItem hint="⌘V" disabled={!hasClipboard} onClick={() => st().pasteClipboard()} tooltip="Einfügen – fügt aus Zwischenablage ein (versetzt)">Einfügen</MenuItem>
-        <MenuItem hint="⌘D" disabled={!hasSelection} onClick={() => st().duplicateSelection()} tooltip="Duplizieren – kopiert und fügt sofort ein (Shortcut ⌘D)">Duplizieren</MenuItem>
-        <MenuItem hint="⌘A" onClick={() => st().selectAll()} tooltip="Alles auswählen – selektiert alle Bauteile und Leitungen">Alles auswählen</MenuItem>
+        <MenuItem hint="⌘C" disabled={!hasSelection} onClick={() => st().copySelection()}>Kopieren</MenuItem>
+        <MenuItem hint="⌘V" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</MenuItem>
+        <MenuItem hint="⌘D" disabled={!hasSelection} onClick={() => st().duplicateSelection()}>Duplizieren</MenuItem>
+        <MenuItem hint="⌘A" onClick={() => st().selectAll()}>Alles auswählen</MenuItem>
         <MenuSeparator />
-        <MenuItem hint="⌫" danger disabled={!hasSelection} onClick={() => st().deleteSelection()} tooltip="Löschen – löscht Auswahl unwiderruflich (aber Undo)">Löschen</MenuItem>
+        <MenuItem hint="⌫" danger disabled={!hasSelection} onClick={() => st().deleteSelection()}>Löschen</MenuItem>
       </Menu>
 
-      <Menu label="Ansicht" tooltip="Ansicht – Darstellungsoptionen, Theme, Library, Einstellungen">
-        <MenuItem checked={showCurrentFlow} onClick={() => st().toggleCurrentFlow()} tooltip="Stromfluss animieren – animierte Punkte auf Leitungen\nWie Multisim Live, zeigt Flussrichtung, abschaltbar">Stromfluss animieren</MenuItem>
-        <MenuItem checked={showVoltageColors} onClick={() => st().toggleVoltageColors()} tooltip="Spannungsfarben – färbt Leitungen nach Spannung\nBlau=positiv, Rot=negativ, Grau=0V">Spannungsfarben</MenuItem>
+      <Menu label="Ansicht" {...menuProps("ansicht")}>
+        <MenuItem checked={showCurrentFlow} onClick={() => st().toggleCurrentFlow()}>Stromfluss animieren</MenuItem>
+        <MenuItem checked={showVoltageColors} onClick={() => st().toggleVoltageColors()}>Spannungsfarben</MenuItem>
+        <MenuItem checked={showInlineValues} onClick={() => st().toggleInlineValues()}>Live-Werte im Plan</MenuItem>
+        <MenuItem onClick={() => st().setCurrentFlowDirection(flowDir === "electron" ? "conventional" : "electron")}>
+          {flowDir === "electron" ? "Stromrichtung: − nach + (Elektronen)" : "Stromrichtung: + nach − (konventionell)"}
+        </MenuItem>
         <MenuSeparator />
-        <MenuItem onClick={() => st().fitView()} tooltip="Einpassen (F) – zoomt so dass ganzer Schaltplan sichtbar\nShortcut: F">Einpassen (F)</MenuItem>
-        <MenuItem onClick={() => st().toggleLibrary()} tooltip="Bibliothek (⌘K) – öffnet/schließt Bauteil-Bibliothek\n402 Bauteile, Symbol-Vorschau, Datasheet Links">Bibliothek (⌘K)</MenuItem>
+        <MenuItem onClick={() => st().fitView()}>Einpassen (F)</MenuItem>
+        <MenuItem onClick={() => st().toggleLibrary()}>Bibliothek (⌘K)</MenuItem>
         <MenuSeparator />
-        <MenuItem checked={theme === "system"} onClick={() => setTheme("system")} tooltip="System (Auto) – folgt OS Dark/Light, Default">System (Auto)</MenuItem>
-        <MenuItem checked={theme === "dark"} onClick={() => setTheme("dark")} tooltip="Dunkel – dunkles Theme, ideal für Oszilloskop">Dunkel</MenuItem>
-        <MenuItem checked={theme === "light"} onClick={() => setTheme("light")} tooltip="Hell – helles Theme für Tageslicht">Hell</MenuItem>
+        <MenuItem checked={theme === "system"} onClick={() => setTheme("system")}>System (Auto)</MenuItem>
+        <MenuItem checked={theme === "dark"} onClick={() => setTheme("dark")}>Dunkel</MenuItem>
+        <MenuItem checked={theme === "light"} onClick={() => setTheme("light")}>Hell</MenuItem>
         <MenuSeparator />
-        <MenuItem onClick={() => onSettings?.()} tooltip="Einstellungen – Probes Hover Config, Canvas, Library, Theme\nHier stellst du ein was Alt+Hover zeigt">⚙️ Einstellungen (Probes, Library, Canvas)</MenuItem>
+        <MenuItem onClick={() => onSettings?.()}>Einstellungen …</MenuItem>
       </Menu>
 
-      <Menu label="Vorlagen" tooltip="Vorlagen – fertige Beispiel-Schaltungen zum Lernen und Starten">
+      <Menu label="Vorlagen" {...menuProps("vorlagen")}>
         {PRESETS.map((p) => (
-          <MenuItem key={p.id} onClick={() => st().loadPreset(p.id)} tooltip={`Vorlage laden: ${p.name}\nÜberschreibt aktuellen Plan (Undo möglich)`}>{p.name}</MenuItem>
+          <MenuItem key={p.id} onClick={() => st().loadPreset(p.id)}>{p.name}</MenuItem>
         ))}
       </Menu>
 
-      <Menu label="Analysen" tooltip="Analysen – SPICE Analysen: OP, DC Sweep, AC, Transient, Monte Carlo etc">
+      <Menu label="Analysen" {...menuProps("analysen")}>
         {ANALYSIS_DEFS.map((a) => (
-          <MenuItem key={a.kind} hint={a.spice} onClick={() => (a.direct ? runDirect(a.kind) : onAnalysis(a.kind))} tooltip={`${a.title} – ${a.spice} Analyse\n${a.direct ? "Direkt ausführbar" : "Öffnet Dialog mit Parametern"}`}>
+          <MenuItem key={a.kind} hint={a.spice} onClick={() => (a.direct ? runDirect(a.kind) : onAnalysis(a.kind))}>
             {a.title}
           </MenuItem>
         ))}
       </Menu>
 
-      <Menu label="Geräte" tooltip="Geräte – Messinstrumente wie Oszilloskop (4 Kanäle), DMM, Bode, Spektrum">
+      <Menu label="Geräte" {...menuProps("geraete")}>
         {INSTRUMENT_ITEMS.map(([kind, title]) => (
-          <MenuItem key={kind} onClick={() => st().openInstrument(kind)} tooltip={`${title} öffnen – Messgerät als schwebendes Fenster\nVerschiebbar, fokussierbar, schließbar – Konfiguration folgt in Projekt-Speicherung (Restliste R7)`}>{title}</MenuItem>
+          <MenuItem key={kind} onClick={() => st().openInstrument(kind)}>{title}</MenuItem>
         ))}
       </Menu>
 
       <div className="mx-2 h-4 w-px" style={{ background: "var(--border)" }} />
 
       <div className="flex items-center gap-0.5">
-        <Tooltip content="Rückgängig – macht letzte Aktion rückgängig (50 Schritte History)\nShortcut: ⌘Z" side="bottom">
+        <Tooltip content="Rückgängig (⌘Z)" side="bottom">
           <button className="btn h-6 px-1.5" onClick={() => st().undo()} disabled={!canUndo}>
             <Undo2 size={13} />
           </button>
         </Tooltip>
-        <Tooltip content="Wiederholen – stellt rückgängig gemachte Aktion wieder her\nShortcut: ⇧⌘Z oder ⌘Y" side="bottom">
+        <Tooltip content="Wiederholen (⇧⌘Z)" side="bottom">
           <button className="btn h-6 px-1.5" onClick={() => st().redo()} disabled={!canRedo}>
             <Redo2 size={13} />
           </button>
@@ -239,7 +261,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
       <div className="mx-1 h-4 w-px" style={{ background: "var(--border)" }} />
 
       <div className="flex items-center gap-1">
-        <Tooltip content={running ? "Pause – hält Simulation an, behält Zustand\nShortcut: Leertaste" : "Start – startet Echtzeit Simulation (MNA/Newton-Raphson)\nShortcut: Leertaste\nTipp: Mindestens 1 Probe empfohlen"} side="bottom">
+        <Tooltip content={running ? "Pause (Leertaste)" : "Start (Leertaste)"} side="bottom">
           <button
             className={running ? "btn h-6 px-2" : "btn btn-primary h-6 px-2.5"}
             onClick={() => (running ? st().pauseSim() : st().startSim())}
@@ -248,7 +270,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
             <span className="ml-1 hidden sm:inline text-[11px]">{running ? "Pause" : "Start"}</span>
           </button>
         </Tooltip>
-        <Tooltip content="Stop – stoppt und setzt Simulation zurück auf Anfang" side="bottom">
+        <Tooltip content="Stoppen" side="bottom">
           <button className="btn h-6 px-1.5" onClick={() => st().stopSim()}>
             <Square size={11} />
           </button>
@@ -258,26 +280,22 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
       <div className="flex-1" />
 
       <div className="hidden items-center gap-2 md:flex">
-        <Tooltip content="Stromfluss animieren – zeigt animierte Punkte/Pfeile auf Leitungen wenn Strom fließt\nWie in Multisim Live, ein/ausschaltbar" side="bottom">
-          <label className="flex items-center gap-1 text-[10px] text-mute cursor-pointer">
+        <label className="flex items-center gap-1 text-[10px] text-mute cursor-pointer">
             <input type="checkbox" checked={showCurrentFlow} onChange={() => st().toggleCurrentFlow()} className="h-3 w-3" />
             Strom
           </label>
-        </Tooltip>
-        <Tooltip content="Spannungsfarben – färbt Leitungen nach Spannung (positiv blau, negativ rot, 0 grau)\nHilft beim schnellen Erkennen" side="bottom">
-          <label className="flex items-center gap-1 text-[10px] text-mute cursor-pointer">
+        <label className="flex items-center gap-1 text-[10px] text-mute cursor-pointer">
             <input type="checkbox" checked={showVoltageColors} onChange={() => st().toggleVoltageColors()} className="h-3 w-3" />
             Farben
           </label>
-        </Tooltip>
-        <Tooltip content="Bibliothek öffnen – zeigt alle 402 Bauteile mit Symbol-Vorschau und Datenblatt\nShortcut: ⌘K" side="bottom">
+        <Tooltip content="Bibliothek (⌘K)" side="bottom">
           <button className="btn h-6 px-2 text-[10px]" onClick={() => st().toggleLibrary()}>
             {adaptShortcut("⌘K", apple)}
           </button>
         </Tooltip>
-        <Tooltip content="Einstellungen – Probes, Library, Canvas, Theme, Accessibility\nHier konfigurierbar was Alt+Hover anzeigt" side="bottom">
-          <button className="btn h-6 px-2 text-[10px]" onClick={() => onSettings?.()}>
-            ⚙️
+        <Tooltip content="Einstellungen" side="bottom">
+          <button className="btn h-6 px-2" onClick={() => onSettings?.()} aria-label="Einstellungen">
+            <SettingsIcon size={12} />
           </button>
         </Tooltip>
       </div>
