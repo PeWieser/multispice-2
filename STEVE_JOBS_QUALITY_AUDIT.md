@@ -270,6 +270,191 @@ R1–R19 ist damit vollständig abgearbeitet; übrig bleibt nur der bewusste E-B
 
 ---
 
+## 8 · Runde 8 — PLAN: „Wahrheit, Stille, natives Chrome“ (User-Feedback 2026-09-27)
+
+> Status: **geplant, nicht ausgeführt.** Freigegeben wird die Umsetzung vom User.
+> Bereits vorab erledigt auf direkten Befehl: **W11 Plattform-Kürzel** (Commit 844d315).
+
+### 8.0 · Das Mindset hinter dem Feedback (die Brille für alles Folgende)
+
+Das Urteil „AI Slop“ heißt übersetzt: *Die App redet zu viel und hält ihre eigenen
+Versprechen nicht.* Zwei Wurzeln, ein Maßstab:
+
+1. **Lärm.** Überall Hover-Texte, Tooltip-Essays, Hinweissätze, Labels („Schnellzugriff“),
+   Emoji als Icons, scrollende Chrome-Leisten. Die UI erklärt sich permanent selbst, statt
+   selbstverständlich zu sein. Jobs: *Wenn man es erklären muss, ist es falsch designed.*
+   Information ist ein Angebot auf Abruf (Pull), kein Dauerbeschuss (Push).
+2. **Unwahrheit.** Der Strom fließt in die falsche Richtung und animiert nach dem Stopp
+   weiter; verschobene Bauteile reißen Netze ab; IC-Pins und Leitungen sind nicht
+   deckungsgleich; der Slider rastet nicht bei 1×; Windows-Nutzer sehen ⌘-Glyphen; Menüs
+   verhalten sich nicht wie Menüs. Jede dieser Lügen kostet Vertrauen — und Vertrauen ist
+   das eigentliche Produkt einer Simulations-App. *Design is how it works* — und „works“
+   heißt hier auch: physikalisch und betriebssystemlich wahr.
+
+**Maßstab für Runde 8:** Der Canvas ist der Star. Alles Chrome tritt zurück. Jede Animation,
+jeder Indikator, jede Zahl ist an echten Zustand gebunden oder existiert nicht. Die App
+verhält sich wie das Betriebssystem, auf dem sie läuft.
+
+### 8.1 · Die vier Nutzer-Entscheidungen (verbindlich, per Rückfrage bestätigt)
+
+| Thema | Entscheidung |
+|---|---|
+| Bibliothek/Streifen | **Schlanker Streifen**: oben, nicht scrollend, entrümpelt; Bibliothek-Knopf ganz nach links |
+| Stromrichtung | **Einstellbar, Default − nach +** (Elektronenfluss); konventionelle Richtung als Option |
+| Canvas-Infoflut | **Komplett weg per Default**: Hover-Tooltips + Inline-Werte aus; Infos nur über Probes, Inspector, Alt+Hover; Umschalter bleiben im Ansicht-Menü |
+| Rechte Seite | **Nur Geräte-Bar rechts**; Inspector wird Bedarfs-Fenster (Doppelklick/⌘I/Kontextmenü), kein festes Panel |
+
+### 8.2 · Arbeitspakete
+
+**Block W — Wahrheit (Canvas-Physik)**
+
+- **W1 · Stromfluss physikalisch korrekt** (L)
+  *Frust:* Richtung oft falsch; Punkte animieren nach Start→Stopp munter weiter.
+  *Befund:* `netCurrentMap` summiert `devCurrent/pins.length` pro Netz — ein
+  vorzeichenbehafteter Skalar ohne Richtungssinn; die Punkt-Richtung folgt dem Polyline-
+  Zeichnenorden (`Canvas.tsx` ~421). Animation läuft mit Wall-Clock `now`, und
+  `live = sim.running || engine.lastState.time > 0` (~181) bleibt nach dem Stopp wahr.
+  *Ziel:* Richtung pro Leitungssegment aus der echten Schaltung: Zweigströme
+  (`engine.deviceCurrent`, Vorzeichen n0→n1) bestimmen Einspeise-/Abnahmepins jedes Netzes;
+  BFS über die Wire-Topologie des Netzes liefert Segment-Richtung + Betrag; Speed/Helligkeit
+  aus |I|. Neue Einstellung `currentFlowDirection: "electron" | "conventional"`
+  (Default **electron**: − → +; konventionell invertiert). **Punkte nur während
+  `sim.running`**; Pause = Standbild; Stopp = keine Punkte.
+  *Akzeptanz:* VDC+R-Serie: gleichmäßiger Fluss, Default − → + über den Außenkreis;
+  Polaritätstausch kehrt um; Knoten teilt den Fluss (KCL sichtbar); nach Stopp ruht der
+  Canvas; Einstellung wirkt sofort ohne Neustart der Sim.
+- **W2 · Verschieben trennt keine Netze** (M)
+  *Frust:* Bauteil verschoben → Leitungen hängen hinterher → Netz getrennt.
+  *Befund:* `moveSelection` (editor.ts ~369) bewegt nur explizit ausgewählte Wires.
+  *Ziel:* Gummiband: Wire-Endpunkte, die auf einem Pin des bewegten Bauteils sitzen,
+  wandern mit; orthogonale Führung bleibt erhalten (letztes Segment strecken, bei Bedarf
+  Knickpunkt einfügen); Labels/Probes auf dem Netz folgen; **ein** Undo-Schritt.
+  *Akzeptanz:* RC-Glied: R um 3 Raster verschieben — Leitung folgt, ERC still, Netzliste
+  identisch, Sim läuft ohne Unterbrechung weiter; ⌘Z stellt alles atomar zurück.
+- **W3 · Pins und Netze deckungsgleich** (M)
+  *Frust:* Bei ICs passen gezeichnete Pins und elektrische Anschlusspunkte nicht.
+  *Befund:* Pin-Koordinaten (z. B. 555: ±40/±36/±12) liegen teils nicht auf dem
+  Wire-Snap-Raster; Symbol-Stubs (`icSymbol`) werden unabhängig von `pins` gezeichnet.
+  *Ziel:* Eine Quelle der Wahrheit: `pins` definiert elektrisch **und** visuell; Stubs
+  werden aus Pins abgeleitet; Katalog-Pins aufs Raster korrigiert; Wire-Snap priorisiert
+  Pins vor dem reinen Grid (Pin-Fang radiusbasiert, sichtbarer Fangpunkt).
+  *Akzeptanz:* NE555/OPV bei 400 %: Leitungsende exakt auf Pin-Ende, keine Lücke;
+  ERC meldet nichts; Fang spürbar (Highlight vor dem Klick).
+
+**Block S — Stille (Info nur auf Abruf)**
+
+- **W4 · Canvas still per Default** (S)
+  *Frust:* Zu viele Infos ohne Probes, nicht schnell abschaltbar.
+  *Befund:* Hover-Config Defaults alle `true` (`loadHoverConfig`), `showInlineValues: true`
+  (editor.ts ~248) schreibt V/I direkt in den Plan.
+  *Ziel:* Defaults aus: kein Hover-Tooltip an Leitungen/Bauteilen, keine Inline-Werte,
+  keine ungefragten Sparklines. Bewusst bleibt: **Alt+Hover** (Profi-Blick auf Abruf),
+  Probes (explizit gesetzt), Inspector. Umschalter im Ansicht-Menü + Einstellungen bleiben
+  (nicht verstecken, nur nicht aufdrängen).
+  *Akzeptanz:* Frische Installation, Sim läuft: Maus über Leitung → nichts; Plan ohne
+  Zahlen; Alt+Hover liefert Messwerte; Probe zeigt ihren Wert.
+- **W5 · Tooltip-Wände abreißen** (S)
+  *Frust:* „viel zu viele Hovertexte überall“.
+  *Befund:* Menü-Header **und** jedes MenuItem tragen 2–4-Zeilen-Tooltips (ui.tsx/MenuBar);
+  ComponentStrip 5-Zeiler pro Knopf; Bibliotheks-Rows `title`-Blitzer; Hinweissatz
+  „Hover für Info • Doppelklick Inspector • …“.
+  *Ziel:* Alle dekorativen Tooltips/Essays entfernt (Menu.tooltip, MenuItem.tooltip,
+  Tooltip-Inhalte im Strip, Hinweissatz). Bleiben: kurze `title` (≤ 5 Wörter) an
+  icon-only-Knöpfen, wo das Icon sonst stumm wäre. Labels + Kürzel-Hints erklären genug.
+  *Akzeptanz:* Maus-Wisch über Menüleiste und Streifen: **null** aufpoppende Textboxen.
+- **W6 · Bibliothek: ruhige Liste, konsistentes Detail** (S)
+  *Frust:* Info-Boxen blitzen beim Darüberfahren; Detailfeld springt.
+  *Befund:* `detailPart = hovered ?? selected` (LibraryPalette ~274) — Hover kapert das
+  Detailfeld; `title` pro Row (~158) blitzt nativ.
+  *Ziel:* Detailfeld rechts zeigt **nur das angeklickte** Teil (selected), hover ändert
+  lediglich den Row-Hintergrund; `title`-Attribute raus (Detail steht rechts, konsistent).
+  *Akzeptanz:* Liste rauf/runter fahren: Detailfeld unverändert; Klick → Detail sofort,
+  stabil bis zum nächsten Klick.
+
+**Block N — Natives Chrome**
+
+- **W7 · Schlanker Streifen, Bibliothek links, kein Scrollen** (S)
+  *Frust:* „menü scrollbar, was scheiße ist“, „dummer Text neben der library“.
+  *Befund:* ComponentStrip: `overflow-x-auto`, Label „Schnellzugriff“, 10 Quick-Parts +
+  7 Probes + Bibliothek-Knopf **rechts** + Hinweissatz.
+  *Ziel:* Neue Reihenfolge: **[🔍 Bibliothek] | ≤ 6 kuratierte Quick-Parts | V A Probes**;
+  `flex-nowrap`, kein Scrollen (bei < 1024 px Labels der Knöpfe aus, nur Icons); Label
+  „Schnellzugriff“ und Hinweissatz gelöscht; Bibliothek-Knopf ohne ⌘K-Glyphe im Label
+  (Kürzel lebt im Menü/der Hilfe). Rest (13 Probes, 400+ Teile) wohnt in der Bibliothek —
+  eine Tür, nicht zwei.
+  *Akzeptanz:* 1280×800 und 1024×768: keine Scrollbar, nichts abgeschnitten, kein Text
+  außer Knopf-Beschriftungen.
+- **W8 · Menüs verhalten sich wie Menüs** (M)
+  *Frust:* „wenn schon ein Punkt offen ist, muss ich auf den nächsten Reiter klicken“ —
+  offenes Menü blockiert den direkten Wechsel; Header-Tooltips funken dazwischen.
+  *Befund:* Jedes `Menu` verwaltet isoliertes `open`; kein Hover-Wechsel; außen-Mousedown
+  schließt, Klick öffnet — gefühlt zwei Schritte; Menu-Header-Tooltips überlagern.
+  *Ziel:* Ein Menü offen → **Hover über nächsten Header öffnet sofort** (nativer
+  Menu-Bar-Modus, wie macOS/Windows); Klick wechselt in einem Klick; Esc schließt;
+  ←/→ wandern zwischen Menüs; Header-Tooltips entfallen (W5). Geteilter `openMenu`-State
+  in der MenuBar statt 6 lokaler States.
+  *Akzeptanz:* „Datei“ offen, Maus auf „Bearbeiten“: offen ohne Klick. Klickpfad: 1 Klick.
+  Tastatur: ←/→/Esc wie natives Menü.
+- **W9 · Geschwindigkeits-Slider rastet bei 1×** (S)
+  *Frust:* kein Einrasten bei Normalgeschwindigkeit.
+  *Befund:* log-Slider `min -4 max 1 step 0.05` (StatusBar ~96) — 0 erreichbar, aber
+  ohne Rastpunkt.
+  *Ziel:* Detent: |log10(ts)| < 0.07 → exakt 1.0 (spürbares Einrasten + kleine
+  Kerben-Markierung an der Nullstellung); Anzeige dann exakt „1.0×“.
+  *Akzeptanz:* Langsam Richtung 1× ziehen: rastet ein und bleibt, bis deutlich
+  weitergeschoben wird.
+- **W10 · Geräte-Bar rechts, Inspector als Bedarfs-Fenster** (M)
+  *Frust:* „wieder die bar rechts an der seite mit oszi usw.“; Inspector blockiert rechts.
+  *Befund:* `InstrumentDock` existiert, wird aber nirgends gerendert (toter Code, 52px-
+  Variante); Geräte öffnen nur über das Menü; Inspector ist festes Right-Panel.
+  *Ziel:* Feste schmale Icon-Bar am **rechten Rand** (13 Geräte, Klick öffnet/fokussiert,
+  aktive Geräte markiert, Titel als Kurz-`title`); Geräte-Fenster bleiben frei + Dock (R10).
+  **Inspector wird Fenster**: Doppelklick auf Bauteil, ⌘I oder Kontextmenü öffnen ihn als
+  schwebendes Inspector-Fenster (gleiche Window-Chrome, dockbar, schließbar); kein festes
+  Panel mehr; Ansicht-Menüpunkt öffnet dasselbe Fenster.
+  *Akzeptanz:* Rechter Rand = immer nur die Bar; Oszi = 1 Klick; Doppelklick auf R1 =
+  Inspector-Fenster mit Werten; Tab-Wechsel/Fokus wie bei den Geräte-Fenstern.
+
+**Block P — Plattform**
+
+- **W11 · Kürzel der Plattform** ✅ **erledigt** (Commit 844d315): `platform.ts` mit
+  hydration-sicherem `useIsApple()`; Windows/Linux sehen Strg/Alt/Shift/Entf, macOS ⌘/⌥/⇧;
+  zentrale Adaptierung in ui.tsx + alle Direktstellen.
+- **W12 · Slop-Sweep (Vollaudits-Pass)** (M)
+  *Grund:* „Das sind nur wenige Punkte“ — der Rest wird systematisch gefunden, nicht
+  erwartet. Checkliste über jeden Bildschirm: (a) **Textlärm** — Labels, Hinweissätze,
+  Emoji-as-Icons (📚 ⚙️ ✨ 🔥 ↺ ⎘ ⎙ → lucide), Onboarding-Geschwätzigkeit;
+  (b) **Wahrheit** — jede Animation/jeder Indikator an echten Zustand gebunden
+  (Spannungsfarben nach Stopp? LED/7-Seg? ERC-Marker? Save-Indikator?);
+  (c) **Natürlichkeit** — Fokus-Ringe, Default-Buttons, Drag-Schwellen, Kontextmenüs;
+  (d) **Konsistenz** — ein Begriff pro Sache (DESIGN.md §Sprache), eine Formsprache pro
+  Kontrolle; (e) **Pixel** — Ausrichtung, Abstände, 44px-Touchziele.
+  *Lieferable:* Befundliste (wie Runde 3–5) → Fix in freigegebener Reihenfolge.
+
+### 8.3 · Reihenfolge-Empfehlung & Aufwand
+
+| # | Paket | Aufwand | Warum hier |
+|---|---|---|---|
+| 1 | W1 Strom-Physik | L | Die sichtbarste Lüge — Kern des Vertrauens |
+| 2 | W2 Gummiband-Verschieben | M | Direkte Manipulation ist das Grundversprechen |
+| 3 | W3 Pin-Wahrheit | M | Komplettiert die Canvas-Physik |
+| 4 | W4 Canvas still | S | Größter Lärm-Gewinn, kleinster Aufwand |
+| 5 | W5 Tooltip-Wände | S | Sofort spürbare Ruhe |
+| 6 | W6 Bibliothek ruhig | S | Konsistenz-Detail, schnell |
+| 7 | W7 Schlanker Streifen | S | Chrome tritt zurück |
+| 8 | W8 Native Menüs | M | OS-Gefühl |
+| 9 | W9 Slider-Rastung | S | Mikro-Wahrheit |
+| 10 | W10 Geräte-Bar + Inspector-Fenster | M | Layout-Heimat neu geordnet |
+| 11 | W12 Slop-Sweep | M | Fängt, was diese Liste nicht sieht |
+
+Summe: ~10 Schritte (2×L/M groß, Rest S/M). Verifikation pro Paket: tsc · eslint · build ·
+`npm test` · Sicht-Check in der Preview; physikalische Pakete zusätzlich per
+Referenzschaltung (VDC+R, RC, 555-Astabile) gegen Handrechnung/Multisim-Erwartung.
+
+**Bewusst nicht in Runde 8:** E-Block (Symbol-Editor, Subcircuits, 3D) bleibt §5.
+
+---
+
 ## Quellen
 
 - Blake Crosley, *Design Philosophy: Steve Jobs — The Back of the Fence* (Playboy-Interview 1985,
