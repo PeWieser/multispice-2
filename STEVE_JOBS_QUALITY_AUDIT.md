@@ -479,3 +479,53 @@ Verifikation: tsc 0 · eslint 0/0 · `npm test` grün · `next build` grün.
   https://stevejobsarchive.com/stories/objects-of-our-life
 - Perkins, *The Story Behind the Lisa (and Macintosh) Interface* (freundliche, menschliche
   Fehlermeldungen als Designziel): https://www.bitsavers.org/pdf/apple/lisa/development_history/articles/Perkins_-_Inventing_Lisa_Interface_CPSR_email_199606.pdf
+
+---
+
+## 9 · Runde 9 — „Professionelles Werkzeug statt billiger Kunst"
+
+**User-Urteil:** „Bei der aktuellen Simulation bekomme ich AI-Slop-Bauchweh. Das sieht so
+billig aus. Die glühenden Linien braucht doch kein Mensch. Das soll keine billige Kunst
+sein, sondern ein professionelles Tool. Die Oszis haben alle den Makel, dass die Kurve
+erst ab der Mitte erscheint und der Trigger nicht wirklich funktioniert, da Kurven immer
+wandern. Steve würde das bisherige zu 98 % als Müll abtun."
+
+**Entscheidungen (User, bindend):** Ent-Glow = Schaltplan UND Geräte professionell;
+Geräte-Bildschirme = mattes Phosphorgrün (flach, kein Neon); Stromflusspunkte = dezent
+(2 px matt, ohne Pfeile, Richtung bleibt KCL-korrekt).
+
+### 9.1 · Befund (Code-Beweis)
+- **Trigger-Attrappe:** `cfg.trigger.mode!=="auto"` → ausgerechnet der Default-Modus AUTO
+  triggerte NIE; Fenster = „letzte N Samples" → Kurve wandert.
+- **Fenster ab Mitte:** `startIdx = i − bufferlänge/2` → Fensterbeginn eine halbe
+  Pufferlänge vor Trigger; bei kurzem Puffer startet die Spur mitten auf dem Schirm.
+- **Billige Kunst:** CRT-Radialverlauf + Vignette + Scanlines + Bloom-Doppelpass
+  (`shadowBlur 14` + Persistenz-Kopie), glühende Traces (10–12), glühende
+  Auswahl/Hover-Leitungen (`shadowBlur 8–12`), Ghost-Schlagschatten.
+- **Lügen nebenbei:** Motor, 7-Segment-Zähler und Überlast-Rauch liefen mit `Date.now()`
+  weiter, obwohl die Simulation pausiert/ gestoppt war.
+
+### 9.2 · Umsetzung (W13–W15) ✅
+- **W13 Nüchterner Schaltplan:** Wire-Glow-Block gelöscht (Auswahl/Hover = Farbe +
+  Strichstärke), Wiring-Preview-Glow gelöscht (Endpunktmarker genügt), Ghosts ohne
+  Schlagschatten (nur Transparenz). Funktional-Emission bleibt: LED, 7-Segment.
+- **W14 Professionelles Oszilloskop:**
+  (a) **Echter Flanken-Trigger:** Rückwärtssuche am Trigger-Kanal mit linearer
+  Interpolation des Nulldurchgangs; bevorzugt die jüngste Flanke mit ≥ ½ Fenster
+  Post-Trigger-Daten; Triggerpunkt exakt in Bildschirmmitte → Standbild.
+  Jüngste Flanke ohne volles Post-Fenster wird gezeigt (rechte Hälfte füllt sich – wie
+  ein echtes Scope). AUTO ohne Flanke = Freilauf rechtsbündig (Spur wächst vom rechten
+  Rand, nie „aus der Mitte"); NORM ohne Flanke = ruhiger Schirm (kein Wandern).
+  (b) Zeitfenster-Rendering: `t0/t1`-Fenster, Binärsuche, alle Kanäle + Math auf
+  derselben Zeitachse; FFT/XY/Math ohne Glow; leerer Schirm bei fehlenden Daten.
+  (c) **Matte CRT:** flacher Phosphor-Grund (#0b130e), 10×8-Graticule mit betonten
+  Mittelachsen und 0.2-DIV-Ticks, Single-Pass 1.6px-Traces, Trigger-Marke ohne Glow;
+  Verlauf/Vignette/Scanlines/Persistenz gelöscht.
+  (d) Wahrheit: Motor/7-Segment/Rauch laufen mit `live.time` → Pause = Stillstand,
+  Stopp = Ruhelage.
+- **W15 Dezente Flusspunkte:** 2 px matte Punkte (--mute), keine Pfeilspitzen, keine
+  Neonfarbe; Richtung/Physik aus W1 unverändert.
+- **Verifikation:** Algorithmus-Konfrontation mit synthetischem 1-kHz-Rechteck über 200
+  wandernde Puffer-Frames: 2 Fensterphasen im Abstand genau 1 Sample (25 µs) →
+  bildfest (alte Version: kontinuierliches Wandern). tsc 0 · eslint 0 · Tests grün ·
+  Build grün.

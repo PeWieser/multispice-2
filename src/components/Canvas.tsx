@@ -391,19 +391,8 @@ export default function Canvas() {
           color = isSel ? selColor : (isHovered || isNetHovered) ? css("--accent-2","#22d3ee") : voltageColorFn(netV);
         }
       }
-      // Glow for selected/hovered
-      if (isSel || isHovered) {
-        ctx.save();
-        ctx.shadowColor = color;
-        ctx.shadowBlur = (isSel ? 12 : 8) / Math.max(view.zoom, 0.6);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = (isSel ? 3.2 : 2.8) / Math.max(view.zoom, 0.4);
-        ctx.lineJoin = "round"; ctx.lineCap = "round";
-        ctx.beginPath();
-        wire.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-        ctx.stroke();
-        ctx.restore();
-      }
+      // W13: Keine Glow-Konturen – Auswahl/Hover zeigen sich allein über
+      // Farbe und Strichstärke (professionell, nicht dekorativ).
       ctx.strokeStyle = color;
       ctx.lineWidth = (isSel ? 3.0 : isHovered ? 2.8 : 1.9) / Math.max(view.zoom, 0.4);
       ctx.lineJoin = "round"; ctx.lineCap = "round";
@@ -506,19 +495,11 @@ export default function Canvas() {
         ctx.beginPath();
         ctx.arc(wire.points[0].x, wire.points[0].y, 4 / Math.max(view.zoom,0.4), 0, Math.PI*2);
         ctx.fill();
-        // glow line
-        ctx.save();
-        ctx.shadowColor = css("--accent-2","#22d3ee");
-        ctx.shadowBlur = 10;
-        ctx.strokeStyle = css("--accent-2","#22d3ee")+"66";
-        ctx.lineWidth = 6 / Math.max(view.zoom,0.4);
-        ctx.beginPath();
-        wire.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-        ctx.stroke();
-        ctx.restore();
+        // W13: Der Endpunkt-Marker genügt – kein Glow-Streifen.
       }
 
-      // W1: Punkte + Pfeile aus echter Flussrichtung; Phase nur im Run lebendig.
+      // W15: Dezente matte Punkte aus echter Flussrichtung – keine Pfeile,
+      // kein Neon. Phase nur im Run lebendig (W1).
       const flow = flowByWire.get(wire.id);
       if (flow && flow.mag > 1e-9 && wire.points.length > 1) {
         const absI = flow.mag;
@@ -528,24 +509,14 @@ export default function Canvas() {
           const dir = flow.dir;
           const offset = (((flowState._flowPhase ?? 0) * speed * 0.001 * dir) % totalLen + totalLen) % totalLen;
           const count = Math.max(1, Math.floor(totalLen / 60));
-          ctx.fillStyle = absI > 0.5 ? css("--accent", "#5b8cff") : css("--wire", "#7dd3fc");
+          ctx.fillStyle = css("--mute", "#94a3b8");
           for (let d = 0; d < count; d++) {
             const pos = (offset + (d * totalLen) / count) % totalLen;
             const pt = pointAtLength(wire.points, pos);
             if (!pt) continue;
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 3.2 / Math.max(view.zoom, 0.5), 0, Math.PI * 2);
+            ctx.arc(pt.x, pt.y, 2 / Math.max(view.zoom, 0.5), 0, Math.PI * 2);
             ctx.fill();
-            const tangent = tangentAtLength(wire.points, pos);
-            if (tangent) {
-              const ang = Math.atan2(tangent.y, tangent.x) + (dir < 0 ? Math.PI : 0);
-              const len = 5 / Math.max(view.zoom, 0.6);
-              ctx.beginPath();
-              ctx.moveTo(pt.x + Math.cos(ang) * len, pt.y + Math.sin(ang) * len);
-              ctx.lineTo(pt.x + Math.cos(ang + 2.4) * (len * 0.9), pt.y + Math.sin(ang + 2.4) * (len * 0.9));
-              ctx.lineTo(pt.x + Math.cos(ang - 2.4) * (len * 0.9), pt.y + Math.sin(ang - 2.4) * (len * 0.9));
-              ctx.closePath(); ctx.fill();
-            }
           }
         }
       }
@@ -751,8 +722,8 @@ export default function Canvas() {
           const b = instanceBounds(inst);
           const cx = b.x + b.w/2;
           const cy = b.y + b.h/2;
-          // Smoke puffs
-          const t = Date.now() / 300;
+          // Smoke puffs – Zeit aus der Simulation, damit Pause = Stillstand (W14)
+          const t = live.time * 3.33;
           for (let i = 0; i < 3; i++) {
             const ang = t + i * 2.1;
             const r = 8*iz + i*6*iz + Math.sin(t+i)*2*iz;
@@ -845,11 +816,8 @@ export default function Canvas() {
       const partId = st.placingPartId ?? useHud.getState().dragPart;
       const part = PART_MAP[partId ?? ""];
       if (part) {
-        // Ghost with shadow – delightful placement feedback
+        // Ghost: halbtransparent, ohne Schatteneffekte (W13)
         ctx.save();
-        ctx.shadowColor = "rgba(0,0,0,0.4)";
-        ctx.shadowBlur = 12 / Math.max(view.zoom, 0.5);
-        ctx.shadowOffsetY = 6 / Math.max(view.zoom, 0.5);
         ctx.globalAlpha = 0.65;
         drawInstance(ctx, { id: "ghost", partId: part.id, x: cursor.x, y: cursor.y, rot: 0, label: part.ref + "?", params: {} }, false, view.zoom, null);
         ctx.restore();
@@ -870,8 +838,6 @@ export default function Canvas() {
     }
     if (st.tool.startsWith("probe") && st.placingProbeKind) {
       ctx.save();
-      ctx.shadowColor = "rgba(0,0,0,0.35)";
-      ctx.shadowBlur = 10 / Math.max(view.zoom, 0.5);
       ctx.globalAlpha = 0.7;
       drawProbe(ctx, { id: "ghost", kind: st.placingProbeKind, x: cursor.x, y: cursor.y } as MeasurementProbe, false, view.zoom, live, netResult, netCurrentMap);
       ctx.restore();
@@ -2598,9 +2564,9 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
             // Use max voltage as heuristic for BCD
             const maxV = Math.max(...netVals.filter(v=> typeof v === "number") as number[]);
             if (maxV > 0.5) val = Math.floor(maxV) % 16;
-            else val = Math.floor((Date.now()/1200) % 10);
+            else val = Math.floor((live.time / 1.2) % 10);
           } else {
-            val = Math.floor((Date.now()/1200) % 10);
+            val = Math.floor((live.time / 1.2) % 10);
           }
         }
       }
@@ -2642,7 +2608,7 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
   if (part.interactive==="motor" && live) {
     const i = Math.abs(live.currents[inst.label]??0);
     if (i > 0.001) {
-      const ang = (Date.now()/10 * i * 10) % 360;
+      const ang = (live.time * 3600 * i) % 360;
       ctx.save();
       ctx.rotate(ang * Math.PI/180);
       ctx.strokeStyle = "#60a5fa";

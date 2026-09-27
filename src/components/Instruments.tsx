@@ -234,66 +234,38 @@ function CrtScreen({ render, cursors, setCursors, trigger, timebase, volts, onTr
   }, [onWheelZoom]);
 
   const draw = useCallback((ctx: CanvasRenderingContext2D, w:number, h:number)=>{
-    // CRT background radial
-    const grad = ctx.createRadialGradient(w/2,h/2,0,w/2,h/2,Math.max(w,h)*0.9);
-    grad.addColorStop(0, "#0e1a14");
-    grad.addColorStop(0.4, "#0a1510");
-    grad.addColorStop(0.8, "#070e0c");
-    grad.addColorStop(1, "#04080a");
-    ctx.fillStyle=grad;
+    // W13: Matter Phosphor-Grund – flach, kein Verlauf, keine Vignette, keine Scanlines.
+    ctx.fillStyle="#0b130e";
     ctx.fillRect(0,0,w,h);
-    // vignette
-    const vig = ctx.createRadialGradient(w/2,h/2,w*0.3,w/2,h/2,w);
-    vig.addColorStop(0,"transparent");
-    vig.addColorStop(0.7,"rgba(0,0,0,0.15)");
-    vig.addColorStop(1,"rgba(0,0,0,0.65)");
-    ctx.fillStyle=vig;
-    ctx.fillRect(0,0,w,h);
-    // grid phosphor
+    // Graticule wie ein echtes Scope: 10×8 DIV, Mittelachsen betont,
+    // 0.2-DIV-Ticks auf der Mittellinie.
     ctx.save();
-    ctx.strokeStyle="rgba(60,255,100,0.09)";
-    ctx.lineWidth=0.6;
+    ctx.strokeStyle="rgba(150,210,170,0.13)";
+    ctx.lineWidth=1;
     for(let i=1;i<10;i++){ ctx.beginPath(); ctx.moveTo(w*i/10,0); ctx.lineTo(w*i/10,h); ctx.stroke(); }
     for(let i=1;i<8;i++){ ctx.beginPath(); ctx.moveTo(0,h*i/8); ctx.lineTo(w,h*i/8); ctx.stroke(); }
-    ctx.strokeStyle="rgba(80,255,130,0.18)";
-    ctx.lineWidth=0.9;
+    ctx.strokeStyle="rgba(150,210,170,0.24)";
     ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(w/2,0); ctx.lineTo(w/2,h); ctx.stroke();
-    // minor dots
-    ctx.fillStyle="rgba(70,255,110,0.12)";
-    for(let x=0;x<=10;x++) for(let y=0;y<=8;y++){ ctx.beginPath(); ctx.arc(w*x/10, h*y/8, 0.8,0,Math.PI*2); ctx.fill(); }
+    ctx.strokeStyle="rgba(150,210,170,0.3)";
+    ctx.beginPath();
+    for(let x=1;x<50;x++){ if(x%5===0) continue; ctx.moveTo(w*x/50, h/2-2.5); ctx.lineTo(w*x/50, h/2+2.5); }
+    for(let y=1;y<40;y++){ if(y%5===0) continue; ctx.moveTo(w/2-2.5, h*y/40); ctx.lineTo(w/2+2.5, h*y/40); }
+    ctx.stroke();
     ctx.restore();
-    // user render with glow
-    ctx.save();
-    ctx.shadowBlur=14;
-    ctx.shadowColor="rgba(74,222,128,0.35)";
+    // Scharfe Spur: ein Durchgang, kein Bloom, kein Persistenz-Doppelbild.
     render(ctx,w,h);
-    ctx.restore();
-    // second pass faint persistence
-    ctx.save();
-    ctx.globalAlpha=0.55;
-    ctx.shadowBlur=6;
-    render(ctx,w,h);
-    ctx.restore();
-    // scanlines
-    ctx.save();
-    ctx.globalAlpha=0.07;
-    ctx.fillStyle="repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.5) 2px, rgba(0,0,0,0.5) 3px)";
-    // canvas pattern via lines
-    for(let y=0;y<h;y+=3){ ctx.fillRect(0,y,w,1); }
-    ctx.restore();
-    // trigger marker
+    // Trigger-Marke (funktional, ohne Glow)
     if(trigger){
       const ty = h/2 - (trigger.level / volts[trigger.source]) * (h/8);
       ctx.save();
-      ctx.strokeStyle="#fbbf24";
+      ctx.strokeStyle="rgba(251,191,36,0.55)";
       ctx.setLineDash([6,4]);
       ctx.lineWidth=1;
       ctx.beginPath(); ctx.moveTo(0,ty); ctx.lineTo(w,ty); ctx.stroke();
       ctx.setLineDash([]);
-      // triangle handle on right edge
+      // Dreieck-Griff am rechten Rand
       ctx.fillStyle="#fbbf24";
-      ctx.shadowBlur=8; ctx.shadowColor="#fbbf24";
       ctx.beginPath(); ctx.moveTo(w-2, ty-7); ctx.lineTo(w-2, ty+7); ctx.lineTo(w-12, ty); ctx.closePath(); ctx.fill();
       ctx.fillStyle="#000"; ctx.font="8px monospace"; ctx.fillText("T", w-10, ty+2.5);
       ctx.restore();
@@ -420,8 +392,8 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
 
   const render = useCallback((ctx: CanvasRenderingContext2D, w:number,h:number)=>{
     const span = cfg.timebase*10;
-    const samples = Math.max(64, Math.round(span*40000));
-    const chans = cfg.channels.map((net)=> net ? engine.channel(net, samples) : { t:[], v:[] });
+    // W14: Volles Pufferfenster holen; Positionierung über ZEIT, nicht Index.
+    const chans = cfg.channels.map((net)=> net ? engine.channel(net, 16384) : { t:[], v:[] });
 
     if(cfg.mode==="fft"){
       const ch=chans[0];
@@ -430,8 +402,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
         const sp=spectrum(ch.v, 1/Math.max(dt,1e-12), "hann");
         const maxF=Math.min(sp.freq[sp.freq.length-1]??1, 1/(cfg.timebase*2)*50);
         ctx.strokeStyle=SCOPE_COLORS[0];
-        ctx.lineWidth=1.8;
-        ctx.shadowBlur=10; ctx.shadowColor=SCOPE_COLORS[0];
+        ctx.lineWidth=1.6;
         ctx.beginPath();
         sp.freq.forEach((f,i)=>{
           if(f>maxF) return;
@@ -440,7 +411,6 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
           if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
         });
         ctx.stroke();
-        ctx.shadowBlur=0;
       }
       return;
     }
@@ -448,7 +418,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
       const a=chans[0], b=chans[1];
       const n=Math.min(a.v.length,b.v.length);
       ctx.strokeStyle=SCOPE_COLORS[2];
-      ctx.lineWidth=1.6; ctx.shadowBlur=12; ctx.shadowColor=SCOPE_COLORS[2];
+      ctx.lineWidth=1.6;
       ctx.beginPath();
       for(let i=0;i<n;i++){
         const x=w/2 + (a.v[i]/cfg.volts[0])*(w/10);
@@ -459,43 +429,80 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
       return;
     }
 
-    let startIdx=0;
-    const trig=chans[cfg.trigger.source];
-    if(trig && trig.v.length>4 && cfg.trigger.mode!=="auto"){
-      for(let i=trig.v.length-2;i>1;i--){
-        const rising=trig.v[i-1]<cfg.trigger.level && trig.v[i]>=cfg.trigger.level;
-        const falling=trig.v[i-1]>cfg.trigger.level && trig.v[i]<=cfg.trigger.level;
-        if((cfg.trigger.edge==="rising"&&rising)||(cfg.trigger.edge==="falling"&&falling)){ startIdx=Math.max(0,i-Math.floor(trig.v.length/2)); break; }
+    // ── W14: Echter Flanken-Trigger. Gesucht wird die jüngste Flanke am
+    // Trigger-Kanal, die genug Post-Trigger-Daten (≥ halbes Fenster) hat;
+    // ihr Zeitpunkt landet exakt in Bildschirmmitte (interpoliert).
+    // AUTO ohne Flanke = Freilauf, rechtsbündig (Spur wächst vom rechten
+    // Rand nach links). NORM ohne Flanke = ruhiger Schirm, kein Wandern.
+    let tEnd = -Infinity;
+    for (const ch of chans) if (ch.t.length) tEnd = Math.max(tEnd, ch.t[ch.t.length-1]);
+    if (!isFinite(tEnd)) return; // noch keine Daten: ehrlich leer
+    const srcIdx = cfg.trigger.source;
+    const trig = chans[srcIdx];
+    let trigT: number | null = null;
+    if (trig && trig.v.length > 4 && cfg.channels[srcIdx]) {
+      const lvl = cfg.trigger.level;
+      let latest: number | null = null;
+      for (let i = trig.v.length-1; i > 0; i--) {
+        const prev = trig.v[i-1], cur = trig.v[i];
+        const rising = prev < lvl && cur >= lvl;
+        const falling = prev > lvl && cur <= lvl;
+        if ((cfg.trigger.edge==="rising" && rising) || (cfg.trigger.edge==="falling" && falling)) {
+          const frac = (lvl - prev) / ((cur - prev) || 1e-12);
+          const tc = trig.t[i-1] + frac * (trig.t[i] - trig.t[i-1]);
+          if (latest === null) latest = tc;
+          if (tEnd - tc >= span * 0.5) { trigT = tc; break; }
+        }
       }
+      // Jüngste Flanke ohne volles Post-Fenster: zeigen (rechte Hälfte füllt
+      // sich noch) – exakt das Verhalten eines echten Scopes nach dem Trigger.
+      if (trigT === null && latest !== null) trigT = latest;
     }
+    let t0: number;
+    if (trigT !== null) t0 = trigT - span/2;
+    else if (cfg.trigger.mode === "normal") return;
+    else t0 = tEnd - span;
+    const t1 = t0 + span;
+
+    // Fensteranfang per Binärsuche, dann nur Punkte in [t0, t1] zeichnen.
+    const windowStart = (ts: number[]) => {
+      let lo=0, hi=ts.length-1, s=0;
+      while(lo<=hi){ const mid=(lo+hi)>>1; if(ts[mid]<t0){ s=mid; lo=mid+1; } else hi=mid-1; }
+      return Math.max(0, s-1);
+    };
 
     chans.forEach((ch,idx)=>{
       if(!ch.v.length || !cfg.channels[idx]) return;
       ctx.strokeStyle=SCOPE_COLORS[idx];
-      ctx.lineWidth=2; ctx.shadowBlur=10; ctx.shadowColor=SCOPE_COLORS[idx];
+      ctx.lineWidth=1.6;
       ctx.beginPath();
-      const t0=ch.t[startIdx]??ch.t[0]??0;
-      for(let i=startIdx;i<ch.v.length;i++){
+      const s0=windowStart(ch.t);
+      let started=false;
+      for(let i=s0;i<ch.v.length;i++){
+        if(ch.t[i]>t1) break;
         const x=((ch.t[i]-t0)/span)*w;
-        if(x>w) break;
         const y=h/2 - ((ch.v[i]+cfg.offsets[idx])/cfg.volts[idx])*(h/8);
-        if(i===startIdx) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        if(!started){ ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
       }
       ctx.stroke();
     });
 
     if(cfg.mode==="math" && chans[0].v.length && chans[1].v.length){
+      // Math-Spur im selben Zeitfenster, gestrichelt, ohne Glow
+      const n=Math.min(chans[0].v.length, chans[1].v.length);
+      const tA=chans[0].t, vA=chans[0].v, vB=chans[1].v;
       ctx.strokeStyle="#a78bfa";
-      ctx.lineWidth=1.6; ctx.shadowBlur=12; ctx.shadowColor="#a78bfa";
+      ctx.lineWidth=1.4;
       ctx.setLineDash([6,4]);
       ctx.beginPath();
-      const n=Math.min(chans[0].v.length, chans[1].v.length);
-      const t0=chans[0].t[0]??0;
-      for(let i=0;i<n;i++){
-        const val=cfg.math==="a+b"?chans[0].v[i]+chans[1].v[i]:cfg.math==="a-b"?chans[0].v[i]-chans[1].v[i]:chans[0].v[i]*chans[1].v[i];
-        const x=((chans[0].t[i]-t0)/span)*w;
+      const s0=windowStart(tA);
+      let started=false;
+      for(let i=s0;i<n;i++){
+        if(tA[i]>t1) break;
+        const val=cfg.math==="a+b"?vA[i]+vB[i]:cfg.math==="a-b"?vA[i]-vB[i]:vA[i]*vB[i];
+        const x=((tA[i]-t0)/span)*w;
         const y=h/2 - (val/cfg.volts[0])*(h/8);
-        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        if(!started){ ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
       }
       ctx.stroke(); ctx.setLineDash([]);
     }
