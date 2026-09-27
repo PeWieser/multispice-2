@@ -141,6 +141,22 @@ rotieren tut das nackte `R` (⇧R rückwärts); Strg+R reloadet den Tab (F32).
 
 ---
 
+## 4d · Runde 6 — Umsetzung Block A/B/D (9 Schritte: R4–R7, R9, R14, R15, R18, R19)
+
+- **R4:** Strg/⌘+R rotiert (preventDefault) — Multisim-Muskelgedächtnis führt nicht mehr zum Tab-Reload.
+- **R5:** Leertaste ignoriert fokussierte BUTTON/A-Elemente — keine Doppelaktion nach Menü-Klick.
+- **R6:** Statusleiste zeigt den Auto-Save-Beweis: `● speichert …` → `✓ hh:mm` (Desktop + Mobile, mit Tooltip); Projekt-Restore setzt den Zeitstempel aus `savedAt`.
+- **R7:** Geräte gehören zum Projekt: `StoredProject.instruments` (Auto-Save, Slots, Export-Envelope v2 inkl. `format`/`version`); Reload/Öffnen/Import stellen Oszi & Co. wieder her; Migration: fehlendes Feld → `[]`.
+- **R9:** Tasten A = Strom-Probe, G = Grid, ⇧G = Snap; ?-Hilfe-Overlay listet jetzt ⌘R, A, G/⇧G und die Wheel-Gesten.
+- **R14:** Datei-Drop auf den Canvas (.json/.cir/.net/.sp/.asc) über neue Ein-Tür-Logik `openFileInEditor()` — Menü-Dialog und Drop teilen denselben Pfad inklusive ehrlicher Fehler.
+- **R15:** `favicon-192.png` + Manifest-Eintrag (PWA-Installierbarkeit: 192 + 512 + SVG).
+- **R18/R19:** GitHub-Action `ci.yml` (typecheck, lint, build, `npm test` = Importer- + Sim-Kernel-Tests via tsx als devDependency) + CI-Badge im README.
+
+Verifikation Runde 6: tsc 0 · eslint 0/0 · `npm test` 19/19 Import-Checks + Sim-Kernel PASS ·
+`next build` grün.
+
+---
+
 ## 5 · Backlog — bewusst nicht jetzt
 
 - **B1 Tempo („Saving Lives“):** Ein Bundle für Editor + Instrumente + Analysen. Plan:
@@ -182,16 +198,16 @@ etwas behauptet, das es nicht ist. „Magie“ = darf, weil es den Unterschied m
 | R1 | ⌘N-Hint entfernt (Browser-reserviert) | S | ✅ Runde 5 |
 | R2 | aria-Shortcut-Widerspruch (R = Drehen) behoben | S | ✅ Runde 5 |
 | R3 | „andockbar unten“-Copy-Lüge bereinigt | S | ✅ Runde 5 |
-| R4 | Strg/⌘+R abfangen (preventDefault) = Rotieren, Multisim-Muskelgedächtnis schützen | S | offen |
-| R5 | Leertaste: ignorieren wenn BUTTON/A fokussiert (Doppelaktion verhindern) | S | offen |
-| R6 | Statusleiste: sichtbarer Auto-Save-Beweis („✓ gespeichert 14:32“ / „● ausstehend“) | S | offen |
-| R7 | Instrumente persistieren: Geräte, Fensterlage, Configs in Projekt-Snapshot + JSON-Export/Import (Migration inkl.) | M | offen |
+| R4 | Strg/⌘+R abfangen (preventDefault) = Rotieren, Multisim-Muskelgedächtnis schützen | S | ✅ Runde 6 |
+| R5 | Leertaste: ignorieren wenn BUTTON/A fokussiert (Doppelaktion verhindern) | S | ✅ Runde 6 |
+| R6 | Statusleiste: sichtbarer Auto-Save-Beweis („✓ gespeichert 14:32“ / „● ausstehend“) | S | ✅ Runde 6 |
+| R7 | Instrumente persistieren: Geräte, Fensterlage, Configs in Projekt-Snapshot + JSON-Export/Import (Migration inkl.) | M | ✅ Runde 6 |
 | R8 | Druck/PDF-Blattansicht: Titelblock, sauberes Schaltplan-SVG statt Webseiten-Print | M | offen |
 
 ### B · Bedienung vervollständigen
 | # | Schritt | Aufwand | Status |
 |---|---------|---------|--------|
-| R9 | Tasten: A = Strom-Probe, G = Grid, ⇧G = Snap; ?-Hilfe-Overlay zur vollen Referenz inkl. Wheel-Gesten ausbauen | S | offen |
+| R9 | Tasten: A = Strom-Probe, G = Grid, ⇧G = Snap; ?-Hilfe-Overlay zur vollen Referenz inkl. Wheel-Gesten ausbauen | S | ✅ Runde 6 |
 | R10 | Scope/CRT: Wheel = Timebase, ⇧Wheel = Volts/Div; echtes Docking an Bottom-Panel (versprochene Magie nachliefern) | M | offen |
 | R11 | Grapher: Wheel-Zoom (X/Y), Drag-Pan, Doppelklick = Autoscale | M | offen |
 | R12 | Touch-Gesten komplettieren & dokumentieren (2-Finger-Pan, Pinch existiert, Long-Press existiert) | M | offen |
@@ -200,24 +216,24 @@ etwas behauptet, das es nicht ist. „Magie“ = darf, weil es den Unterschied m
 | # | Schritt | Aufwand | Status |
 |---|---------|---------|--------|
 | R13 | Strom-Sparkline im Hover-Tooltip (Engine-`channel` für Ströme erweitern; ex B6) | M | offen |
-| R14 | Datei-Drop: .cir/.asc direkt auf den Canvas ziehen (Importer existieren; ex B7) | S | offen |
-| R15 | Manifest: 192-px-Icon für PWA-Installierbarkeit | S | offen |
+| R14 | Datei-Drop: .cir/.asc direkt auf den Canvas ziehen (Importer existieren; ex B7) | S | ✅ Runde 6 |
+| R15 | Manifest: 192-px-Icon für PWA-Installierbarkeit | S | ✅ Runde 6 |
 | R16 | Sprachstimme DE/EN entscheiden: Fachbegriffe als Eigenname dokumentieren oder konsequent übersetzen (ex B2) | S+M | offen |
 | R17 | Tempo: Erst-Ladezeit messen (RUM/light), dann Instruments/Analysen code-splitten (ex B1) | M/L | offen |
 
 ### D · Qualitäts-Wachen
 | # | Schritt | Aufwand | Status |
 |---|---------|---------|--------|
-| R18 | CI (GitHub Action): typecheck, lint, build, `importtest`, `simtest` bei jedem Push (ex B3) | S/M | offen |
-| R19 | README-Badges aus CI + Testreport als Artefakt | S | offen |
+| R18 | CI (GitHub Action): typecheck, lint, build, `importtest`, `simtest` bei jedem Push (ex B3) | S/M | ✅ Runde 6 |
+| R19 | README-Badges aus CI + Testreport als Artefakt | S | ✅ Runde 6 |
 
 ### E · Produkt-Backlog (bewusstes Nein aus FINAL_AUDIT, unverändert)
 Symbol-Editor, hierarchische Subcircuit-Simulation, 3D/Foto-Ansicht — Power-User-Tiefe,
 die 90 % der Lernenden nie anfassen. Wird nicht vergessen, aber nicht jetzt.
 
-**Summe offen: 16 Schritte (6×S, 7×M, 2×L, 1×S+M).** Reihenfolge-Empfehlung: R4→R5→R6
-(Wahrheit, je <1 h) → R7 (Geräte-Persistenz, größte Vertrauenslücke) → R9/R14 (schnelle
-Magie) → R10/R11/R8 (Geräte- & Ausgabe-Tiefe) → R18/R19 (Wachen) → Rest.
+**Summe offen: 7 Schritte** — R8 (Druck-Blatt), R10 (Scope-Wheel/Docking), R11 (Grapher-
+Zoom/Pan), R12 (Touch-Gesten), R13 (Strom-Sparkline), R16 (DE/EN-Stimme), R17 (Tempo/
+Split). Runde 6 hat den kompletten A-Block plus R9/R14/R15/R18/R19 umgesetzt (9 Schritte).
 
 ---
 

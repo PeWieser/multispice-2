@@ -1,5 +1,7 @@
 # Multispice
 
+![CI](https://github.com/PeWieser/multispice-2/actions/workflows/ci.yml/badge.svg)
+
 EDA-Arbeitsplatz mit SPICE-Simulationskern: Schaltplan-Editor, Echtzeitsimulation,
 virtuelle Messgeräte, Monte-Carlo- und Rauschanalyse. Läuft vollständig im Browser —
 kein Server, keine Datenbank, kein Konto. Projekte leben im localStorage.

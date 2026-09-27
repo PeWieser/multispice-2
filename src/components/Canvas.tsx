@@ -19,6 +19,7 @@ import { Library as LibIcon, Sparkles } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
+import { openFileInEditor } from "@/lib/schematic/openFile";
 
 interface Pt { x: number; y: number; }
 
@@ -1588,6 +1589,8 @@ export default function Canvas() {
       const st = useEditor.getState();
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // Leertaste auf fokussiertem Button/Link = native Aktivierung, nicht Sim-Toggle
+      if (e.key === " " && (tag === "BUTTON" || tag === "A")) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault(); if (e.shiftKey) st.redo(); else st.undo();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); st.redo(); }
@@ -1596,6 +1599,8 @@ export default function Canvas() {
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") { e.preventDefault(); st.pasteClipboard(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); st.duplicateSelection(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); st.selectAll(); }
+      // Multisim-Muskelgedächtnis: Strg/⌘+R rotiert, statt den Tab zu reloaden
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") { e.preventDefault(); st.rotateSelection(e.shiftKey ? -1 : 1); }
       else if (e.key === "Delete" || e.key === "Backspace") st.deleteSelection();
       else if (e.key.toLowerCase() === "r") st.rotateSelection(e.shiftKey ? -1 : 1);
       else if (e.key.toLowerCase() === "m") st.mirrorSelection();
@@ -1604,6 +1609,11 @@ export default function Canvas() {
         stateRef.current.wireStart = null; stateRef.current.wirePreview = [];
         st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null); setCtxMenu(null);
       } else if (e.key.toLowerCase() === "v") st.setPlacingProbe("voltage");
+      else if (e.key.toLowerCase() === "a") st.setPlacingProbe("current");
+      else if (e.key.toLowerCase() === "g") {
+        if (e.shiftKey) useEditor.setState({ snap: !st.snap });
+        else useEditor.setState({ showGrid: !st.showGrid });
+      }
       else if (e.key.toLowerCase() === "l") st.setTool("label");
       else if (e.key.toLowerCase() === "t") st.setTool("text");
       else if (e.key.toLowerCase() === "e") st.setTool("erase");
@@ -1649,7 +1659,8 @@ export default function Canvas() {
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
         onDragOver={(e) => {
-          if (Array.from(e.dataTransfer.types).includes("text/multispice-part")) {
+          const types = Array.from(e.dataTransfer.types);
+          if (types.includes("text/multispice-part") || types.includes("Files")) {
             e.preventDefault();
             e.dataTransfer.dropEffect = "copy";
             const w = snap(toWorld(e.clientX, e.clientY));
@@ -1658,6 +1669,12 @@ export default function Canvas() {
           }
         }}
         onDrop={(e) => {
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            e.preventDefault();
+            useHud.setState({ dragPart: null });
+            void openFileInEditor(e.dataTransfer.files[0]);
+            return;
+          }
           const id = e.dataTransfer.getData("text/multispice-part");
           useHud.setState({ dragPart: null });
           if (id && PART_MAP[id]) {
@@ -1780,8 +1797,10 @@ export default function Canvas() {
                 <div className="text-[10px] uppercase text-mute mb-1">Canvas</div>
                 <div className="space-y-1">
                   <div className="flex justify-between"><span>W Wire</span><kbd className="kbd">W</kbd></div>
-                  <div className="flex justify-between"><span>Bauteil drehen</span><kbd className="kbd">R</kbd> / <kbd className="kbd">Shift+R</kbd></div>
+                  <div className="flex justify-between"><span>Bauteil drehen</span><kbd className="kbd">R</kbd> / <kbd className="kbd">⇧R</kbd> / <kbd className="kbd">⌘R</kbd></div>
                   <div className="flex justify-between"><span>Spiegeln</span><kbd className="kbd">M</kbd></div>
+                  <div className="flex justify-between"><span>Grid / Snap</span><kbd className="kbd">G</kbd> / <kbd className="kbd">⇧G</kbd></div>
+                  <div className="flex justify-between"><span>Zoom / Pan</span><kbd className="kbd">Rad</kbd> / <kbd className="kbd">⇧Rad</kbd></div>
                   <div className="flex justify-between"><span>Löschen</span><kbd className="kbd">Entf</kbd></div>
                   <div className="flex justify-between"><span>Duplizieren</span><kbd className="kbd">⌘D</kbd></div>
                   <div className="flex justify-between"><span>Alles wählen</span><kbd className="kbd">⌘A</kbd></div>
@@ -1795,6 +1814,7 @@ export default function Canvas() {
                 <div className="space-y-1">
                   <div className="flex justify-between"><span>Bibliothek</span><kbd className="kbd">⌘K</kbd></div>
                   <div className="flex justify-between"><span>V-Probe</span><kbd className="kbd">V</kbd> + Klick</div>
+                  <div className="flex justify-between"><span>A-Probe (Strom)</span><kbd className="kbd">A</kbd> + Klick</div>
                   <div className="flex justify-between"><span>Label setzen</span><kbd className="kbd">L</kbd></div>
                   <div className="flex justify-between"><span>Notiz</span><kbd className="kbd">T</kbd></div>
                   <div className="flex justify-between"><span>Pan Tool</span><kbd className="kbd">H</kbd></div>

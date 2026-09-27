@@ -42,6 +42,8 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
   const warnings = useEditor((s) => s.netResult.warnings.length);
   const setBottomTab = useEditor((s) => s.setBottomTab);
   const cursor = useHud((s) => s.cursor);
+  const lastSavedAt = useEditor((s) => s.lastSavedAt);
+  const savePending = useEditor((s) => s.savePending);
   const tick = useEditor((s) => s.sim.tick);
   void tick;
   const simTime = running ? engine.lastState.time : 0;
@@ -55,6 +57,9 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
         <span className="mono">{Math.round(zoom * 100)} %</span>
         <span className="flex-1 truncate text-[10px]">{hintFor(tool, !!placing, running)}</span>
         <span className="mono text-[10px]">{running ? formatValue(simTime, "s") : "bereit"}</span>
+        <span title={savePending ? "Auto-Save schreibt in ≤ 2 s" : "Gespeichert (Auto-Save)"} style={{ color: savePending ? "var(--warn)" : lastSavedAt ? "var(--ok)" : "var(--text-mute)" }}>
+          {savePending ? "●" : lastSavedAt ? "✓" : "○"}
+        </span>
       </footer>
     );
   }
@@ -105,6 +110,31 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
       </button>
       <span className="mono hidden w-[92px] shrink-0 text-right lg:inline" title="Simulationszeit">
         {running ? `t = ${formatValue(simTime, "s")}` : "bereit"}
+      </span>
+      <span
+        className="mono hidden shrink-0 items-center gap-1 sm:flex"
+        title={
+          savePending
+            ? "Änderung ausstehend – Auto-Save schreibt in ≤ 2 s"
+            : lastSavedAt
+              ? `Zuletzt gespeichert um ${new Date(lastSavedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} (Auto-Save oder ⌘S)`
+              : "Auto-Save aktiv – schreibt 2 s nach jeder Änderung"
+        }
+      >
+        {savePending ? (
+          <span style={{ color: "var(--warn)" }}>●</span>
+        ) : lastSavedAt ? (
+          <span style={{ color: "var(--ok)" }}>✓</span>
+        ) : (
+          <span className="text-mute">○</span>
+        )}
+        <span className="text-mute">
+          {savePending
+            ? "speichert …"
+            : lastSavedAt
+              ? new Date(lastSavedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
+              : "Auto-Save"}
+        </span>
       </span>
     </footer>
   );

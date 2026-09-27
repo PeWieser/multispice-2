@@ -7,7 +7,7 @@ import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
 import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, ThemePref, useEditor } from "@/state/editor";
 import { Menu, MenuItem, MenuSeparator, downloadText, safeName, Tooltip } from "./ui";
-import { isValidProjectDoc, normalizeProjectDoc } from "@/lib/storage";
+import { openFileInEditor } from "@/lib/schematic/openFile";
 
 const INSTRUMENT_ITEMS: Array<[InstrumentKind, string]> = [
   ["dmm", "Digitalmultimeter"],
@@ -46,8 +46,16 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
     st().log("ok", "SPICE-Netzliste exportiert (.cir)");
   };
   const exportJson = () => {
-    downloadText(`${base}.msx.json`, JSON.stringify(doc, null, 2), "application/json");
-    st().log("ok", "Projekt als JSON exportiert");
+    const envelope = {
+      format: "multispice-project",
+      version: 2,
+      name: doc.name,
+      savedAt: new Date().toISOString(),
+      doc,
+      instruments: st().instruments,
+    };
+    downloadText(`${base}.msx.json`, JSON.stringify(envelope, null, 2), "application/json");
+    st().log("ok", "Projekt als JSON exportiert (inkl. Gerätefenster)");
   };
   const exportBom = () => {
     const rows = buildBom(doc);
@@ -75,29 +83,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
   };
 
   const importFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? "");
-      try {
-        if (file.name.endsWith(".json")) {
-          const parsed: unknown = JSON.parse(text);
-          if (!isValidProjectDoc(parsed)) {
-            throw new Error("Die Datei sieht nicht wie ein Multispice-Projekt aus (JSON-Struktur unbekannt).");
-          }
-          st().setDoc(normalizeProjectDoc(parsed));
-          st().log("ok", `${file.name} importiert`);
-        } else {
-          import("@/lib/schematic/importers").then((m) => {
-            const doc = m.isLtspiceAsc(text) ? m.fromLtspiceAsc(text) : m.fromSpiceNetlist(text);
-            st().setDoc(doc);
-            st().log("ok", `${file.name} importiert – ${doc.instances.length} Bauteile, ${doc.wires.length} Leitungen`);
-          });
-        }
-      } catch (e) {
-        st().log("error", `Import fehlgeschlagen: ${(e as Error).message}`);
-      }
-    };
-    reader.readAsText(file);
+    void openFileInEditor(file);
   };
 
   const runDirect = (kind: string) => {

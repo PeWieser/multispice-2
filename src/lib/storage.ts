@@ -17,6 +17,8 @@ export interface StoredProject {
   name: string;
   doc: SchematicDoc;
   savedAt: string;
+  /** Gerätefenster + Configs: ein Projekt ist Schaltung ODER Messplatz. */
+  instruments?: unknown[];
 }
 
 export interface StoredLibrary {
@@ -59,12 +61,13 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /** Speichert das aktuelle Projekt. Gibt `false` zurück, wenn der Browser es ablehnt (z. B. Quota, Privatmodus). */
-export function saveProjectLocal(doc: SchematicDoc): { ok: boolean; bytes: number } {
+export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[]): { ok: boolean; bytes: number } {
   if (!canStore()) return { ok: false, bytes: 0 };
   const stored: StoredProject = {
     name: doc.name,
     doc,
     savedAt: new Date().toISOString(),
+    instruments: instruments ?? [],
   };
   try {
     const raw = JSON.stringify(stored);
@@ -157,10 +160,16 @@ export function listProjectSlots(): ProjectSlot[] {
 }
 
 /** Aktuellen Stand als benanntes Projekt speichern (id = überschreiben). */
-export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string): { ok: boolean; id: string } {
+export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string, instruments?: unknown[]): { ok: boolean; id: string } {
   const slots = readSlots();
   const slotId = id ?? "p_" + Math.random().toString(36).slice(2, 9);
-  const slot: ProjectSlot = { id: slotId, name, doc: JSON.parse(JSON.stringify(doc)) as SchematicDoc, savedAt: new Date().toISOString() };
+  const slot: ProjectSlot = {
+    id: slotId,
+    name,
+    doc: JSON.parse(JSON.stringify(doc)) as SchematicDoc,
+    savedAt: new Date().toISOString(),
+    instruments: JSON.parse(JSON.stringify(instruments ?? [])) as unknown[],
+  };
   const i = slots.findIndex((s) => s.id === slotId);
   if (i >= 0) slots[i] = slot;
   else slots.push(slot);

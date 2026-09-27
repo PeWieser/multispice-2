@@ -29,10 +29,12 @@ let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleAutosave() {
   if (typeof window === "undefined") return;
   if (autosaveTimer) clearTimeout(autosaveTimer);
+  if (!useEditor.getState().savePending) useEditor.setState({ savePending: true });
   autosaveTimer = setTimeout(() => {
     autosaveTimer = null;
-    const { doc, log } = useEditor.getState();
-    const { ok } = saveProjectLocal(doc);
+    const { doc, instruments, log } = useEditor.getState();
+    const { ok } = saveProjectLocal(doc, instruments);
+    useEditor.setState({ savePending: false, ...(ok ? { lastSavedAt: Date.now() } : {}) });
     if (!ok) log("warn", "Auto-Save fehlgeschlagen (Speicher voll?) — Projekt bitte per Export JSON sichern.");
   }, 2000);
 }
@@ -125,6 +127,10 @@ export interface EditorState {
   libraryPos: { x: number; y: number };
   librarySize: { w: number; h: number };
   instruments: InstrumentWindow[];
+  /** Sichtbarer Auto-Save-Beweis: letzter erfolgreicher Schreibzeitpunkt. */
+  lastSavedAt: number | null;
+  /** true = Änderung wartet auf den debounceten Auto-Save. */
+  savePending: boolean;
   probes: string[];
   analysis: AnalysisState;
   sim: {
@@ -255,6 +261,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   libraryPos: { x: 24, y: 80 },
   librarySize: { w: 360, h: 520 },
   instruments: [],
+  lastSavedAt: null,
+  savePending: false,
   probes: [],
   analysis: { kind: "", running: false },
   sim: { running: false, timeScale: 1, sampleRate: 200000, method: "trap", temperature: 27, tick: 0, fps: 0 },
@@ -749,8 +757,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     const { doc } = get();
     const next = name && name !== doc.name ? { ...doc, name } : doc;
     if (next !== doc) get().setDoc(next, false);
-    const { ok, bytes } = saveProjectLocal(next);
+    const { ok, bytes } = saveProjectLocal(next, get().instruments);
     if (ok) {
+      set({ lastSavedAt: Date.now(), savePending: false });
       get().log("ok", `Projekt lokal gespeichert (${(bytes / 1024).toFixed(1)} KB)`);
     } else {
       get().log("error", "Lokal speichern fehlgeschlagen (Speicher voll?) — sichere dein Projekt per Export (JSON).");
@@ -762,7 +771,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (stored) {
       const doc = stored.doc as any;
       if (!Array.isArray(doc.probes)) doc.probes = [];
-      set({ doc: stored.doc, selection: [], past: [], future: [] });
+      set({
+        doc: stored.doc,
+        selection: [],
+        past: [],
+        future: [],
+        // Geräte gehören zum Projekt: Oszi & Co. überleben den Reload.
+        instruments: Array.isArray(stored.instruments) ? (stored.instruments as InstrumentWindow[]) : [],
+        lastSavedAt: stored.savedAt ? new Date(stored.savedAt).getTime() : null,
+      });
       get().refreshNets();
       const when = new Date(stored.savedAt);
       const stamp = Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString("de-DE")})`;
