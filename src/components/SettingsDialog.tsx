@@ -87,19 +87,19 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
 
           <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
             <div className="text-[11px] font-medium mb-2">Probe Darstellung</div>
-            <div className="text-[11px] text-mute mb-2">Leader-Stil: Pfeil vom Bauteil zur Leitung. Body-Offset 32/−28, konstante Screen-Größe 10px.</div>
+            <div className="text-[11px] text-mute mb-2">Leader-Stil: dünner Pfeil vom Bauteil zur Leitung. Kleine Fähnchen-Marker mit konstanter Screen-Größe (Ref-Stil).</div>
             <div className="grid grid-cols-2 gap-2 text-[11px] mono">
               <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                V Probe: #fbbf24 amber
+                V Probe: Ocker (--warn)
               </div>
               <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                A Probe: #22d3ee cyan
+                A Probe: Teal (--accent-2)
               </div>
               <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                W Probe: #a78bfa violett
+                W Probe: Violett (--accent-3)
               </div>
               <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                REF: #94a3b8 grau
+                REF: Grau (--text-mute)
               </div>
             </div>
           </div>

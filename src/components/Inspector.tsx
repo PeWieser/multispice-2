@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { probeHexColor } from "@/lib/probe-style";
 import { Cpu, Gauge, Settings2, SlidersHorizontal, Waves, Radio, Zap, Activity, GitBranch } from "lucide-react";
 import { PART_MAP, ParamDef, formatValue, parseValue } from "@/lib/library/catalog";
 import { IntegrationMethod } from "@/lib/sim/engine";
@@ -150,7 +151,7 @@ export default function Inspector() {
                     <div className="grid grid-cols-2 gap-2">
                       <label className="block">
                         <span className="mb-1 block text-[11px] text-dim">Farbe</span>
-                        <input type="color" className="h-8 w-full rounded cursor-pointer" value={selectedProbe.color ?? "#fbbf24"} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{color:e.target.value})} />
+                        <input type="color" className="h-8 w-full rounded cursor-pointer" value={probeHexColor(selectedProbe.kind, selectedProbe.color)} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{color:e.target.value})} />
                       </label>
                       <label className="block">
                         <span className="mb-1 block text-[11px] text-dim">Netz (auto)</span>

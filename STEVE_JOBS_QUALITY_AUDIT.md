@@ -675,3 +675,49 @@ Abhängigkeiten — sonst rot in tsc/lint).
 
 Verifikation: tsc ✔ · eslint ✔ · Dauertest 2092/2092 PASS ✔ · next build ✔
 (Routen /, /_not-found, /apple-icon.png, /apple-icon1.png, /icon.svg).
+
+---
+
+## §12 — Runde 12: User-Feedback auf das Hybrid-Design
+
+Feedback (sinngemäß): „Titelleiste muss wieder weg · Icons (z. B. Probes) sind
+zu fett · Library-Dreispalter aus der Referenz übernehmen · die Probes der
+Referenz sind besser."
+
+**W20 — Titelleiste raus.** `TitleBar` aus Workbench entfernen (Desktop +
+Tablet). Die Blatt-Reiter (`SheetTabs`) bleiben.
+
+**W21 — Dünnere Icons.** Lucide-Icons global auf `stroke-width: 1.5`
+(Referenz-Niveau statt fetter 2er-Striche). Symbolvorschau in der Bibliothek
+zeichnet mit dem `--symbol`-Token statt hartem Hellblau.
+
+**W22 — Bibliothek als Dreispalter (Ref-1 „Component Browser").**
+Spalte 1 (170 px): Alle/Favoriten/Zuletzt + Kategoriebaum mit Zählern.
+Spalte 2: flache Teileliste der gewählten Kategorie bzw. Suchtreffer
+(Liste/Grid-Umschalter bleibt). Spalte 3 (flex): Detail – Symbolvorschau,
+Beschreibung, Chips, Parameter, **Pins**, Datenblatt-Links, Platzieren-Button.
+Default-Fenstergröße 360×520 → 860×560.
+
+**W23 — Probes wie in der Referenz.** Statt Neon-Badges (r≈10, 700er-Type)
+kleine dezente Marker im Ref-2-Stil: Fähnchen-Tag mit dünner Kontur +
+Mono-Wertangabe; Strom/Leistung als Richtungspfeil; Diff mit gestrichelter
+Referenzlinie. Beruhigte Token-Palette: voltage `--warn` (Ocker), current
+`--accent-2` (Teal), power `--accent-3` (Violett), diff `--err` (Ziegel),
+ref `--text-mute`, digital `--ok` (Grün) — passt in Hell UND Dunkel.
+Legacy-Neon-Hexwerte in gespeicherten Projekten gelten als „automatisch"
+und werden auf die neue Palette gemappt. Gleiche Farben für Probe-Buttons
+(ComponentStrip), ProbeTable, Inspector-Fallback, Einstellungen-Legende,
+Grapher-Cursor und Kategorie-Icons.
+
+**Nicht anfassen:** Instrumenten-Frontplatten (matter Phosphor = Beschluss
+Runde 9), App-Icon `icon.svg` (Farbspezifikation aus Urauftrag bindend),
+`global-error.tsx` (eigenständige Notfallseite).
+
+Verifikation wie immer: tsc · eslint · Dauertest · next build.
+
+### §12.1 — Umsetzung, Stand 2026-09-28
+
+W20–W23 FERTIG. Zusätzlich: `oszi/` (Main-Upload ec3997d) in tsconfig/eslint
+ignoriert; zentrale Probe-Farbquelle `src/lib/probe-style.ts` (Token-Mapping +
+Legacy-Neon-Migration). Verifikation: tsc ✔ · eslint ✔ · Dauertest 2092/2092
+PASS ✔ · next build ✔ (alle fünf Routen).

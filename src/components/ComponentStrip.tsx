@@ -21,13 +21,13 @@ const QUICK: Array<{ id: string; label: string }> = [
 ];
 
 const PROBES: Array<{ k: ProbeKind; l: string; t: string; c: string }> = [
-  { k: "voltage", l: "V", t: "Spannungs-Probe", c: "#fbbf24" },
-  { k: "current", l: "A", t: "Strom-Probe", c: "#22d3ee" },
-  { k: "voltage_current", l: "V·A", t: "Spannung + Strom", c: "#f59e0b" },
-  { k: "power", l: "W", t: "Leistungs-Probe", c: "#a78bfa" },
-  { k: "diff", l: "ΔV", t: "Differenz-Probe", c: "#f472b6" },
-  { k: "ref", l: "REF", t: "Referenz-Probe", c: "#94a3b8" },
-  { k: "digital", l: "D", t: "Digital-Probe", c: "#4ade80" },
+  { k: "voltage", l: "V", t: "Spannungs-Probe", c: "var(--warn)" },
+  { k: "current", l: "A", t: "Strom-Probe", c: "var(--accent-2)" },
+  { k: "voltage_current", l: "V·A", t: "Spannung + Strom", c: "var(--warn)" },
+  { k: "power", l: "W", t: "Leistungs-Probe", c: "var(--accent-3)" },
+  { k: "diff", l: "ΔV", t: "Differenz-Probe", c: "var(--err)" },
+  { k: "ref", l: "REF", t: "Referenz-Probe", c: "var(--text-mute)" },
+  { k: "digital", l: "D", t: "Digital-Probe", c: "var(--ok)" },
 ];
 
 export default function ComponentStrip() {

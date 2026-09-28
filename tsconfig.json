@@ -39,6 +39,7 @@
   "exclude": [
     "node_modules",
     "reference",
-    "reference 2"
+    "reference 2",
+    "oszi"
   ]
 }

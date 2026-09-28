@@ -277,7 +277,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   rightOpen: false,
   libraryOpen: false,
   libraryPos: { x: 24, y: 80 },
-  librarySize: { w: 360, h: 520 },
+  librarySize: { w: 860, h: 560 },
   instruments: [],
   lastSavedAt: null,
   savePending: false,
@@ -554,13 +554,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   addMeasurementProbe: (kind, x, y) => {
     const id = newId("pr");
     const defaults: Record<string, any> = {
-      voltage: { color: "#fbbf24", show: { vdc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
-      current: { color: "#22d3ee", show: { idc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
-      voltage_current: { color: "#f59e0b", show: { vdc: true, idc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
-      power: { color: "#a78bfa", show: { power: true, vdc: true, idc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
-      diff: { color: "#f472b6", show: { vdc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
-      ref: { color: "#94a3b8", show: { vdc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
-      digital: { color: "#4ade80", show: { vdc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
+      voltage: { show: { vdc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
+      current: { show: { idc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
+      voltage_current: { show: { vdc: true, idc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
+      power: { show: { power: true, vdc: true, idc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
+      diff: { show: { vdc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
+      ref: { show: { vdc: true }, periodic: false, direction: 0, rotation: 0, name: "" },
+      digital: { show: { vdc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
     };
     const def = defaults[kind] ?? defaults.voltage;
     // auto-assign net from current netResult if possible

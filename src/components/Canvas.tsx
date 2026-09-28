@@ -15,6 +15,7 @@ import {
 } from "@/lib/schematic/model";
 import { obstaclesFor, routeOrthogonal } from "@/lib/schematic/tools";
 import { engine, hitTestInstance, useEditor, useHud } from "@/state/editor";
+import { LEGACY_PROBE_COLORS, PROBE_CSSVAR, PROBE_HEX } from "@/lib/probe-style";
 import { Library as LibIcon, Sparkles } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
@@ -2348,8 +2349,10 @@ function nearestNetName(p: Pt, radius=14): string | null {
   return null;
 }
 function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selected:boolean, zoom:number, live:any, netResult:any, netCurrentMap:Map<string,number>) {
-  const colorMap: Record<ProbeKind,string> = { voltage:"#fbbf24", current:"#22d3ee", power:"#a78bfa", diff:"#f472b6", ref:"#94a3b8", digital:"#4ade80", voltage_current:"#f59e0b" };
-  const col=(probe.color as string) ?? colorMap[probe.kind] ?? "#fbbf24";
+  // Runde 12: ruhige Token-Palette; Legacy-Neon in Altdokumenten gilt als „Auto"
+  const col = (probe.color && !LEGACY_PROBE_COLORS.has(probe.color as string))
+    ? (probe.color as string)
+    : css(PROBE_CSSVAR[probe.kind] ?? "--warn", PROBE_HEX[probe.kind] ?? "#a87a12");
   const rot = (probe.rotation ?? 0) * Math.PI/180;
   const dir = probe.direction ?? 0;
 
@@ -2372,8 +2375,8 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     const angle = Math.atan2(dy, dx);
     ctx.save();
     ctx.rotate(-rot); // leader in world coords (unrotate)
-    ctx.strokeStyle = col+"CC";
-    ctx.lineWidth = 1.4 * iz;
+    ctx.strokeStyle = col+"AA";
+    ctx.lineWidth = 1 * iz;
     ctx.setLineDash(probe.leader==="magnifier" ? [3*iz,3*iz] : []);
     ctx.beginPath();
     ctx.moveTo(0,0);
@@ -2386,7 +2389,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     ctx.fillStyle = col;
     ctx.beginPath();
     // arrow size constant screen: 6px screen -> world 6*iz
-    const as = 6 * iz;
+    const as = 4.5 * iz;
     ctx.moveTo(0,0);
     ctx.lineTo(-as, -as*0.5);
     ctx.lineTo(-as, as*0.5);
@@ -2395,7 +2398,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     // small dot at anchor – constant screen
     ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.arc(0,0,2.5*iz,0,Math.PI*2);
+    ctx.arc(0,0,1.8*iz,0,Math.PI*2);
     ctx.fill();
     ctx.restore();
     ctx.setLineDash([]);
@@ -2429,64 +2432,50 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     }
   }
 
-  // ---- probe body – constant screen size (Steve Jobs: always readable) ----
+  // ---- probe body – kleines Fähnchen statt Neon-Badge (Ref-2-Stil, Runde 12) ----
   ctx.save();
-  ctx.scale(iz, iz); // now we are in screen pixels relative to body
-  ctx.strokeStyle=selected?css("--wire-sel","#fbbf24"):col;
-  ctx.lineWidth= selected?2.2:1.6;
-  ctx.lineJoin="round"; ctx.lineCap="round";
+  ctx.scale(iz, iz); // Screen-Pixel relativ zum Körper
+  ctx.strokeStyle = selected ? css("--wire-sel", "#c77a16") : col;
+  ctx.lineWidth = selected ? 1.6 : 1;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
 
-  if (probe.kind==="voltage" || probe.kind==="voltage_current") {
-    ctx.fillStyle=col+"22";
-    ctx.beginPath(); ctx.arc(0,0,10,0,Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle=col;
-    ctx.beginPath(); ctx.moveTo(0,-14); ctx.lineTo(-5,-8); ctx.lineTo(5,-8); ctx.closePath(); ctx.fill();
-    ctx.fillStyle=col; ctx.font=`700 9px ui-sans-serif, system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
-    ctx.fillText("V",0,2);
-  } else if (probe.kind==="current") {
-    ctx.fillStyle=col+"22";
-    ctx.beginPath(); ctx.arc(0,0,11,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  if (probe.kind === "current" || probe.kind === "power") {
+    // Richtungspfeil entlang der Leitung
     const ang = dir ? Math.PI : 0;
-    ctx.save(); ctx.rotate(ang);
-    ctx.strokeStyle=col; ctx.lineWidth=1.8;
-    ctx.beginPath(); ctx.moveTo(-8,0); ctx.lineTo(8,0); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(8,0); ctx.lineTo(4,-3); ctx.lineTo(4,3); ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+    ctx.save();
+    ctx.rotate(ang);
+    ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(4, 0); ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(3, -2.5); ctx.lineTo(3, 2.5); ctx.closePath(); ctx.fill();
     ctx.restore();
-    ctx.fillStyle=col; ctx.font=`700 8px ui-sans-serif, system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
-    ctx.fillText("A",0,10);
-  } else if (probe.kind==="power") {
-    ctx.fillStyle=col+"22";
-    ctx.beginPath(); ctx.moveTo(0,-11); ctx.lineTo(11,0); ctx.lineTo(0,11); ctx.lineTo(-11,0); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle=col; ctx.font=`700 9px ui-sans-serif, system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
-    ctx.fillText("W",0,2);
-  } else if (probe.kind==="ref") {
-    ctx.strokeStyle=col; ctx.lineWidth=1.6;
-    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,8); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-10,8); ctx.lineTo(10,8); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-6,12); ctx.lineTo(6,12); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-2,16); ctx.lineTo(2,16); ctx.stroke();
-    ctx.fillStyle=col; ctx.font=`600 7px ui-sans-serif, system-ui`; ctx.textAlign="center";
-    ctx.fillText("REF",0,-8);
-  } else if (probe.kind==="digital") {
-    ctx.fillStyle=col+"22";
-    roundRect(ctx,-10,-10,20,20,3); ctx.fill(); ctx.stroke();
-    ctx.fillStyle=col; ctx.font=`700 9px ui-sans-serif, system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
-    ctx.fillText("D",0,1);
-  } else if (probe.kind==="diff") {
-    ctx.fillStyle=col+"22";
-    ctx.beginPath(); ctx.arc(-8,0,7,0,Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(8,0,7,0,Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle=col; ctx.font=`700 7px ui-sans-serif, system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
-    ctx.fillText("ΔV",0,1);
+    if (probe.kind === "power") {
+      ctx.fillStyle = col;
+      ctx.font = `600 7px ui-monospace, monospace`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("W", 0, -9);
+    }
   } else {
-    ctx.fillStyle=col+"22"; ctx.beginPath(); ctx.arc(0,0,10,0,Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle=col; ctx.font=`700 9px ui-sans-serif, system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
-    ctx.fillText("?",0,1);
+    // Fähnchen am Draht (Ref-2-Pfad), dünne Kontur, 18 % Füllung
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(4, -6); ctx.lineTo(12, -6); ctx.lineTo(12, -14); ctx.lineTo(4, -14); ctx.lineTo(4, -6);
+    ctx.closePath();
+    ctx.fillStyle = col + "2E";
+    ctx.fill();
+    ctx.stroke();
+    const glyph: Record<string, string> = { voltage: "V", voltage_current: "V", diff: "Δ", ref: "R", digital: "D" };
+    ctx.fillStyle = col;
+    ctx.font = `600 6.5px ui-monospace, monospace`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(glyph[probe.kind] ?? "V", 8, -10);
   }
 
   if (selected) {
-    ctx.strokeStyle=css("--accent","#5b8cff"); ctx.setLineDash([3,2]); ctx.lineWidth=1;
-    ctx.beginPath(); ctx.arc(0,0,15,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = css("--accent", "#1f5fd0");
+    ctx.setLineDash([3, 2]);
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(4, -7, 12, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
   }
   ctx.restore(); // end constant screen body
 
@@ -2566,7 +2555,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
       const low = probe.thresholds?.low ?? 0.8;
       const high = probe.thresholds?.high ?? 2.0;
       const lvl = v > high ? "H" : v < low ? "L" : "X";
-      const colLvl = v > high ? "#4ade80" : v < low ? "#f87171" : "#fbbf24";
+      const colLvl = v > high ? css("--ok", "#2e7a4f") : v < low ? css("--err", "#b3372c") : css("--warn", "#a87a12");
       lines.push(`${namePrefix}${lvl} ${formatValue(v,"V")}`);
       // colored dot – constant screen
       ctx.save();
@@ -2579,17 +2568,17 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
       // draw box in constant screen coords
       ctx.save();
       ctx.scale(iz, iz);
-      ctx.font=`600 11px ui-monospace, monospace`;
+      ctx.font=`500 9.5px ui-monospace, monospace`;
       ctx.textAlign="left"; ctx.textBaseline="top";
       const maxW = Math.max(...lines.map(l=> ctx.measureText(l).width));
-      const lineH = 14;
-      const padX = 8, padY=4;
+      const lineH = 12;
+      const padX = 6, padY=3;
       const boxW = maxW + padX*2;
       const boxH = lines.length*lineH + padY*2;
-      const bxOff = 20, byOff = -boxH/2;
+      const bxOff = 16, byOff = -boxH/2;
       ctx.fillStyle=css("--panel-solid","#1a1f2e");
       roundRect(ctx,bxOff,byOff,boxW,boxH,5); ctx.fill();
-      ctx.strokeStyle=col+"88"; ctx.lineWidth=1; ctx.stroke();
+      ctx.strokeStyle=col+"55"; ctx.lineWidth=1; ctx.stroke();
       ctx.fillStyle=css("--text","#e2e8f0");
       lines.forEach((ln, idx)=> {
         ctx.fillText(ln, bxOff+padX, byOff+padY+idx*lineH);

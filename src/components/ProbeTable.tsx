@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor } from "@/state/editor";
+import { probeCssColor } from "@/lib/probe-style";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 
 export default function ProbeTable() {
@@ -50,7 +51,7 @@ export default function ProbeTable() {
         id: pr.id,
         name: pr.name ?? pr.kind.toUpperCase(),
         kind: pr.kind,
-        color: pr.color ?? "#fbbf24",
+        color: probeCssColor(pr.kind, pr.color),
         net: netName,
         ref: refName,
         vdc: dv,

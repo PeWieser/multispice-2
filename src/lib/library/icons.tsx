@@ -23,22 +23,22 @@ export type CategoryIconKey =
   | "misc";
 
 export const CATEGORY_COLORS: Record<string, { bg: string; fg: string }> = {
-  "Passives": { bg: "rgba(251,191,36,0.18)", fg: "#fbbf24" }, // amber
-  "Resistors": { bg: "rgba(251,191,36,0.18)", fg: "#fbbf24" },
-  "Capacitors": { bg: "rgba(251,191,36,0.18)", fg: "#fbbf24" },
-  "Inductors": { bg: "rgba(251,191,36,0.18)", fg: "#fbbf24" },
-  "Diodes": { bg: "rgba(251,146,60,0.18)", fg: "#fb923c" }, // orange
-  "Transistors": { bg: "rgba(34,211,238,0.18)", fg: "#22d3ee" }, // cyan
-  "MOSFETs": { bg: "rgba(34,211,238,0.18)", fg: "#22d3ee" },
-  "OpAmps": { bg: "rgba(167,139,250,0.18)", fg: "#a78bfa" }, // purple
-  "ICs": { bg: "rgba(167,139,250,0.18)", fg: "#a78bfa" },
-  "Logic": { bg: "rgba(167,139,250,0.18)", fg: "#a78bfa" },
-  "Power": { bg: "rgba(248,113,113,0.18)", fg: "#f87171" }, // red
-  "Sources": { bg: "rgba(74,222,128,0.18)", fg: "#4ade80" }, // green
-  "Switches": { bg: "rgba(148,163,184,0.18)", fg: "#94a3b8" },
-  "Connectors": { bg: "rgba(148,163,184,0.18)", fg: "#94a3b8" },
-  "Sensors": { bg: "rgba(96,165,250,0.18)", fg: "#60a5fa" },
-  "default": { bg: "rgba(148,163,184,0.15)", fg: "#94a3b8" },
+  "Passives": { bg: "rgba(168,122,18,0.14)", fg: "#a87a12" }, // ocker
+  "Resistors": { bg: "rgba(168,122,18,0.14)", fg: "#a87a12" },
+  "Capacitors": { bg: "rgba(168,122,18,0.14)", fg: "#a87a12" },
+  "Inductors": { bg: "rgba(168,122,18,0.14)", fg: "#a87a12" },
+  "Diodes": { bg: "rgba(176,90,34,0.14)", fg: "#b05a22" }, // gebranntes Orange
+  "Transistors": { bg: "rgba(44,122,123,0.14)", fg: "#2c7a7b" }, // teal
+  "MOSFETs": { bg: "rgba(44,122,123,0.14)", fg: "#2c7a7b" },
+  "OpAmps": { bg: "rgba(122,79,163,0.14)", fg: "#7a4fa3" }, // violett
+  "ICs": { bg: "rgba(122,79,163,0.14)", fg: "#7a4fa3" },
+  "Logic": { bg: "rgba(122,79,163,0.14)", fg: "#7a4fa3" },
+  "Power": { bg: "rgba(179,55,44,0.14)", fg: "#b3372c" }, // ziegel
+  "Sources": { bg: "rgba(46,122,79,0.14)", fg: "#2e7a4f" }, // grün
+  "Switches": { bg: "rgba(106,112,118,0.14)", fg: "#6a7076" },
+  "Connectors": { bg: "rgba(106,112,118,0.14)", fg: "#6a7076" },
+  "Sensors": { bg: "rgba(31,95,208,0.12)", fg: "#1f5fd0" },
+  "default": { bg: "rgba(106,112,118,0.13)", fg: "#6a7076" },
 };
 
 function getColorForCategory(cat: string) {

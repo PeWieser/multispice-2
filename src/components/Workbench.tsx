@@ -100,33 +100,6 @@ function resolveTheme(pref: ThemePref, systemDark: boolean): "dark" | "light" {
   return pref;
 }
 
-/** Runde 11 (Ref-2-Chrome): Titelleiste – Projekt, Speicherzustand, Sim-Status. */
-function TitleBar() {
-  const doc = useEditor((s) => s.doc);
-  const running = useEditor((s) => s.sim.running);
-  const tick = useEditor((s) => s.sim.tick);
-  const savePending = useEditor((s) => s.savePending);
-  const lastSavedAt = useEditor((s) => s.lastSavedAt);
-  void tick; // läuft: Zeit-Anzeige folgt den Frames
-  const t = engine.lastState.time;
-  const status = running ? { text: `läuft · t=${t >= 1 ? t.toFixed(2) + " s" : (t * 1000).toFixed(1) + " ms"}`, color: "var(--ok)" } : t > 0 ? { text: "pausiert", color: "var(--warn)" } : { text: "bereit", color: "var(--text-mute)" };
-  const saved = savePending ? "speichert …" : lastSavedAt ? `gespeichert ${new Date(lastSavedAt).toLocaleTimeString("de-DE")}` : "lokal gespeichert";
-  return (
-    <div className="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-[12px]" style={{ background: "var(--elev)", borderColor: "var(--border)" }}>
-      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
-        <rect x="1" y="1" width="14" height="14" rx="3" fill="var(--accent)" />
-        <path d="M3 9h3l1-3 2 5 1-2h3" stroke="#fff" strokeWidth="1.4" fill="none" />
-      </svg>
-      <b>Multispice</b>
-      <span className="truncate" style={{ color: "var(--text-mute)" }}>
-        — {doc.name || "Unbenanntes Projekt"} · {saved}
-      </span>
-      <span className="flex-1" />
-      <span className="mono text-[11px]" style={{ color: status.color }}>● {status.text}</span>
-    </div>
-  );
-}
-
 /** Runde 11 (Ref-2): Blatt-Reiter – heute ein Blatt, Leiste ist vorbereitet. */
 function SheetTabs() {
   const doc = useEditor((s) => s.doc);
@@ -384,8 +357,7 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
-        <TitleBar />
-        <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
+          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
         <ComponentStrip />
         <SheetTabs />
         <div className="relative flex min-h-0 flex-1">
@@ -413,7 +385,6 @@ export default function Workbench() {
   // Desktop – original layout but with dvh and better flex
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
-      <TitleBar />
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
       <ComponentStrip />
       <SheetTabs />

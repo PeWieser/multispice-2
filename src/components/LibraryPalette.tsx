@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Star, X, Grip, FileText, ExternalLink, Zap, LayoutGrid, List, Command } from "lucide-react";
+import { Search, Star, X, Grip, FileText, ExternalLink, Zap, LayoutGrid, List, Command, Clock } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
@@ -29,8 +29,10 @@ function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
     ctx.translate(size / 2, size / 2);
     const scale = size / 48;
     ctx.scale(scale, scale);
-    ctx.strokeStyle = "#dbe4f7";
-    ctx.fillStyle = "#dbe4f7";
+    const cs = getComputedStyle(document.documentElement);
+    const ink = cs.getPropertyValue("--symbol").trim() || "#1c1f22";
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
     ctx.lineWidth = 1.5;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -202,43 +204,46 @@ const PartRow = React.memo(function PartRow({
   );
 })
 
-function TreeNode({
+function CatNode({
   node,
   depth,
-  onPick,
-  selectedId,
+  selCat,
+  onSel,
 }: {
   node: CategoryNode;
   depth: number;
-  onPick: (id: string) => void;
-  selectedId?: string;
+  selCat: string | null;
+  onSel: (path: string) => void;
 }) {
   const [open, setOpen] = useState(depth < 1);
-  if (!node.parts.length && !node.children.length) return null;
+  const count = useMemo(() => {
+    const flat = (n: CategoryNode): number => n.parts.length + n.children.reduce((a, c) => a + flat(c), 0);
+    return flat(node);
+  }, [node]);
+  if (!count) return null;
+  const active = selCat === node.path;
   return (
     <div>
-      <button
-        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] font-medium text-dim hover:text-[var(--text)] hover:bg-[var(--panel-2)]"
-        style={{ paddingLeft: depth * 12 + 8 }}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className="text-[10px] w-3">{open ? "▾" : "▸"}</span>
-        <CategoryIcon category={node.path || node.name} size={14} />
-        <span className="truncate">{node.name}</span>
-        <span className="ml-auto text-[9px] text-mute">{node.parts.length + node.children.reduce((a, c) => a + c.parts.length, 0)}</span>
-      </button>
-      {open && (
-        <div>
-          {node.children.map((c) => (
-            <TreeNode key={c.path} node={c} depth={depth + 1} onPick={onPick} selectedId={selectedId} />
-          ))}
-          {node.parts.map((p) => (
-            <div key={p.id} style={{ paddingLeft: depth * 12 + 20 }}>
-              <PartRow part={p} onPick={onPick} selected={selectedId === p.id} />
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="flex items-center">
+        <button
+          className="grid h-6 w-4 shrink-0 place-items-center text-[9px] text-mute hover:text-[var(--text)]"
+          style={{ marginLeft: depth * 10 }}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {node.children.length ? (open ? "▾" : "▸") : ""}
+        </button>
+        <button
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+          style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
+          onClick={() => onSel(node.path)}
+          title={node.name}
+        >
+          <CategoryIcon category={node.path || node.name} size={13} />
+          <span className="truncate">{node.name}</span>
+          <span className="mono ml-auto shrink-0 text-[9px] text-mute">{count}</span>
+        </button>
+      </div>
+      {open && node.children.map((c) => <CatNode key={c.path} node={c} depth={depth + 1} selCat={selCat} onSel={onSel} />)}
     </div>
   );
 }
@@ -259,6 +264,7 @@ export default function LibraryPalette() {
   const [selected, setSelected] = useState<PartDef | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [selCat, setSelCat] = useState<string | null>(null);
   const activeTab = tab === "fav" ? "favorites" : tab === "recent" ? "recent" : "all";
   // Prevent re-render of list during drag – memoize results
 
@@ -267,6 +273,29 @@ export default function LibraryPalette() {
 
   const tree = useMemo(() => buildCategoryTree(PARTS), []);
   const results = useMemo(() => (query ? searchAdvanced(query) : []), [query]);
+  // Runde 12 (W22): Dreispalter – Spalte 2 zeigt die Teile der gewählten Kategorie
+  const groups = useMemo(() => {
+    const flat = (n: CategoryNode): PartDef[] => [...n.parts, ...n.children.flatMap(flat)];
+    if (selCat) {
+      const find = (n: CategoryNode): CategoryNode | null => {
+        if (n.path === selCat) return n;
+        for (const c of n.children) {
+          const r = find(c);
+          if (r) return r;
+        }
+        return null;
+      };
+      const node = find(tree);
+      return node ? [{ name: node.name, parts: flat(node) }] : [];
+    }
+    return tree.children.map((c) => ({ name: c.name, parts: flat(c) })).filter((g) => g.parts.length > 0);
+  }, [selCat, tree]);
+  const visibleList = useMemo(() => {
+    if (query) return results;
+    if (tab === "fav") return favorites.map((id) => PART_MAP[id]).filter(Boolean) as PartDef[];
+    if (tab === "recent") return recent.map((id) => PART_MAP[id]).filter(Boolean) as PartDef[];
+    return groups.flatMap((g) => g.parts);
+  }, [query, results, tab, favorites, recent, groups]);
 
   const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -298,7 +327,7 @@ export default function LibraryPalette() {
       }
       if (resizeRef.current) {
         pendingSize = {
-          w: Math.max(320, Math.min(window.innerWidth - 20, resizeRef.current.w + e.clientX - resizeRef.current.x)),
+          w: Math.max(640, Math.min(window.innerWidth - 20, resizeRef.current.w + e.clientX - resizeRef.current.x)),
           h: Math.max(380, Math.min(window.innerHeight - 20, resizeRef.current.h + e.clientY - resizeRef.current.y)),
         };
         if (!raf) raf = requestAnimationFrame(apply);
@@ -366,7 +395,7 @@ export default function LibraryPalette() {
       } else if (e.key === "Enter") {
         e.preventDefault();
         // Place selected
-        const list = results ?? [];
+        const list = visibleList;
         const part = list[selectedIdx] ?? list[0];
         if (part) {
           useEditor.getState().setPlacing(part.id);
@@ -376,7 +405,7 @@ export default function LibraryPalette() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, selectedIdx, query, tab, results]);
+  }, [open, selectedIdx, query, tab, results, visibleList]);
 
   if (!open) return null;
 
@@ -444,34 +473,6 @@ export default function LibraryPalette() {
           )}
         </div>
 
-        {/* Filter Chips */}
-        <div className="flex gap-1 overflow-x-auto scrollbar-none">
-          {[
-            { id: "all", label: "Alle" },
-            { id: "fav", label: "Favoriten" },
-            { id: "recent", label: "Zuletzt" },
-            { id: "passives", label: "Passiv" },
-            { id: "active", label: "Aktiv" },
-            { id: "ic", label: "ICs" },
-          ].map((chip) => (
-            <button
-              key={chip.id}
-              className="shrink-0 rounded-full px-2.5 py-1 text-[10px] border transition-colors"
-              style={
-                tab === chip.id
-                  ? { background: "var(--accent)", color: "var(--accent-contrast)", borderColor: "var(--accent)" }
-                  : { background: "var(--panel-2)", color: "var(--text-dim)", borderColor: "var(--border)" }
-              }
-              onClick={() => {
-                if (["all", "fav", "recent"].includes(chip.id)) setTab(chip.id as any);
-                else setQuery(chip.label.toLowerCase());
-              }}
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
-
         {/* Quick Stats */}
         <div className="flex items-center gap-2 text-[10px] text-mute">
           <span>{PARTS.length} Teile</span>
@@ -484,8 +485,43 @@ export default function LibraryPalette() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* List */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+        {/* Spalte 1 – Navigation (Ref-1 Component Browser) */}
+        <div className="hidden w-[170px] shrink-0 flex-col overflow-y-auto border-r py-1 md:flex" style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}>
+          <button
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+            style={!query && tab === "all" && !selCat ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
+            onClick={() => { setQuery(""); setTab("all"); setSelCat(null); }}
+          >
+            <LayoutGrid size={12} /> Alle <span className="mono ml-auto text-[9px] text-mute">{PARTS.length}</span>
+          </button>
+          <button
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+            style={!query && tab === "fav" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
+            onClick={() => { setQuery(""); setTab("fav"); setSelCat(null); }}
+          >
+            <Star size={12} /> Favoriten <span className="mono ml-auto text-[9px] text-mute">{favorites.length}</span>
+          </button>
+          <button
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+            style={!query && tab === "recent" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
+            onClick={() => { setQuery(""); setTab("recent"); setSelCat(null); }}
+          >
+            <Clock size={12} /> Zuletzt <span className="mono ml-auto text-[9px] text-mute">{recent.length}</span>
+          </button>
+          <div className="px-2 pb-1 pt-2 text-[9px] uppercase tracking-wide text-mute">Kategorien</div>
+          {tree.children.map((c) => (
+            <CatNode
+              key={c.path}
+              node={c}
+              depth={0}
+              selCat={selCat}
+              onSel={(path) => { setQuery(""); setTab("all"); setSelCat(path); }}
+            />
+          ))}
+        </div>
+
+        {/* Spalte 2 – Teileliste */}
+        <div className="min-h-0 w-full overflow-y-auto px-1 pb-2 md:w-[300px] md:shrink-0">
           {query ? (
             <div>
               <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute flex items-center gap-1.5">
@@ -535,16 +571,27 @@ export default function LibraryPalette() {
             </div>
           ) : (
             <div className="pt-1">
-              {tree.children.map((c) => (
-                <TreeNode key={c.path} node={c} depth={0} onPick={onPick} selectedId={selected?.id} />
+              {groups.map((g) => (
+                <div key={g.name}>
+                  {!selCat && (
+                    <div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[9px] uppercase tracking-wide text-mute">
+                      <CategoryIcon category={g.name} size={11} /> {g.name}
+                      <span className="mono ml-auto">{g.parts.length}</span>
+                    </div>
+                  )}
+                  {g.parts.map((p) => (
+                    <PartRow key={p.id} part={p} onPick={onPick} selected={selected?.id === p.id} />
+                  ))}
+                </div>
               ))}
+              {!groups.length && <div className="p-6 text-center text-[12px] text-mute">Keine Teile in dieser Kategorie</div>}
             </div>
           )}
         </div>
 
         {/* Detail Panel – right side of palette (floating palette + detail) */}
         {detailPart && (
-          <div className="hidden md:flex w-[260px] shrink-0 flex-col border-l overflow-y-auto" style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}>
+          <div className="hidden min-w-[240px] flex-1 flex-col overflow-y-auto border-l md:flex" style={{ borderColor: "var(--border)" }}>
             <div className="p-3 space-y-3">
               <div className="flex justify-center">
                 <SymbolPreview part={detailPart} size={96} />
@@ -623,6 +670,17 @@ export default function LibraryPalette() {
                   </a>
                 </div>
               </div>
+
+              {detailPart.pins && detailPart.pins.length > 0 && (
+                <div className="rounded-lg p-2.5" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+                  <div className="text-[10px] uppercase tracking-wide text-mute mb-1.5">Pins ({detailPart.pins.length})</div>
+                  <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-[10px] text-dim">
+                    {detailPart.pins.map((pn, i) => (
+                      <span key={i}>{pn.name || `Pin ${i + 1}`}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="rounded-lg p-2 text-[10.5px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
                 <div className="font-medium text-[11px] mb-1">💡 Tipp</div>

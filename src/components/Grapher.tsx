@@ -321,7 +321,7 @@ export function LinePlot({
 
       // Cursors – like Multisim Grapher, draggable ΔT/ΔV
       if (cursors.x0 !== null) {
-        ctx.strokeStyle = "rgba(167,139,250,0.8)";
+        ctx.strokeStyle = cssVar("--accent-3", "#7a4fa3");
         ctx.setLineDash([6,4]);
         ctx.lineWidth = 1;
         const x = xOf(cursors.x0);
@@ -331,11 +331,11 @@ export function LinePlot({
         ctx.stroke();
         ctx.setLineDash([]);
         // handle
-        ctx.fillStyle = "#a78bfa";
+        ctx.fillStyle = cssVar("--accent-3", "#7a4fa3");
         ctx.fillRect(x-4, padT, 8, 12);
       }
       if (cursors.x1 !== null) {
-        ctx.strokeStyle = "rgba(251,191,36,0.8)";
+        ctx.strokeStyle = cssVar("--warn", "#a87a12");
         ctx.setLineDash([6,4]);
         ctx.lineWidth = 1;
         const x = xOf(cursors.x1);
@@ -344,7 +344,7 @@ export function LinePlot({
         ctx.lineTo(x, h - padB);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = "#fbbf24";
+        ctx.fillStyle = cssVar("--warn", "#a87a12");
         ctx.fillRect(x-4, padT, 8, 12);
       }
       if (cursors.x0 !== null && cursors.x1 !== null) {
