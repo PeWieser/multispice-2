@@ -531,6 +531,40 @@ add({
   ],
 });
 
+// W29: Das Oszilloskop ist ein Schaltsymbol auf dem Plan – Messleitungen
+// werden direkt an CH1…CH4/GND verdrahtet, Doppelklick öffnet das Fenster.
+// Rein virtuell: erzeugt keine SPICE-Devices, misst über die Netznamen.
+add({
+  id: "oscilloscope",
+  name: "Oszilloskop (XSC)",
+  ref: "XSC",
+  category: "Quellen/Instrumente",
+  tags: ["oszilloskop", "oszi", "scope", "xsc", "instrument", "messung"],
+  mount: "virtual",
+  pins: [
+    { name: "CH1", x: -40, y: -30 },
+    { name: "CH2", x: -40, y: -10 },
+    { name: "CH3", x: -40, y: 10 },
+    { name: "CH4", x: -40, y: 30 },
+    { name: "GND", x: 0, y: 40 },
+  ],
+  symbol: [
+    RECT(-30, -36, 60, 72, 3),
+    // Bildschirm mit Trace-Glyphe
+    RECT(-20, -28, 40, 36, 2),
+    L(-16, -6, -10, -6, -6, -18, -2, -6, 4, -14, 8, -6, 16, -6),
+    TXT(0, 20, "4 CH", 8),
+    // Anschluss-Stutzen (enden exakt auf den Pins)
+    L(-40, -30, -30, -30),
+    L(-40, -10, -30, -10),
+    L(-40, 10, -30, 10),
+    L(-40, 30, -30, 30),
+    L(0, 36, 0, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
 add({
   id: "vpulse",
   name: "Pulsquelle",

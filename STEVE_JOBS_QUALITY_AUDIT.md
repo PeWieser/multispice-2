@@ -793,3 +793,60 @@ W24–W28 FERTIG.
 
 Verifikation: tsc ✔ · eslint ✔ · Dauertest (Import/Sim/Kongruenz) PASS ✔ ·
 next build ✔ (/, /_not-found, /apple-icon.png, /apple-icon1.png, /icon.svg).
+
+---
+
+## §14 — Runde 14: Oszi als Schaltsymbol (User-Spezifikation + Antworten)
+
+Kritik: Die Dropdown-Netzwahl (Runde 13) war eine ungefragte Annahme. Neu per
+User-Antwort: **CH1–4 + GND als Pins**, Geräte-Leisten-Eintrag **platziert das
+Symbol**, keine entkoppelten Fenster mehr.
+
+**W29 — Oszi auf dem Schaltplan:**
+1. Katalog-Teil `oscilloscope` (XSC, Quellen/Instrumente, virtual): 4 Kanal-
+   Pins links (CH1–CH4, 20er-Teilung), GND-Pin unten; Body mit Screen-Glyphe.
+   toDevices() = [] (misst, beeinflusst die Simulation nicht).
+2. InstrumentWindow.instanceId: openInstrument("scope", {instanceId, title})
+   öffnet/fokussiert ein an die Instanz gebundenes Fenster (ein Fenster je
+   Oszi-Symbol). Doppelklick aufs Symbol → Fenster (statt Inspector).
+   Instanz löschen → gebundenes Fenster fliegt mit. Alte entkoppelte
+   Scope-Fenster werden beim Laden verworfen.
+3. Geräte-Leiste/Bibliothek: „Oszilloskop"-Eintrag startet die Platzierung.
+4. OsziScope: Dropdowns raus — Netze kommen aus `netResult.pinNets`
+   (instanceId:pinIndex). GND-Pin wired → Messreferenz (sample = V(CH) − V(GND)),
+   sonst Knoten 0. 4 Kanäle (Farben CH1 Gelb, CH2 Cyan, CH3 Magenta, CH4 Grün),
+   Trigger-Quelle zyklisch CH1–4. Anschlussfeld im Vertical-Block zeigt je
+   Kanal: farbige Lampe + Netzname bzw. „offen" (offener Anschluss); Readout-Bar
+   und CH-Taster spiegeln denselben Zustand. Brand-Label „4 CH".
+
+Verifikation: tsc ✔ · eslint ✔ · Dauertest (Import/Sim/Kongruenz: 410 Teile,
+2097 Pins) PASS ✔ · next build ✔ (/, /_not-found, /apple-icon.png,
+/apple-icon1.png, /icon.svg).
+
+**Umsetzungsstand (fertig):**
+- `catalog.ts`: Teil `oscilloscope` (XSC) — Pins CH1–CH4 links bei x=−40
+  (y=−30/−10/10/30, rasterexakt), GND unten (0,40); Body 60×72 mit Screen-
+  Rechteck, Trace-Glyphe, „4 CH“-Aufschrift, Anschluss-Stutzen enden exakt
+  auf den Pins; `toDevices: () => []`.
+- `editor.ts`: `InstrumentWindow.instanceId?`; `openInstrument(kind, opts?)`
+  mit gebundener scope-Variante (Fenster-id `w_<instanceId>`, Fokus +
+  Un-Minimieren bei erneutem Doppelklick, Titel-Update); `deleteSelection`
+  schließt gebundene Fenster; Restore verwirft `scope`-Fenster ohne
+  `instanceId`.
+- `Canvas.tsx`: Doppelklick auf `oscilloscope`-Instanz öffnet das gebundene
+  Fenster („Oszilloskop XSC1“) statt des Inspectors.
+- `Instruments.tsx` (DeviceBar) + `MenuBar.tsx` (2 Listen): scope-Eintrag
+  startet `setPlacing("oscilloscope")` (Toggle in der Geräte-Bar); aktiv-
+  Zustand = Platzierung läuft oder gebundenes Fenster offen.
+- `OsziScope.tsx`: Config ohne `nets` (Migration: R13-2-Kanal-Configs werden
+  per `pad4` auf 4 Kanäle aufgefüllt, `nets`-Feld entfällt; ≤R12-Migration
+  bleibt). Netze aus `netResult.pinNets["instId:i"]`; **offen** = Name
+  `instId_ncI` (so kennzeichnet `model.ts` kontaktlose Pins) oder fehlend.
+  GND wired & ≠ „0“ → Differenzmessung sample = V(CH) − V(GND) (auch in
+  Autoset/Frequenzschätzung), sonst Knoten 0. 4 Kanal-Farben Gelb/Cyan/
+  Magenta/Grün; CH-Taster zeigen Netzname bzw. „offen“ (dunkel, ohne Glow)
+  und machen den Kanal per Klick aktiv; GND-Streifen mit Lampe + Zustand;
+  Readout-Bar je Kanal „offen“ grau, plus „Ref <netz>“ bei Differenzmessung;
+  Trigger-Quelle zyklisch CH1–4 (mit „(offen)“-Hinweis); Mess-Overlay nur bei
+  verbundenem aktiven Kanal; Brand „200 MHz · 2 GS/s · 4 CH“; Footer-Hinweis
+  erklärt die Verdrahtung am Symbol. Keine Dropdowns mehr.

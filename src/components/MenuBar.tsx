@@ -149,7 +149,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <div className="space-y-1">
           <div className="text-[10px] uppercase tracking-wide text-mute px-2">Geräte</div>
           {INSTRUMENT_ITEMS.map(([kind, title]) => (
-            <button key={kind} className="btn w-full justify-start text-[11px]" onClick={() => st().openInstrument(kind)}>{title}</button>
+            <button key={kind} className="btn w-full justify-start text-[11px]" onClick={() => (kind === "scope" ? st().setPlacing("oscilloscope") : st().openInstrument(kind))}>{title}</button>
           ))}
           <div className="space-y-1">
             <div className="text-[10px] uppercase tracking-wide text-mute px-2">Wizards</div>
@@ -232,7 +232,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
 
       <Menu label="Geräte" {...menuProps("geraete")}>
         {INSTRUMENT_ITEMS.map(([kind, title]) => (
-          <MenuItem key={kind} onClick={() => st().openInstrument(kind)}>{title}</MenuItem>
+          <MenuItem key={kind} onClick={() => (kind === "scope" ? st().setPlacing("oscilloscope") : st().openInstrument(kind))}>{title}</MenuItem>
         ))}
       </Menu>
 

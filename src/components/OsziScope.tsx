@@ -1,8 +1,11 @@
 "use client";
 
 /* Runde 13 (W24): SkeuoTek-Oszilloskop 1:1 aus dem oszi/-Projekt des Users.
- * Ohne Demo-Testschaltung und ohne Anschluss-Reihe — die Signalquelle ist die
- * Multispice-Engine: sample(ch, t) interpoliert aus engine.channel(net). */
+ * Runde 14 (W29): Das Oszi ist ein Schaltsymbol auf dem Plan mit Pins
+ * CH1–CH4 + GND. Die Messnetze kommen aus der Verdrahtung (pinNets) –
+ * keine Dropdowns. Angeschlossene Kanäle leuchten mit ihrem Netznamen,
+ * offene Pins erscheinen als „offen“. Liegt am GND-Pin ein Netz ≠ 0,
+ * messen alle Kanäle differenziell V(CH) − V(GND). */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Knob } from "./oszi/Knob";
@@ -16,14 +19,17 @@ import {
 import { formatFreq, formatTime, formatVolt, TIME_DIV, VOLT_DIV } from "./oszi/units";
 import { engine, useEditor, type InstrumentWindow } from "@/state/editor";
 
-const CH_COLORS = ["#f4e04d", "#45d4e6"];
+const CH_COLORS = ["#f4e04d", "#45d4e6", "#ff7ad9", "#7ddc4b"];
+const NCH = 4;
+const POS_DEFAULT = [3, 1, -1, -3];
+
+type Coupling = "DC" | "AC" | "GND";
 
 interface OsziCfg {
-  nets: [string, string];
-  voltsIdx: [number, number];
-  positionDiv: [number, number];
-  coupling: ["DC" | "AC" | "GND", "DC" | "AC" | "GND"];
-  probe: [number, number];
+  voltsIdx: number[];
+  positionDiv: number[];
+  coupling: Coupling[];
+  probe: number[];
   timeIdx: number;
   horizPosDiv: number;
   trigger: { source: number; level: number; edge: "rising" | "falling"; mode: "auto" | "normal" | "single" };
@@ -46,14 +52,27 @@ function nearestIndex(arr: number[], v: number) {
 }
 
 const clampIdx = (i: number, arr: number[]) => Math.max(0, Math.min(arr.length - 1, i));
+const clamp4 = (n: unknown) => Math.max(0, Math.min(NCH - 1, Math.round(Number(n) || 0)));
 
-function defaultCfg(nets: [string, string]): OsziCfg {
+/** Fremd-Array (z. B. 2-Kanal-Config aus Runde 13) auf 4 Kanäle auffüllen. */
+function pad4<T>(arr: unknown, def: T[]): T[] {
+  const out = [...def];
+  if (Array.isArray(arr)) {
+    for (let i = 0; i < NCH; i++) {
+      const v = arr[i];
+      if (v !== undefined && v !== null) out[i] = v as T;
+    }
+  }
+  return out;
+}
+
+function defaultCfg(): OsziCfg {
+  const v1 = nearestIndex(VOLT_DIV, 1);
   return {
-    nets,
-    voltsIdx: [nearestIndex(VOLT_DIV, 1), nearestIndex(VOLT_DIV, 1)],
-    positionDiv: [1.6, -1.8],
-    coupling: ["DC", "DC"],
-    probe: [1, 1],
+    voltsIdx: [v1, v1, v1, v1],
+    positionDiv: [...POS_DEFAULT],
+    coupling: ["DC", "DC", "DC", "DC"],
+    probe: [1, 1, 1, 1],
     timeIdx: nearestIndex(TIME_DIV, 200e-6),
     horizPosDiv: 0,
     trigger: { source: 0, level: 2.5, edge: "rising", mode: "auto" },
@@ -63,35 +82,47 @@ function defaultCfg(nets: [string, string]): OsziCfg {
   };
 }
 
-/** Alte ScopeConfig (Runde ≤ 12) wandern, neue Config durchreichen. */
-function normalizeCfg(raw: unknown, allNets: string[]): OsziCfg {
-  const def = defaultCfg([allNets.find((n) => n !== "0") ?? "", ""]);
+/** Alte Configs wandern (≤ R12: timebase/volts, R13: 2 Kanäle + nets).
+ *  Netze stecken nicht mehr in der Config – sie kommen aus der Verdrahtung. */
+function normalizeCfg(raw: unknown): OsziCfg {
+  const def = defaultCfg();
   if (!raw || typeof raw !== "object") return def;
   const r = raw as Record<string, unknown>;
-  if (typeof r.timeIdx === "number" && Array.isArray(r.nets)) {
-    const cfg = { ...def, ...(raw as Partial<OsziCfg>) } as OsziCfg;
-    cfg.nets = [cfg.nets[0] ?? "", cfg.nets[1] ?? ""];
+  if (typeof r.timeIdx === "number") {
+    const cfg = { ...def, ...(raw as Partial<OsziCfg>) } as OsziCfg & { nets?: unknown };
+    delete cfg.nets;
+    cfg.voltsIdx = pad4(cfg.voltsIdx, def.voltsIdx).map((v) => clampIdx(Math.round(Number(v) || 0), VOLT_DIV));
+    cfg.positionDiv = pad4(cfg.positionDiv, def.positionDiv).map((v) =>
+      Math.max(-4, Math.min(4, Number(v) || 0)),
+    );
+    cfg.coupling = pad4(cfg.coupling, def.coupling).map((v) => (v === "AC" || v === "GND" ? v : ("DC" as Coupling)));
+    cfg.probe = pad4(cfg.probe, def.probe).map((v) => (Number(v) === 10 ? 10 : 1));
+    const t = (typeof r.trigger === "object" && r.trigger !== null ? r.trigger : {}) as Partial<OsziCfg["trigger"]>;
+    cfg.trigger = {
+      source: clamp4(t.source ?? def.trigger.source),
+      level: typeof t.level === "number" ? t.level : def.trigger.level,
+      edge: t.edge === "falling" ? "falling" : "rising",
+      mode: t.mode === "normal" || t.mode === "single" ? t.mode : "auto",
+    };
+    cfg.active = clamp4(cfg.active);
     return cfg;
   }
-  // Migration aus dem alten Instrument
+  // Migration aus dem alten Instrument (Runde ≤ 12)
   const o = raw as {
-    channels?: string[];
     timebase?: number;
     volts?: number[];
     trigger?: { source?: number; level?: number; edge?: "rising" | "falling"; mode?: string };
     runMode?: string;
   };
-  const ch = Array.isArray(o.channels) ? o.channels : [];
   return {
     ...def,
-    nets: [ch[0] ?? def.nets[0], ch[1] ?? ""],
     timeIdx: typeof o.timebase === "number" ? nearestIndex(TIME_DIV, o.timebase) : def.timeIdx,
-    voltsIdx: [
-      Array.isArray(o.volts) ? nearestIndex(VOLT_DIV, o.volts[0] ?? 1) : def.voltsIdx[0],
-      Array.isArray(o.volts) ? nearestIndex(VOLT_DIV, o.volts[1] ?? 1) : def.voltsIdx[1],
-    ],
+    voltsIdx: pad4(
+      Array.isArray(o.volts) ? o.volts.map((v) => nearestIndex(VOLT_DIV, Number(v) || 1)) : [],
+      def.voltsIdx,
+    ),
     trigger: {
-      source: o.trigger?.source === 1 ? 1 : 0,
+      source: clamp4(o.trigger?.source ?? 0),
       level: typeof o.trigger?.level === "number" ? o.trigger.level : def.trigger.level,
       edge: o.trigger?.edge === "falling" ? "falling" : "rising",
       mode: o.trigger?.mode === "normal" ? "normal" : "auto",
@@ -100,70 +131,102 @@ function normalizeCfg(raw: unknown, allNets: string[]): OsziCfg {
   };
 }
 
+type Buf = { t: number[]; v: number[] } | null;
+
+/** Lineare Interpolation im Engine-Buffer (binäre Suche). */
+function interpAt(b: Buf, t: number): number {
+  if (!b || b.t.length === 0) return 0;
+  const arr = b.t;
+  if (t <= arr[0]) return b.v[0];
+  const n = arr.length - 1;
+  if (t >= arr[n]) return b.v[n];
+  let lo = 0;
+  let hi = n;
+  while (hi - lo > 1) {
+    const m = (lo + hi) >> 1;
+    if (arr[m] <= t) lo = m;
+    else hi = m;
+  }
+  const f = (t - arr[lo]) / (arr[hi] - arr[lo] || 1);
+  return b.v[lo] + (b.v[hi] - b.v[lo]) * f;
+}
+
+/** Frequenzschätzung über Mittellinien-Nulldurchgänge (aus oszi/). */
+function estimateFreq(values: ArrayLike<number>, dur: number): number | null {
+  const N = values.length;
+  let vmax = -Infinity;
+  let vmin = Infinity;
+  for (let i = 0; i < N; i++) {
+    if (values[i] > vmax) vmax = values[i];
+    if (values[i] < vmin) vmin = values[i];
+  }
+  const mid = (vmax + vmin) / 2;
+  let crossings = 0;
+  let prevBelow: boolean | null = null;
+  for (let i = 0; i < N; i++) {
+    const below = values[i] < mid;
+    if (prevBelow !== null && !below && prevBelow) crossings++;
+    prevBelow = below;
+  }
+  return crossings >= 2 && dur > 0 ? crossings / dur : null;
+}
+
 export default function OsziScope({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
   const netResult = useEditor((s) => s.netResult);
-  const allNets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
-  const cfg = useMemo(() => normalizeCfg(win.config.scope, allNets), [win.config.scope, allNets]);
+  const cfg = useMemo(() => normalizeCfg(win.config.scope), [win.config.scope]);
   const set = (patch: Partial<OsziCfg>) =>
     update(win.id, { config: { ...win.config, scope: { ...cfg, ...patch } } });
 
+  // W29: Messnetze aus der Verdrahtung – Pins CH1–CH4 (Index 0–3), GND (4).
+  // Freie Pins trägt das Modell als „<instanz>_nc<i>“ → Kanal gilt als offen.
+  const nets = useMemo(() => {
+    if (!win.instanceId) return ["", "", "", ""];
+    return Array.from({ length: NCH }, (_, i) => {
+      const n = netResult.pinNets[`${win.instanceId}:${i}`] ?? "";
+      return n === `${win.instanceId}_nc${i}` ? "" : n;
+    });
+  }, [win.instanceId, netResult.pinNets]);
+  const gndNet = useMemo(() => {
+    if (!win.instanceId) return "";
+    const n = netResult.pinNets[`${win.instanceId}:4`] ?? "";
+    return n === `${win.instanceId}_nc4` ? "" : n;
+  }, [win.instanceId, netResult.pinNets]);
+  // GND-Pin verdrahtet und nicht selbst Knoten 0 → Differenzreferenz.
+  const gndRef = gndNet && gndNet !== "0" ? gndNet : "";
+
   const [meas, setMeas] = useState<Measurements | null>(null);
   const cfgRef = useRef(cfg);
+  const netsRef = useRef({ nets, gndRef });
   useEffect(() => {
     cfgRef.current = cfg;
-  }, [cfg]);
+    netsRef.current = { nets, gndRef };
+  }, [cfg, nets, gndRef]);
 
   const voltsPerDiv = (i: number) => VOLT_DIV[cfg.voltsIdx[i]] * cfg.probe[i];
 
   // ---- Engine-Adapter: Buffer holen, interpolieren, Frequenz schätzen ----
   const getState = useCallback((): ScreenState => {
     const c = cfgRef.current;
-    const bufs = c.nets.map((net) => (net ? engine.channel(net, 8192) : null));
-    const sample = (ch: number, t: number): number => {
-      const b = bufs[ch];
-      if (!b || b.t.length === 0) return 0;
-      const arr = b.t;
-      if (t <= arr[0]) return b.v[0];
-      const n = arr.length - 1;
-      if (t >= arr[n]) return b.v[n];
-      let lo = 0;
-      let hi = n;
-      while (hi - lo > 1) {
-        const m = (lo + hi) >> 1;
-        if (arr[m] <= t) lo = m;
-        else hi = m;
-      }
-      const f = (t - arr[lo]) / (arr[hi] - arr[lo] || 1);
-      return b.v[lo] + (b.v[hi] - b.v[lo]) * f;
-    };
+    const { nets: ns, gndRef: gref } = netsRef.current;
+    const bufs = ns.map((net): Buf => (net ? engine.channel(net, 8192) : null));
+    const gbuf: Buf = gref ? engine.channel(gref, 8192) : null;
+    const sample = (ch: number, t: number): number =>
+      interpAt(bufs[ch], t) - (gbuf ? interpAt(gbuf, t) : 0);
     let freqHint = 1000;
     let active = false;
-    const tb = bufs[c.trigger.source];
+    const trigIdx = ns[c.trigger.source] ? c.trigger.source : ns.findIndex(Boolean);
+    const tb = trigIdx >= 0 ? bufs[trigIdx] : null;
     if (tb && tb.t.length > 64) {
       active = true;
       const N = tb.v.length;
-      let sum = 0;
-      let vmax = -Infinity;
-      let vmin = Infinity;
-      for (let i = 0; i < N; i++) {
-        sum += tb.v[i];
-        if (tb.v[i] > vmax) vmax = tb.v[i];
-        if (tb.v[i] < vmin) vmin = tb.v[i];
-      }
-      void sum;
-      const mid = (vmax + vmin) / 2;
       const dur = tb.t[N - 1] - tb.t[0];
-      let crossings = 0;
-      let prevBelow: boolean | null = null;
-      for (let i = 0; i < N; i++) {
-        const below = tb.v[i] < mid;
-        if (prevBelow !== null && !below && prevBelow) crossings++;
-        prevBelow = below;
-      }
-      if (crossings >= 2 && dur > 0) freqHint = crossings / dur;
+      const f = gbuf
+        ? estimateFreq(Array.from({ length: N }, (_, i) => tb.v[i] - interpAt(gbuf, tb.t[i])), dur)
+        : estimateFreq(tb.v, dur);
+      if (f !== null) freqHint = f;
     }
-    const channels: ChannelState[] = c.nets.map((net, i) => ({
+    const channels: ChannelState[] = ns.map((net, i) => ({
       enabled: Boolean(net),
       voltsPerDiv: VOLT_DIV[c.voltsIdx[i]] * c.probe[i],
       positionDiv: c.positionDiv[i],
@@ -193,7 +256,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   }, [update, win.id, win.config]);
 
   // ---- Regler (1:1 aus oszi/App.tsx, auf Config-Tupel) ----
-  const setPair = <K extends "voltsIdx" | "positionDiv" | "coupling" | "probe" | "nets">(
+  const setPair = <K extends "voltsIdx" | "positionDiv" | "coupling" | "probe">(
     k: K,
     i: number,
     v: OsziCfg[K][number],
@@ -214,55 +277,50 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
     const nl = cfg.trigger.level + dir * vdiv * 0.1;
     set({ trigger: { ...cfg.trigger, level: Math.max(-6 * vdiv, Math.min(6 * vdiv, nl)) } });
   };
-  const toggleChannel = (i: number) => {
-    if (cfg.active === i && cfg.nets[i]) setPair("nets", i, "");
-    else set({ active: i });
-  };
+  // W29: Kanäle schaltet man nicht mehr per UI aus – die Verdrahtung zählt.
+  // Klick auf den Kanalbutton macht den Kanal zum aktiven Kanal.
+  const toggleChannel = (i: number) => set({ active: i });
 
   const estimate = (net: string) => {
     const b = engine.channel(net, 8192);
     if (!b || b.t.length < 64) return null;
+    const g = gndRef ? engine.channel(gndRef, 8192) : null;
     const N = b.v.length;
+    const val = (i: number) => b.v[i] - (g ? interpAt(g, b.t[i]) : 0);
     let vmax = -Infinity;
     let vmin = Infinity;
     for (let i = 0; i < N; i++) {
-      if (b.v[i] > vmax) vmax = b.v[i];
-      if (b.v[i] < vmin) vmin = b.v[i];
+      const v = val(i);
+      if (v > vmax) vmax = v;
+      if (v < vmin) vmin = v;
     }
-    const mid = (vmax + vmin) / 2;
     const dur = b.t[N - 1] - b.t[0];
-    let crossings = 0;
-    let prevBelow: boolean | null = null;
-    for (let i = 0; i < N; i++) {
-      const below = b.v[i] < mid;
-      if (prevBelow !== null && !below && prevBelow) crossings++;
-      prevBelow = below;
-    }
-    const freq = crossings >= 2 && dur > 0 ? crossings / dur : 0;
-    return { vmax, vmin, mid, freq };
+    const freq = estimateFreq(Array.from({ length: N }, (_, i) => val(i)), dur) ?? 0;
+    return { vmax, vmin, mid: (vmax + vmin) / 2, freq };
   };
 
   const autoset = () => {
-    const trigNet = cfg.nets[cfg.trigger.source] || cfg.nets[0] || cfg.nets[1];
+    const trigNet = nets[cfg.trigger.source] || nets.find(Boolean) || "";
     if (!trigNet) return;
     const e = estimate(trigNet);
     if (!e) return;
     const period = e.freq > 0 ? 1 / e.freq : TIME_DIV[cfg.timeIdx];
     const timeIdx = nearestIndex(TIME_DIV, (period * 2.5) / 10);
     const amp = Math.max(e.vmax - e.vmin, 1e-6);
-    const vIdx = nearestIndex(VOLT_DIV, amp / 4) as number;
+    const vIdx = nearestIndex(VOLT_DIV, amp / 4);
+    const def = defaultCfg();
     set({
       timeIdx,
       horizPosDiv: 0,
-      voltsIdx: [vIdx, vIdx],
-      positionDiv: [1.6, -1.8],
-      coupling: ["DC", "DC"],
+      voltsIdx: [vIdx, vIdx, vIdx, vIdx],
+      positionDiv: [...POS_DEFAULT],
+      coupling: [...def.coupling],
       trigger: { ...cfg.trigger, level: e.mid, edge: "rising", mode: "auto" },
       running: true,
     });
   };
 
-  const defaultSetup = () => set({ ...defaultCfg(cfg.nets) });
+  const defaultSetup = () => set({ ...defaultCfg() });
 
   const single = () => {
     set({ trigger: { ...cfg.trigger, mode: "single" }, running: true });
@@ -286,14 +344,14 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
           <div className="mb-3 flex items-end justify-between px-1">
             <div className="flex items-baseline gap-3">
               <span className="text-2xl font-black italic tracking-tight text-zinc-800">
-                Skeuo<span className="text-red-600">Tek</span>
+                Skeuo<span className="text-red-600">tek</span>
               </span>
               <span className="hidden text-xs font-semibold text-zinc-600 sm:inline">
                 TBS-2000 SERIES · DIGITAL OSCILLOSCOPE
               </span>
             </div>
             <span className="text-[10px] font-semibold text-zinc-500">
-              200&nbsp;MHz · 2&nbsp;GS/s · 2&nbsp;CH
+              200&nbsp;MHz · 2&nbsp;GS/s · 4&nbsp;CH
             </span>
           </div>
 
@@ -311,7 +369,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
                   <ScopeScreen getState={getState} onMeasure={onMeasure} onSingleCaptured={onSingleCaptured} />
 
                   {/* Measurement overlay (top-left) */}
-                  {cfg.showMeasure && meas && (
+                  {cfg.showMeasure && meas && nets[cfg.active] && (
                     <div className="pointer-events-none absolute left-3 top-6 rounded bg-black/55 px-2 py-1 font-mono text-[10px] leading-tight backdrop-blur-sm">
                       <div className="mb-0.5 font-bold" style={{ color: activeColor }}>
                         CH{cfg.active + 1} Messungen
@@ -329,18 +387,23 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
 
                   {/* bottom readout bar */}
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center gap-x-3 gap-y-0.5 bg-black/60 px-2 py-1 font-mono text-[10px] backdrop-blur-sm">
-                    {cfg.nets.map((net, i) =>
+                    {nets.map((net, i) =>
                       net ? (
                         <span key={i} style={{ color: CH_COLORS[i] }}>
                           CH{i + 1} {formatVolt(voltsPerDiv(i))} {cfg.coupling[i]} {net}
                         </span>
-                      ) : null,
+                      ) : (
+                        <span key={i} className="text-zinc-600">
+                          CH{i + 1} offen
+                        </span>
+                      ),
                     )}
                     <span className="text-zinc-200">M {formatTime(TIME_DIV[cfg.timeIdx])}</span>
                     <span className="text-orange-400">
                       Trig CH{cfg.trigger.source + 1} {cfg.trigger.edge === "rising" ? "↑" : "↓"}{" "}
                       {formatVolt(cfg.trigger.level)} {cfg.trigger.mode}
                     </span>
+                    {gndRef ? <span className="text-zinc-400">Ref {gndRef}</span> : null}
                   </div>
                 </div>
               </div>
@@ -399,9 +462,10 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
                   <div className="flex flex-col gap-1.5">
                     <PushButton
                       size="sm"
-                      onClick={() => set({ trigger: { ...cfg.trigger, source: cfg.trigger.source === 0 ? 1 : 0 } })}
+                      onClick={() => set({ trigger: { ...cfg.trigger, source: (cfg.trigger.source + 1) % NCH } })}
                     >
                       Src CH{cfg.trigger.source + 1}
+                      {nets[cfg.trigger.source] ? "" : " (offen)"}
                     </PushButton>
                     <PushButton
                       size="sm"
@@ -438,35 +502,15 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
 
                 {/* VERTICAL */}
                 <SectionLabel>Vertical</SectionLabel>
-                {/* W24: Messnetze je Kanal (ersetzt die Demo-Testschaltung) */}
-                <div className="mb-2 flex items-center gap-1.5">
-                  {[0, 1].map((i) => {
-                    const list = cfg.nets[i] && !allNets.includes(cfg.nets[i]) ? [cfg.nets[i], ...allNets] : allNets;
-                    return (
-                      <select
-                        key={i}
-                        value={cfg.nets[i]}
-                        onChange={(e) => setPair("nets", i, e.target.value)}
-                        className="min-w-0 flex-1 rounded border border-zinc-600 bg-zinc-800 px-1 py-0.5 font-mono text-[10px]"
-                        style={{ color: CH_COLORS[i] }}
-                        title={`CH${i + 1}: Netz aus der Schaltung`}
-                      >
-                        <option value="">— CH{i + 1} aus —</option>
-                        {list.map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    );
-                  })}
-                </div>
+                {/* W29: Anschlussfeld – die Verdrahtung am Oszi-Symbol bestimmt
+                    die Netze. Leuchtender Button = verbunden (mit Netzname),
+                    dunkler Button = offener Anschluss. */}
                 <div className="mb-2 flex items-center justify-center gap-2">
-                  {cfg.nets.map((net, i) => (
+                  {nets.map((net, i) => (
                     <button
                       key={i}
                       onClick={() => toggleChannel(i)}
-                      className="flex-1 rounded px-2 py-1 text-[10px] font-bold uppercase transition-all active:translate-y-[1px]"
+                      className="min-w-0 flex-1 rounded px-1 py-1 text-[10px] font-bold uppercase transition-all active:translate-y-[1px]"
                       style={{
                         color: net ? "#111" : "#e8e9ec",
                         background: net ? `linear-gradient(#fff,${CH_COLORS[i]})` : "linear-gradient(#5a5d63,#2c2e32)",
@@ -474,10 +518,46 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
                         outlineOffset: 1,
                         boxShadow: net ? `0 0 8px ${CH_COLORS[i]}99` : "inset 0 1px 1px rgba(255,255,255,0.15)",
                       }}
+                      title={
+                        net
+                          ? `CH${i + 1}: verbunden mit Netz „${net}“ – Klick macht den Kanal aktiv`
+                          : `CH${i + 1}: offener Anschluss – Leitung am Oszi-Symbol auf dem Schaltplan verbinden`
+                      }
                     >
                       CH{i + 1}
+                      <span className="block truncate font-mono text-[8px] font-normal normal-case">
+                        {net || "offen"}
+                      </span>
                     </button>
                   ))}
+                </div>
+                {/* GND-Anschluss */}
+                <div
+                  className="mb-2 flex items-center gap-1.5 rounded border px-1.5 py-1 font-mono text-[9px]"
+                  style={{
+                    borderColor: "#3f4247",
+                    background: "#1b1c1f",
+                    color: gndNet ? "#9fd49f" : "#71757c",
+                  }}
+                  title={
+                    gndNet
+                      ? gndRef
+                        ? `GND-Pin verbunden mit „${gndNet}“ – alle Kanäle messen differenziell gegen dieses Netz`
+                        : "GND-Pin verbunden mit Knoten 0 – Kanäle messen direkt gegen Masse"
+                      : "GND-Pin offen – Referenz ist Knoten 0 (Masse)"
+                  }
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={
+                      gndNet
+                        ? { background: "#9fd49f", boxShadow: "0 0 6px #9fd49f" }
+                        : { border: "1px solid #71757c" }
+                    }
+                  />
+                  <span className="truncate">
+                    GND {gndNet ? `· ${gndNet}${gndRef ? " (differenziell)" : " (Masse)"}` : "· offen – Referenz = 0"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-around">
                   <Knob label="Position" onTurn={vPos} color={activeColor} />
@@ -521,7 +601,8 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
           {/* footer hint */}
           <p className="mt-3 px-1 text-center text-[10px] text-zinc-500">
             Drehknöpfe mit der Maus ziehen (hoch/runter) oder Mausrad · Autoset stellt automatisch ein ·
-            Messnetze je Kanal oben im Vertical-Block wählen
+            Messnetze bestimmt die Verdrahtung: Leitungen an die Pins CH1–CH4 und GND des
+            Oszi-Symbols auf dem Schaltplan anschließen
           </p>
         </div>
       </div>

@@ -1210,6 +1210,10 @@ export function DeviceBar() {
   const open = useEditor((s) => s.openInstrument);
   const toggleInspector = useEditor((s) => s.toggleInspector);
   const instruments = useEditor((s) => s.instruments);
+  // W29: Das Oszi öffnet nicht mehr als freies Fenster – der Bar-Klick
+  // platziert das Oszi-Schaltzeichen auf dem Plan.
+  const setPlacing = useEditor((s) => s.setPlacing);
+  const placing = useEditor((s) => s.placingPartId);
   const items: Array<[InstrumentKind, string]> = [
     ["scope", "Oszilloskop"],
     ["dmm", "Multimeter"],
@@ -1231,23 +1235,29 @@ export function DeviceBar() {
       className="pointer-events-auto absolute bottom-0 right-0 top-0 z-20 flex w-11 flex-col items-center gap-0.5 overflow-y-auto py-2"
       style={{ background: "var(--panel-solid)", borderLeft: "1px solid var(--border)", scrollbarWidth: "none" }}
     >
-      {items.map(([k, label]) => (
-        <button
-          key={k}
-          onClick={() => open(k)}
-          title={label}
-          aria-label={label}
-          aria-pressed={isOpen(k)}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors"
-          style={
-            isOpen(k)
-              ? { background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)" }
-              : { color: "var(--text-dim)" }
-          }
-        >
-          {iconFor(k, 15)}
-        </button>
-      ))}
+      {items.map(([k, label]) => {
+        // W29: Oszi-Eintrag startet die Symbol-Platzierung statt ein freies
+        // Fenster zu öffnen; „aktiv“ = Platzierung läuft oder Fenster offen.
+        const isScope = k === "scope";
+        const active = isScope ? placing === "oscilloscope" || isOpen(k) : isOpen(k);
+        return (
+          <button
+            key={k}
+            onClick={() => (isScope ? setPlacing(placing === "oscilloscope" ? null : "oscilloscope") : open(k))}
+            title={isScope ? "Oszilloskop – Schaltzeichen auf dem Plan platzieren" : label}
+            aria-label={label}
+            aria-pressed={active}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors"
+            style={
+              active
+                ? { background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)" }
+                : { color: "var(--text-dim)" }
+            }
+          >
+            {iconFor(k, 15)}
+          </button>
+        );
+      })}
       <div className="h-2 shrink-0" />
       <div className="w-6 shrink-0 border-t" style={{ borderColor: "var(--border)" }} />
       <button

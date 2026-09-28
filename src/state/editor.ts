@@ -71,6 +71,8 @@ export interface InstrumentWindow {
   h: number;
   z: number;
   minimized: boolean;
+  /** W29: gebundene Geräte (Oszi) hängen an einer Instanz auf dem Plan. */
+  instanceId?: string;
   /** true = Fenster sitzt im Dock am unteren Rand (Layout statt x/y). */
   docked?: boolean;
   config: Record<string, unknown>;
@@ -199,7 +201,7 @@ export interface EditorState {
   setLibrarySize: (size: { w: number; h: number }) => void;
   setToast: (t: { message: string; actionLabel?: string; action?: () => void } | null) => void;
   clearToast: () => void;
-  openInstrument: (kind: InstrumentKind) => void;
+  openInstrument: (kind: InstrumentKind, opts?: { instanceId?: string; title?: string }) => void;
   /** W10: Inspector-Fenster öffnen/schließen (Geräte-Bar, Strg+I, Kontextmenü). */
   toggleInspector: () => void;
   closeInstrument: (id: string) => void;
@@ -364,7 +366,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       d.notes = d.notes.filter((n) => !sel.has(n.id));
       d.probes = d.probes.filter((pr) => !sel.has(pr.id));
     });
-    set({ selection: [] });
+    // W29: an gelöschte Instanzen gebundene Gerätefenster (Oszi) schließen.
+    set((s) => ({
+      selection: [],
+      instruments: s.instruments.filter((w) => !(w.instanceId && sel.has(w.instanceId))),
+    }));
   },
 
   rotateSelection: (dir = 1) => {
@@ -675,7 +681,38 @@ export const useEditor = create<EditorState>((set, get) => ({
   setToast: (t) => set({ toast: t }),
   clearToast: () => set({ toast: null }),
 
-  openInstrument: (kind) => {
+  openInstrument: (kind, opts) => {
+    // W29: Oszi-Fenster sind an ein Schaltsymbol auf dem Plan gebunden
+    // (Doppelklick). Pro Instanz genau ein Fenster; entkoppelte Oszi-Fenster
+    // gibt es nicht mehr.
+    if (kind === "scope" && opts?.instanceId) {
+      const bound = get().instruments.find((i) => i.kind === "scope" && i.instanceId === opts.instanceId);
+      if (bound) {
+        get().focusInstrument(bound.id);
+        set((s) => ({ instruments: s.instruments.map((w) => (w.id === bound.id ? { ...w, minimized: false, title: opts.title ?? w.title } : w)) }));
+        return;
+      }
+      const count = get().instruments.length;
+      set((s) => ({
+        instruments: [
+          ...s.instruments,
+          {
+            id: "w_" + opts.instanceId,
+            kind,
+            title: opts.title ?? "Oszilloskop",
+            x: 180 + count * 34,
+            y: 110 + count * 28,
+            w: 920,
+            h: 640,
+            z: 10 + count,
+            minimized: false,
+            config: {},
+            instanceId: opts.instanceId,
+          },
+        ],
+      }));
+      return;
+    }
     const titles: Record<InstrumentKind, string> = {
       dmm: "Digitalmultimeter",
       scope: "4-Kanal Oszilloskop",
@@ -856,7 +893,11 @@ export const useEditor = create<EditorState>((set, get) => ({
         past: [],
         future: [],
         // Geräte gehören zum Projekt: Oszi & Co. überleben den Reload.
-        instruments: Array.isArray(stored.instruments) ? (stored.instruments as InstrumentWindow[]) : [],
+        // W29: entkoppelte Oszi-Fenster alter Projekte verwerfen – das Oszi
+        // gibt es nur noch als gebundenes Schaltsymbol (Doppelklick).
+        instruments: Array.isArray(stored.instruments)
+          ? (stored.instruments as InstrumentWindow[]).filter((w) => !(w.kind === "scope" && !w.instanceId))
+          : [],
         lastSavedAt: stored.savedAt ? new Date(stored.savedAt).getTime() : null,
       });
       get().refreshNets();

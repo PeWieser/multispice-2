@@ -1645,6 +1645,12 @@ export default function Canvas() {
     if (hit) {
       st.setSelection([hit.id]);
       const part = PART_MAP[hit.partId];
+      if (part?.id === "oscilloscope") {
+        // W29: Doppelklick auf das Oszi-Symbol öffnet das gebundene
+        // Gerätefenster (Kanäle kommen aus der Verdrahtung an CH1…CH4/GND).
+        useEditor.getState().openInstrument("scope", { instanceId: hit.id, title: `Oszilloskop ${hit.label}` });
+        return;
+      }
       const key = part?.params[0]?.key;
       if (key && e.altKey) {
         // Alt+Doppelklick: Inline-Wertedit direkt auf der Fläche (Direct Manipulation).
