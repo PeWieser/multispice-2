@@ -850,3 +850,71 @@ Verifikation: tsc ✔ · eslint ✔ · Dauertest (Import/Sim/Kongruenz: 410 Teil
   Trigger-Quelle zyklisch CH1–4 (mit „(offen)“-Hinweis); Mess-Overlay nur bei
   verbundenem aktiven Kanal; Brand „200 MHz · 2 GS/s · 4 CH“; Footer-Hinweis
   erklärt die Verdrahtung am Symbol. Keine Dropdowns mehr.
+
+---
+
+## §15 — Runde 15: oszi v2 (OTX2074) komplett übernommen + main-Synchronisation
+
+**User-Vorgabe:** Das falsche oszi-Paket war im Repo; das richtige (**oszi v2**,
+„OSZITRON OTX2074") ist jetzt auf main (als Upload, der main auf einen neuen
+Root-Commit stellte). Auftrag: (1) aktuellen Stand auf main pushen — aber erst
+NACH der Umsetzung; (2) oszi v2 **komplett** übernehmen, funktional wie optisch;
+(3) einzige erlaubte Änderungen: **USB-Port löschen** und **Anschlüsse ändern**
+(kein Kabel, wenn nicht angeschlossen); (4) ein echtes Oszi zeichnet auch ohne
+Signal eine **0-V-Kurve**.
+
+**Ask-User-Entscheidungen (bindend):**
+1. Testbench (Demo-Kippstufe, Funktionsgenerator, TP1–4): **weglassen** —
+   Signale kommen ausschließlich aus der Schaltung (Verdrahtung an CH1–CH4/GND).
+2. Tastkopf-Handling (BNC-Klick = aufnehmen, ⎍/⏚-Klemmen): **funktional
+   behalten** — aufgenommen = Kabel abgezogen, Messung pausiert (0 V); zurück
+   auf die BNC = Messung laut Verdrahtung.
+3. Dämpfungsschalter (1X/10X) + Abgleich-Trimmer (saßen am Tastkopf neben der
+   Testbench): **ins CH-Menü** (neue Menüpunkte „Schalter (Tastkopf)" und
+   „Abgleich-Trimmer" mit Mehrzweckknopf).
+
+**W30 — Port oszi v2 → src/components/oszi2/ (+ Adapter OsziScope.tsx):**
+- 1:1 übernommen: types/signals/engine/render/menus/Knob/Button/HelpOverlay/
+  Oscilloscope (4 CH, 15×8-Raster, Boot-Animation, Netzschalter, Softkeys,
+  Menüs, Measure×16+Statistik, Cursor, Math, FFT (4 Fenster), Ref R1/R2,
+  Zoom, Search/Mark, Acquire (Sample/Peak/Average/HiRes/XY/Roll), Trigger
+  (Holdoff, Netz-50 Hz-Quelle, Force, 50 %), Display (Persistenz, Intensität,
+  Rasterstile, Punkte/Vektoren, Backlight, Uhr), Save (PNG/CSV/Setup),
+  Selbstkalibrierung, Systeminfo, Rauschsimulation, Tastkopf-Filterketten
+  (Kompensation, 1X-Bandbreite, 20 MHz-BW-Limit), Autoset, Screen 800×480).
+- Änderungen nur laut Vorgabe/Entscheidungen: USB-Port entfernt; Anschlüsse =
+  Verdrahtung (BNC zeigt Stecker+Kabel nur bei verbundenem Kanal; offen =
+  nackte Buchse + „offen"-Label); Testbench entfällt (sourceValue zieht die
+  Netzspannung via env.sampler aus der Multispice-Engine; GND-Pin ≠ 0 →
+  Differenzmessung); Dämpfung/Abgleich im CH-Menü; Anleitungstexte an die
+  Schaltungs-Verdrahtung angepasst.
+- Zeitebenen: Akquise/Trigger/Autoset laufen in **Simulationszeit**
+  (engine.lastState.time, inkl. Reset-Resync), UI-Timer (Boot, Meldungen,
+  Kalibrierung, Persistenz-Abklingen) in Wall-Time.
+- Zustand: Settings + Tastkopf-Physik (atten/comp) persistieren debounced pro
+  Gerätefenster in win.config.scope ({v:3,…}); alte R13/R14-Configs werden
+  verworfen (Sanitize-Merge gegen defaultSettings). Gerät-interner
+  Setup-Speicher (localStorage „otx2074-setup") bleibt wie im Original.
+- 0-V-Kurve: Kanal EIN ohne Leitung → target null → channelRaw = 0 → flache
+  Linie mit Grundrauschen (wie ein echtes Oszi ohne Signal).
+- Adapter: Fit-Skalierung (1420 px-Chassis auf Fensterbreite), Labortisch-
+  Hintergrund, „Tastkopf in der Hand"-Banner, Escape-Handling.
+- CSS: oszi-v2-Klassen (case/bezel/panel/bnc/knob/sk-btn/power-btn …) unter
+  `.otx-scope` gescoped in globals.css (Kollision mit `.panel` vermieden).
+- react-hooks-Konformität: Ref-Writes (sRef/refsRef/itemsRef/turnRef) in
+  Effekte verlegt; Boot-Guard von Refs auf State (power/booting) umgestellt;
+  ref-lesende Handler direkt als Event-Handler statt via guard-Factory.
+- Alter v1-Port entfernt: src/components/oszi/ + Wurzel-Paket oszi/ (falsches
+  Paket, durch oszi v2 ersetzt); Toolbar.tsx/LeftSidebar.tsx (vom main-Upload
+  wiederbelebt, stammen aus dem Vorknob-Design) wieder entfernt;
+  tsconfig.exclude/eslint-Ignores auf „oszi v2" umgestellt.
+- editor.ts: scope-Fenster-Default 1500×980 (Chassis-Breite 1420 + Luft).
+
+**Main-Synchronisation:** origin/main war ein fremder Root-Commit (Upload =
+alter main-Stand 79aeb89 + oszi v2 + reference/src, ohne die Runden 3–14).
+Merge mit `--allow-unrelated-histories -X ours` → unser Stand gewinnt, Upload-
+Neuzugänge (oszi v2) kommen dazu; danach Push auf arena **und main**.
+
+Verifikation: tsc ✔ · eslint ✔ · Dauertest (Import/Sim/Kongruenz 410 Teile,
+2097 Pins) PASS ✔ · next build ✔ (/, /_not-found, /apple-icon.png,
+/apple-icon1.png, /icon.svg).

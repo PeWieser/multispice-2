@@ -736,7 +736,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       return;
     }
     const sizes: Partial<Record<InstrumentKind, { w: number; h: number }>> = {
-      scope: { w: 920, h: 640 }, // W24: SkeuoTek-Chassis braucht Platz
+      scope: { w: 1500, h: 980 }, // W30: OTX2074-Chassis (1420 px breit) braucht Platz
       bode: { w: 600, h: 430 },
       logic: { w: 640, h: 420 },
       logicconv: { w: 480, h: 500 },
