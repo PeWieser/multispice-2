@@ -1114,7 +1114,7 @@ add({
   mount: "THT",
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30, 0, -14, 0), CIR(-14, 0, 3), L(-12, -2, 14, -14), CIR(14, 0, 3), L(14, 0, 30, 0)],
+  symbol: [L(-30, 0, -14, 0), L(14, 0, 30, 0)], // W27: Hebel + Lagerpunkte zeichnet das Canvas-Overlay (Ref-2-Stil)
   params: [
     { key: "closed", label: "Geschlossen", type: "bool", def: false },
     { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
@@ -6029,6 +6029,98 @@ add({
 
 
 /* -------------------------- registry API -------------------------- */
+
+/* ================= W25: Raster-Normalisierung =================
+ * Jeder Anschlusspunkt muss exakt auf dem GRID(10) liegen, damit Drähte
+ * ohne sichtbaren Versatz andocken. Pro Pin-Seite (gleicher x-Wert) werden
+ * Off-Grid-Pins auf eine einheitliche 20er-Teilung zentriert; Einzelpins
+ * runden nach außen aufs 10er-Raster. Bereits rasterige Gruppen bleiben
+ * unangetastet. Symbol-Stub-Enden, Stub-Ansätze und Pin-Beschriftungen
+ * wandern exakt mit, IC-Bodies wachsen bei Bedarf. Quelle der Wahrheit
+ * bleibt der Pin (W3-Kongruenz bleibt gewahrt). */
+{
+  const r10 = (v: number) => Math.sign(v) * Math.round(Math.abs(v) / 10) * 10;
+  const out10 = (v: number) => (v === 0 ? 0 : Math.sign(v) * Math.max(10, Math.ceil(Math.abs(v) / 10 - 1e-9) * 10));
+  const near = (a: number, b: number) => Math.abs(a - b) <= 0.51;
+  for (const part of parts) {
+    const pins = part.pins ?? [];
+    if (!pins.length) continue;
+    const moves: Array<{ ox: number; oy: number; nx: number; ny: number }> = [];
+    const byX = new Map<number, PinDef[]>();
+    for (const pin of pins) {
+      const arr = byX.get(pin.x) ?? [];
+      arr.push(pin);
+      byX.set(pin.x, arr);
+    }
+    for (const group of byX.values()) {
+      const nx = out10(group[0].x);
+      if (group.length === 1) {
+        const q = group[0];
+        const ny = q.y % 10 === 0 ? q.y : out10(q.y);
+        if (nx !== q.x || ny !== q.y) moves.push({ ox: q.x, oy: q.y, nx, ny });
+      } else {
+        const sorted = [...group].sort((a, b) => a.y - b.y);
+        const gridOk = sorted.every((q) => q.y % 10 === 0);
+        sorted.forEach((q, i) => {
+          let ny = q.y;
+          if (!gridOk) {
+            const center = (sorted[0].y + sorted[sorted.length - 1].y) / 2;
+            const off = r10(center);
+            ny = off + (i - (sorted.length - 1) / 2) * 20;
+          }
+          if (nx !== q.x || ny !== q.y) moves.push({ ox: q.x, oy: q.y, nx, ny });
+        });
+      }
+    }
+    if (!moves.length) continue;
+    for (const q of pins) {
+      const m = moves.find((mv) => near(mv.ox, q.x) && near(mv.oy, q.y));
+      if (m) { q.x = m.nx; q.y = m.ny; }
+    }
+    for (const prim of part.symbol) {
+      if (prim.t === "line") {
+        for (let i = 0; i + 1 < prim.pts.length; i += 2) {
+          const ex = prim.pts[i], ey = prim.pts[i + 1];
+          const exact = moves.find((mv) => near(mv.ox, ex) && near(mv.oy, ey));
+          if (exact) { prim.pts[i] = exact.nx; prim.pts[i + 1] = exact.ny; continue; }
+          // Stub-Ansatz an der Body-Kante: teilt das alte Pin-y, gleiche Seite
+          // (bei Mittellinien-Pins x=0 zählen Endpunkte beider Seiten)
+          const edge = moves.find(
+            (mv) => near(mv.oy, ey) &&
+              (mv.ox === 0
+                ? Math.abs(ex) <= 25
+                : Math.sign(ex) === Math.sign(mv.ox) &&
+                  Math.abs(ex) <= Math.abs(mv.ox) && Math.abs(mv.ox) - Math.abs(ex) <= 25),
+          );
+          if (edge) prim.pts[i + 1] = ey + (edge.ny - edge.oy);
+        }
+      } else if (prim.t === "text") {
+        // Pin-Beschriftungen sitzen auf (Kante ±6, pin.y + 3)
+        if (Math.abs(prim.x) >= 12) {
+          const m = moves.find(
+            (mv) => near(mv.oy + 3, prim.y) && Math.sign(prim.x) === Math.sign(mv.ox) &&
+              Math.abs(prim.x) <= Math.abs(mv.ox),
+          );
+          if (m) prim.y += m.ny - m.oy;
+        }
+      } else if (prim.t === "circle" || prim.t === "arc") {
+        const m = moves.find((mv) => near(mv.ox, prim.x) && near(mv.oy, prim.y));
+        if (m) { prim.x = m.nx; prim.y = m.ny; }
+      }
+    }
+    // Body-Rechtecke wachsen, wenn Pins über Ober-/Unterkannte hinausragen
+    for (const prim of part.symbol) {
+      if (prim.t !== "rect" || prim.w < 16 || prim.h < 20) continue;
+      const cy = prim.y + prim.h / 2;
+      let need = 0;
+      for (const q of pins) need = Math.max(need, Math.abs(q.y - cy) + 8);
+      if (need > prim.h / 2) {
+        prim.h = Math.ceil(need) * 2;
+        prim.y = cy - prim.h / 2;
+      }
+    }
+  }
+}
 
 export const PARTS: PartDef[] = parts;
 export const PART_MAP: Record<string, PartDef> = Object.fromEntries(parts.map((p2) => [p2.id, p2]));

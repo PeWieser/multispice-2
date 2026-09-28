@@ -2601,7 +2601,7 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
   } catch {}
   ctx.save(); ctx.translate(inst.x, inst.y); ctx.rotate((inst.rot*Math.PI)/180); if (inst.mirror) ctx.scale(-1,1);
   const stroke=selected?css("--wire-sel","#fbbf24"):css("--symbol","#dbe4f7");
-  ctx.strokeStyle=stroke; ctx.fillStyle=stroke; ctx.lineWidth=1.7; ctx.lineJoin="round"; ctx.lineCap="round";
+  ctx.strokeStyle=stroke; ctx.fillStyle=stroke; ctx.lineWidth=1.3; ctx.lineJoin="round"; ctx.lineCap="round"; // W27: dünnere Tinte wie die Referenz
   if (live && (part.interactive==="led" || part.interactive==="lamp")) {
     const i=Math.abs(live.currents[inst.label]??0); const bright=Math.min(1,i/0.015);
     if (bright>0.02) {
@@ -2693,11 +2693,18 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
   }
   for (const prim of sym) drawPrim(ctx, prim);
   ctx.fillStyle=css("--pin","#64748b");
-  for (const pin of part.pins){ ctx.beginPath(); ctx.arc(pin.x,pin.y,2.4,0,Math.PI*2); ctx.fill(); }
+  for (const pin of part.pins){ ctx.beginPath(); ctx.arc(pin.x,pin.y,1.5,0,Math.PI*2); ctx.fill(); } // W27: dezente Pin-Punkte
   if (part.interactive==="switch" || part.interactive==="button") {
+    // W27: Ref-2-Schalter – dünner Hebel, gefüllte Lagerpunkte, neutrale Tinte
     const closed=(engine.controls[inst.label] ?? (inst.params.closed?1:0))>0.5;
-    ctx.strokeStyle=closed?css("--ok","#34d399"):css("--text-mute","#64708c"); ctx.lineWidth=2.2;
-    ctx.beginPath(); if (closed){ ctx.moveTo(-12,0); ctx.lineTo(12,0); } else { ctx.moveTo(-12,-2); ctx.lineTo(12,-12); } ctx.stroke();
+    ctx.strokeStyle=css("--symbol","#1c1f22"); ctx.lineWidth=1.3; ctx.lineCap="round";
+    ctx.beginPath();
+    if (closed){ ctx.moveTo(-14,0); ctx.lineTo(14,0); }
+    else { ctx.moveTo(-14,0); ctx.lineTo(11,-10); }
+    ctx.stroke();
+    ctx.fillStyle=css("--symbol","#1c1f22");
+    ctx.beginPath(); ctx.arc(-14,0,1.8,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(14,0,1.8,0,Math.PI*2); ctx.fill();
   }
   if (part.interactive==="pot") {
     const pos=engine.controls[inst.label] ?? Number(inst.params.pos??0.5);
@@ -2707,8 +2714,8 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
   if ((inst as any).fault && (inst as any).fault !== "none") {
     ctx.save();
     const fault = (inst as any).fault;
-    ctx.strokeStyle = fault === "open" ? "#fbbf24" : fault === "short" ? "#ef4444" : "#a78bfa";
-    ctx.lineWidth = 2;
+      ctx.strokeStyle = fault === "open" ? css("--warn","#a87a12") : fault === "short" ? css("--err","#b3372c") : css("--accent-3","#7a4fa3");
+      ctx.lineWidth = 1.4;
     ctx.setLineDash([3,3]);
     const b = { x: -20, y: -14, w: 40, h: 28 };
     ctx.strokeRect(b.x, b.y, b.w, b.h);

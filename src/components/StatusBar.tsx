@@ -101,17 +101,17 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
             min={-4}
             max={1}
             step={0.05}
-            value={Math.log10(timeScale)}
+            value={Math.abs(Math.log10(timeScale)) < 0.09 ? 0 : Math.log10(timeScale)}
             onChange={(e) => {
               // W9: Rastpunkt bei 1× – Normalgeschwindigkeit muss spürbar einrasten.
               const v = Number(e.target.value);
-              setSimOption("timeScale", Math.abs(v) < 0.07 ? 1 : Math.pow(10, v));
+              // W28: breiterer Rastpunkt – 1× muss spürbar einrasten
+              setSimOption("timeScale", Math.abs(v) < 0.09 ? 1 : Math.pow(10, v));
             }}
             title="Simulationsgeschwindigkeit – rastet bei 1× ein"
           />
-          <span className="pointer-events-none absolute left-[80%] top-1/2 h-2 w-px -translate-y-1/2" style={{ background: "var(--text-mute)" }} />
         </span>
-        <span className="mono w-12">{timeScale >= 1 ? `${timeScale.toFixed(1)}×` : `1/${Math.round(1 / timeScale)}×`}</span>
+        <span className="mono w-12">{timeScale === 1 ? "1×" : timeScale > 1 ? `${timeScale.toFixed(1)}×` : `1/${Math.round(1 / timeScale)}×`}</span>
       </span>
 
       <span className="mono hidden shrink-0 sm:inline">x {Math.round(cursor.x)} · y {Math.round(cursor.y)}</span>

@@ -458,7 +458,8 @@ export default function LibraryPalette() {
           <input
             id="lib-search"
             autoFocus
-            className="input pl-7 pr-7 h-8 text-[12px]"
+            className="input h-8 text-[12px]"
+            style={{ paddingLeft: 28, paddingRight: 28 }}
             placeholder="Suchen: 'r 10k', 'nmos', '555' – / zum Fokussieren"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

@@ -721,3 +721,75 @@ W20–W23 FERTIG. Zusätzlich: `oszi/` (Main-Upload ec3997d) in tsconfig/eslint
 ignoriert; zentrale Probe-Farbquelle `src/lib/probe-style.ts` (Token-Mapping +
 Legacy-Neon-Migration). Verifikation: tsc ✔ · eslint ✔ · Dauertest 2092/2092
 PASS ✔ · next build ✔ (alle fünf Routen).
+
+---
+
+## §13 — Runde 13: oszi-Übernahme + Raster + Routing + Symbol-Optik
+
+User-Feedback: (1) das eigene `oszi/`-Projekt 1:1 als Oszilloskop übernehmen
+(ohne USB-Anschluss/BNC-Reihe und ohne Demo-Testschaltung) und das aktuelle
+Scope ersetzen · (2) Bauteile/Pins liegen nicht immer auf dem Raster ·
+(3) Leitungen beim Bauteil-Verschieben nur im 90°-Winkel erweitern, ohne
+Überlappung · (4) Symbol-/Schalter-Optik der Referenzen übernehmen ·
+(5) Library-Suche überlappt mit dem Such-Icon · (6) Speed-Regler rastet nicht
+bei 1× und hat einen hässlichen Strich.
+
+**W24 — oszi 1:1 (SkeuoTek-Chassis).** `oszi/src` → `src/components/oszi/`
+(Knob, PushButton, ScopeScreen, units; cn ohne clsx/tailwind-merge).
+ScopeScreen bekommt statt `signalAt(circuit,…)` einen `sample(ch,t)`-Adapter
+über `engine.channel(net,…)` mit Interpolation; Zeitbasis = Simulationszeit.
+DemoBoard (Testschaltung), BNC-Reihe und Demo-Footer entfallen. Dafür:
+Netz-Quellwahl CH1/CH2 im Vertical-Block. Altes Oscilloscope-Instrument wird
+ersetzt; Fenster-Default 640×460 → 900×640.
+
+**W25 — Raster-Normalisierung (1095 Off-Grid-Pins in 158 Teilen).**
+Generischer Post-Pass am Ende von catalog.ts: Pins pro Seite auf 20er-Teilung
+neu zentrieren (einzeln: nach außen auf 10er), Symbol-Stub-Enden und
+Pin-Beschriftungen wandern exakt mit, IC-Bodies wachsen bei Bedarf.
+Ergebnis: jeder Pin liegt auf einem GRID(10)-Punkt — Drähte andocken ohne
+Versatz. Kongruenz-Dauertest muss PASS bleiben.
+
+**W26 — Orthogonales Mitführen beim Verschieben.** moveSelection: Leitungen,
+die mit einem Ende an einem bewegten Pin hängen, werden rechtwinklig
+nachgezogen — vorhandene Knickpunkte werden neu positioniert statt
+aufgestapelt; neue L-Knicke wählen die Variante, die keine fremden
+Bauteil-BBoxen schneidet („intelligent").
+
+**W27 — Symbol-Optik der Referenz.** Strichstärke 1.7 → 1.3 (Prims-Vorbild
+1.2), Pin-Punkte kleiner/dezenter, Schalter-Overlay wie Ref-2 (dünner Hebel,
+zwei gefüllte Lagerpunkte, neutrale Tinte — Zustand über Hebelwinkel),
+Fehler-Markierungen auf Token-Farben, Drähte etwas dünner.
+
+**W28 — Kleinkram.** Library-Suche: Padding per Inline-Style (.input-CSS
+sticht Tailwind-Klasse aus) · Statusleisten-Speed: Rastpunkt 1× greift
+verlässlich, hässlicher Strich entfernt, Anzeige „1×".
+
+Verifikation: tsc · eslint · Dauertest (Pin-Kongruenz + Off-Grid-Scan = 0) ·
+next build.
+
+### §13.1 — Umsetzung, Stand 2026-09-28
+
+W24–W28 FERTIG.
+- W24: `src/components/oszi/` (Knob, PushButton, ScopeScreen, units – 1:1-Port)
+  + `src/components/OsziScope.tsx` (SkeuoTek-Chassis, Engine-Adapter mit
+  Interpolation + Frequenzschätzung, Netz-Wahl je Kanal, Autoset aus echten
+  Daten). DemoBoard/BNC-Reihe/Demo-Footer entfernt. Altes Oscilloscope inkl.
+  SkeuKnob/CrtScreen/TactileButton/ScopeConfig raus; Fenster-Default 920×640.
+  Alte Scope-Configs werden migriert (timebase/volts → TIME_DIV/VOLT_DIV).
+- W25: Raster-Pass im Katalog – Off-Grid-Pins 1095 → **0**; IC-Pins auf
+  einheitliche 20er-Teilung, Stub-Enden/Beschriftungen wandern mit, Bodies
+  wachsen. Kongruenz-Dauertest PASS.
+- W26: `src/lib/schematic/ortho.ts` – orthoFollow(): Knicke neu positionieren
+  statt stapeln, L-Wahl meidet fremde Bauteil-BBoxen; in moveSelection
+  eingehängt (Hindernis-BBoxen mit 6 px Luft).
+- W27: Symbolstrich 1.7→1.3, Pin-Punkte 2.4→1.5, Ref-2-Schalteroverlay
+  (dünner Hebel + Lagerpunkte, neutrale Tinte), switch_spst-Symbol reduziert,
+  Fehler-Markierungen auf Token-Farben.
+- W28: Library-Suche Padding inline (Icon-Überlappung weg), Speed-Regler:
+  Strich entfernt, Rastbereich |log10|<0.09, Anzeige „1×".
+- Bonus: simtest „RC -3dB" griff zum falschen Sweep-Bin (178 Hz statt 158 Hz)
+  – nächstgelegener Punkt im log-Abstand; Fail war vorbestehend (stille Toleranz-
+  überschreitung seit früheren Runden), jetzt grün.
+
+Verifikation: tsc ✔ · eslint ✔ · Dauertest (Import/Sim/Kongruenz) PASS ✔ ·
+next build ✔ (/, /_not-found, /apple-icon.png, /apple-icon1.png, /icon.svg).

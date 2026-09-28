@@ -46,7 +46,10 @@ const acnl = nl([
   { id: "C1", type: "C", nodes: ["out", "0"], params: { c: 1e-6 } },
 ]);
 const ac = runAcSweep(acnl, {}, { start: 1, stop: 1e5, points: 20, type: "dec" }, ["out"]);
-const i159 = ac.freq.findIndex((f) => f >= 159);
+// Nächstgelegener Sweep-Punkt zur Eckfrequenz im logarithmischen Abstand
+// (findIndex(f>=159) griff zum nächsten OBEREN Bin ≈178 Hz → −3,5 dB).
+const fc = 1 / (2 * Math.PI * 1000 * 1e-6);
+const i159 = ac.freq.reduce((best, f, i) => (Math.abs(Math.log(f / fc)) < Math.abs(Math.log(ac.freq[best] / fc)) ? i : best), 0);
 check("RC -3dB", ac.magDb["out"][i159], -3, 0.5);
 
 // 5. BJT common emitter bias

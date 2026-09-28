@@ -17,6 +17,7 @@ import {
   pinPosition,
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
+import { orthoFollow } from "@/lib/schematic/ortho";
 import { RealtimeEngine } from "@/lib/sim/realtime";
 import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
 import { loadLibraryLocal, loadProjectLocal, saveLibraryLocal, saveProjectLocal } from "@/lib/storage";
@@ -400,6 +401,13 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
     const onMovedPin = (p: { x: number; y: number }) =>
       movedPins.some((mp) => Math.abs(mp.x - p.x) <= 2 && Math.abs(mp.y - p.y) <= 2);
+    // W26: BBoxen nicht bewegter Bauteile (mit Luft) = Hindernisse für die Knickwahl
+    const obstacles: Array<{ x: number; y: number; w: number; h: number }> = [];
+    for (const inst of st0.doc.instances) {
+      if (sel.has(inst.id)) continue;
+      const b = instanceBounds(inst);
+      obstacles.push({ x: b.x - 6, y: b.y - 6, w: b.w + 12, h: b.h + 12 });
+    }
     get().commit((d) => {
       for (const i of d.instances) if (sel.has(i.id)) {
         i.x += dx;
@@ -421,14 +429,10 @@ export const useEditor = create<EditorState>((set, get) => ({
         } else if (fHit || lHit) {
           const pts = w.points.map((p) => ({ x: p.x, y: p.y }));
           const idx = fHit ? 0 : pts.length - 1;
-          const anchor = pts[idx];
-          pts[idx] = { x: anchor.x + dx, y: anchor.y + dy };
-          // Orthogonal bleibt orthogonal: Einzelsegment bekommt einen L-Knick.
-          if (pts.length === 2 && dx !== 0 && dy !== 0 && (anchor.x === pts[1 - idx].x || anchor.y === pts[1 - idx].y)) {
-            const other = pts[1 - idx];
-            const bend = anchor.y === other.y ? { x: other.x, y: pts[idx].y } : { x: pts[idx].x, y: other.y };
-            pts.splice(1, 0, bend);
-          }
+          pts[idx] = { x: pts[idx].x + dx, y: pts[idx].y + dy };
+          // W26: rechtwinklig nachziehen – Knicke neu positionieren statt
+          // aufzustapeln, L-Variante ohne Schnitt mit fremden Bauteilen.
+          orthoFollow(pts, idx, obstacles);
           w.points = pts;
         }
       }
@@ -695,7 +699,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       return;
     }
     const sizes: Partial<Record<InstrumentKind, { w: number; h: number }>> = {
-      scope: { w: 640, h: 460 },
+      scope: { w: 920, h: 640 }, // W24: SkeuoTek-Chassis braucht Platz
       bode: { w: 600, h: 430 },
       logic: { w: 640, h: 420 },
       logicconv: { w: 480, h: 500 },
