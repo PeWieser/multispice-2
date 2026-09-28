@@ -1,0 +1,9 @@
+# Cloudflare Pages headers (copied into out/ during the static build)
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/_headers
+  Cache-Control: public, max-age=0, must-revalidate
