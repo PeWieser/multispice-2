@@ -49,13 +49,13 @@ function Sparkline({ data }: { data: number[] }) {
     }
     const span = max - min || 1;
     const yOf = (v: number) => h - 3 - ((v - min) / span) * (h - 6);
-    ctx.strokeStyle = "rgba(255,255,255,0.16)";
+    ctx.strokeStyle = css("--border-strong", "#b4b0a8");
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(2, yOf(0));
     ctx.lineTo(w - 2, yOf(0));
     ctx.stroke();
-    ctx.strokeStyle = "#5b8cff";
+    ctx.strokeStyle = css("--accent", "#1f5fd0");
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     data.forEach((v, i) => {
@@ -210,6 +210,45 @@ export default function Canvas() {
       ctx.stroke();
     }
 
+    // ── Runde 11: Blattrand + Titelstempel (Zeichenblatt wie Ref 2) ──
+    if (st.showPageFrame) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const inst of doc.instances) {
+        const b = instanceBounds(inst);
+        minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+        maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
+      }
+      for (const wire of doc.wires) for (const p of wire.points) {
+        minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+      }
+      if (isFinite(minX)) {
+        const pad = 40;
+        minX = Math.floor((minX - pad) / 50) * 50;
+        minY = Math.floor((minY - pad) / 50) * 50;
+        maxX = Math.ceil((maxX + pad) / 50) * 50;
+        maxY = Math.ceil((maxY + pad + 44) / 50) * 50;
+        ctx.strokeStyle = css("--border-strong", "#b4b0a8");
+        ctx.lineWidth = 1.5 / view.zoom;
+        ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+        // Titelstempel unten rechts
+        const tw = 150, th = 36, tx = maxX - tw - 8, ty = maxY - th - 8;
+        ctx.fillStyle = css("--panel-solid", "#fbfaf8");
+        ctx.fillRect(tx, ty, tw, th);
+        ctx.strokeStyle = css("--border-strong", "#b4b0a8");
+        ctx.lineWidth = 1 / view.zoom;
+        ctx.strokeRect(tx, ty, tw, th);
+        ctx.textAlign = "left";
+        ctx.fillStyle = css("--text", "#1c1f22");
+        ctx.font = `600 10px ${getComputedStyle(document.body).fontFamily}`;
+        ctx.fillText(doc.name || "Unbenannt", tx + 6, ty + 13);
+        ctx.font = "8px ui-monospace, monospace";
+        ctx.fillStyle = css("--text-mute", "#8a8f95");
+        ctx.fillText(new Date().toLocaleDateString("de-DE"), tx + 6, ty + 26);
+        ctx.fillText("Blatt 1/1", tx + 90, ty + 26);
+      }
+    }
+
     const netCurrentMap = new Map<string, number>();
     if (live) {
       for (const inst of doc.instances) {
@@ -331,7 +370,7 @@ export default function Canvas() {
       const a = Math.min(Math.abs(v) / 12, 1);
       if (v > 0.15) return `rgb(${Math.round(80 + 175 * a)}, ${Math.round(190 - 90 * a)}, ${Math.round(255 - 180 * a)})`;
       if (v < -0.15) return `rgb(${Math.round(90 - 40 * a)}, ${Math.round(160 + 40 * a)}, 255)`;
-      return "#64748b";
+      return css("--text-mute", "#8a8f95");
     };
 
     // Human Design: Hover highlight for wires – makes editing discoverable
@@ -382,7 +421,7 @@ export default function Canvas() {
       // Wire custom color like Multisim – if set, use it unless selected/hovered
       const customColor = (wire as any).color as string | undefined;
       let color = isSel ? selColor : (isHovered || isNetHovered) ? css("--accent-2","#22d3ee") : (customColor ?? wireColor);
-      if (isBus) color = isSel ? selColor : (isHovered || isNetHovered) ? css("--accent-2","#22d3ee") : (customColor ?? "#a78bfa");
+      if (isBus) color = isSel ? selColor : (isHovered || isNetHovered) ? css("--accent-2","#22d3ee") : (customColor ?? css("--accent-3", "#7a4fa3"));
       if (wire.points.length) {
         const key = `${Math.round(wire.points[0].x)},${Math.round(wire.points[0].y)}`;
         const netName = netResult.pointNets[key];
@@ -471,14 +510,14 @@ export default function Canvas() {
           const msz = (isHoveredMid ? 10 : 6) * iz;
           ctx.save();
           ctx.fillStyle = isHoveredMid ? "#ffffff" : "rgba(255,255,255,0.75)";
-          ctx.strokeStyle = isHoveredMid ? css("--accent-2","#22d3ee") : "rgba(100,116,139,0.8)";
+          ctx.strokeStyle = isHoveredMid ? css("--accent-2","#22d3ee") : css("--text-mute", "#8a8f95");
           ctx.lineWidth = 1.2 * iz;
           ctx.beginPath();
           ctx.arc(mx, my, msz/2, 0, Math.PI*2);
           ctx.fill();
           ctx.stroke();
           // plus icon
-          ctx.strokeStyle = isHoveredMid ? css("--accent-2","#22d3ee") : "#475569";
+          ctx.strokeStyle = isHoveredMid ? css("--accent-2","#22d3ee") : css("--text-mute", "#8a8f95");
           ctx.lineWidth = 1.2 * iz;
           ctx.beginPath();
           ctx.moveTo(mx - msz*0.25, my);
@@ -509,7 +548,7 @@ export default function Canvas() {
           const dir = flow.dir;
           const offset = (((flowState._flowPhase ?? 0) * speed * 0.001 * dir) % totalLen + totalLen) % totalLen;
           const count = Math.max(1, Math.floor(totalLen / 60));
-          ctx.fillStyle = css("--mute", "#94a3b8");
+          ctx.fillStyle = css("--text-mute", "#94a3b8");
           for (let d = 0; d < count; d++) {
             const pos = (offset + (d * totalLen) / count) % totalLen;
             const pt = pointAtLength(wire.points, pos);
@@ -583,7 +622,7 @@ export default function Canvas() {
         const pad = 4*iz;
         const h = 14*iz;
         // Use voltage color
-        const col = v > 0.5 ? "#22d3ee" : v < -0.5 ? "#f87171" : "#94a3b8";
+        const col = v > 0.5 ? css("--accent", "#1f5fd0") : v < -0.5 ? css("--err", "#b3372c") : css("--text-mute", "#8a8f95");
         ctx.fillStyle = "rgba(13,16,23,0.85)";
         ctx.strokeStyle = col + "60";
         ctx.lineWidth = 1*iz;
@@ -616,7 +655,7 @@ export default function Canvas() {
         const tw = ctx.measureText(txt).width;
         const pad = 3*iz;
         const h = 12*iz;
-        const col = Math.abs(cur) > 0.01 ? "#fbbf24" : "#94a3b8";
+        const col = Math.abs(cur) > 0.01 ? css("--warn", "#a87a12") : css("--text-mute", "#8a8f95");
         ctx.fillStyle = "rgba(13,16,23,0.85)";
         ctx.strokeStyle = col + "50";
         ctx.lineWidth = 1*iz;
@@ -661,7 +700,7 @@ export default function Canvas() {
           }
         }
         // Draw red error marker
-        ctx.fillStyle = "rgba(239,68,68,0.9)";
+        ctx.fillStyle = css("--err", "#b3372c");
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.5*iz;
         ctx.beginPath();
@@ -674,7 +713,7 @@ export default function Canvas() {
         ctx.fillText("!", mx, my + 3.5*iz);
         // Label
         ctx.font = `${9*iz}px ui-sans-serif`;
-        ctx.fillStyle = "#ef4444";
+        ctx.fillStyle = css("--err", "#b3372c");
         ctx.textAlign = "left";
         ctx.fillText(err.slice(0, 40), mx + 12*iz, my + 3*iz);
       }
@@ -689,7 +728,7 @@ export default function Canvas() {
             break;
           }
         }
-        ctx.fillStyle = "rgba(245,158,11,0.9)";
+        ctx.fillStyle = css("--warn", "#a87a12");
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.2*iz;
         ctx.beginPath();
@@ -735,13 +774,13 @@ export default function Canvas() {
             ctx.fill();
           }
           // Red border
-          ctx.strokeStyle = "rgba(239,68,68,0.9)";
+          ctx.strokeStyle = css("--err", "#b3372c");
           ctx.lineWidth = 2*iz;
           ctx.setLineDash([4*iz,3*iz]);
           ctx.strokeRect(b.x - 2*iz, b.y - 2*iz, b.w + 4*iz, b.h + 4*iz);
           ctx.setLineDash([]);
           // Tooltip
-          ctx.fillStyle = "#ef4444";
+          ctx.fillStyle = css("--err", "#b3372c");
           ctx.font = `bold ${9*iz}px ui-sans-serif`;
           ctx.textAlign = "center";
           ctx.fillText(`⚠ ${formatValue(pwr,"W")} > ${maxP}W`, cx, b.y - 8*iz);
@@ -893,6 +932,49 @@ export default function Canvas() {
     }
 
     ctx.restore();
+
+    // ── Runde 11: Lineale (Screen-Raum, Ref-2-Chrome) ──
+    if (st.showRulers) {
+      const R = 16;
+      ctx.fillStyle = css("--panel-solid", "#fbfaf8");
+      ctx.fillRect(0, 0, w, R);
+      ctx.fillRect(0, 0, R, h);
+      ctx.strokeStyle = css("--border", "#cfccc5");
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, R + 0.5); ctx.lineTo(w, R + 0.5);
+      ctx.moveTo(R + 0.5, 0); ctx.lineTo(R + 0.5, h);
+      ctx.stroke();
+      // Schöner Tick-Schritt: ≥ 48 px Abstand
+      const rawStep = 48 / view.zoom;
+      const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const norm = rawStep / mag;
+      const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+      ctx.fillStyle = css("--text-mute", "#8a8f95");
+      ctx.strokeStyle = css("--text-mute", "#8a8f95");
+      ctx.font = "8px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      for (let wx = Math.floor(view.x / step) * step; wx < view.x + w / view.zoom; wx += step) {
+        const sx = (wx - view.x) * view.zoom;
+        if (sx < R) continue;
+        ctx.beginPath(); ctx.moveTo(sx + 0.5, R - 5); ctx.lineTo(sx + 0.5, R); ctx.stroke();
+        ctx.fillText(String(Math.round(wx)), sx, R - 6);
+      }
+      for (let wy = Math.floor(view.y / step) * step; wy < view.y + h / view.zoom; wy += step) {
+        const sy = (wy - view.y) * view.zoom;
+        if (sy < R) continue;
+        ctx.beginPath(); ctx.moveTo(R - 5, sy + 0.5); ctx.lineTo(R, sy + 0.5); ctx.stroke();
+        ctx.save();
+        ctx.translate(R - 6, sy);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(String(Math.round(wy)), 0, 0);
+        ctx.restore();
+      }
+      ctx.fillStyle = css("--panel-solid", "#fbfaf8");
+      ctx.fillRect(0, 0, R, R);
+      ctx.strokeStyle = css("--border", "#cfccc5");
+      ctx.strokeRect(0.5, 0.5, R - 1, R - 1);
+    }
   }, [cursor, snap]);
 
   useEffect(() => {

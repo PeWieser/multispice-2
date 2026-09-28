@@ -8,111 +8,106 @@
 
 /* ---------- Foundations ---------- */
 :root {
-  /* Typografie: Geist → system-ui Fallback */
-  --font-sans: "Geist", "SF Pro Display", "Inter", system-ui, sans-serif;
-  --font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  /* Typografie: IBM Plex (Ref-1) → System-Fallbacks */
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-/* ---------- Dark (default) ---------- */
+/* ---------- Light (Default) — warmes Zeichenblatt (Runde 11, Ref-1-Tokens) ---------- */
 :root,
-[data-theme="dark"] {
-  /* surface-1 (Hintergrund) → surface-4 (höchstes Panel) */
-  --mw-surface-1: #0b0d12;
-  --mw-surface-2: #11151e;
-  --mw-surface-3: #151a25;
-  --mw-surface-4: #1a2030;
-
-  --mw-bg: #0b0d12;
-  --mw-panel: #11151e;
-  --mw-panel-2: #151a25;
-  --mw-elev: #1a2030;
-
-  --mw-border: rgba(255,255,255,0.07);
-  --mw-border-strong: rgba(255,255,255,0.15);
-
-  --mw-text: #e8ecf5;
-  --mw-text-dim: #9aa5bd;
-  --mw-text-mute: #64708c;
-
-  /* Akzent: nur für Aktives, Fokus, primäre Einladung */
-  --mw-accent: #5b8cff;
-  --mw-accent-soft: rgba(91,140,255,0.12);
-  --mw-accent-mid: rgba(91,140,255,0.28);
-
-  /* Semantic */
-  --mw-ok: #34d399;
-  --mw-warn: #fbbf24;
-  --mw-err: #fb7185;
-
-  /* Shadow (Tiefen, keine Deko) */
-  --mw-shadow-1: 0 1px 3px rgba(0,0,0,0.20);
-  --mw-shadow-2: 0 4px 16px rgba(0,0,0,0.32);
-  --mw-shadow-3: 0 16px 48px rgba(0,0,0,0.48);
-
-  /* Canvas (Rendering-Dokumentation: Ausnahme) */
-  --mw-canvas: #0d1017;
-  --mw-grid: rgba(255,255,255,0.05);
-  --mw-grid-major: rgba(255,255,255,0.10);
-  --mw-wire: #7dd3fc;
-  --mw-wire-sel: #fbbf24;
-  --mw-symbol: #dbe4f7;
-  --mw-pin: #64748b;
-
-  /* Scope-Kanäle */
-  --mw-ch1: #38bdf8;
-  --mw-ch2: #f472b6;
-  --mw-ch3: #4ade80;
-  --mw-ch4: #fbbf24;
-}
-
-/* ---------- Light ---------- */
 [data-theme="light"] {
-  --mw-surface-1: #f4f6fb;
-  --mw-surface-2: #ffffff;
-  --mw-surface-3: #f7f9fd;
-  --mw-surface-4: #eef1f8;
+  --mw-surface-1: #f2f1ee;
+  --mw-surface-2: #fbfaf8;
+  --mw-surface-3: #f3f2ee;
+  --mw-surface-4: #e8e7e3;
 
-  --mw-bg: #f4f6fb;
-  --mw-panel: #ffffff;
-  --mw-panel-2: #f7f9fd;
-  --mw-elev: #eef1f8;
+  --mw-bg: #eceae5;
+  --mw-panel: #fbfaf8;
+  --mw-panel-2: #f3f2ee;
+  --mw-elev: #e8e7e3;
 
-  --mw-border: rgba(12,22,48,0.10);
-  --mw-border-strong: rgba(12,22,48,0.18);
+  --mw-border: #cfccc5;
+  --mw-border-strong: #b4b0a8;
 
-  --mw-text: #121826;
-  --mw-text-dim: #4a5568;
-  --mw-text-mute: #8892a6;
+  --mw-text: #1c1f22;
+  --mw-text-dim: #5c6167;
+  --mw-text-mute: #8a8f95;
 
-  --mw-accent: #2563eb;
-  --mw-accent-soft: rgba(37,99,235,0.10);
-  --mw-accent-mid: rgba(37,99,235,0.24);
+  /* Semantik: blau = Auswahl/primär, amber = Warnung, rot = Fehler, grün = OK */
+  --mw-accent: #1f5fd0;
+  --mw-accent-soft: #dce6fa;
+  --mw-accent-mid: rgba(31,95,208,0.28);
 
-  --mw-ok: #059669;
-  --mw-warn: #b45309;
-  --mw-err: #e11d48;
+  --mw-ok: #2e7a4f;
+  --mw-warn: #a87a12;
+  --mw-err: #b3372c;
 
-  --mw-shadow-1: 0 1px 3px rgba(20,30,60,0.06);
-  --mw-shadow-2: 0 4px 16px rgba(20,30,60,0.10);
-  --mw-shadow-3: 0 16px 44px rgba(20,30,60,0.14);
+  --mw-shadow-1: 0 1px 2px rgba(28,31,34,0.08);
+  --mw-shadow-2: 0 2px 6px rgba(28,31,34,0.12);
+  --mw-shadow-3: 0 12px 28px rgba(28,31,34,0.18), 0 2px 6px rgba(28,31,34,0.12);
 
-  --mw-canvas: #fbfcfe;
-  --mw-grid: rgba(20,30,60,0.07);
-  --mw-grid-major: rgba(20,30,60,0.13);
-  --mw-wire: #0369a1;
-  --mw-wire-sel: #b45309;
-  --mw-symbol: #16203a;
-  --mw-pin: #94a3b8;
+  /* Zeichenblatt: Papier-Canvas, feines Raster, Tinten-Symbole, blaue Drähte */
+  --mw-canvas: #f7f6f2;
+  --mw-grid: #dcdad4;
+  --mw-grid-major: #c4c1b9;
+  --mw-wire: #1f5fd0;
+  --mw-wire-sel: #c77a16;
+  --mw-symbol: #1c1f22;
+  --mw-pin: #5c6167;
 
-  --mw-ch1: #0284c7;
-  --mw-ch2: #db2777;
-  --mw-ch3: #16a34a;
-  --mw-ch4: #d97706;
+  /* Trace-Palette (Ref 1): blau, amber, grün, rot */
+  --mw-ch1: #1f5fd0;
+  --mw-ch2: #c77a16;
+  --mw-ch3: #2e7a4f;
+  --mw-ch4: #b3372c;
 }
+/* ---------- Dark (Option) ---------- */
+[data-theme="dark"] {
+  --mw-surface-1: #202427;
+  --mw-surface-2: #22262a;
+  --mw-surface-3: #1e2225;
+  --mw-surface-4: #181b1e;
 
+  --mw-bg: #181b1e;
+  --mw-panel: #22262a;
+  --mw-panel-2: #1e2225;
+  --mw-elev: #262b30;
+
+  --mw-border: #32383d;
+  --mw-border-strong: #454d53;
+
+  --mw-text: #e7e9ea;
+  --mw-text-dim: #a4abb1;
+  --mw-text-mute: #767d84;
+
+  --mw-accent: #6b9cf0;
+  --mw-accent-soft: #1d2c42;
+  --mw-accent-mid: rgba(107,156,240,0.30);
+
+  --mw-ok: #63b787;
+  --mw-warn: #d9a441;
+  --mw-err: #e2705f;
+
+  --mw-shadow-1: 0 1px 3px rgba(0,0,0,0.30);
+  --mw-shadow-2: 0 4px 16px rgba(0,0,0,0.40);
+  --mw-shadow-3: 0 16px 34px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.40);
+
+  --mw-canvas: #1b1f22;
+  --mw-grid: #2c3236;
+  --mw-grid-major: #3b4348;
+  --mw-wire: #6b9cf0;
+  --mw-wire-sel: #e2a44f;
+  --mw-symbol: #dfe3e6;
+  --mw-pin: #a4abb1;
+
+  --mw-ch1: #6b9cf0;
+  --mw-ch2: #e2a44f;
+  --mw-ch3: #63b787;
+  --mw-ch4: #e2705f;
+}
 /* Backward compat aliases (Canvas.tsx liest diese Namen) */
 :root,
-[data-theme="dark"] {
+[data-theme="light"] {
   --bg: var(--mw-bg);
   --panel: var(--mw-panel);
   --panel-solid: var(--mw-panel);
@@ -124,8 +119,10 @@
   --text-dim: var(--mw-text-dim);
   --text-mute: var(--mw-text-mute);
   --accent: var(--mw-accent);
-  --accent-2: #22d3ee;
-  --accent-3: #a78bfa;
+  --accent-soft: var(--mw-accent-soft);
+  --accent-mid: var(--mw-accent-mid);
+  --accent-2: #2c7a7b;
+  --accent-3: #7a4fa3;
   --ok: var(--mw-ok);
   --warn: var(--mw-warn);
   --err: var(--mw-err);
@@ -142,7 +139,7 @@
   --ch3: var(--mw-ch3);
   --ch4: var(--mw-ch4);
 }
-[data-theme="light"] {
+[data-theme="dark"] {
   --bg: var(--mw-bg);
   --panel: var(--mw-panel);
   --panel-solid: var(--mw-panel);
@@ -156,8 +153,8 @@
   --accent: var(--mw-accent);
   --accent-soft: var(--mw-accent-soft);
   --accent-mid: var(--mw-accent-mid);
-  --accent-2: #0891b2;
-  --accent-3: #7c3aed;
+  --accent-2: #59b3b4;
+  --accent-3: #a982d4;
   --ok: var(--mw-ok);
   --warn: var(--mw-warn);
   --err: var(--mw-err);

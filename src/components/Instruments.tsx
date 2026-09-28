@@ -12,7 +12,9 @@ import { InstrumentKind, InstrumentWindow, engine, useEditor } from "@/state/edi
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
-const SCOPE_COLORS = ["#4ade80", "#38bdf8", "#fbbf24", "#f472b6"];
+const SCOPE_FALLBACK = ["#1f5fd0", "#c77a16", "#2e7a4f", "#b3372c"];
+/** Runde 11: Trace-Farben folgen der Theme-Palette (--ch1…--ch4). */
+const scopeColor = (i: number) => cssVar(`--ch${(i % 4) + 1}`, SCOPE_FALLBACK[i % 4]);
 
 const cssVar = (n: string, f: string) => {
   if (typeof window === "undefined") return f;
@@ -200,17 +202,16 @@ function TactileButton({ active, onClick, children, color, title }: { active?: b
     <button
       onClick={onClick}
       title={title}
-      className="relative rounded-[4px] px-2 py-1 text-[10px] font-semibold tracking-wide transition-all select-none"
+      className="relative rounded-[4px] px-2 py-1 text-[10px] font-semibold tracking-wide transition-colors select-none"
       style={{
-        background: active ? `linear-gradient(to bottom, ${color||"#3a3f4f"}, #1e212a)` : "linear-gradient(to bottom, #3a3f4f, #232630)",
-        border:`1px solid ${active ? (color||"#fbbf24") : "#0a0a0a"}`,
-        boxShadow: active ? `inset 0 1px 2px rgba(0,0,0,0.8), inset 0 0 0 1px ${color||"#fbbf24"}40, 0 0 8px ${color||"#fbbf24"}30` : "inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.8), 0 1px 2px rgba(0,0,0,0.6)",
-        color: active ? (color||"#fbbf24") : "var(--text-dim)",
-        minHeight:24,
+        // Runde 11: neutrales Geräte-Chassis statt Neon-Verläufen
+        background: active ? `color-mix(in srgb, ${color || "var(--accent)"} 14%, var(--panel))` : "var(--panel-2)",
+        border: `1px solid ${active ? `color-mix(in srgb, ${color || "var(--accent)"} 55%, transparent)` : "var(--border)"}`,
+        color: active ? (color || "var(--accent)") : "var(--text-dim)",
+        minHeight: 22,
       }}
     >
       <span className="relative z-10">{children}</span>
-      {active && <span className="absolute inset-0 rounded-[3px] pointer-events-none" style={{ background:`radial-gradient(100% 100% at 50% 0%, ${color||"#fbbf24"}18, transparent 70%)` }} />}
     </button>
   );
 }
@@ -402,7 +403,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
         const dt=(ch.t[ch.t.length-1]-ch.t[0])/Math.max(ch.t.length-1,1);
         const sp=spectrum(ch.v, 1/Math.max(dt,1e-12), "hann");
         const maxF=Math.min(sp.freq[sp.freq.length-1]??1, 1/(cfg.timebase*2)*50);
-        ctx.strokeStyle=SCOPE_COLORS[0];
+        ctx.strokeStyle=scopeColor(0);
         ctx.lineWidth=1.6;
         ctx.beginPath();
         sp.freq.forEach((f,i)=>{
@@ -418,7 +419,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
     if(cfg.mode==="xy"){
       const a=chans[0], b=chans[1];
       const n=Math.min(a.v.length,b.v.length);
-      ctx.strokeStyle=SCOPE_COLORS[2];
+      ctx.strokeStyle=scopeColor(2);
       ctx.lineWidth=1.6;
       ctx.beginPath();
       for(let i=0;i<n;i++){
@@ -474,7 +475,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
 
     chans.forEach((ch,idx)=>{
       if(!ch.v.length || !cfg.channels[idx]) return;
-      ctx.strokeStyle=SCOPE_COLORS[idx];
+      ctx.strokeStyle=scopeColor(idx);
       ctx.lineWidth=1.6;
       ctx.beginPath();
       const s0=windowStart(ch.t);
@@ -555,7 +556,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
           {[0,1,2,3].map(i=>{
             const m=measure(i);
             const enabled=!!cfg.channels[i];
-            const col=SCOPE_COLORS[i];
+            const col=scopeColor(i);
             return (
               <div key={i} className="rounded-md p-2" style={{ background: enabled ? `linear-gradient(180deg, ${col}14, rgba(0,0,0,0.3))` : "linear-gradient(180deg, #2a2e39, #1a1d24)", border:`1px solid ${enabled? col+"60" : "#000"}`, boxShadow: enabled ? `0 0 10px ${col}30, inset 0 1px 0 rgba(255,255,255,0.08)` : "inset 0 1px 0 rgba(255,255,255,0.06)" }}>
                 <div className="flex items-center justify-between mb-1.5">
@@ -626,7 +627,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
               const m=measure(i);
               if(!m) return null;
               return (
-                <div key={i} className="shrink-0 rounded px-2 py-1 mono text-[9px] flex items-center gap-2" style={{ background:"rgba(0,0,0,0.6)", border:`1px solid ${SCOPE_COLORS[i]}40`, color:SCOPE_COLORS[i] }}>
+                <div key={i} className="shrink-0 rounded px-2 py-1 mono text-[9px] flex items-center gap-2" style={{ background:"rgba(0,0,0,0.6)", border:`1px solid ${scopeColor(i)}40`, color:scopeColor(i) }}>
                   <span className="font-bold">CH{i+1}</span>
                   <span>Vpp {formatValue(m.vpp,"V")}</span>
                   <span>Vmax {formatValue(m.vmax,"V")}</span>
@@ -666,7 +667,7 @@ function Oscilloscope({ win }: { win: InstrumentWindow }) {
             <div className="text-[9px] uppercase tracking-wider text-mute font-bold mb-2">TRIGGER</div>
             <div className="flex flex-wrap gap-1 mb-2">
               {[0,1,2,3].map(i=>(
-                <TactileButton key={i} active={cfg.trigger.source===i} onClick={()=>set({trigger:{...cfg.trigger, source:i}})} color={SCOPE_COLORS[i]} title={`Trigger Quelle CH${i+1}`}>CH{i+1}</TactileButton>
+                <TactileButton key={i} active={cfg.trigger.source===i} onClick={()=>set({trigger:{...cfg.trigger, source:i}})} color={scopeColor(i)} title={`Trigger Quelle CH${i+1}`}>CH{i+1}</TactileButton>
               ))}
             </div>
             <div className="flex gap-1 mb-2">

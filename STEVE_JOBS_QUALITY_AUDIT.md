@@ -607,3 +607,71 @@ Symbol-Editor, Subcircuits, 3D).
 
 Verifikation: tsc 0 · eslint 0/0 · `npm test` grün (inkl. Pin-Kongruenz 2092/2092) ·
 `next build` grün.
+
+---
+
+## 11 · Runde 11 — Referenz-Design übernehmen (CircuitBench-Generationen)
+
+**Auftrag:** User hat `reference/` und `reference 2/` (zwei KI-Generationen „CircuitBench")
+auf main gelegt: „vom Design her viel viel besser". Analysieren, übernehmen.
+
+**Analyse-Kern:** Beide hell-primär, kompakt, technisch. Ref 1: warmes Zeichenblatt-Papier
+(#f2f1ee), IBM Plex, strikte Semantikfarben (blau=Auswahl, rot=Fehler, amber=Warnung,
+grün=OK, teal=Masse), 6er-Trace-Palette, 26px-Controls, Command-Palette, Crash-Recovery,
+SVG-Canvas. Ref 2: Primer-Grau, 22px-Controls, Titelleiste (Name/Dirty/Status-%),
+Sheet-Tabs, Lineale+Blattrand+mil-Snap, dockbares Bottom-Panel, Versionen (20)+Autosave,
+SVG/PNG/PDF-Export, handgezeichnete 16px-Icons, Status-Zähler (✖/▲).
+
+**User-Entscheidungen (bindend):**
+1. **Hybrid:** Ref-1-Design-Tokens (Papier, IBM Plex, Semantik, Traces) + Ref-2-Chrome
+   (Titelleiste, 20px-Statusleiste mit Zählern, 22–26px-Controls). **Hell = Default**, Dunkel Option.
+2. **Canvas-Engine bleibt** (Physik: KCL-Fluss, Trigger, 2092-Pin-Kongruenz) – neue Optik
+   (Papier, Tinten-Symbole, blaue Drähte, feines Raster) + **echtes SVG/PNG/PDF-Exportmodul**
+   aus dem Dokument-Modell.
+3. **Voller Desktop-Chrome, W10 bleibt:** Titelleiste, Sheet-Tab-Vorbereitung, Lineale +
+   Blattrand + Titelstempel-Option, resizable/dockbares Bottom-Panel, Status-Zähler –
+   Geräte-Bar rechts und Inspector-Fenster bleiben (kein festes Rechts-Panel).
+4. **Features später:** Nach der Design-Runde liste ich Übernahmekandidaten
+   (Versionen, Autosave/Recovery, Command-Palette, Sweep, Suchen, Multi-Sheet, Busse …)
+   zur Einzelentscheidung. UI bleibt deutsch.
+
+**Pakete:** W16 Tokens/Theme (light-default) · W17 Chrome (TitleBar, StatusBar-Zähler,
+Sheet-Tabs, Bottom-Resize, Menüdichte) · W18 Canvas-Optik (Token-Sweep, Lineale/Blattrand/
+Titelstempel, Trace-Palette) · W19 Export (docToSvg → SVG/PNG/PDF, Datei-Menü).
+
+### §11.1 — Runde-11-Umsetzung (W16–W19), Stand 2026-09-28
+
+**W16 Tokens (FERTIG):** Light ist jetzt Default (warmes Papier, Ref-1-Tokens);
+Dark bleibt als Option. IBM-Plex-Font-Stack. Canvas/Instruments/Scope-Farben
+lesen Token (--ch1…--ch4) statt harter Neon-Hexwerte; TactileButton neutrales
+color-mix-Chassis.
+
+**W17 Chrome (FERTIG):**
+- `TitleBar` (Workbench): Logo · Multispice — Projektname · Speicherzustand ·
+  Sim-Status (bereit/pausiert/läuft t=…). Desktop + Tablet.
+- `SheetTabs`: Blattleiste über dem Canvas (ein Blatt, „+" vorbereitet).
+- BottomPanel: Höhe per Drag verstellbar (120–720 px), renderet sich selbst als
+  34px-Tabstreifen, wenn geschlossen.
+- Menü-Dichte (Ref 1): Menüitems 25px/12px, Hover = Accent-Blau mit weißer
+  Schrift; Menü-Buttons h-6.
+- Neue Ansicht-Schalter: Lineale, Blattrand mit Titelstempel (editor-Flags
+  showRulers/showPageFrame, Default aus).
+- StatusBar-Zähler (✕ Fehler/⚠ Hinweise → öffnet Fehler-Tab) waren bereits da.
+
+**W18 Canvas-Optik (FERTIG):** Blattrand + Titelstempel (Name/Datum/Blatt 1/1)
+und Lineale mit Nice-Step-Ticks werden aus Tokens gezeichnet (Welt- bzw.
+Screen-Raum), Papier-Hintergrund/Inkten-Symbole laufen über die W16-Tokens.
+
+**W19 Export (FERTIG):** `src/lib/export/sheet.ts` baut aus dem Dokument-Modell
+ein sauberes SVG-Blatt (dieselben Symbol-Primitive wie der Canvas, feste
+Papier-Farben, optional Blattrand+Titelstempel). Datei-Menü: Export SVG,
+Export PNG (2× gerastert), Export PDF (Ref-2-Druckfenster-Trick, Querformat,
+„Als PDF speichern"). Der alte Screenshot-PNG-Export (Canvas-Viewport mit
+Grid/Glow) wurde ersetzt.
+
+**Hausarbeit:** tsconfig + eslint ignorieren jetzt `reference/` und
+`reference 2/` (fremde Generationen mit eigenen, hier nicht installierten
+Abhängigkeiten — sonst rot in tsc/lint).
+
+Verifikation: tsc ✔ · eslint ✔ · Dauertest 2092/2092 PASS ✔ · next build ✔
+(Routen /, /_not-found, /apple-icon.png, /apple-icon1.png, /icon.svg).

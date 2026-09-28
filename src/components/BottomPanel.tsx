@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp, FlaskConical, ListTree, Radio, Table2, Terminal } from "lucide-react";
 import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
 import { fromLtspiceAsc, fromSpiceNetlist, isLtspiceAsc } from "@/lib/schematic/importers";
@@ -44,8 +44,24 @@ export default function BottomPanel() {
     else el.scrollTop = el.scrollHeight;
   }, [logs.length]);
 
+  // Runde 11: Höhe per Drag verstellbar (Ref-1-Bottom-Panel)
+  const [openH, setOpenH] = useState(248);
+  const startResize = (e: React.PointerEvent) => {
+    const y0 = e.clientY;
+    const h0 = openH;
+    const move = (ev: PointerEvent) => setOpenH(Math.max(120, Math.min(720, h0 + (y0 - ev.clientY))));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   return (
-    <div className="flex flex-col" style={{ background: "var(--panel)", borderTop: "1px solid var(--border)", height: bottomOpen ? 248 : 34 }}>
+    <div className="relative flex flex-col" style={{ background: "var(--panel)", borderTop: "1px solid var(--border)", height: bottomOpen ? openH : 34 }}>
+      {bottomOpen && (
+        <div onPointerDown={startResize} className="absolute -top-1 left-0 right-0 z-10 h-2 cursor-ns-resize" title="Ziehen: Panel-Höhe" />
+      )}
       <div className="flex h-[34px] shrink-0 items-center gap-0.5 px-2">
         {TABS.map(([id, label, icon]) => (
           <button key={id} className="tab" data-active={bottomTab === id && bottomOpen} onClick={() => setBottomTab(id as TabId)}>

@@ -72,7 +72,7 @@ export function Menu({
   return (
     <div className="relative" ref={ref}>
       <button
-        className="btn h-7 min-w-[44px]"
+        className="btn h-6 min-w-[40px]"
         data-active={open}
         onClick={() => onOpenChange(!open)}
         onMouseEnter={() => onHoverOpen?.()}
@@ -128,7 +128,7 @@ export function MenuItem({
   return (
     <button
       role="menuitem"
-      className="group/item relative flex w-full items-center justify-between gap-8 rounded-md px-2.5 py-[7px] text-left text-[12.5px] text-dim hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-dim"
+      className="group/item relative flex h-[25px] w-full items-center justify-between gap-8 rounded-[4px] px-2 text-left text-[12px] text-[var(--text)] hover:bg-[var(--accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--text)]"
       style={danger ? { color: "var(--err)" } : undefined}
       onClick={onClick}
       disabled={disabled}
@@ -139,7 +139,7 @@ export function MenuItem({
         <span className="flex min-w-0 items-center gap-2">{childrenText}</span>
       </span>
       <span className="flex items-center gap-2">
-        {hintText && <span className="mono shrink-0 text-[10.5px] text-mute">{hintText}</span>}
+        {hintText && <span className="mono shrink-0 text-[10.5px] text-mute group-hover/item:text-white/80">{hintText}</span>}
       </span>
       {tooltipText && (
         <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-w-[300px] -translate-y-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover/item:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{tooltipText}</span>

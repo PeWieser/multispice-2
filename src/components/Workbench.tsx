@@ -10,7 +10,7 @@ import StatusBar from "./StatusBar";
 import ComponentStrip from "./ComponentStrip";
 import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
-import { useEditor, ThemePref } from "@/state/editor";
+import { engine, useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { Menu, X, Library, Settings, SlidersHorizontal, Play, Pause } from "lucide-react";
 
@@ -98,6 +98,46 @@ function PrintSheet() {
 function resolveTheme(pref: ThemePref, systemDark: boolean): "dark" | "light" {
   if (pref === "system") return systemDark ? "dark" : "light";
   return pref;
+}
+
+/** Runde 11 (Ref-2-Chrome): Titelleiste – Projekt, Speicherzustand, Sim-Status. */
+function TitleBar() {
+  const doc = useEditor((s) => s.doc);
+  const running = useEditor((s) => s.sim.running);
+  const tick = useEditor((s) => s.sim.tick);
+  const savePending = useEditor((s) => s.savePending);
+  const lastSavedAt = useEditor((s) => s.lastSavedAt);
+  void tick; // läuft: Zeit-Anzeige folgt den Frames
+  const t = engine.lastState.time;
+  const status = running ? { text: `läuft · t=${t >= 1 ? t.toFixed(2) + " s" : (t * 1000).toFixed(1) + " ms"}`, color: "var(--ok)" } : t > 0 ? { text: "pausiert", color: "var(--warn)" } : { text: "bereit", color: "var(--text-mute)" };
+  const saved = savePending ? "speichert …" : lastSavedAt ? `gespeichert ${new Date(lastSavedAt).toLocaleTimeString("de-DE")}` : "lokal gespeichert";
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-[12px]" style={{ background: "var(--elev)", borderColor: "var(--border)" }}>
+      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+        <rect x="1" y="1" width="14" height="14" rx="3" fill="var(--accent)" />
+        <path d="M3 9h3l1-3 2 5 1-2h3" stroke="#fff" strokeWidth="1.4" fill="none" />
+      </svg>
+      <b>Multispice</b>
+      <span className="truncate" style={{ color: "var(--text-mute)" }}>
+        — {doc.name || "Unbenanntes Projekt"} · {saved}
+      </span>
+      <span className="flex-1" />
+      <span className="mono text-[11px]" style={{ color: status.color }}>● {status.text}</span>
+    </div>
+  );
+}
+
+/** Runde 11 (Ref-2): Blatt-Reiter – heute ein Blatt, Leiste ist vorbereitet. */
+function SheetTabs() {
+  const doc = useEditor((s) => s.doc);
+  return (
+    <div className="flex h-6 shrink-0 items-center gap-1 border-b px-2 text-[11.5px]" style={{ background: "var(--panel-solid)", borderColor: "var(--border)" }}>
+      <button className="rounded-[4px] px-2 py-[1px] font-semibold" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+        {doc.name || "Schaltblatt 1"}
+      </button>
+      <span className="px-1 text-[10px]" style={{ color: "var(--text-mute)" }} title="Mehrere Schaltblätter: geplant">+</span>
+    </div>
+  );
 }
 
 function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: () => void }) {
@@ -344,8 +384,10 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
+        <TitleBar />
         <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
         <ComponentStrip />
+        <SheetTabs />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1">
@@ -354,7 +396,7 @@ export default function Workbench() {
               <LibraryPalette />
               <DeviceBar />
             </div>
-            {bottomOpen && <BottomPanel />}
+            <BottomPanel />
           </div>
         </div>
         <StatusBar />
@@ -371,8 +413,10 @@ export default function Workbench() {
   // Desktop – original layout but with dvh and better flex
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
+      <TitleBar />
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
       <ComponentStrip />
+      <SheetTabs />
       <div className="relative flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
@@ -381,7 +425,7 @@ export default function Workbench() {
             <LibraryPalette />
             <DeviceBar />
           </div>
-          {bottomOpen && <BottomPanel />}
+          <BottomPanel />
         </div>
       </div>
       <StatusBar />

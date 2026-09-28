@@ -6,6 +6,7 @@ import { PRESETS } from "@/lib/schematic/tools";
 import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
 import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, ThemePref, useEditor } from "@/state/editor";
+import { exportSvg, exportPng, exportPdf } from "@/lib/export/sheet";
 import { Menu, MenuItem, MenuSeparator, downloadText, safeName, Tooltip } from "./ui";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
@@ -41,6 +42,8 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
   const showCurrentFlow = useEditor((s) => s.showCurrentFlow);
   const showVoltageColors = useEditor((s) => s.showVoltageColors);
   const showInlineValues = useEditor((s) => s.showInlineValues);
+  const showRulers = useEditor((s) => s.showRulers);
+  const showPageFrame = useEditor((s) => s.showPageFrame);
   const flowDir = useEditor((s) => s.currentFlowDirection);
   const fileRef = useRef<HTMLInputElement>(null);
   const st = useEditor.getState;
@@ -95,24 +98,8 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
     downloadText(`${base}_BOM.csv`, csv, "text/csv");
     st().log("ok", `Stückliste exportiert (${rows.length} Positionen)`);
   };
-  const exportPng = () => {
-    try {
-      const canvas = document.querySelector("canvas") as HTMLCanvasElement;
-      if (!canvas) { st().log("error", "Kein Canvas gefunden"); return; }
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${base}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-        st().log("ok", "Schaltplan als PNG exportiert");
-      }, "image/png");
-    } catch (e) {
-      st().log("error", `PNG Export fehlgeschlagen: ${(e as Error).message}`);
-    }
-  };
+  // Runde 11 (W19): PNG kommt jetzt aus src/lib/export/sheet.ts (Dokument-Modell,
+  // sauberes Blatt statt Screenshot mit Grid/Glow).
 
   const importFile = (file: File) => {
     void openFileInEditor(file);
@@ -187,10 +174,13 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <MenuItem onClick={() => fileRef.current?.click()}>Importieren (.json/.cir/.asc)</MenuItem>
         <MenuSeparator />
         <MenuItem onClick={exportSpice}>Export SPICE (.cir)</MenuItem>
+        <MenuItem onClick={() => { exportSvg(st().doc); st().log("ok", "Schaltblatt als SVG exportiert"); }}>Export SVG</MenuItem>
+        <MenuItem onClick={() => { exportPng(st().doc); st().log("ok", "Schaltblatt als PNG exportiert"); }}>Export PNG</MenuItem>
         <MenuItem onClick={exportJson}>Export JSON</MenuItem>
         <MenuItem onClick={exportBom}>Export BOM (CSV)</MenuItem>
         <MenuSeparator />
         <MenuItem hint="⌘P" onClick={printSheet}>Drucken</MenuItem>
+        <MenuItem onClick={() => { if (exportPdf(st().doc)) st().log("ok", "Druckfenster geöffnet – dort „Als PDF speichern“ wählen"); else st().log("error", "Pop-up blockiert – Druckfenster konnte nicht geöffnet werden"); }}>Export PDF (Druckfenster)</MenuItem>
       </Menu>
 
       <Menu label="Bearbeiten" {...menuProps("bearbeiten")}>
@@ -209,6 +199,8 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <MenuItem checked={showCurrentFlow} onClick={() => st().toggleCurrentFlow()}>Stromfluss animieren</MenuItem>
         <MenuItem checked={showVoltageColors} onClick={() => st().toggleVoltageColors()}>Spannungsfarben</MenuItem>
         <MenuItem checked={showInlineValues} onClick={() => st().toggleInlineValues()}>Live-Werte im Plan</MenuItem>
+        <MenuItem checked={showRulers} onClick={() => st().toggleRulers()}>Lineale</MenuItem>
+        <MenuItem checked={showPageFrame} onClick={() => st().togglePageFrame()}>Blattrand mit Titelstempel</MenuItem>
         <MenuItem onClick={() => st().setCurrentFlowDirection(flowDir === "electron" ? "conventional" : "electron")}>
           {flowDir === "electron" ? "Stromrichtung: − nach + (Elektronen)" : "Stromrichtung: + nach − (konventionell)"}
         </MenuItem>

@@ -119,6 +119,10 @@ export interface EditorState {
   /** W1: Richtung der Stromfluss-Punkte. Default "electron" (− → +), Alternative "conventional" (+ → − außen). */
   currentFlowDirection: "electron" | "conventional";
   showInlineValues: boolean;
+  /** Runde 11: Lineale am Canvas-Rand (Ref-2-Chrome). */
+  showRulers: boolean;
+  /** Runde 11: Blattrand + Titelstempel um den Inhalt (Zeichenblatt). */
+  showPageFrame: boolean;
   showErcMarkers: boolean;
   showRated: boolean;
   netResult: NetlistBuildResult;
@@ -205,6 +209,8 @@ export interface EditorState {
   toggleVoltageColors: () => void;
   setCurrentFlowDirection: (d: "electron" | "conventional") => void;
   toggleInlineValues: () => void;
+  toggleRulers: () => void;
+  togglePageFrame: () => void;
   toggleErcMarkers: () => void;
   toggleRated: () => void;
   startSim: () => void;
@@ -245,7 +251,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   tool: "select",
   placingPartId: null,
   view: { x: 60, y: 20, zoom: 1 },
-  theme: "system",
+  theme: "light",
   symbolStyle: "auto",
   showGrid: true,
   snap: true,
@@ -254,6 +260,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   showVoltageColors: false,
   currentFlowDirection: "electron",
   showInlineValues: false,
+  showRulers: false,
+  showPageFrame: false,
   showErcMarkers: true,
   showRated: true,
   netResult: { netlist: { devices: [] }, nets: [], pinNets: {}, pointNets: {}, errors: [], warnings: [] },
@@ -644,6 +652,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   toggleVoltageColors: () => set((s) => ({ showVoltageColors: !s.showVoltageColors })),
   setCurrentFlowDirection: (d) => set({ currentFlowDirection: d }),
   toggleInlineValues: () => set((s) => ({ showInlineValues: !s.showInlineValues })),
+  toggleRulers: () => set((s) => ({ showRulers: !s.showRulers })),
+  togglePageFrame: () => set((s) => ({ showPageFrame: !s.showPageFrame })),
   toggleErcMarkers: () => set((s) => ({ showErcMarkers: !s.showErcMarkers })),
   toggleRated: () => set((s) => ({ showRated: !s.showRated })),
 
