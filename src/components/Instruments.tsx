@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, BarChart3, Binary, Gauge, LineChart, Minus, PanelBottom, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
@@ -15,6 +15,7 @@ const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
 
 /* W24: SkeuoTek-Oszi (1:1-Port aus oszi/) – eigenes Chunk, kein SSR */
 const OsziScopeLazy = dynamic(() => import("./OsziScope"), { ssr: false });
+const FgScopeLazy = dynamic(() => import("./FgScope"), { ssr: false });
 /** Runde 11: Trace-Farben folgen der Theme-Palette (--ch1…--ch4). */
 
 const cssVar = (n: string, f: string) => {
@@ -198,58 +199,9 @@ function Multimeter({ win }: { win: InstrumentWindow }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* function generator (controls the XFG / AC source instances)         */
 /* ------------------------------------------------------------------ */
-function FunctionGenerator() {
-  const doc = useEditor((s) => s.doc);
-  const setParam = useEditor((s) => s.setParam);
-  const sources = doc.instances.filter((i) => i.partId === "funcgen" || i.partId === "vac" || i.partId === "vpulse");
-  const [sel, setSel] = useState(sources[0]?.id ?? "");
-  const inst = sources.find((s) => s.id === sel) ?? sources[0];
-  if (!inst) {
-    return <div className="p-4 text-[12px] text-mute">Keine Signalquelle im Schaltplan. Platziere »Funktionsgenerator (XFG)« oder »AC-Quelle«.</div>;
-  }
-  const p = inst.params;
-  const num = (k: string, d: number) => Number(p[k] ?? d);
-  return (
-    <div className="flex h-full flex-col gap-2 overflow-y-auto p-2.5">
-      <select className="input" value={inst.id} onChange={(e) => setSel(e.target.value)}>
-        {sources.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.label} — {s.partId}
-          </option>
-        ))}
-      </select>
-      <div className="grid grid-cols-4 gap-1">
-        {[
-          ["sine", "∿"],
-          ["square", "⎍"],
-          ["triangle", "△"],
-          ["sawtooth", "◺"],
-          ["pulse", "⊓"],
-          ["am", "AM"],
-          ["fm", "FM"],
-          ["noise", "≋"],
-        ].map(([v, label]) => (
-          <button key={v} className="tab text-center text-[13px]" data-active={String(p.wave ?? "sine") === v} onClick={() => setParam(inst.id, "wave", v)}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <Knob label="Frequenz" unit="Hz" value={num("freq", 1000)} min={0.1} max={1e7} log onChange={(v) => setParam(inst.id, "freq", v)} />
-      <Knob label="Amplitude" unit="V" value={num("amplitude", 5)} min={0} max={30} onChange={(v) => setParam(inst.id, "amplitude", v)} />
-      <Knob label="DC-Offset" unit="V" value={num("offset", 0)} min={-15} max={15} onChange={(v) => setParam(inst.id, "offset", v)} />
-      <Knob label="Tastgrad" unit="%" value={num("duty", 50)} min={1} max={99} onChange={(v) => setParam(inst.id, "duty", v)} />
-      <Knob label="Phase" unit="°" value={num("phase", 0)} min={-180} max={180} onChange={(v) => setParam(inst.id, "phase", v)} />
-      {(p.wave === "am" || p.wave === "fm") && (
-        <>
-          <Knob label="Mod.-Index" unit="" value={num("modIndex", 0.5)} min={0} max={10} onChange={(v) => setParam(inst.id, "modIndex", v)} />
-          <Knob label="Mod.-Frequenz" unit="Hz" value={num("modFreq", 100)} min={0.1} max={1e5} log onChange={(v) => setParam(inst.id, "modFreq", v)} />
-        </>
-      )}
-    </div>
-  );
-}
+/* Der FG-2500 lebt in FgScope.tsx + components/fg2/ (W18)              */
+/* ------------------------------------------------------------------ */
 
 function Knob({ label, unit, value, min, max, log, onChange }: { label: string; unit: string; value: number; min: number; max: number; log?: boolean; onChange: (v: number) => void }) {
   const toSlider = (v: number) => (log ? Math.log10(Math.max(v, min || 1e-6)) : v);
@@ -1011,7 +963,19 @@ function Window({ win }: { win: InstrumentWindow }) {
   const { updateInstrument, closeInstrument, focusInstrument } = useEditor();
   const drag = useRef<{ x: number; y: number; wx: number; wy: number } | null>(null);
   const resize = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const resizePending = useRef<{ w: number; h: number } | null>(null);
   const winRef = useRef<HTMLDivElement>(null);
+
+  // Runde 17 (W32a): Nach jedem Render die Resize-Größe wiederherstellen –
+  // Store-Updates während des Ziehens (z. B. Oszi-Persistenz) dürfen die
+  // direkten DOM-Schreibvorgänge nicht zurückschnappen lassen.
+  useLayoutEffect(() => {
+    const p = resizePending.current;
+    if (winRef.current && p) {
+      winRef.current.style.width = p.w + "px";
+      winRef.current.style.height = p.h + "px";
+    }
+  });
 
   useEffect(() => {
     let raf = 0;
@@ -1020,9 +984,10 @@ function Window({ win }: { win: InstrumentWindow }) {
     const apply = () => {
       raf = 0;
       if (winRef.current) {
-        if (pendingPos) {
-          winRef.current.style.left = pendingPos.x + "px";
-          winRef.current.style.top = pendingPos.y + "px";
+        if (pendingPos && drag.current) {
+          // Transform = GPU, kein Layout-Recalc; die Basis (win.x/win.y) bleibt
+          // unangetastet, damit Store-Updates während des Ziehens nichts springen.
+          winRef.current.style.transform = `translate3d(${pendingPos.x - drag.current.wx}px, ${pendingPos.y - drag.current.wy}px, 0)`;
         }
         if (pendingSize) {
           winRef.current.style.width = pendingSize.w + "px";
@@ -1032,9 +997,11 @@ function Window({ win }: { win: InstrumentWindow }) {
     };
     const move = (e: PointerEvent) => {
       if (drag.current) {
+        // W32a: kein Clamp – Fenster dürfen über die Leisten und aus dem Screen
+        // gezogen werden; die Rückholhilfe (openInstrument) holt sie zurück.
         pendingPos = {
-          x: Math.max(0, drag.current.wx + e.clientX - drag.current.x),
-          y: Math.max(48, drag.current.wy + e.clientY - drag.current.y),
+          x: drag.current.wx + e.clientX - drag.current.x,
+          y: drag.current.wy + e.clientY - drag.current.y,
         };
         if (!raf) raf = requestAnimationFrame(apply);
       }
@@ -1043,17 +1010,23 @@ function Window({ win }: { win: InstrumentWindow }) {
           w: Math.max(300, resize.current.w + e.clientX - resize.current.x),
           h: Math.max(220, resize.current.h + e.clientY - resize.current.y),
         };
+        resizePending.current = pendingSize;
         if (!raf) raf = requestAnimationFrame(apply);
       }
     };
     const up = () => {
-      if (drag.current && pendingPos) {
+      if (drag.current && pendingPos && winRef.current) {
+        // Endposition direkt setzen + Transform leeren, DANN committen – so ist
+        // die Darstellung auch bei synchronem React-Flush konsistent.
+        winRef.current.style.left = pendingPos.x + "px";
+        winRef.current.style.top = pendingPos.y + "px";
+        winRef.current.style.transform = "";
         // Magnetischer unterer Rand: Titelzeile nah am Boden loslassen = andocken.
-        const parent = winRef.current?.parentElement?.getBoundingClientRect();
+        const parent = winRef.current.parentElement?.getBoundingClientRect();
         if (parent && pendingPos.y > parent.height - 56) {
           updateInstrument(win.id, { docked: true });
         } else {
-          updateInstrument(win.id, pendingPos);
+          updateInstrument(win.id, { x: pendingPos.x, y: pendingPos.y });
         }
       }
       if (resize.current && pendingSize) {
@@ -1061,6 +1034,7 @@ function Window({ win }: { win: InstrumentWindow }) {
       }
       drag.current = null;
       resize.current = null;
+      resizePending.current = null;
       pendingPos = null;
       pendingSize = null;
       if (raf) cancelAnimationFrame(raf);
@@ -1082,7 +1056,7 @@ function Window({ win }: { win: InstrumentWindow }) {
       case "dmm":
         return <Multimeter win={win} />;
       case "funcgen":
-        return <FunctionGenerator />;
+        return <FgScopeLazy win={win} />;
       case "bode":
         return <BodePlotter win={win} />;
       case "logic":
@@ -1236,15 +1210,15 @@ export function DeviceBar() {
       style={{ background: "var(--panel-solid)", borderLeft: "1px solid var(--border)", scrollbarWidth: "none" }}
     >
       {items.map(([k, label]) => {
-        // W29: Oszi-Eintrag startet die Symbol-Platzierung statt ein freies
-        // Fenster zu öffnen; „aktiv“ = Platzierung läuft oder Fenster offen.
-        const isScope = k === "scope";
-        const active = isScope ? placing === "oscilloscope" || isOpen(k) : isOpen(k);
+        // W29/W18: Oszi und FG-2500 starten die Symbol-Platzierung statt ein
+        // freies Fenster zu öffnen; „aktiv“ = Platzierung läuft oder Fenster offen.
+        const partId = k === "scope" ? "oscilloscope" : k === "funcgen" ? "funcgen" : null;
+        const active = partId ? placing === partId || isOpen(k) : isOpen(k);
         return (
           <button
             key={k}
-            onClick={() => (isScope ? setPlacing(placing === "oscilloscope" ? null : "oscilloscope") : open(k))}
-            title={isScope ? "Oszilloskop – Schaltzeichen auf dem Plan platzieren" : label}
+            onClick={() => (partId ? setPlacing(placing === partId ? null : partId) : open(k))}
+            title={partId ? `${label} – Schaltzeichen auf dem Plan platzieren` : label}
             aria-label={label}
             aria-pressed={active}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors"

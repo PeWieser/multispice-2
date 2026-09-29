@@ -1,6 +1,6 @@
 import type { Env, MeasType, Settings } from './types';
 import { ceil125, clamp } from './types';
-import { gauss, hash32, lineValue, sourceValue } from './signals';
+import { gauss, hash32, lineValue, mainsHum, noiseAt, sourceValue } from './signals';
 
 export const NPTS = 2000;
 export const HDIV = 15;
@@ -50,7 +50,8 @@ export function channelRaw(ch: number, t: number, s: Settings, env: Env, acMean:
   const c = s.ch[ch];
   const p = env.probes[ch];
   if (c.coupling === 'GND') return 0;
-  let v = p.target ? sourceValue(p.target, t, env) : 0;
+  // W32d: offener Eingang = Antenne → 50-Hz-Netzbrummen statt stummem 0 V.
+  let v = p.target ? sourceValue(p.target, t, env) : mainsHum(ch, t);
   v = (v / p.atten) * c.probe;
   if (c.coupling === 'AC') v -= acMean[ch];
   return v;
@@ -92,7 +93,9 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
     if (!needed(ch)) { data.push(d); mins.push(peak ? new Float32Array(NPTS) : null); maxs.push(peak ? new Float32Array(NPTS) : null); continue; }
     const mn = peak ? new Float32Array(NPTS) : null;
     const mx = peak ? new Float32Array(NPTS) : null;
-    const kHp = p.atten === 10 ? p.comp : 0;
+    // W32d: Tastkopf-Abgleich bewusst sichtbar – Fehlabgleich zeigt klar
+    // erkennbares Überschwingen/Ringen an den Flanken (statt kaum wahrnehmbar).
+    const kHp = p.atten === 10 ? p.comp * 1.6 : 0;
     const useLp1 = p.atten === 1;
     const useLp2 = c.bwLimit;
     const aHp = Math.exp(-dt / TAU_COMP);
@@ -105,6 +108,9 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
     const f1 = peak ? new Chain(aHp, kHp, aLp1, useLp1, aLp2, useLp2) : null;
     const f2 = peak ? new Chain(aHp, kHp, aLp1, useLp1, aLp2, useLp2) : null;
     let sigma = 0.018 * c.vdiv + 0.0004 * c.probe;
+    // W32d: BW-Limit dämpft das Rauschen doppelt – empirisch um 0.55 (wirkt
+    // auch bei langsamen Timebases, wo dt ≫ τ ist) und analog über das
+    // Tiefpass-Filter im Pfad (siehe Sample-Zweig, wirkt bei schnellen).
     if (c.bwLimit) sigma *= 0.55;
     if (s.acq.mode === 'hires') sigma *= 0.22;
     const lo = (-5.2 - c.pos) * c.vdiv;
@@ -130,11 +136,12 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
           d[i] = clamp(y0, lo, hi) * inv;
         }
       } else {
-        const v = channelRaw(ch, t, s, env, acMean);
+        // W32d: Eingangsrauschen liegt vor dem analogen Filter – die
+        // 20-MHz-Bandbreitenbegrenzung dämpft es physikalisch (nicht skaliert).
+        const v = channelRaw(ch, t, s, env, acMean) + gauss(seed + i * 7 + ch * 100003) * sigma;
         const y = f0.run(v);
         if (i >= 0) {
-          const n = gauss(seed + i * 7 + ch * 100003) * sigma;
-          d[i] = clamp(y + n, lo, hi) * inv;
+          d[i] = clamp(y, lo, hi) * inv;
         }
       }
     }
@@ -147,8 +154,15 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
 
 // --------- trigger ----------
 function trigValue(s: Settings, env: Env, acMean: number[], t: number): number {
-  if (s.trig.source === 4) return lineValue(t);
-  return channelRaw(s.trig.source, t, s, env, acMean);
+  // W32d: Der Triggerpfad ist verrauscht – die Entscheidung fällt auf dem
+  // gestörten Signal, nicht auf dem idealen. Bei ungünstigen Pegeln/Spannungs-
+  // divisionen zittert die Triggerzeit sichtbar (wie am echten Gerät).
+  const src = s.trig.source;
+  const vd = src === 4 ? 0.1 : s.ch[src].vdiv;
+  const pr = src === 4 ? 1 : s.ch[src].probe;
+  const n = noiseAt(t, 0x747267 ^ (src * 977), 2e-8) * (0.018 * vd + 0.0004 * pr);
+  if (src === 4) return lineValue(t) + n * 0.35;
+  return channelRaw(src, t, s, env, acMean) + n;
 }
 
 export function findTrigger(a: number, b: number, s: Settings, env: Env, acMean: number[]): number | null {
@@ -287,12 +301,16 @@ export class Engine {
     }
     this.searchStart = now;
     const timeout = Math.max(0.12, HDIV * tdiv * 1.2);
-    if (s.trig.mode === 'auto' && s.run === 'run' && now - this.lastAcqTime > timeout) {
+    // W31 (Runde 16): Auto-Fallback auch für Single — in oszi v2 fiel das nie
+    // auf, weil das Demo-Signal immer periodisch lief; ein echtes Oszi nimmt
+    // im Auto-Modus die Einzelaufnahme spätestens nach dem Auto-Timeout auf.
+    // (run:'stop' ist zu diesem Zeitpunkt bereits ausgestiegen.)
+    if (s.trig.mode === 'auto' && now - this.lastAcqTime > timeout) {
       const tt = now - Math.max(postT, 0);
       this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, false), s);
       this.lastAcqTime = now;
       this.status = 'auto';
-      return { newAcq: true, singleDone: false };
+      return { newAcq: true, singleDone: s.run === 'single' };
     }
     if (s.run === 'single') this.status = 'ready';
     else if (now - this.lastAcqTime > timeout) this.status = s.trig.mode === 'auto' ? 'auto' : 'trig?';

@@ -2,6 +2,7 @@
 
 > Datum: 2026-09-25 · Branch `arena/01a0d95e-multispice-2` · Stand: nach Build-Fix (PR #2)
 > Vorgänger: `DESIGN_AUDIT_STEVE_JOBS.md` (Detail-Runde), `FINAL_AUDIT_STEVE_JOBS.md` (Funktionsabgleich Multisim)
+> Für den schnellen Einstieg (Auftrag, Runden 15–18, Regeln, Lagekarte): **[UEBERGABE.md](UEBERGABE.md)**
 > Dieses Audit prüft nicht Features, sondern **jede Oberfläche, mit der ein Mensch das Produkt berührt** —
 > inklusive der Flächen, die niemand sieht („die Rückseite des Schranks“).
 
@@ -918,3 +919,239 @@ Neuzugänge (oszi v2) kommen dazu; danach Push auf arena **und main**.
 Verifikation: tsc ✔ · eslint ✔ · Dauertest (Import/Sim/Kongruenz 410 Teile,
 2097 Pins) PASS ✔ · next build ✔ (/, /_not-found, /apple-icon.png,
 /apple-icon1.png, /icon.svg).
+
+---
+
+## §16 — Runde 16: Oszi-Port-Feinschliff (User-Rüge: „fehlerhafte Portierung")
+
+**User-Auftrag:** Die Runde-15-Portierung des Oszilloskops ist fehlerhaft
+(Störsignale/statisches Bild, Single-Trigger, Scrollbalken im Fenster, Fenster
+lässt sich nicht weit genug nach oben verschieben, + weitere, noch unentdeckte
+Fehler). Original liegt in `oszi v2/`. Bei Fragen immer fragen.
+
+**Befund (Code-Analyse, Diff oszi v2 → Port):** `engine.ts`/`render.ts` sind
+byte-identisch; die Fehler sitzen in der **Anbindung an die Multispice-Engine**
+und der **Fenster-Chrome**:
+1. **Statisches Bild:** Die Akquise hängt an der Simulationszeit
+   (`eng.step(simEngine.lastState.time)`). Simulation pausiert (Default!) =
+   Zeit friert ein → keine neuen Aufnahmen → Bild komplett tot (nicht mal das
+   Rauschen erneuert sich).
+2. **Störsignale/Garbage:** Ringpuffer deziert auf 40 kSa/s, Tiefe nur ~0,41 s
+   Sim-Zeit; `interpAt` klammert außerhalb auf Randwerte → flache/garbage-
+   Abschnitte ab ~27 ms/div, Roll-Modus (≥100 ms/div) fast komplett; negative
+   Startzeiten (`tt = simT − postT` bei simT≈0) zeigen eingefrorenen Müll.
+3. **Single-Trigger:** Bei pausierter Simulation findet `findTrigger` nie eine
+   Flanke → Status „ready", LED leuchtet dauerhaft, keine Aufnahme. Zusätzlich:
+   Auto+Single hat keinen Auto-Fallback (v2-Demo nie aufgefallen); Reset-Resync
+   (`lastAcqTime = simT − 1`) würde eine Auto-Aufnahme sofort auslösen.
+4. **Scrollbalken:** Gebundenes Oszi-Fenster öffnet mit **920×640** (alter
+   R14-Stand im `instanceId`-Pfad von `openInstrument`; 1500×980 stehen nur im
+   toten Fallback-Pfad); `OsziScope` hat `overflow-auto` + `pb-[170px]`
+   (Testbench-Relikt) und `Fit` skaliert nur nach Breite → Scrollbalken immer.
+5. **Nach oben:** Drag-Clamp `y ≥ 48` in `Instruments.tsx`.
+6. Nebenbefunde: Autoset/AC-Mittel suchen 1,2–4 s Geschichte (Puffer: 0,41 s);
+   Cursor-Crosshair beim Tastkopf fehlt; `startSim()` rebuilt stets,
+   `stopSim()` = Pause+Reset.
+
+**Ask-User-Entscheidungen (bindend, Runde 16):**
+1. „Störsignale" = **statisches Bild** („die Signale bewegen sich nicht").
+2. Single tut nichts, LED leuchtet dauerhaft. Bei pausierter Simulation:
+   **Simulation automatisch starten, eine Aufnahme, dann wieder anhalten.**
+3. Run-Modus + pausierte Simulation: Oszi tastet die Simulation **nie** an
+   (Play/Pause bleibt allein beim Simulations-Button). Anzeige dann:
+   **tote Schaltung, lebendes Bild** — alle Kanäle 0 V + Grundrauschen
+   (wie an einer unbestromten Schaltung), Rauschen erneuert sich, Auto-Trigger
+   feuert weiter. „Simulation an = Signal an; Simulation stopp = keine Spannung."
+4. Fenster darf **teilweise unter die Menü-/Werkzeugleisten rutschen**, ein Rest
+   muss sichtbar bleiben.
+5. Kleine Fenster: Gerät skaliert **komplett** hinein (Breite + Höhe),
+   **nie ein Scrollbalken**.
+
+**W31 — Plan (Reihenfolge der Umsetzung):**
+- **W31a Fenster-Chrome:** gebundenes Oszi-Fenster 1500×980 (clamp auf Viewport
+  mit Mindestmaß 640×480); Drag-Y-Clamp `-(h−120)` bis untere Kante; Canvas-
+  Container `overflow-hidden` (Fenster rutschen optisch unter die Leisten);
+  Recall-Clamp beim Öffnen (`y < 0 → y = 24`), damit nie ein unrecoverable
+  Zustand entsteht.
+- **W31b Fit/Scrollbalken:** `Fit` skaliert auf Breite **und** Höhe des
+  Containers (contain), `pb-[170px]`/`overflow-auto` → `overflow-hidden`,
+  zentriert, kleiner Rand. Scrollbalken im Oszi-Fenster unmöglich.
+- **W31c Oszi-Uhr (Bild beleben):** Scope-Clock im rAF-Loop: folgt
+  Simulationszeit-Advances, läuft bei pausierter Simulation in Wall-Time weiter,
+  rebaset bei Sim-Reset (bestehender Resync-Pfad). `sampler` liefert für
+  Netz-Ziele **0 V, solange die Simulation nicht läuft** (tote Schaltung);
+  comp/gnd-Klemmen bleiben als Geräte-Eigensignale lebendig.
+- **W31d Signalpfad-Treue:** zweistufiger History-Puffer in `realtime.ts`
+  (fast 16384 @ ~40 kSa/s = 0,41 s + slow 16384 @ ~3,2 kSa/s ≈ 5,1 s,
+  Push alle 12. Fast-Sample; `channelSlow()`); tiered `interpAt` im Adapter
+  (fast → slow → Hold/0; `t < 0` → 0). Schnellt-Basis bis ~27 ms/div sauber,
+  langsam bis ~340 ms/div abgedeckt.
+- **W31e Single-Trigger:** Single bei gestopfter Simulation → `startSim()`,
+  nach `singleDone` → `pauseSim()` (nur wenn selbst gestartet);
+  `lastAcqTime`-Resync ohne sofortige Auto-Aufnahme; Engine: Auto-Fallback auch
+  für `run:'single'` (Timeout-Aufnahme + `singleDone`), damit Single in
+  Auto-Modus immer abschließt (Normal-Modus wartet weiterhin auf echte Flanke —
+  Instrumenten-Semantik).
+- **W31f Kleinigkeiten:** Cursor `crosshair` bei „Tastkopf in der Hand" (v2).
+- **Verifikation:** tsc ✔ · eslint ✔ · npm test (VOLLausgabe) ✔ · next build ✔
+  mit Routen /, /_not-found, /apple-icon.png, /apple-icon1.png, /icon.svg;
+  Live-Preview prüfen.
+
+### §16.1 — Umsetzungsstand Runde 16 (2026-09-29) ✅
+
+- **W31a Fenster-Chrome:** `scopeDefaultSize()` in editor.ts (1500×980,
+  viewport-geclampt, min 640×480) für den `instanceId`-Pfad (alt: 920×640 —
+  das war der Scrollbalken-Auslöser); Restore-Migration für gespeicherte
+  920×640-Fenster; Recall-Clamp beim Öffnen (`y < 0 → 24`); Drag-Y-Clamp
+  `-(h − min(120, h))` statt `y ≥ 48`; Canvas-Container `overflow-hidden`
+  (Fenster rutschen optisch unter die Leisten).
+- **W31b Fit:** skaliert auf Breite **und** Höhe (contain) gegen den
+  Fensterkörper; `overflow-auto` + `pb-[170px]` (Testbench-Relikt) entfernt —
+  Scrollbalken im Oszi-Fenster ist konstruktiv ausgeschlossen.
+- **W31c Oszi-Clock:** Akquise auf einer eigenen Signal-Zeitachse, die der
+  Simulationszeit folgt, bei pausierter Simulation in Wall-Time weiterläuft
+  und bei Sprüngen (Sim-Reset/Weiterlauf) resynchronisiert; `sampler` liefert
+  bei angehaltener Simulation **0 V** für Netz-Ziele (tote Schaltung,
+  lebendiges Grundrauschen), comp/GND bleiben als Geräte-Eigensignale lebendig.
+- **W31d Signalpfad:** zweistufiger History-Puffer (fast 16384 @ ~40 kSa/s
+  ≈ 0,41 s; slow 8192 @ ~3,3 kSa/s ≈ 2,5 s, `channelSlow()`); tiered
+  `interpAt` (fast → slow → Hold; `t < 0` → 0 V). Keine geklammerten
+  Garbage-Abschnitte mehr im Normalbereich (bis ~170 ms/div vollständig).
+- **W31e Single:** bei gestopfter Simulation startet Single die Simulation
+  selbst (`startSim`), nach `singleDone` wieder `pauseSim` (nur wenn selbst
+  gestartet; auch bei Abbruch/Power-Off/Schließen aufgelöst); Engine:
+  Auto-Fallback auch für `run:'single'` (Timeout-Aufnahme, `singleDone`) —
+  Single im Auto-Modus schließt jetzt immer ab; Normal-Modus wartet auf echte
+  Flanke (Instrumenten-Semantik). Resync ohne sofortige Auto-Aufnahme, damit
+  das Single-Arming nicht sofort eine 0-V-Rahmenaufnahme auslöst.
+- **W31f:** Cursor `crosshair` bei „Tastkopf in der Hand" (v2-Parität).
+- **Engine-Checks (Scratch, 7 Fälle, alle PASS):** Single+Auto ohne/mit Signal,
+  Single+Normal wartet, Run+Auto lebendig (auch tote Schaltung: ~8 Aufnahmen/s),
+  Reset-Resync, Level über Signal.
+- **Verifikation:** tsc ✔ · eslint ✔ · npm test 26× PASS (Import/Sim/Kongruenz
+  410 Teile, 2097 Pins) ✔ · next build ✔ (/, /_not-found, /apple-icon.png,
+  /apple-icon1.png, /icon.svg).
+
+**Offen/Grenzen (bewusst dokumentiert):** Zeiteinstellungen jenseits ~170 ms/div
+zeigen links alte/„Hold"-Historie (Langzeit-Tier ≈ 2,5 s) — Roll-Modus damit
+bis ~200 ms/div vollständig; tdiv > 2 s/div ist mit Simulations-Historie
+prinzipiell limitiert. Single im **Normal**-Modus ohne Flanke wartet weiterhin
+(echtes Oszi-Verhalten). Auto-Start der Simulation passiert ausschließlich für
+Single (nicht für Run) — User-Entscheidung.
+
+---
+
+## §17 — Runde 17: Realismus, Messleitung per Klick, Fenster-Handling
+
+**User-Auftrag:** (1) Oszi soll „so realistisch wie möglich" werden — meine
+Realismus-Liste wurde komplett freigegeben, **nacheinander, so gut wie möglich**;
+(2) Klick auf Anschluss (CH1) + Klick auf Leitung im Schaltplan → **Messleitung
+wird hingelegt** (Ziel: Leitung ODER Bauteil-Pin, **Umstecken** ersetzt die
+bestehende Leitung des Kanals); (3) Breite/Hintergrund: **Gerät bleibt 1:1**
+(skaliert nur herunter), **Fenster klebt am Gerät** (Auto-Size beim Öffnen);
+(4) Fenster dürfen über Titel-/Menüleiste und aus dem Screen gezogen werden,
+**Rückholhilfe** zieht sie wieder hinein; (5) Fenster-Manager = **Sicherheitsnetz**
+(kein Fenster geht verloren, Recall pro Fenster, keine Taskbar); (6) Library-
+Drag ist zäh und bleibt außerhalb des Screens hängen → mitfixieren.
+
+**Ask-User-Entscheidungen (bindend, Runde 17):**
+1. Realismus: **alles** (Klick-Geräusche, 50-Hz-Netzbrummen auf offene Eingänge,
+   Mess-/Trigger-Realismus, Tastkopf-Abgleich sichtbarer, sanftes Ein/Ausschalten)
+   — nacheinander, je so gut wie möglich.
+2. Messleitung: Klick auf Leitung **oder** Bauteil-Pin verbindet den angeklickten
+   Kanal dorthin; bestehende Leitung des Kanals wird **ersetzt**.
+3. Fenster-Zug: frei (über Leisten, aus dem Bildschirm); **Rückholhilfe** zieht
+   Fenster wieder in den Screen zurück (kein hartes Clamping beim Ziehen).
+4. Fenster-Manager: nur **Sicherheitsnetz** (griffig halten, Recall pro Fenster).
+5. Breite: Gerät **1:1** (nur herunterskalieren, nie weich), Fenstergröße
+   beim Öffnen **exakt am Gerät** (Rest = Fenster-Chrome).
+
+**W32 — Plan:**
+- **W32a Fenster-Zug & Recall:** Drag ohne Clamp (auch außerhalb des Screens),
+  Transform-basiertes Ziehen (kein Ruckeln, kein Zurückspringen bei Store-
+  Updates während des Ziehens — Bug: `saveScope`/`updateInstrument` ließen die
+  Fenster-Position zurückschnappen); `recallInstrument` zieht Fenster per
+  `openInstrument` (Symbol-Doppelklick, Geräte-Bar, Menü) wieder in den Screen;
+  Library-Drag: gleicher Transform-Ansatz + Clamp in den Viewport (kein
+  Hängenbleiben außerhalb).
+- **W32b Auto-Size:** Oszi-Fenster misst Chassis-Höhe und setzt die Fenstergröße
+  beim Öffnen exakt darauf (Chassis + Titelleiste); Fit bleibt contain,
+  scale ≤ 1.
+- **W32c Messleitung:** Editor-Aktion `connectProbeWire(instanceId, pinIndex,
+  target)` (Pin-Punkt → L-förmige Rasterleitung → Treffer-Punkt, bestehende
+  Pin-Leitungen entfernen, `refreshNets`); Oszi „Tastkopf in der Hand" + Canvas-
+  Klick auf Leitung/Pin legt die Leitung; Banner/Escape angepasst.
+- **W32d Realismus (nacheinander):**
+  1. Klick-Geräusche (WebAudio-Synthese: Taster, Regler-Rasten, BNC stecken/
+     ziehen, Netzschalter; Menü-Schalter „Tastenklick"; settings-persistiert).
+  2. 50-Hz-Netzbrummen auf offene Eingänge (feste Amplitude ~mV, sichtbar nur
+     bei hoher Empfindlichkeit; GND-Kopplung/⏚ unterdrücken; AC-Kopplung lässt
+     es durch).
+  3. Mess-/Trigger-Realismus: Messwerte-Update ~3 Hz (wie echte Geräte),
+     Trigger sieht das verrauschte Signal (realistischer Jitter), HF-Rausch-
+     filter im Trigger-Menü.
+  4. Tastkopf-Abgleich: Über-/Unterkompensation am COMP-Rechteck deutlicher.
+  5. Sanftes Ein-/Ausschalten (Screen-Fade ~0,5 s).
+- **Verifikation:** tsc · eslint · npm test · next build · Preview-Check.
+
+### §17.1 Umsetzung Runde 17 (Oszi Realismus + Messleitung + Fenster)
+
+**Verifikation:** tsc OK · eslint sauber · `npm test` 26× PASS · `next build` OK · Engine-Scratch 16/16 PASS (Netzbrummen 75 mVss/50 Hz, Trigger deterministisch + verrauscht, BW-Limit dämpft/glättet, Abgleich-Überschwingen 9 V an 5-V-Kante, Messwerte plausibel) — danach gelöscht.
+
+**W32a Fenster-Zug (Instruments.tsx, editor.ts, LibraryPalette.tsx):**
+- Root Cause des „Fensters rutscht unter die Leisten/Springt": direkte DOM-Schreibungen auf left/top wurden von Store-Updates (saveScope → updateInstrument) überschrieben. Fix: Basis left/top bleibt im Store, das Ziehen läuft als `transform: translate3d`-Offset (GPU, kein Layout, von React nicht angerührt); bei Release wird die Endposition direkt in den DOM geschrieben, der Transform geleert und dann committet — kein Frame-Sprung.
+- Keine Drag-Clamps mehr (freier Zug über Leisten/aus dem Screen, Nutzer-Entscheidung). Resize behält Mindestmaße 300×220 + `useLayoutEffect`-Repair gegen Mid-Resize-Überschreiben.
+- Rückholhilfe: `recallPos()` in `openInstrument` (alle Fenster) — liegt ein Fenster außerhalb (sichtbar < 120×80 px), zieht ein Klick aufs Symbol/Device es an den Rand zurück.
+- LibraryPalette: gleicher Transform-Ansatz + Viewport-Clamp (Titel bleibt greifbar) + Post-Render-Repair.
+- Config-Archiv: `closeInstrument` merkt sich `win.config`; Wiederöffnen stellt die Geräteeinstellungen wieder her (kein Verlust durch Schließen).
+
+**W32b Auto-Size (OsziScope.tsx):** `chassisRef` am `.otx-scope` misst die natürliche Chassis-Höhe (1420 breit, Fit skaliert nur herunter, nie weich/hoch); beim Öffnen (und erstmals nach Restore-Minimierung) bekommt das Fenster genau Chassis + Chrome-Rest (30/48 px), geklemmt auf den Viewport. `sized`-Flag in StoredScope erhält spätere Nutzer-Resizes.
+
+**W32c Messleitung per Klick (Canvas.tsx, editor.ts, OsziScope.tsx):**
+- `probeArmed` im Store (OsziScope leitet `held` daraus ab): BNC-Klick nimmt den Tastkopf auf, klick auf Leitung oder Bauteil-Pin im Schaltplan legt die Messleitung dorthin (Vorrang vor allen Werkzeugen, Crosshair-Cursor, Banner weist hin, Escape/„Zurückstecken" bricht ab).
+- `connectProbeWire(instanceId, pinIndex, target)`: ersetzt die alte Leitung des Kanals (alles am Pin endende), legt eine Z-Route (erst aus dem Symbol heraus, dann auf Höhe des Ziels, dann hin) via `addWire`-Commit (undo-fähig); die Messung folgt automatisch über `nets[k]` = `pinNets` der Verdrahtung. `probeTarget()` bevorzugt Pins, dann Leitungsenden, sonst exakte Segment-Projektion (Verbindung über `pointOnSegment`).
+- BNC-Klick auf einen verbundenen Kanal nimmt weiterhin auf (Kabel bleibt als Verdrahtung liegen, Umstecken ersetzt es beim nächsten Klick).
+
+**W32d Realismus (oszi2 engine/render/signals/Oscilloscope/Button/Knob/sound.ts):**
+1. **Klick-Geräusche** (`sound.ts`, Web-Audio-Synthese ohne Assets): Frontplatten-Tasten (Button.tsx), Menü-Bezel, Encoder-Rastung gedrosselt (Knob.tsx), BNC-Stecken (plug), Netzschalter-Relais (relay).
+2. **50-Hz-Netzbrummen** (`mainsHum`, signals.ts): offene Eingänge = Antenne (ca. 75 mVss 50 Hz + Oberton + HF-Gerusch, Phasenlage pro Kanal) — auf 10 mV/div sichtbar, auf 1 V/div physikalisch unsichtbar; läuft auch bei pausierter Simulation (Netz ist „echt"); GND-Kopplung bleibt 0.
+3. **Messwert-Update ~3 Hz** (render.ts `measHold`): die Messwert-Tabelle aktualisiert sich in Ruhe dreimal pro Sekunde statt bei jedem Frame, ungültig sofort bei geändertem Typ/Quelle.
+4. **Trigger auf verrauschtem Signal** (`trigValue` + `noiseAt` 20-ns-Raster): die Triggerentscheidung fällt auf dem gestörten Signal — deterministisch, aber mit sichtbarem Trigger-Jitter bei ungünstigen Pegeln/Divisionen.
+5. **HF-Rauschfilter physisch**: Eingangsrauschen liegt jetzt vor dem analogen Filter (Chain); das 20-MHz-BW-Limit dämpft empirisch (×0.55, wirkt auch bei langsamen Timebases, dt ≫ τ) **und** über das Tiefpass-Glied (wirkt bei schnellen Timebases). Spitzenwert-Hüllenmodell bleibt bei ×0.55.
+6. **Pre-/Post-Trigger sichtbar**: Zeiten am Datenspeicher-Balken („Pre … · Post …"), Marker/Balken bestanden schon.
+7. **Tastkopf-Abgleich sichtbarer**: Comp-Überschwingen ×1.6 (Fehlabgleich zeigt klar erkennbares Ringen, z. B. 9 V an der 5-V-Kalibrierkante statt flach).
+8. **Sanftes Ein-/Ausschalten**: Relais-Klang + Bild-Freeze mit weicher Überblendung zu Schwarz (0,65 s) beim Ausschalten, Boot-Sequenz + weiches Aufblenden (0,45 s) beim Einschalten.
+
+**Grenzen (dokumentiert):** Trigger-Rauschen nutzt ein deterministisches 20-ns-Rauschraster (kein Zufall pro Frame — reproducible Aufnahmen); Mess-Drossel betrifft die On-Scope-Messwert-Tabelle (die MSP-Messleiste unter dem Fenster liefert Live-Werte für die Bedienung); Library-Klemmung hält die Titelleiste im Viewport (im Gegensatz zu Fenstern, die frei ziehbar bleiben).
+
+---
+
+## Runde 18 – FG-2500 Funktionsgenerator (Portierung aus `function generator/`)
+
+### §18 Plan (bindende Nutzer-Entscheidungen dieser Runde)
+1. **Ton:** Audio-Monitor (Signal als Ton) entfällt komplett. Klick-Geräusche bleiben wie am Oszi (Runde 17), über Utility → Beep abschaltbar (`sys.beep`).
+2. **Anschlüsse:** Symbol mit OUT1, OUT2, COM, SYNC (vollständige Belegung wie am Gerät).
+3. **Alt:** „Funktionsgenerator (XFG)“ wird ersatzlos ersetzt (gleiche Bibliotheksposition, gleiche id `funcgen`); alte Projekte verlieren die XFG-Einstellungen (Nutzer-Entscheidung, keine Migration). AC-Quelle/Pulsquelle bleiben eigenständig.
+4. **Platzierung/Nutzung wie das Oszi:** Symbol aus der Bibliothek platzieren, Pins verdrahten, Doppelklick öffnet das gebundene Gerätefenster, Fenster-Auto-Size/Recall wie W32. Keine Patchkabel, kein Mini-Scope-Monitor (Verdrahtung = Schaltplan, PORTING.md Abschnitt 6).
+
+### §18.1 Architektur
+- **Build-Fix (Cloudflare):** `tsconfig.json` `exclude` += `"function generator"` (wie `oszi v2`) – der nächste Build type-checked das Demo-Projekt nicht mehr (Fehler: `clsx` nicht gefunden).
+- **Kern 1:1:** `function generator/src/generator/*` → `src/lib/fg/` (types/state/waveforms/fields/format/menu/reducer/core/spice), unverändert. Signalmodell bleibt analytisch/zustandslos (kein Phasenakkumulator).
+- **Sim-Integration:** neuer `SourceKind` `"fg"`/`"fgSync"` in `src/lib/sim/engine.ts`; `SourceSpec.fg = { ch: Channel, power: boolean }`; `sourceValue` liefert die offene Thévenin-Spannung `rawVoltage(c,t) · (load==='50' ? 2 : 1)` bzw. TTL-Sync – die 50 Ω macht das Device (`rser: 50`), keine doppelte Lastanwendung.
+- **Bauteil `funcgen`:** Pins OUT1/OUT2/COM/SYNC, Symbol als Geräteblock (Oszi-Stil), `toDevices` erzeugt 3 V-Quellen (OUT1, OUT2, SYNC je gegen COM). Zustand als `params.fgstate` (JSON von GenState).
+- **Fenster:** InstrumentKind `funcgen`, gebunden an die Instanz (Doppelklick, DeviceBar-Recall). Frontpanel-Komponenten (FunctionGenerator/Lcd/Knob/Key/Bnc/Icons + CSS) mit Adapter `src/components/FgScope.tsx` (GeneratorCore pro Instanz, Spiegelung nach `fgstate` debounced). Ohne CableLayer/Scope/hooks/monitor/installBridge; Keyboard-Shortcuts nur bei fokussiertem Fenster; Panel skaliert nur herunter (1:1-Regel).
+- **Verifikation:** tsc/eslint/npm test/next build + Kern-Selbsttests (`function generator/scripts/*`) + PORTING §8-Referenzwerte gegen die Kopie in `src/lib/fg`.
+
+### 18.1 Umsetzung Runde 18 (FG-2500 + Cloudflare-Build)
+
+**Ergebnis: alle Prüfungen grün.** Kern-Selbsttests der Demo (selftest/selftest2) unverändert (der dokumentierte „burst active"-FAIL bleibt Absicht), PORTING §8-Referenzwerte gegen die Kopie **15/15**, End-to-End (Bauteil → toDevices → Engine-Transient) **7/7** (Source-Knoten 0.953 Vpp = Theorie 0.953, RC-Mitte 0.150 Vpp = Theorie 0.150, SYNC 5,000 V TTL, OUT2 aus = 0 V), `npm test` **26× PASS** (410 Teile, 2098 Pins deckungsgleich), tsc/`next build` sauber (Cloudflare-Exclude `"function generator"` in `tsconfig.json`).
+
+**Port-Entscheidungen (R18):**
+- **Signalpfad (PORTING Weg B):** `toDevices` erzeugt 3 V-Quellen gegen COM (`params.rser: 50`, SYNC `rser: 0`) mit der offenen Thévenin-Spannung (`outputVoltage`); `sourceValue('fg')` = `outputVoltage(state, idx, t, ∞)`, `sourceValue('fgsync')` = `syncVoltage` (0/5 V TTL, folgt `state.active`).
+- **Ohne Ton (Ask-User):** Audio-Monitor/`beep()` tot (nicht importiert), Klick-Geräusche wie am Oszi (`uiClick`, Utility→Beep abschaltbar), `noiseFor`/`setMonitor` werden nicht angeschlossen.
+- **Bauteil/Pins (Ask-User):** OUT1, OUT2, COM, SYNC; altes XFG ersetzt ohne Migration (Params `freq/amplitude/kind` der Test-Szenarien werden ignoriert, Fallback `initialState()`).
+- **Fenster:** `FgScope.tsx` = GeneratorCore pro Instanz + `params.fgstate`-Spiegel (structuredClone, typisiert gecastet, Kern unverändert), debounced 300 ms (Undo/engine.rebuild), Auto-Size 1160×545 geclampt beim ersten Öffnen (Fenster klebt am Gerät), Panel-Scale `min(1, w/1160)`, Keyboard-Capture mit Fokus-Guard + `stopImmediatePropagation`, Boot-Splash über `bootTick`-Prop (kein Render-Ref, RC-konform).
+- **Platzierung wie am Oszi:** DeviceBar-Einträge `scope`+`funcgen` starten die Symbol-Platzierung; Doppelklick aufs Symbol öffnet das gebundene Gerät.
+- **Lint-RC-Regeln:** keine `eslint-disable`; Demo-Copys wurden für refs-during-render/set-state-in-effect auf `bootTick`/`msgHidden`-State umgebaut.
+
+**Verifikationsnotiz:** Der E2E-Scratch förderte einen Geometrie-Fallstrich zutage (schmale Bauteil-Pins liegen auf Leitungssegmenten — der SYNC-Pin berührte eine Diagonalleitung des RC-Tests); für die App irrelevant, da dort pin-genau verdrahtet wird.

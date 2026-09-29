@@ -8,6 +8,20 @@ import type { Env } from './types';
 export const sourceLabel = (id: string | null) =>
   id === 'comp' ? 'COMP' : id === 'gnd' ? 'GND' : id ? id : 'offen';
 
+// ---------- W32d: Netzbrummen auf offene Eingänge ----------
+// Ein offener Tastkopf ist eine Antenne: 50 Hz aus dem Netz plus Oberton,
+// Phasenlage pro Kanal leicht versetzt, dazu etwas HF-Gerusch. Amplituden in
+// Volt (ca. 50 mVss Brummen) – auf 10 mV/div sichtbar, auf 1 V/div physikalisch
+// unsichtbar. Läuft immer, auch bei pausierter Simulation (Netz ist „echt").
+export function mainsHum(ch: number, t: number): number {
+  const ph = (hash32(ch * 7919 + 13) / 4294967296) * Math.PI * 2;
+  return (
+    0.025 * Math.sin(2 * Math.PI * 50 * t + ph) +
+    0.008 * Math.sin(2 * Math.PI * 100 * t + ph * 1.7) +
+    noiseAt(t, ch * 31 + 7, 1e-6) * 0.004
+  );
+}
+
 // ---------- deterministic noise ----------
 export function hash32(x: number): number {
   x = x | 0;

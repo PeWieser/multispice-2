@@ -78,6 +78,12 @@ export interface InstrumentWindow {
   config: Record<string, unknown>;
 }
 
+/** Runde 17 (W32c): eine herausgenommene Messleitung (BNC-Klick). */
+export interface ProbeArm {
+  instanceId: string;
+  pinIndex: number;
+}
+
 export interface LogEntry {
   id: number;
   level: "info" | "warn" | "error" | "ok";
@@ -182,6 +188,13 @@ export interface EditorState {
   setParam: (instanceId: string, key: string, value: number | string | boolean) => void;
   setInstanceText: (instanceId: string, text: string) => void;
   addWire: (w: Wire) => void;
+  /** W32c: Messleitung an Leitung/Pin legen – ersetzt die Leitung des Kanals. */
+  connectProbeWire: (instanceId: string, pinIndex: number, target: { x: number; y: number }) => void;
+  /** W32c: Welcher Kanal hält gerade eine Messleitung in der Hand? */
+  probeArmed: ProbeArm | null;
+  setProbeArmed: (a: ProbeArm | null) => void;
+  /** W32a/Sicherheitsnetz: Geräte-Konfiguration überlebt Schließen/Wiederöffnen. */
+  configArchive: Record<string, Record<string, unknown>>;
   addMeasurementProbe: (kind: import("@/lib/schematic/model").ProbeKind, x: number, y: number) => string | null;
   updateMeasurementProbe: (id: string, patch: Partial<import("@/lib/schematic/model").MeasurementProbe>) => void;
   removeMeasurementProbe: (id: string) => void;
@@ -245,7 +258,38 @@ const clone = (doc: SchematicDoc): SchematicDoc => JSON.parse(JSON.stringify(doc
 
 const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
+/** Runde 17 (W32a): Rückholhilfe – zieht ein Fenster wieder in den sichtbaren
+ *  Bereich, wenn es (fast) vollständig außerhalb liegt. Fenster-Koordinaten sind
+ *  Layer-relativ (Canvas-Ebene ≈ Viewport minus Menü-/Werkzeugleisten). */
+function recallPos(w: { x: number; y: number; w: number; h: number }): { x: number; y: number } {
+  const layerW = (typeof window !== "undefined" ? window.innerWidth : 1280) - 44;
+  const layerH = (typeof window !== "undefined" ? window.innerHeight : 800) - 150;
+  const visX = Math.min(w.x + w.w, layerW) - Math.max(w.x, 0);
+  const visY = Math.min(w.y + w.h, layerH) - Math.max(w.y, 0);
+  if (visX >= 120 && visY >= 80) return { x: w.x, y: w.y }; // noch griffig
+  return {
+    x: Math.max(8, Math.min(w.x, layerW - 200)),
+    y: Math.max(8, Math.min(w.y, layerH - 120)),
+  };
+}
+
+/** W18: FG-2500 – Bühne 1160×545 + Chrome, viewport-geclampt. */
+function fgDefaultSize(): { w: number; h: number } {
+  const availW = (typeof window !== "undefined" ? window.innerWidth : 1600) - 40;
+  const availH = (typeof window !== "undefined" ? window.innerHeight : 1000) - 110;
+  return { w: Math.min(1190, Math.max(640, availW)), h: Math.min(593, Math.max(480, availH)) };
+}
+
 const newId = (prefix: string) => `${prefix}_` + Math.random().toString(36).slice(2, 10);
+
+/** Runde 16 (W31a): Standard-Gerätefenster für das OTX2074 (1420 px Chassis +
+ *  Luft), nie größer als der Viewport (Mindestmaß 640×480) – Fit skaliert das
+ *  Gerät ohnehin komplett hinein. */
+function scopeDefaultSize(): { w: number; h: number } {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1500;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 980;
+  return { w: Math.min(1500, Math.max(640, vw - 160)), h: Math.min(980, Math.max(480, vh - 180)) };
+}
 
 export const useEditor = create<EditorState>((set, get) => ({
   doc: PRESETS[2].build(),
@@ -561,6 +605,41 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
   },
 
+  // Runde 17 (W32c): Messleitung auf eine Leitung/einen Pin legen. Die alte
+  // Leitung des Kanals (am Pin endend) wird ersetzt („Umstecken"), die neue
+  // folgt einer Z-Route: erst aus dem Symbol heraus, dann auf Höhe des Ziels.
+  // Die Messung folgt automatisch – sie hängt an der Verdrahtung (nets[k]).
+  connectProbeWire: (instanceId, pinIndex, target) => {
+    get().commit((d) => {
+      const inst = d.instances.find((i) => i.id === instanceId);
+      if (!inst) return;
+      const pinPt = pinPosition(inst, pinIndex);
+      if (Math.abs(target.x - pinPt.x) < 1 && Math.abs(target.y - pinPt.y) < 1) return; // sich selbst
+      const atPin = (p: { x: number; y: number }) => Math.abs(p.x - pinPt.x) < 0.6 && Math.abs(p.y - pinPt.y) < 0.6;
+      d.wires = d.wires.filter((w) => !w.points.length || (!atPin(w.points[0]) && !atPin(w.points[w.points.length - 1])));
+      const dx = Math.sign(pinPt.x - inst.x);
+      const dy = Math.sign(pinPt.y - inst.y);
+      const dir =
+        Math.abs(pinPt.x - inst.x) >= Math.abs(pinPt.y - inst.y)
+          ? { x: dx || -1, y: 0 }
+          : { x: 0, y: dy || 1 };
+      const out = { x: pinPt.x + dir.x * 20, y: pinPt.y + dir.y * 20 };
+      const mid = dir.x !== 0 ? { x: out.x, y: target.y } : { x: target.x, y: out.y };
+      const pts: Array<{ x: number; y: number }> = [];
+      for (const p of [pinPt, out, mid, target]) {
+        const last = pts[pts.length - 1];
+        if (!last || Math.abs(last.x - p.x) > 0.5 || Math.abs(last.y - p.y) > 0.5) pts.push(p);
+      }
+      if (pts.length >= 2) d.wires.push({ id: newId("w"), points: pts });
+    });
+    if (get().sim.running) engine.rebuild(get().doc);
+    get().log("info", `Messleitung CH${pinIndex + 1} verbunden`);
+  },
+
+  probeArmed: null,
+  setProbeArmed: (a) => set({ probeArmed: a }),
+  configArchive: {},
+
   addMeasurementProbe: (kind, x, y) => {
     const id = newId("pr");
     const defaults: Record<string, any> = {
@@ -682,31 +761,43 @@ export const useEditor = create<EditorState>((set, get) => ({
   clearToast: () => set({ toast: null }),
 
   openInstrument: (kind, opts) => {
-    // W29: Oszi-Fenster sind an ein Schaltsymbol auf dem Plan gebunden
-    // (Doppelklick). Pro Instanz genau ein Fenster; entkoppelte Oszi-Fenster
-    // gibt es nicht mehr.
-    if (kind === "scope" && opts?.instanceId) {
-      const bound = get().instruments.find((i) => i.kind === "scope" && i.instanceId === opts.instanceId);
+    // W29: Instrument-Fenster sind an ein Schaltsymbol auf dem Plan gebunden
+    // (Doppelklick). Pro Instanz genau ein Fenster; entkoppelte Oszi-/FG-Fenster
+    // gibt es nicht mehr. W18: gleiche Mechanik für den FG-2500.
+    if ((kind === "scope" || kind === "funcgen") && opts?.instanceId) {
+      const bound = get().instruments.find((i) => i.kind === kind && i.instanceId === opts.instanceId);
       if (bound) {
         get().focusInstrument(bound.id);
-        set((s) => ({ instruments: s.instruments.map((w) => (w.id === bound.id ? { ...w, minimized: false, title: opts.title ?? w.title } : w)) }));
+        // Runde 17 (W32a): Rückholhilfe – liegt das Fenster (fast) außerhalb
+        // des Screens, zieht ein Doppelklick aufs Symbol es wieder hinein.
+        set((s) => ({
+          instruments: s.instruments.map((w) =>
+            w.id === bound.id
+              ? { ...w, minimized: false, title: opts.title ?? w.title, ...recallPos(w) }
+              : w,
+          ),
+        }));
         return;
       }
       const count = get().instruments.length;
+      // W31a: Fenster klebt am Gerät (nie größer als der Viewport);
+      // W18: FG-2500 hat eine feste Bühne (1160×545) + Chrome-Rest.
+      const { w: defW, h: defH } =
+        kind === "funcgen" ? fgDefaultSize() : scopeDefaultSize();
       set((s) => ({
         instruments: [
           ...s.instruments,
           {
             id: "w_" + opts.instanceId,
             kind,
-            title: opts.title ?? "Oszilloskop",
+            title: opts.title ?? (kind === "funcgen" ? "Funktionsgenerator" : "Oszilloskop"),
             x: 180 + count * 34,
             y: 110 + count * 28,
-            w: 920,
-            h: 640,
+            w: defW,
+            h: defH,
             z: 10 + count,
             minimized: false,
-            config: {},
+            config: s.configArchive["w_" + opts.instanceId] ?? {},
             instanceId: opts.instanceId,
           },
         ],
@@ -732,7 +823,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     const existing = get().instruments.find((i) => i.kind === kind);
     if (existing) {
       get().focusInstrument(existing.id);
-      set((s) => ({ instruments: s.instruments.map((i) => (i.id === existing.id ? { ...i, minimized: false } : i)) }));
+      // Runde 17 (W32a): Rückholhilfe auch für die übrigen Geräte-Fenster.
+      set((s) => ({
+        instruments: s.instruments.map((i) =>
+          i.id === existing.id ? { ...i, minimized: false, ...recallPos(i) } : i,
+        ),
+      }));
       return;
     }
     const sizes: Partial<Record<InstrumentKind, { w: number; h: number }>> = {
@@ -766,7 +862,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           ...size,
           z: 10 + count,
           minimized: false,
-          config: {},
+          config: s.configArchive[id] ?? {},
         },
       ],
     }));
@@ -778,7 +874,16 @@ export const useEditor = create<EditorState>((set, get) => ({
     else get().openInstrument("inspector");
   },
 
-  closeInstrument: (id) => set((s) => ({ instruments: s.instruments.filter((i) => i.id !== id) })),
+  closeInstrument: (id) =>
+    set((s) => {
+      const w = s.instruments.find((i) => i.id === id);
+      return {
+        instruments: s.instruments.filter((i) => i.id !== id),
+        // Runde 17: Konfiguration merken – Wiederöffnen bringt die Einstellungen
+        // des Geräts zurück (Sicherheitsnetz, „kein Fenster geht verloren").
+        configArchive: w ? { ...s.configArchive, [id]: w.config } : s.configArchive,
+      };
+    }),
   updateInstrument: (id, patch) =>
     set((s) => ({ instruments: s.instruments.map((i) => (i.id === id ? { ...i, ...patch } : i)) })),
   focusInstrument: (id) =>
@@ -896,7 +1001,14 @@ export const useEditor = create<EditorState>((set, get) => ({
         // W29: entkoppelte Oszi-Fenster alter Projekte verwerfen – das Oszi
         // gibt es nur noch als gebundenes Schaltsymbol (Doppelklick).
         instruments: Array.isArray(stored.instruments)
-          ? (stored.instruments as InstrumentWindow[]).filter((w) => !(w.kind === "scope" && !w.instanceId))
+          ? (stored.instruments as InstrumentWindow[])
+              .filter((w) => !(w.kind === "scope" && !w.instanceId))
+              .map((w) =>
+                // Runde 16 (W31a): alter buggy Default (920×640) → neue Standardgröße.
+                w.kind === "scope" && w.instanceId && w.w === 920 && w.h === 640
+                  ? { ...w, ...scopeDefaultSize() }
+                  : w,
+              )
           : [],
         lastSavedAt: stored.savedAt ? new Date(stored.savedAt).getTime() : null,
       });

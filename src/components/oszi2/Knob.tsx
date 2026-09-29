@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { click } from './sound';
 
 interface KnobProps {
   size?: number;
@@ -33,6 +34,7 @@ export default function Knob({ size = 48, ring, onTurn, onPush, title, variant =
       if (disabledRef.current) return;
       const d = e.deltaY < 0 ? 1 : -1;
       setAngle((a) => a + d * 15);
+      click('knob');
       turnRef.current(d);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -79,6 +81,7 @@ export default function Knob({ size = 48, ring, onTurn, onPush, title, variant =
     while (Math.abs(d.acc) >= STEP) {
       const s = Math.sign(d.acc);
       d.acc -= s * STEP;
+      click('knob');
       turnRef.current(s);
     }
   };
@@ -86,7 +89,10 @@ export default function Knob({ size = 48, ring, onTurn, onPush, title, variant =
     const d = drag.current;
     drag.current = null;
     setPressed(false);
-    if (d && !d.moved && onPush) onPush();
+    if (d && !d.moved && onPush) {
+      click('key');
+      onPush();
+    }
   };
 
   const body =

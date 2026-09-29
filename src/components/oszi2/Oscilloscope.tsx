@@ -9,7 +9,8 @@ import { H, W, SLOT_H, GY, drawBoot, drawGraticule, drawOverlay, drawWaves, MAIN
 import { MENU_TITLES, applyKnob, buildMenu, cursorSels, defaultKnob } from './menus';
 import type { MenuItem } from './menus';
 import { sourceLabel } from './signals';
-import { engine as simEngine } from '@/state/editor';
+import { click } from './sound';
+import { engine as simEngine, useEditor } from '@/state/editor';
 
 interface Props {
   envRef: React.MutableRefObject<Env>;
@@ -30,6 +31,8 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
   const sRef = useRef(s);
   const [power, setPower] = useState(true);
   const powerRef = useRef(true);
+  // W32d: sanftes Ein-/Ausschalten (0..1), weiche Überblendung der Anzeige.
+  const fadeRef = useRef(1);
   const bootStart = useRef(-10);
   // W30: Boot-Sperre als State + Timer statt Ref-Lesen in Render-Closures.
   const [booting, setBooting] = useState(false);
@@ -55,6 +58,23 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
   const clearPersistFlag = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const itemsRef = useRef<MenuItem[]>([]);
+  // W31c (Runde 16): Oszi-Clock = Signal-Zeitachse – folgt der Simulationszeit,
+  // läuft bei pausierter Simulation in Wall-Time weiter (Bild bleibt lebendig),
+  // resynchronisiert bei Sprüngen (Sim-Reset bzw. Weiterlauf nach Pause).
+  const clockRef = useRef({ t: 0, prev: 0 });
+  // W31e: merkt, ob „Single“ die Simulation selbst gestartet hat – dann nach
+  // der Aufnahme wieder anhalten (User-Entscheidung).
+  const singleAutoSim = useRef(false);
+  // W31e: Fenster schließen mit laufender Single-Aktion → Simulation anhalten.
+  useEffect(
+    () => () => {
+      if (singleAutoSim.current) {
+        singleAutoSim.current = false;
+        useEditor.getState().pauseSim();
+      }
+    },
+    [],
+  );
   const [, force] = useState(0);
   const [searchCount, setSearchCount] = useState(0);
 
@@ -168,23 +188,53 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       const dtFrame = t - lastT; lastT = t;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (!powerRef.current) { ctx.fillStyle = '#030404'; ctx.fillRect(0, 0, W, H); return; }
+      // W32d: sanftes Ein-/Ausschalten – beim Ausschalten friert das Bild ein
+      // und blendet weich zu Schwarz aus; beim Einschalten spielt das Boot den
+      // hochlaufenden Gerät. Das Relais-Klicken kommt vom Netzschalter.
+      const targetFade = powerRef.current ? 1 : 0;
+      const fr0 = fadeRef.current;
+      if (fr0 !== targetFade) {
+        const speed = dtFrame / (targetFade > fr0 ? 0.45 : 0.65);
+        fadeRef.current = targetFade > fr0 ? Math.min(targetFade, fr0 + speed) : Math.max(targetFade, fr0 - speed);
+      }
+      const fv = fadeRef.current;
+      if (!powerRef.current && fv <= 0.004) {
+        fadeRef.current = 0;
+        ctx.fillStyle = '#030404'; ctx.fillRect(0, 0, W, H); return;
+      }
+      const powered = powerRef.current;
       const bootP = (t - bootStart.current) / 2.2;
-      if (bootP < 1) { drawBoot(ctx, Math.max(0, bootP)); return; }
+      if (bootP < 1 && powered) { drawBoot(ctx, Math.max(0, bootP)); return; }
       const st = sRef.current;
       const env = envRef.current;
       const eng = engine.current;
-      // W30: Die Akquise läuft in Simulationszeit (Multispice-Engine),
-      // UI-Timer (Boot, Meldungen, Kalibrierung) weiter in Wall-Time.
+      // W31c (Runde 16): Die Akquise läuft auf der Oszi-Clock – sie folgt der
+      // Simulationszeit, läuft bei pausierter Simulation in Wall-Time weiter
+      // (Bild bleibt lebendig: Rauschen/Auto-Trigger), und resynchronisiert bei
+      // Sprüngen (Sim-Reset, Weiterlauf nach Pause). UI-Timer (Boot, Meldungen,
+      // Kalibrierung, Persistenz) bleiben in Wall-Time.
       const simT = simEngine.lastState.time;
-      if (simT < eng.lastTT) {
-        // Simulation zurückgesetzt → Trigger-Suchzustand neu synchronisieren.
+      const clock = clockRef.current;
+      clock.t = simEngine.running ? simT : clock.t + dtFrame;
+      if (clock.t < clock.prev) {
+        // Zurückgesetzte/neu gestartete Simulation → Trigger-Suchzustand neu
+        // synchronisieren; keine sofortige Auto-Aufnahme (Single-Arming hält).
         eng.pendingTT = null;
-        eng.searchStart = simT;
-        eng.lastAcqTime = simT - 1;
+        eng.searchStart = clock.t;
+        eng.lastAcqTime = clock.t;
       }
-      const res = eng.step(simT, st, env);
-      if (res.singleDone) setS((x) => ({ ...x, run: 'stop' }));
+      clock.prev = clock.t;
+      // W32d: ausgeschaltet = eingefrorenes Bild – Akquise pausiert, die
+      // Anzeige zeigt den letzten Stand, bis die Überblendung durch ist.
+      const res = powered ? eng.step(clock.t, st, env) : { newAcq: false, singleDone: false };
+      if (res.singleDone) {
+        setS((x) => ({ ...x, run: 'stop' }));
+        // W31e: nur die von „Single“ selbst gestartete Simulation wieder anhalten.
+        if (singleAutoSim.current) {
+          singleAutoSim.current = false;
+          useEditor.getState().pauseSim();
+        }
+      }
       let zoomAcq: Acq | null = null;
       if (st.zoom.on && eng.display && !st.acq.xy) {
         zoomAcq = acquire(eng.lastTT, st.hDelay + st.zoom.pos * st.tdiv, st.tdiv / st.zoom.factor, st, env, eng.acMean, true);
@@ -222,7 +272,7 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       if (persist === 0 || clearPersistFlag.current) {
         lctx.clearRect(0, 0, W, H);
         clearPersistFlag.current = false;
-      } else if (persist > 0 && st.run !== 'stop') {
+      } else if (persist > 0 && st.run !== 'stop' && powered) {
         lctx.save();
         lctx.globalCompositeOperation = 'destination-out';
         lctx.fillStyle = `rgba(0,0,0,${Math.min(1, 1 - Math.exp(-dtFrame / persist))})`;
@@ -238,6 +288,11 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       if (persist === 0 || res.newAcq || st.zoom.on) drawWaves(lctx, inp);
       ctx.drawImage(layer, 0, 0, W, H);
       drawOverlay(ctx, inp);
+      // W32d: weiche Überblendung beim Aus-/Einschalten.
+      if (fv < 1) {
+        ctx.fillStyle = `rgba(3,4,4,${(1 - fv).toFixed(3)})`;
+        ctx.fillRect(0, 0, W, H);
+      }
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -331,18 +386,32 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
   });
   const runStop = () => {
     const x = sRef.current;
-    engine.current.searchStart = simEngine.lastState.time;
+    engine.current.searchStart = clockRef.current.t;
     engine.current.pendingTT = null;
+    // W31e: eine laufende Single-Aktion abbrechen → selbst gestartete Simulation
+    // wieder anhalten.
+    if (singleAutoSim.current) {
+      singleAutoSim.current = false;
+      useEditor.getState().pauseSim();
+    }
     set((y) => ({ ...y, run: x.run === 'stop' ? 'run' : 'stop' }));
   };
   const single = () => {
-    engine.current.searchStart = simEngine.lastState.time;
+    const c = clockRef.current;
+    engine.current.searchStart = c.t;
     engine.current.pendingTT = null;
     engine.current.avg = null;
+    engine.current.lastAcqTime = c.t;
     set((y) => ({ ...y, run: 'single' }));
+    // W31e (User-Entscheidung): Single startet bei angehaltener Simulation die
+    // Messung selbst – eine Aufnahme, danach wird die Simulation wieder angehalten.
+    if (!simEngine.running && !singleAutoSim.current) {
+      singleAutoSim.current = true;
+      useEditor.getState().startSim();
+    }
   };
   const doAutoset = () => {
-    const r = autoset(sRef.current, envRef.current, simEngine.lastState.time);
+    const r = autoset(sRef.current, envRef.current, clockRef.current.t);
     set(() => r.settings);
     engine.current.stats.clear();
     msg(r.msg);
@@ -355,6 +424,13 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
     const p = !powerRef.current;
     powerRef.current = p;
     setPower(p);
+    // W32d: Netzschalter mit Relais-Klang, Anzeige blendet weich aus/ein.
+    click('relay');
+    // W31e: offene Single-Aktion beenden – selbst gestartete Simulation anhalten.
+    if (singleAutoSim.current) {
+      singleAutoSim.current = false;
+      useEditor.getState().pauseSim();
+    }
     if (p) {
       bootStart.current = now();
       engine.current = new Engine();
@@ -402,6 +478,7 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
                   title={i === 0 ? 'Save (Schnellspeichern)' : i === 7 ? 'Menü ein/aus' : `Menütaste ${i}`}
                   onClick={() => {
                     if (!power || booting) return;
+                    click('key');
                     if (i === 0) saveKey();
                     else if (i === 7) set((x) => ({ ...x, menu: x.menu ? null : x.lastMenu, knobTarget: null }));
                     else itemsRef.current[i - 1]?.press?.();

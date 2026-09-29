@@ -5,6 +5,8 @@
  */
 
 import { Device, SourceSpec } from "@/lib/sim/engine";
+import type { GenState } from "@/lib/fg/types";
+import { initialState } from "@/lib/fg/state";
 
 export type SymbolPrim =
   | { t: "line"; pts: number[]; w?: number }
@@ -514,21 +516,58 @@ add({
   toDevices: (i, n) => [{ id: i.id, type: "V", nodes: n, params: { rser: 0.001 }, source: sourceFromParams(i) }],
 });
 
+// W18: FG-2500 (SimTech) – ersetzt das alte XFG-Bauteil. Platzierung/Nutzung
+// wie das Oszilloskop: Symbol auf den Plan, Pins verdrahten (OUT1/OUT2 gegen
+// COM, SYNC = 0–5 V TTL des aktiven Kanals), Doppelklick öffnet das Gerät.
+// Der Gerätezustand (GenState) lebt als JSON in params.fgstate; die 50 Ω
+// Ausgangsimpedanz bildet das Device (rser), die Spannungsquellen liefern die
+// offene Thévenin-Spannung (PORTING.md Weg B – Last nie doppelt anwenden).
+function fgStateOf(inst: PartInstanceLike): GenState {
+  const raw = inst.params?.fgstate;
+  if (typeof raw === "string" && raw) {
+    try {
+      const v = JSON.parse(raw) as GenState;
+      if (v && Array.isArray(v.ch) && v.ch.length === 2 && v.sys && v.ui) return v;
+    } catch {
+      /* Fallback auf Werkseinstellung */
+    }
+  }
+  return initialState();
+}
+
 add({
   id: "funcgen",
   name: "Funktionsgenerator (XFG)",
   ref: "XFG",
   category: "Quellen/Instrumente",
-  tags: ["funktionsgenerator", "xfg", "instrument"],
+  tags: ["funktionsgenerator", "xfg", "instrument", "fg-2500", "awg", "signal"],
   mount: "virtual",
-  interactive: "generator",
-  pins: [{ name: "+", x: -30, y: 20 }, { name: "COM", x: 0, y: 30 }, { name: "-", x: 30, y: 20 }],
-  symbol: [RECT(-34, -24, 68, 44, 2), L(0, 20, 0, 30), TXT(0, -6, "XFG", 11), TXT(0, 10, "~", 14)],
-  params: waveParams,
-  toDevices: (i, n) => [
-    { id: i.id, type: "V", nodes: [n[0], n[1]], params: { rser: 50 }, source: sourceFromParams(i) },
-    { id: i.id + "_n", type: "V", nodes: [n[2], n[1]], params: { rser: 50 }, source: { ...sourceFromParams(i), amplitude: -num(i, "amplitude", 5) } },
+  pins: [
+    { name: "OUT1", x: -40, y: -20 },
+    { name: "OUT2", x: -40, y: 20 },
+    { name: "COM", x: 0, y: 40 },
+    { name: "SYNC", x: 40, y: 0 },
   ],
+  symbol: [
+    RECT(-30, -30, 60, 60, 3),
+    RECT(-20, -22, 40, 24, 2),
+    L(-16, -10, -12, -18, -8, -10, -4, -18, 0, -10, 4, -18, 8, -10, 12, -10),
+    TXT(0, 12, "XFG", 10),
+    TXT(0, 23, "2 CH", 7),
+    L(-40, -20, -30, -20),
+    L(-40, 20, -30, 20),
+    L(0, 30, 0, 40),
+    L(30, 0, 40, 0),
+  ],
+  params: [],
+  toDevices: (i, n) => {
+    const st = fgStateOf(i);
+    return [
+      { id: i.id + "_o1", type: "V", nodes: [n[0], n[2]], params: { rser: 50 }, source: { kind: "fg", fg: { state: st, idx: 0 } } },
+      { id: i.id + "_o2", type: "V", nodes: [n[1], n[2]], params: { rser: 50 }, source: { kind: "fg", fg: { state: st, idx: 1 } } },
+      { id: i.id + "_sy", type: "V", nodes: [n[3], n[2]], params: { rser: 50 }, source: { kind: "fgsync", fg: { state: st, idx: st.active } } },
+    ];
+  },
 });
 
 // W29: Das Oszilloskop ist ein Schaltsymbol auf dem Plan – Messleitungen

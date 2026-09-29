@@ -17,7 +17,7 @@ Typografie und Farbe als Information. Der Maßstab: „Insanely great“ oder ni
 - **Schematic Capture**: Grid/Snap, Zoom zum Cursor, Rubber-Banding, Auto-Routing (Manhattan + A*), Junctions, Busse, On-/Off-Page-Connectors, ERC mit Zoom-to-Error
 - **Bibliothek**: 400+ kuratierte Bauteile, Command Palette (⌘K), Favoriten, Suche wie „r 10k“, handgezeichnete farbcodierte Symbole
 - **Simulation**: Transientenanalyse im Browser (MNA + Newton-Raphson), OP, AC, Sweep, Monte-Carlo, Rauschen, FFT
-- **Messgeräte**: 4-Kanal-Oszilloskop, Multimeter, Funktionsgenerator, Bode-Plotter — live während der Simulation
+- **Messgeräte**: 4-Kanal-Oszilloskop (OTX2074, mit Messleitungen), Multimeter, Funktionsgenerator FG-2500, Bode-Plotter — live während der Simulation
 - **Probes**: Spannungs-/Strom-Messpunkte mit Live-Werten, skalieren unabhängig vom Zoom;
   Ghost zeigt vor dem Platzieren bereits Wert + Zielnetz
 - **Magie im Detail**: Hover über ein Netz = Wert + Mini-Wellenform (laufend ohne Taste,
@@ -50,7 +50,8 @@ npx serve out      # Build lokal prüfen
 
 Keine Umgebungsvariablen nötig. Details: [CLOUDFLARE.md](CLOUDFLARE.md) ·
 Design: [DESIGN.md](DESIGN.md) · Grundsätze: [MANIFEST.md](MANIFEST.md) ·
-Qualitätsaudits: [STEVE_JOBS_QUALITY_AUDIT.md](STEVE_JOBS_QUALITY_AUDIT.md)
+Qualitätsaudits: [STEVE_JOBS_QUALITY_AUDIT.md](STEVE_JOBS_QUALITY_AUDIT.md) ·
+**Übergabe (Auftrag, Runden 15–18, Regeln): [UEBERGABE.md](UEBERGABE.md)**
 
 ## Struktur
 

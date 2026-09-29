@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Oscilloscope from "./oszi2/Oscilloscope";
 import HelpOverlay from "./oszi2/HelpOverlay";
+import { click } from "./oszi2/sound";
 import { CH_COLORS, clamp, defaultSettings, type ChannelSettings, type Env, type ProbeState, type Settings } from "./oszi2/types";
 import { engine as simEngine, useEditor, type InstrumentWindow } from "@/state/editor";
 
@@ -37,6 +38,8 @@ interface StoredScope {
   v: 3;
   settings?: Settings;
   probes?: ProbeCfg[];
+  /** W32b: Auto-Size beim ersten Öffnen erledigt (Nutzer-Resizes bleiben). */
+  sized?: boolean;
 }
 
 const defaultProbeCfg = (): ProbeCfg[] =>
@@ -108,8 +111,8 @@ function interpAt(b: Buf | null, t: number): number {
   return b.v[lo] + (b.v[hi] - b.v[lo]) * f;
 }
 
-/** Skaliert das 1420px-Chassis auf die Fensterbreite (aus oszi v2 App.tsx,
- *  aber gegen den Container statt das Browserfenster gemessen). */
+/** Skaliert das 1420px-Chassis komplett in den Container (Breite UND Höhe,
+ *  „contain"-Verhalten) — Runde 16 (W31b): nie ein Scrollbalken im Fenster. */
 function Fit({ width, children }: { width: number; children: ReactNode }) {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -117,9 +120,16 @@ function Fit({ width, children }: { width: number; children: ReactNode }) {
   const [h, setH] = useState(0);
   useLayoutEffect(() => {
     const upd = () => {
-      const avail = (outer.current?.clientWidth ?? width) - 8;
-      setScale(Math.min(1, avail / width));
-      if (inner.current) setH(inner.current.offsetHeight);
+      const availW = Math.max(0, (outer.current?.clientWidth ?? width) - 8);
+      const availH = Math.max(0, (outer.current?.clientHeight ?? 0) - 8);
+      const nh = inner.current?.offsetHeight ?? 0;
+      if (!nh) {
+        setScale(Math.min(1, availW / width));
+        return;
+      }
+      setH(nh);
+      const byH = availH > 0 ? availH / nh : 1;
+      setScale(Math.min(1, availW / width, byH));
     };
     upd();
     const ro = new ResizeObserver(upd);
@@ -128,8 +138,8 @@ function Fit({ width, children }: { width: number; children: ReactNode }) {
     return () => ro.disconnect();
   }, [width]);
   return (
-    <div ref={outer} className="w-full">
-      <div style={{ width: width * scale, height: h * scale, margin: "0 auto" }}>
+    <div ref={outer} className="flex h-full w-full items-center justify-center">
+      <div style={{ width: width * scale, height: h * scale }}>
         <div ref={inner} style={{ width, transform: `scale(${scale})`, transformOrigin: "top left" }}>
           {children}
         </div>
@@ -169,33 +179,74 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
       const w = st.instruments.find((x) => x.id === win.id);
       const cfg = w?.config ?? {};
       const prev = (cfg.scope && typeof cfg.scope === "object" && (cfg.scope as StoredScope).v === 3 ? cfg.scope : {}) as StoredScope;
-      const next: StoredScope = { v: 3, settings: settings ?? prev.settings, probes: probes ?? prev.probes };
+      const next: StoredScope = { v: 3, settings: settings ?? prev.settings, probes: probes ?? prev.probes, sized: prev.sized };
       st.updateInstrument(win.id, { config: { ...cfg, scope: next } });
     },
     [win.id],
   );
 
+  // ---- W32b: Auto-Size – das Fenster klebt beim Öffnen am Gerät ----
+  // Das Gerät bleibt 1:1 (wird nur herunterskaliert); das Fenster bekommt genau
+  // das Chassis + Chrome-Rest. Einmal pro Öffnen; spätere Resizes des Nutzers
+  // bleiben (Flag in der Geräte-Konfiguration).
+  const chassisRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const st = useEditor.getState();
+    const w = st.instruments.find((x) => x.id === win.id);
+    if (!w || !chassisRef.current) return;
+    const cfg = (w.config.scope && typeof w.config.scope === "object" ? w.config.scope : {}) as StoredScope;
+    if (cfg.sized) return;
+    const natH = chassisRef.current.offsetHeight;
+    if (!natH) return;
+    const availW = typeof window !== "undefined" ? window.innerWidth : 1600;
+    const availH = typeof window !== "undefined" ? window.innerHeight : 1000;
+    // 30 = Fenster-Rahmen + p-1 + Fit-Marge; 48 = Titelleiste + Rahmen + p-1.
+    const width = Math.min(1420 + 30, availW - 40);
+    const height = Math.min(natH + 48, availH - 110);
+    st.updateInstrument(win.id, {
+      w: width,
+      h: height,
+      config: { ...w.config, scope: { ...cfg, sized: true } },
+    });
+    // win.minimized: bei Restore im minimierten Zustand misst der Effekt beim
+    // ersten Wieder-Öffnen nach (dann ist der Chassis im DOM).
+  }, [win.id, win.minimized]);
+
   // ---- Tastkopf-Handling: aufnehmen, auf ⎍/⏚ stecken, zurück auf die BNC ----
-  const [held, setHeld] = useState<number | null>(null);
+  // Runde 17 (W32c): „in der Hand" lebt im Store – die Canvas weiß dann,
+  // welcher Kanal auf eine Leitung/einen Pin im Schaltplan wartet.
+  const armed = useEditor((s) => s.probeArmed);
+  const held = armed && armed.instanceId === win.instanceId ? armed.pinIndex : null;
   const [parked, setParked] = useState<(null | "comp" | "gnd")[]>([null, null, null, null]);
   const [help, setHelp] = useState(false);
-  const heldRef = useRef(held);
-  useEffect(() => { heldRef.current = held; }, [held]);
 
-  const onPickProbe = useCallback((k: number) => {
-    if (heldRef.current === k) {
-      setHeld(null); // zurück auf die BNC → Messung laut Verdrahtung
-      return;
-    }
-    setParked((p) => p.map((v, i) => (i === k ? null : v))); // von ⎍/⏚ abziehen
-    setHeld(k);
-  }, []);
-  const onTargetClick = useCallback((id: string) => {
-    const k = heldRef.current;
-    if (k === null || (id !== "comp" && id !== "gnd")) return;
-    setParked((p) => p.map((v, i) => (i === k ? id : v)));
-    setHeld(null);
-  }, []);
+  const onPickProbe = useCallback(
+    (k: number) => {
+      const instId = win.instanceId;
+      if (!instId) return;
+      const st = useEditor.getState();
+      const cur = st.probeArmed;
+      if (cur && cur.instanceId === instId && cur.pinIndex === k) {
+        st.setProbeArmed(null); // zurück auf die BNC → Messung laut Verdrahtung
+        return;
+      }
+      setParked((p) => p.map((v, i) => (i === k ? null : v))); // von ⎍/⏚ abziehen
+      click('plug');
+      st.setProbeArmed({ instanceId: instId, pinIndex: k });
+    },
+    [win.instanceId],
+  );
+  const onTargetClick = useCallback(
+    (id: string) => {
+      const st = useEditor.getState();
+      const cur = st.probeArmed;
+      if (!cur || cur.instanceId !== win.instanceId || (id !== "comp" && id !== "gnd")) return;
+      setParked((p) => p.map((v, i) => (i === cur.pinIndex ? id : v)));
+      click('plug');
+      st.setProbeArmed(null);
+    },
+    [win.instanceId],
+  );
   const onToggleAtten = useCallback(
     (k: number) => {
       const next = probeCfgRef.current.map((p, i) => (i === k ? { ...p, atten: (p.atten === 10 ? 1 : 10) as 1 | 10 } : p));
@@ -217,7 +268,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setHeld(null);
+        useEditor.getState().setProbeArmed(null);
         setHelp(false);
       }
     };
@@ -237,20 +288,40 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   );
 
   // ---- Sampler: Netzspannung aus der laufenden Simulation (Frame-Cache) ----
-  const bufCache = useRef<{ frame: number; map: Map<string, Buf | null> }>({ frame: -1, map: new Map() });
+  // Runde 16 (W31c): Simulation angehalten = tote Schaltung → 0 V + Grund-
+  // rauschen (User-Entscheidung: „Simulation an = Signal an; Simulation stopp =
+  // keine Spannung"). comp/GND laufen als Geräte-Eigensignale weiter.
+  // W31d: zweistufiger Lookup – Fast-Tier (≈40 kSa/s, ~0,41 s), sonst
+  // Langzeit-Tier (≈3,3 kSa/s, ~2,5 s); vor Sim-Start 0 V, verjüngte Historie
+  // = Hold am Rand.
+  const bufCache = useRef<{ frame: number; fast: Map<string, Buf | null>; slow: Map<string, Buf | null> }>({
+    frame: -1,
+    fast: new Map(),
+    slow: new Map(),
+  });
   const sampler = useCallback((net: string, t: number): number => {
+    if (!simEngine.running) return 0;
     const frame = Math.floor(performance.now() / 16);
     const c = bufCache.current;
     if (c.frame !== frame) {
       c.frame = frame;
-      c.map.clear();
+      c.fast.clear();
+      c.slow.clear();
     }
-    let b = c.map.get(net);
-    if (b === undefined) {
-      b = simEngine.channel(net, 8192);
-      c.map.set(net, b);
+    let f = c.fast.get(net);
+    if (f === undefined) {
+      f = simEngine.channel(net, 16384);
+      c.fast.set(net, f);
     }
-    return interpAt(b, t);
+    if (f && f.t.length > 0 && t >= f.t[0]) return interpAt(f, t);
+    let s = c.slow.get(net);
+    if (s === undefined) {
+      s = simEngine.channelSlow(net, 8192);
+      c.slow.set(net, s);
+    }
+    if (!s || s.t.length === 0) return 0;
+    if (t >= s.t[0]) return interpAt(s, t);
+    return t < 0 ? 0 : s.v[0];
   }, []);
 
   const envRef = useRef<Env>({ probes, gndRef, sampler });
@@ -262,40 +333,45 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   const onHelp = useCallback(() => setHelp(true), []);
 
   return (
-    <div className="h-full w-full overflow-auto" style={BENCH_BG}>
-      <div className="min-h-full pb-[170px] pt-4" style={{ userSelect: "none" }}>
+    <div
+      className="h-full w-full overflow-hidden"
+      style={{ ...BENCH_BG, cursor: held !== null ? "crosshair" : undefined }}
+    >
+      <div className="flex h-full w-full flex-col" style={{ userSelect: "none" }}>
         {held !== null && (
           <div
             className="fixed left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black/85 px-5 py-2 text-[13px] text-white shadow-xl"
             style={{ boxShadow: `0 0 0 2px ${CH_COLORS[held]}` }}
           >
             <span className="h-3 w-3 rounded-full" style={{ background: CH_COLORS[held] }} />
-            Tastkopf CH{held + 1} in der Hand – klicke auf die Klemmen ⎍/⏚ am Gerät oder zurück auf die BNC-Buchse {held + 1}
-            <button className="rounded-full bg-white/15 px-3 py-0.5 text-[12px] hover:bg-white/25" onClick={() => setHeld(null)}>
+            Tastkopf CH{held + 1} in der Hand – klicke auf eine Leitung oder einen Pin im Schaltplan (Messleitung wird hingelegt), auf die Klemmen ⎍/⏚ am Gerät oder zurück auf die BNC-Buchse {held + 1}
+            <button className="rounded-full bg-white/15 px-3 py-0.5 text-[12px] hover:bg-white/25" onClick={() => useEditor.getState().setProbeArmed(null)}>
               Zurückstecken
             </button>
           </div>
         )}
 
-        <Fit width={1420}>
-          <div className="otx-scope">
-            <Oscilloscope
-              envRef={envRef}
-              probes={probes}
-              heldProbe={held}
-              onTargetClick={onTargetClick}
-              onPickProbe={onPickProbe}
-              onHelp={onHelp}
-              initialSettings={initialSettings}
-              onSettings={onSettings}
-              onToggleAtten={onToggleAtten}
-              onProbeComp={onProbeComp}
-            />
-          </div>
-        </Fit>
-
-        {help && <HelpOverlay onClose={() => setHelp(false)} />}
+        <div className="flex min-h-0 flex-1 items-center justify-center p-1">
+          <Fit width={1420}>
+            <div className="otx-scope" ref={chassisRef}>
+              <Oscilloscope
+                envRef={envRef}
+                probes={probes}
+                heldProbe={held}
+                onTargetClick={onTargetClick}
+                onPickProbe={onPickProbe}
+                onHelp={onHelp}
+                initialSettings={initialSettings}
+                onSettings={onSettings}
+                onToggleAtten={onToggleAtten}
+                onProbeComp={onProbeComp}
+              />
+            </div>
+          </Fit>
+        </div>
       </div>
+
+      {help && <HelpOverlay onClose={() => setHelp(false)} />}
     </div>
   );
 }

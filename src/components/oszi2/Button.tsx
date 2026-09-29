@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { click } from './sound';
 
 interface Props {
   children?: ReactNode;
@@ -21,7 +22,11 @@ export default function Button({ children, onClick, w = 58, h = 26, led, frame, 
     <button
       type="button"
       title={title}
-      onClick={onClick}
+      onClick={() => {
+        // W32d: Klick-Geräusch jeder Frontplatte-Taste (Mikroschalter).
+        click('key');
+        onClick?.();
+      }}
       className={`sk-btn ${dark ? 'sk-btn-dark' : ''} ${lit ? 'sk-btn-lit' : ''} ${small ? 'text-[9.5px]' : 'text-[11px]'} ${className}`}
       style={{
         width: w,

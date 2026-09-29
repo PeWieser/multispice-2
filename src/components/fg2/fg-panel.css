@@ -1,0 +1,126 @@
+/* W18: Frontpanel-Styles des FG-2500 (aus function generator/src/index.css).
+ * Gescoped auf .fg-panel – keine globalen body/html-Regeln. */
+.fg-panel {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+.lcd-select, .lcd-select * {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+/* ---------- Gehäuse ---------- */
+.fg-body {
+  position: absolute; left: 30px; top: 30px; width: 1100px; height: 480px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 8%),
+    linear-gradient(180deg, #f1f3f5 0%, #e3e6ea 50%, #d2d6dc 100%);
+  box-shadow:
+    inset 0 2px 0 #fff,
+    inset 0 -4px 8px rgba(0,0,0,.18),
+    inset 3px 0 6px rgba(255,255,255,.5),
+    inset -3px 0 6px rgba(0,0,0,.08),
+    0 18px 28px rgba(0,0,0,.55),
+    0 3px 4px rgba(0,0,0,.5);
+  z-index: 2;
+}
+.fg-bumper {
+  position: absolute; z-index: 1;
+  background: radial-gradient(circle at 30% 25%, #5aa2ee 0%, #2f78d0 50%, #1d5ab0 100%);
+  box-shadow: inset 0 3px 5px rgba(255,255,255,.35), inset 0 -6px 10px rgba(0,0,0,.35), 0 8px 14px rgba(0,0,0,.5);
+}
+.fg-foot {
+  position: absolute; z-index: 0; height: 40px;
+  background: linear-gradient(180deg, #8c9198, #5c6167 60%, #43474c);
+  border-radius: 0 0 14px 14px;
+  box-shadow: 0 8px 12px rgba(0,0,0,.6), inset 0 2px 4px rgba(255,255,255,.25);
+}
+.fg-recess {
+  position: absolute;
+  background: linear-gradient(180deg, #d0d4da, #dfe2e6);
+  border-radius: 14px;
+  box-shadow: inset 0 3px 6px rgba(0,0,0,.28), inset 0 -1px 0 #fff, 0 1px 0 rgba(255,255,255,.9);
+}
+.fg-bezel {
+  position: absolute;
+  background: linear-gradient(160deg, #e9ecef, #c2c7ce);
+  border-radius: 14px;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.35), inset 0 -2px 0 rgba(255,255,255,.8), 0 1px 0 #fff, 0 -1px 0 rgba(0,0,0,.18);
+}
+.fg-bluepanel {
+  position: absolute;
+  background: linear-gradient(180deg, #4b90da 0%, #3a78c2 55%, #2f66aa 100%);
+  border-radius: 16px;
+  box-shadow: inset 0 2px 3px rgba(255,255,255,.45), inset 0 -3px 6px rgba(0,0,0,.3), 0 1px 0 rgba(255,255,255,.7), 0 2px 4px rgba(0,0,0,.25);
+}
+.fg-label {
+  position: absolute; font-size: 11px; letter-spacing: .04em; font-weight: 600; color: #fff; white-space: nowrap;
+  text-shadow: 0 -1px 0 rgba(0,0,0,.25);
+}
+.fg-label--dark { color: #3b4048; text-shadow: 0 1px 0 rgba(255,255,255,.7); }
+
+/* ---------- Tasten ---------- */
+.fg-key {
+  position: absolute; border: 0; padding: 0; cursor: pointer; user-select: none;
+  font: 700 16px/1 'Helvetica Neue', Arial, sans-serif; color: #2b2f36;
+  border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, #ffffff 0%, #eceff2 50%, #d3d8de 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.95),
+    inset 0 -2px 3px rgba(0,0,0,.13),
+    0 3px 0 #a3a9b1,
+    0 5px 6px rgba(0,0,0,.38);
+  transition: transform .04s, box-shadow .04s, filter .1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.fg-key:hover { filter: brightness(1.03); }
+.fg-key:active, .fg-key.is-down {
+  transform: translateY(3px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -1px 2px rgba(0,0,0,.2), 0 0 0 #a3a9b1, 0 1px 2px rgba(0,0,0,.35);
+}
+.fg-key:focus-visible { outline: 2px solid #ffd54a; outline-offset: 2px; }
+.fg-key--red { background: linear-gradient(180deg, #ffb3b6 0%, #ea6a73 55%, #cf4a55 100%); color: #fff; text-shadow: 0 -1px 0 rgba(0,0,0,.25); box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -2px 3px rgba(0,0,0,.2), 0 3px 0 #96323c, 0 5px 6px rgba(0,0,0,.4); }
+.fg-key--blue { background: linear-gradient(180deg, #a5d2fa 0%, #4b9be6 55%, #2f7fd0 100%); color: #fff; text-shadow: 0 -1px 0 rgba(0,0,0,.25); box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -2px 3px rgba(0,0,0,.2), 0 3px 0 #1f5b9e, 0 5px 6px rgba(0,0,0,.4); }
+.fg-key--red.is-lit { box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -2px 3px rgba(0,0,0,.2), 0 3px 0 #96323c, 0 0 18px 4px rgba(255,90,100,.85), 0 5px 6px rgba(0,0,0,.4); filter: brightness(1.12); }
+.fg-key--blue.is-lit { box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -2px 3px rgba(0,0,0,.2), 0 3px 0 #1f5b9e, 0 0 18px 4px rgba(90,170,255,.9), 0 5px 6px rgba(0,0,0,.4); filter: brightness(1.12); }
+.fg-key--red:active, .fg-key--blue:active { box-shadow: inset 0 1px 2px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.35); }
+.fg-key--wave.is-lit { background: linear-gradient(180deg, #9ad0ff 0%, #3d92e8 55%, #2a76cc 100%); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -2px 3px rgba(0,0,0,.2), 0 3px 0 #1f5b9e, 0 0 10px 1px rgba(70,150,255,.7), 0 5px 6px rgba(0,0,0,.4); }
+.fg-key--power { border-radius: 50%; }
+.fg-key--power.is-lit { color: #2a9d5b; }
+.fg-led { position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: #55606a; box-shadow: inset 0 1px 1px rgba(0,0,0,.5); }
+.fg-led.on { background: #6dff8f; box-shadow: 0 0 6px 2px rgba(90,255,130,.85), inset 0 1px 1px rgba(255,255,255,.7); }
+.fg-fkey { border-radius: 8px; font-size: 15px; }
+
+/* ---------- Drehknopf ---------- */
+/* Der Koranschlagschatten unter dem Knopf liegt IMMER gleitend nach rechts unten,
+   unabhängig von der Drehstellung – nur Rändelung und Punkt drehen mit. */
+.fg-knob-rotor { position: absolute; inset: 0; }
+.fg-knob-shadow { position: absolute; border-radius: 50%; background: rgba(0,0,0,.18); filter: blur(6px); }
+.fg-knob {
+  position: absolute; border-radius: 50%; cursor: grab; touch-action: none; user-select: none;
+  box-shadow: 0 8px 12px rgba(0,0,0,.45), 0 2px 3px rgba(0,0,0,.5), inset 0 2px 2px rgba(255,255,255,.9);
+}
+.fg-knob:active { cursor: grabbing; }
+.fg-knob-ring { position: absolute; inset: 0; border-radius: 50%; background: repeating-conic-gradient(from 0deg, #f4f6f8 0deg 4deg, #b4bac2 4deg 8deg); }
+.fg-knob-cap {
+  position: absolute; inset: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #ffffff 0%, #eef0f3 35%, #c9ced5 75%, #b0b6be 100%);
+  box-shadow: inset 0 -3px 6px rgba(0,0,0,.22), inset 0 2px 3px rgba(255,255,255,.95), 0 0 0 2px rgba(0,0,0,.12);
+}
+.fg-knob-dot { position: absolute; left: 50%; top: 9px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #667, #223); box-shadow: inset 0 1px 2px rgba(0,0,0,.7), 0 1px 0 rgba(255,255,255,.8); }
+
+/* ---------- LCD ---------- */
+.lcd-blink { animation: lcd-blink 1s steps(1) infinite; }
+@keyframes lcd-blink { 50% { opacity: 0; } }
+.lcd-scan {
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.10) 0 1px, transparent 1px 3px);
+}
+@keyframes lcd-boot { from { width: 0; } to { width: 100%; } }
+
+/* Display-Inhalt blendet nach dem Boot sauber ein (kein Hartes Aufblitzen) */
+@keyframes lcd-fade { from { opacity: 0; } to { opacity: 1; } }
+.lcd-fade { animation: lcd-fade .18s ease-out; }

@@ -9,6 +9,8 @@
  */
 
 import { GEAR_COEFFS, RealMatrix } from "./linalg";
+// W18: FG-2500 – Kern-Signalmodell (rein, zustandslos, analytisch).
+import { outputVoltage, syncVoltage as fgSyncVoltage } from "@/lib/fg/waveforms";
 import {
   createMcuState,
   DEFAULT_MCU_SKETCH,
@@ -46,7 +48,9 @@ export type SourceKind =
   | "pwl"
   | "am"
   | "fm"
-  | "noise";
+  | "noise"
+  | "fg"
+  | "fgsync";
 
 export interface SourceSpec {
   kind: SourceKind;
@@ -67,6 +71,8 @@ export interface SourceSpec {
   pwl?: Array<[number, number]>;
   acMag?: number;
   acPhase?: number;
+  /** W18: FG-2500 – reiner Signalzustand (analytisch, zustandslos auswertbar). */
+  fg?: { state: import("@/lib/fg/types").GenState; idx: 0 | 1 };
 }
 
 export interface Device {
@@ -214,6 +220,14 @@ export function sourceValue(s: SourceSpec | undefined, t: number): number {
     }
     case "noise": {
       return off + dc + a * (Math.random() * 2 - 1);
+    }
+    case "fg": {
+      // W18: FG-2500 – offene Thévenin-Spannung; die 50 Ω bildet das Device
+      // (rser), die Last wird nicht doppelt angewendet (PORTING.md Weg B).
+      return s.fg ? outputVoltage(s.fg.state, s.fg.idx, t, Infinity) : 0;
+    }
+    case "fgsync": {
+      return s.fg ? fgSyncVoltage(s.fg.state, s.fg.idx, t) : 0;
     }
     default:
       return dc;

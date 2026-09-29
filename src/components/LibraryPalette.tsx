@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Search, Star, X, Grip, FileText, ExternalLink, Zap, LayoutGrid, List, Command, Clock } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
@@ -297,11 +297,24 @@ export default function LibraryPalette() {
     return groups.flatMap((g) => g.parts);
   }, [query, results, tab, favorites, recent, groups]);
 
-  const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; px: number; py: number; w: number } | null>(null);
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const resizePending = useRef<{ w: number; h: number } | null>(null);
   const paletteRef = useRef<HTMLDivElement>(null);
 
-  // Smooth drag – direct DOM, no React state during move (verhindert Ruckeln)
+  // W32a: Nach jedem Render die direkten DOM-Schreibvorgänge wiederherstellen –
+  // Store-Updates dürfen ein laufendes Ziehen/Resize nicht zurückschnappen.
+  useLayoutEffect(() => {
+    const p = resizePending.current;
+    if (paletteRef.current && p) {
+      paletteRef.current.style.width = p.w + "px";
+      paletteRef.current.style.height = p.h + "px";
+    }
+  });
+
+  // Smooth drag – direct DOM, no React state during move (verhindert Ruckeln).
+  // Runde 17 (W32a): Transform statt left/top (kein Layout pro Frame), Clamp in
+  // den Viewport (kein Hängenbleiben außerhalb) + Repair nach jedem Render.
   useEffect(() => {
     let raf = 0;
     let pendingPos: { x: number; y: number } | null = null;
@@ -309,10 +322,8 @@ export default function LibraryPalette() {
     const apply = () => {
       raf = 0;
       if (paletteRef.current) {
-        if (pendingPos) {
-          // Use transform for GPU acceleration, will-change
-          paletteRef.current.style.left = pendingPos.x + "px";
-          paletteRef.current.style.top = pendingPos.y + "px";
+        if (pendingPos && dragRef.current) {
+          paletteRef.current.style.transform = `translate3d(${pendingPos.x - dragRef.current.px}px, ${pendingPos.y - dragRef.current.py}px, 0)`;
         }
         if (pendingSize) {
           paletteRef.current.style.width = pendingSize.w + "px";
@@ -322,7 +333,12 @@ export default function LibraryPalette() {
     };
     const onMove = (e: PointerEvent) => {
       if (dragRef.current) {
-        pendingPos = { x: dragRef.current.px + e.clientX - dragRef.current.x, y: dragRef.current.py + e.clientY - dragRef.current.y };
+        // Titelleiste bleibt greifbar: mindestens 180 px horizontal,
+        // 60 px vertikal im Viewport.
+        pendingPos = {
+          x: Math.min(window.innerWidth - 180, Math.max(180 - dragRef.current.w, dragRef.current.px + e.clientX - dragRef.current.x)),
+          y: Math.min(window.innerHeight - 60, Math.max(0, dragRef.current.py + e.clientY - dragRef.current.y)),
+        };
         if (!raf) raf = requestAnimationFrame(apply);
       }
       if (resizeRef.current) {
@@ -330,11 +346,16 @@ export default function LibraryPalette() {
           w: Math.max(640, Math.min(window.innerWidth - 20, resizeRef.current.w + e.clientX - resizeRef.current.x)),
           h: Math.max(380, Math.min(window.innerHeight - 20, resizeRef.current.h + e.clientY - resizeRef.current.y)),
         };
+        resizePending.current = pendingSize;
         if (!raf) raf = requestAnimationFrame(apply);
       }
     };
     const onUp = () => {
-      if (dragRef.current && pendingPos) {
+      if (dragRef.current && pendingPos && paletteRef.current) {
+        // Endposition direkt setzen + Transform leeren, dann committen (kein Sprung).
+        paletteRef.current.style.left = pendingPos.x + "px";
+        paletteRef.current.style.top = pendingPos.y + "px";
+        paletteRef.current.style.transform = "";
         setPos(pendingPos);
       }
       if (resizeRef.current && pendingSize) {
@@ -342,6 +363,7 @@ export default function LibraryPalette() {
       }
       dragRef.current = null;
       resizeRef.current = null;
+      resizePending.current = null;
       pendingPos = null;
       pendingSize = null;
       if (raf) cancelAnimationFrame(raf);
@@ -427,7 +449,7 @@ export default function LibraryPalette() {
         className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3"
         style={{ borderBottom: "1px solid var(--border)" }}
         onPointerDown={(e) => {
-          dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y };
+          dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y, w: paletteRef.current?.offsetWidth ?? 420 };
         }}
       >
         <Grip size={12} className="text-mute" />

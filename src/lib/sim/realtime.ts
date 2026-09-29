@@ -68,6 +68,11 @@ export class RealtimeEngine {
   sim: Simulator | null = null;
   netlist: Netlist = { devices: [] };
   buffers = new Map<string, RingBuffer>();
+  /** Runde 16 (W31d): Langzeit-Tier für das Oszilloskop – ~3,3 kSa/s
+   *  (jedes 12. Fast-Sample), 8192 Samples ≈ 2,5 s Historie, damit langsame
+   *  Zeiteinstellungen nicht in geklammerte Randwerte laufen. */
+  slowBuffers = new Map<string, RingBuffer>();
+  private slowPushCounter = 0;
   /** R13: Zweigströme als Zeitreihe – pro Gerät ein Ringpuffer. */
   deviceBuffers = new Map<string, RingBuffer>();
   options: RealtimeOptions = {
@@ -100,6 +105,8 @@ export class RealtimeEngine {
     });
     this.sim.controls = this.controls;
     this.buffers.clear();
+    this.slowBuffers.clear();
+    this.slowPushCounter = 0;
     this.deviceBuffers.clear();
     const op = this.sim.operatingPoint();
     this.lastState = {
@@ -112,8 +119,12 @@ export class RealtimeEngine {
       stepsPerSecond: 0,
       realtimeFactor: 0,
     };
-    for (const name of this.sim.nodeNames) this.buffers.set(name, new RingBuffer(16384));
+    for (const name of this.sim.nodeNames) {
+      this.buffers.set(name, new RingBuffer(16384));
+      this.slowBuffers.set(name, new RingBuffer(8192));
+    }
     this.buffers.set("0", new RingBuffer(64));
+    this.slowBuffers.set("0", new RingBuffer(64));
     for (const d of this.netlist.devices) this.deviceBuffers.set(d.id, new RingBuffer(4096));
     this.sample();
   }
@@ -130,9 +141,15 @@ export class RealtimeEngine {
   private sample(): void {
     const sim = this.sim;
     if (!sim) return;
+    // W31d: jedes 12. Fast-Sample zusätzlich in den Langzeit-Tier (≈3,3 kSa/s).
+    const doSlow = this.slowPushCounter++ % 12 === 0;
     for (let i = 0; i < sim.nodeNames.length; i++) {
       const b = this.buffers.get(sim.nodeNames[i]);
       if (b) b.push(sim.time, sim.x[i]);
+      if (doSlow) {
+        const sb = this.slowBuffers.get(sim.nodeNames[i]);
+        if (sb) sb.push(sim.time, sim.x[i]);
+      }
     }
     if (this.deviceBuffers.size) {
       for (const d of this.netlist.devices) {
@@ -221,6 +238,13 @@ export class RealtimeEngine {
   /** Values for a scope channel. */
   channel(net: string, samples: number): { t: number[]; v: number[] } {
     const b = this.buffers.get(net);
+    if (!b) return { t: [], v: [] };
+    return b.window(samples);
+  }
+
+  /** W31d: Langzeit-Historie (≈3,3 kSa/s) für langsame Zeiteinstellungen. */
+  channelSlow(net: string, samples: number): { t: number[]; v: number[] } {
+    const b = this.slowBuffers.get(net);
     if (!b) return { t: [], v: [] };
     return b.window(samples);
   }
