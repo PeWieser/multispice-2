@@ -1,4 +1,4 @@
-import type { Acq } from './engine';
+import type { Acq, MeasResult } from './engine';
 import { HDIV, NPTS, VDIV, counterFreq, fftDb, mathTrace, measure } from './engine';
 import type { RefWave, Settings } from './types';
 import { CH_COLORS, MATH_COLOR, MEAS_TYPES, REF_COLORS, TRIG_COLOR, fmt } from './types';
@@ -489,6 +489,11 @@ function drawCursors(ctx: CanvasRenderingContext2D, inp: RenderInput) {
   lines.forEach((l, i) => ctx.fillText(l, x + 8, y + 30 + i * 15));
 }
 
+// W32d: Messwerte aktualisieren wie am echten Gerät in Ruhe (~3 Hz) – die
+// Zahlen bleiben ruhig lesbar, während das Bild lebt. Schlüssel = Zeilenindex,
+// ungültig bei geändertem Typ/Quelle.
+const measHold = new Map<string, { res: MeasResult; t: number; key: string }>();
+
 function drawMeasurements(ctx: CanvasRenderingContext2D, inp: RenderInput) {
   const { s, acq } = inp;
   if (!acq || s.meas.list.length === 0) return;
@@ -510,7 +515,14 @@ function drawMeasurements(ctx: CanvasRenderingContext2D, inp: RenderInput) {
   }
   s.meas.list.forEach((m, idx) => {
     const d = srcData(acq, s, m.src);
-    const res = measure(m.type, d, acq.dt);
+    const hkey = String(idx);
+    const mkey = `${m.type}:${m.src}`;
+    const held = measHold.get(hkey);
+    let res: MeasResult;
+    if (!held || held.key !== mkey || inp.wall - held.t > 0.333) {
+      res = measure(m.type, d, acq.dt);
+      measHold.set(hkey, { res, t: inp.wall, key: mkey });
+    } else res = held.res;
     const col = srcColor(m.src);
     badge(ctx, x + 4, yy + 2, 38, rowH - 3, col, srcName(m.src).replace('CH', 'CH'), '#000');
     ctx.font = FONT(11); ctx.textBaseline = 'middle';
@@ -573,6 +585,11 @@ function drawStatusBar(ctx: CanvasRenderingContext2D, inp: RenderInput) {
   if (s.zoom.on) {
     ctx.fillStyle = '#fff';
     ctx.fillRect(bx + frac * (bw - win) + win / 2 + (s.zoom.pos / HDIV) * win - win / s.zoom.factor / 2, 18, Math.max(2, win / s.zoom.factor), 3);
+  } else {
+    // W32d: Pre-/Post-Trigger-Zeiten sichtbar am Datenspeicher-Balken.
+    const span = HDIV * s.tdiv;
+    ctx.fillStyle = '#8fa0b8'; ctx.font = FONT(9.5, 500);
+    ctx.fillText(`Pre ${fmt(Math.max(0, span / 2 - s.hDelay), 's')} · Post ${fmt(Math.max(0, span / 2 + s.hDelay), 's')}`, bx, 24);
   }
   // menu title
   if (s.menu && inp.menuTitle) {

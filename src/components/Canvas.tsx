@@ -20,6 +20,7 @@ import { Library as LibIcon, Sparkles } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
+import { click } from "./oszi2/sound";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
@@ -1083,6 +1084,18 @@ export default function Canvas() {
 
     if (ctxMenu) { setCtxMenu(null); return; }
 
+    // Runde 17 (W32c): Messleitung legen – Vorrang vor allen Werkzeugen.
+    // Klick auf Leitung oder Bauteil-Pin verbindet den gehaltenen Kanal dorthin.
+    if (st.probeArmed && e.button === 0 && !spaceDown.current) {
+      const tgt = probeTarget(st.doc, world);
+      if (tgt) {
+        st.connectProbeWire(st.probeArmed.instanceId, st.probeArmed.pinIndex, tgt);
+        st.setProbeArmed(null);
+        click("plug");
+        return;
+      }
+    }
+
     // Wire point drag – GENIAL handles with mid-point add (Steve Jobs: wow moment)
     if (st.tool === "select") {
       const handle = hitWireHandle(st.doc, world, st.view.zoom, true);
@@ -1744,6 +1757,7 @@ export default function Canvas() {
   useEffect(() => { const t = setTimeout(() => useEditor.getState().fitView(), 120); return () => clearTimeout(t); }, []);
 
   const tool = useEditor((s) => s.tool);
+  const probeArmed = useEditor((s) => s.probeArmed);
   const [showHelp, setShowHelp] = useState(false);
 
   // Show help on ? key
@@ -1766,7 +1780,7 @@ export default function Canvas() {
         className="block h-full w-full touch-none"
         aria-label="Schaltplan Zeichenfläche"
         tabIndex={0}
-        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" || tool.startsWith("probe") ? "crosshair" : tool === "erase" ? "not-allowed" : "default" }}
+        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" || tool.startsWith("probe") || probeArmed ? "crosshair" : tool === "erase" ? "not-allowed" : "default" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -2289,6 +2303,42 @@ function hitWire(doc: SchematicDoc, p: Pt): string | null {
     if ((cx-p.x)**2+(cy-p.y)**2<36) return w.id;
   }
   return null;
+}
+/** Runde 17 (W32c): Anschlusspunkt für die Messleitung – Bauteil-Pin zuerst,
+ *  sonst Leitungsende (verbindet sicheres Raster) bzw. Projektion aufs Segment. */
+function probeTarget(doc: SchematicDoc, p: Pt): Pt | null {
+  let best: Pt | null = null;
+  let bestD = 144; // 12 px
+  for (const inst of doc.instances) {
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    for (let idx = 0; idx < part.pins.length; idx++) {
+      const pos = pinPosition(inst, idx);
+      const d = (pos.x - p.x) ** 2 + (pos.y - p.y) ** 2;
+      if (d < bestD) { bestD = d; best = pos; }
+    }
+  }
+  if (best) return best;
+  let segBest: { x: number; y: number; d: number } | null = null;
+  let endBest: { x: number; y: number; d: number } | null = null;
+  for (const w of doc.wires) {
+    for (let i = 0; i + 1 < w.points.length; i++) {
+      const a = w.points[i], b = w.points[i + 1];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy || 1;
+      let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const cx = a.x + t * dx, cy = a.y + t * dy;
+      const d = Math.hypot(cx - p.x, cy - p.y);
+      if (d < 6 && (!segBest || d < segBest.d)) segBest = { x: cx, y: cy, d };
+    }
+    for (const pt of w.points) {
+      const d = Math.hypot(pt.x - p.x, pt.y - p.y);
+      if (d < 10 && (!endBest || d < endBest.d)) endBest = { x: pt.x, y: pt.y, d };
+    }
+  }
+  if (endBest) return { x: endBest.x, y: endBest.y };
+  return segBest ? { x: segBest.x, y: segBest.y } : null;
 }
 function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = true): { wireId: string; pointIdx: number; isMid?: boolean; segIdx?: number; dist: number } | null {
   const st = useEditor.getState();

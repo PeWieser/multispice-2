@@ -1037,3 +1037,88 @@ bis ~200 ms/div vollständig; tdiv > 2 s/div ist mit Simulations-Historie
 prinzipiell limitiert. Single im **Normal**-Modus ohne Flanke wartet weiterhin
 (echtes Oszi-Verhalten). Auto-Start der Simulation passiert ausschließlich für
 Single (nicht für Run) — User-Entscheidung.
+
+---
+
+## §17 — Runde 17: Realismus, Messleitung per Klick, Fenster-Handling
+
+**User-Auftrag:** (1) Oszi soll „so realistisch wie möglich" werden — meine
+Realismus-Liste wurde komplett freigegeben, **nacheinander, so gut wie möglich**;
+(2) Klick auf Anschluss (CH1) + Klick auf Leitung im Schaltplan → **Messleitung
+wird hingelegt** (Ziel: Leitung ODER Bauteil-Pin, **Umstecken** ersetzt die
+bestehende Leitung des Kanals); (3) Breite/Hintergrund: **Gerät bleibt 1:1**
+(skaliert nur herunter), **Fenster klebt am Gerät** (Auto-Size beim Öffnen);
+(4) Fenster dürfen über Titel-/Menüleiste und aus dem Screen gezogen werden,
+**Rückholhilfe** zieht sie wieder hinein; (5) Fenster-Manager = **Sicherheitsnetz**
+(kein Fenster geht verloren, Recall pro Fenster, keine Taskbar); (6) Library-
+Drag ist zäh und bleibt außerhalb des Screens hängen → mitfixieren.
+
+**Ask-User-Entscheidungen (bindend, Runde 17):**
+1. Realismus: **alles** (Klick-Geräusche, 50-Hz-Netzbrummen auf offene Eingänge,
+   Mess-/Trigger-Realismus, Tastkopf-Abgleich sichtbarer, sanftes Ein/Ausschalten)
+   — nacheinander, je so gut wie möglich.
+2. Messleitung: Klick auf Leitung **oder** Bauteil-Pin verbindet den angeklickten
+   Kanal dorthin; bestehende Leitung des Kanals wird **ersetzt**.
+3. Fenster-Zug: frei (über Leisten, aus dem Bildschirm); **Rückholhilfe** zieht
+   Fenster wieder in den Screen zurück (kein hartes Clamping beim Ziehen).
+4. Fenster-Manager: nur **Sicherheitsnetz** (griffig halten, Recall pro Fenster).
+5. Breite: Gerät **1:1** (nur herunterskalieren, nie weich), Fenstergröße
+   beim Öffnen **exakt am Gerät** (Rest = Fenster-Chrome).
+
+**W32 — Plan:**
+- **W32a Fenster-Zug & Recall:** Drag ohne Clamp (auch außerhalb des Screens),
+  Transform-basiertes Ziehen (kein Ruckeln, kein Zurückspringen bei Store-
+  Updates während des Ziehens — Bug: `saveScope`/`updateInstrument` ließen die
+  Fenster-Position zurückschnappen); `recallInstrument` zieht Fenster per
+  `openInstrument` (Symbol-Doppelklick, Geräte-Bar, Menü) wieder in den Screen;
+  Library-Drag: gleicher Transform-Ansatz + Clamp in den Viewport (kein
+  Hängenbleiben außerhalb).
+- **W32b Auto-Size:** Oszi-Fenster misst Chassis-Höhe und setzt die Fenstergröße
+  beim Öffnen exakt darauf (Chassis + Titelleiste); Fit bleibt contain,
+  scale ≤ 1.
+- **W32c Messleitung:** Editor-Aktion `connectProbeWire(instanceId, pinIndex,
+  target)` (Pin-Punkt → L-förmige Rasterleitung → Treffer-Punkt, bestehende
+  Pin-Leitungen entfernen, `refreshNets`); Oszi „Tastkopf in der Hand" + Canvas-
+  Klick auf Leitung/Pin legt die Leitung; Banner/Escape angepasst.
+- **W32d Realismus (nacheinander):**
+  1. Klick-Geräusche (WebAudio-Synthese: Taster, Regler-Rasten, BNC stecken/
+     ziehen, Netzschalter; Menü-Schalter „Tastenklick"; settings-persistiert).
+  2. 50-Hz-Netzbrummen auf offene Eingänge (feste Amplitude ~mV, sichtbar nur
+     bei hoher Empfindlichkeit; GND-Kopplung/⏚ unterdrücken; AC-Kopplung lässt
+     es durch).
+  3. Mess-/Trigger-Realismus: Messwerte-Update ~3 Hz (wie echte Geräte),
+     Trigger sieht das verrauschte Signal (realistischer Jitter), HF-Rausch-
+     filter im Trigger-Menü.
+  4. Tastkopf-Abgleich: Über-/Unterkompensation am COMP-Rechteck deutlicher.
+  5. Sanftes Ein-/Ausschalten (Screen-Fade ~0,5 s).
+- **Verifikation:** tsc · eslint · npm test · next build · Preview-Check.
+
+### §17.1 Umsetzung Runde 17 (Oszi Realismus + Messleitung + Fenster)
+
+**Verifikation:** tsc OK · eslint sauber · `npm test` 26× PASS · `next build` OK · Engine-Scratch 16/16 PASS (Netzbrummen 75 mVss/50 Hz, Trigger deterministisch + verrauscht, BW-Limit dämpft/glättet, Abgleich-Überschwingen 9 V an 5-V-Kante, Messwerte plausibel) — danach gelöscht.
+
+**W32a Fenster-Zug (Instruments.tsx, editor.ts, LibraryPalette.tsx):**
+- Root Cause des „Fensters rutscht unter die Leisten/Springt": direkte DOM-Schreibungen auf left/top wurden von Store-Updates (saveScope → updateInstrument) überschrieben. Fix: Basis left/top bleibt im Store, das Ziehen läuft als `transform: translate3d`-Offset (GPU, kein Layout, von React nicht angerührt); bei Release wird die Endposition direkt in den DOM geschrieben, der Transform geleert und dann committet — kein Frame-Sprung.
+- Keine Drag-Clamps mehr (freier Zug über Leisten/aus dem Screen, Nutzer-Entscheidung). Resize behält Mindestmaße 300×220 + `useLayoutEffect`-Repair gegen Mid-Resize-Überschreiben.
+- Rückholhilfe: `recallPos()` in `openInstrument` (alle Fenster) — liegt ein Fenster außerhalb (sichtbar < 120×80 px), zieht ein Klick aufs Symbol/Device es an den Rand zurück.
+- LibraryPalette: gleicher Transform-Ansatz + Viewport-Clamp (Titel bleibt greifbar) + Post-Render-Repair.
+- Config-Archiv: `closeInstrument` merkt sich `win.config`; Wiederöffnen stellt die Geräteeinstellungen wieder her (kein Verlust durch Schließen).
+
+**W32b Auto-Size (OsziScope.tsx):** `chassisRef` am `.otx-scope` misst die natürliche Chassis-Höhe (1420 breit, Fit skaliert nur herunter, nie weich/hoch); beim Öffnen (und erstmals nach Restore-Minimierung) bekommt das Fenster genau Chassis + Chrome-Rest (30/48 px), geklemmt auf den Viewport. `sized`-Flag in StoredScope erhält spätere Nutzer-Resizes.
+
+**W32c Messleitung per Klick (Canvas.tsx, editor.ts, OsziScope.tsx):**
+- `probeArmed` im Store (OsziScope leitet `held` daraus ab): BNC-Klick nimmt den Tastkopf auf, klick auf Leitung oder Bauteil-Pin im Schaltplan legt die Messleitung dorthin (Vorrang vor allen Werkzeugen, Crosshair-Cursor, Banner weist hin, Escape/„Zurückstecken" bricht ab).
+- `connectProbeWire(instanceId, pinIndex, target)`: ersetzt die alte Leitung des Kanals (alles am Pin endende), legt eine Z-Route (erst aus dem Symbol heraus, dann auf Höhe des Ziels, dann hin) via `addWire`-Commit (undo-fähig); die Messung folgt automatisch über `nets[k]` = `pinNets` der Verdrahtung. `probeTarget()` bevorzugt Pins, dann Leitungsenden, sonst exakte Segment-Projektion (Verbindung über `pointOnSegment`).
+- BNC-Klick auf einen verbundenen Kanal nimmt weiterhin auf (Kabel bleibt als Verdrahtung liegen, Umstecken ersetzt es beim nächsten Klick).
+
+**W32d Realismus (oszi2 engine/render/signals/Oscilloscope/Button/Knob/sound.ts):**
+1. **Klick-Geräusche** (`sound.ts`, Web-Audio-Synthese ohne Assets): Frontplatten-Tasten (Button.tsx), Menü-Bezel, Encoder-Rastung gedrosselt (Knob.tsx), BNC-Stecken (plug), Netzschalter-Relais (relay).
+2. **50-Hz-Netzbrummen** (`mainsHum`, signals.ts): offene Eingänge = Antenne (ca. 75 mVss 50 Hz + Oberton + HF-Gerusch, Phasenlage pro Kanal) — auf 10 mV/div sichtbar, auf 1 V/div physikalisch unsichtbar; läuft auch bei pausierter Simulation (Netz ist „echt"); GND-Kopplung bleibt 0.
+3. **Messwert-Update ~3 Hz** (render.ts `measHold`): die Messwert-Tabelle aktualisiert sich in Ruhe dreimal pro Sekunde statt bei jedem Frame, ungültig sofort bei geändertem Typ/Quelle.
+4. **Trigger auf verrauschtem Signal** (`trigValue` + `noiseAt` 20-ns-Raster): die Triggerentscheidung fällt auf dem gestörten Signal — deterministisch, aber mit sichtbarem Trigger-Jitter bei ungünstigen Pegeln/Divisionen.
+5. **HF-Rauschfilter physisch**: Eingangsrauschen liegt jetzt vor dem analogen Filter (Chain); das 20-MHz-BW-Limit dämpft empirisch (×0.55, wirkt auch bei langsamen Timebases, dt ≫ τ) **und** über das Tiefpass-Glied (wirkt bei schnellen Timebases). Spitzenwert-Hüllenmodell bleibt bei ×0.55.
+6. **Pre-/Post-Trigger sichtbar**: Zeiten am Datenspeicher-Balken („Pre … · Post …"), Marker/Balken bestanden schon.
+7. **Tastkopf-Abgleich sichtbarer**: Comp-Überschwingen ×1.6 (Fehlabgleich zeigt klar erkennbares Ringen, z. B. 9 V an der 5-V-Kalibrierkante statt flach).
+8. **Sanftes Ein-/Ausschalten**: Relais-Klang + Bild-Freeze mit weicher Überblendung zu Schwarz (0,65 s) beim Ausschalten, Boot-Sequenz + weiches Aufblenden (0,45 s) beim Einschalten.
+
+**Grenzen (dokumentiert):** Trigger-Rauschen nutzt ein deterministisches 20-ns-Rauschraster (kein Zufall pro Frame — reproducible Aufnahmen); Mess-Drossel betrifft die On-Scope-Messwert-Tabelle (die MSP-Messleiste unter dem Fenster liefert Live-Werte für die Bedienung); Library-Klemmung hält die Titelleiste im Viewport (im Gegensatz zu Fenstern, die frei ziehbar bleiben).

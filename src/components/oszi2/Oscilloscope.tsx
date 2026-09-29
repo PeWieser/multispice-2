@@ -9,6 +9,7 @@ import { H, W, SLOT_H, GY, drawBoot, drawGraticule, drawOverlay, drawWaves, MAIN
 import { MENU_TITLES, applyKnob, buildMenu, cursorSels, defaultKnob } from './menus';
 import type { MenuItem } from './menus';
 import { sourceLabel } from './signals';
+import { click } from './sound';
 import { engine as simEngine, useEditor } from '@/state/editor';
 
 interface Props {
@@ -30,6 +31,8 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
   const sRef = useRef(s);
   const [power, setPower] = useState(true);
   const powerRef = useRef(true);
+  // W32d: sanftes Ein-/Ausschalten (0..1), weiche Überblendung der Anzeige.
+  const fadeRef = useRef(1);
   const bootStart = useRef(-10);
   // W30: Boot-Sperre als State + Timer statt Ref-Lesen in Render-Closures.
   const [booting, setBooting] = useState(false);
@@ -185,9 +188,23 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       const dtFrame = t - lastT; lastT = t;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (!powerRef.current) { ctx.fillStyle = '#030404'; ctx.fillRect(0, 0, W, H); return; }
+      // W32d: sanftes Ein-/Ausschalten – beim Ausschalten friert das Bild ein
+      // und blendet weich zu Schwarz aus; beim Einschalten spielt das Boot den
+      // hochlaufenden Gerät. Das Relais-Klicken kommt vom Netzschalter.
+      const targetFade = powerRef.current ? 1 : 0;
+      const fr0 = fadeRef.current;
+      if (fr0 !== targetFade) {
+        const speed = dtFrame / (targetFade > fr0 ? 0.45 : 0.65);
+        fadeRef.current = targetFade > fr0 ? Math.min(targetFade, fr0 + speed) : Math.max(targetFade, fr0 - speed);
+      }
+      const fv = fadeRef.current;
+      if (!powerRef.current && fv <= 0.004) {
+        fadeRef.current = 0;
+        ctx.fillStyle = '#030404'; ctx.fillRect(0, 0, W, H); return;
+      }
+      const powered = powerRef.current;
       const bootP = (t - bootStart.current) / 2.2;
-      if (bootP < 1) { drawBoot(ctx, Math.max(0, bootP)); return; }
+      if (bootP < 1 && powered) { drawBoot(ctx, Math.max(0, bootP)); return; }
       const st = sRef.current;
       const env = envRef.current;
       const eng = engine.current;
@@ -207,7 +224,9 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
         eng.lastAcqTime = clock.t;
       }
       clock.prev = clock.t;
-      const res = eng.step(clock.t, st, env);
+      // W32d: ausgeschaltet = eingefrorenes Bild – Akquise pausiert, die
+      // Anzeige zeigt den letzten Stand, bis die Überblendung durch ist.
+      const res = powered ? eng.step(clock.t, st, env) : { newAcq: false, singleDone: false };
       if (res.singleDone) {
         setS((x) => ({ ...x, run: 'stop' }));
         // W31e: nur die von „Single“ selbst gestartete Simulation wieder anhalten.
@@ -253,7 +272,7 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       if (persist === 0 || clearPersistFlag.current) {
         lctx.clearRect(0, 0, W, H);
         clearPersistFlag.current = false;
-      } else if (persist > 0 && st.run !== 'stop') {
+      } else if (persist > 0 && st.run !== 'stop' && powered) {
         lctx.save();
         lctx.globalCompositeOperation = 'destination-out';
         lctx.fillStyle = `rgba(0,0,0,${Math.min(1, 1 - Math.exp(-dtFrame / persist))})`;
@@ -269,6 +288,11 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       if (persist === 0 || res.newAcq || st.zoom.on) drawWaves(lctx, inp);
       ctx.drawImage(layer, 0, 0, W, H);
       drawOverlay(ctx, inp);
+      // W32d: weiche Überblendung beim Aus-/Einschalten.
+      if (fv < 1) {
+        ctx.fillStyle = `rgba(3,4,4,${(1 - fv).toFixed(3)})`;
+        ctx.fillRect(0, 0, W, H);
+      }
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -400,6 +424,8 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
     const p = !powerRef.current;
     powerRef.current = p;
     setPower(p);
+    // W32d: Netzschalter mit Relais-Klang, Anzeige blendet weich aus/ein.
+    click('relay');
     // W31e: offene Single-Aktion beenden – selbst gestartete Simulation anhalten.
     if (singleAutoSim.current) {
       singleAutoSim.current = false;
@@ -452,6 +478,7 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
                   title={i === 0 ? 'Save (Schnellspeichern)' : i === 7 ? 'Menü ein/aus' : `Menütaste ${i}`}
                   onClick={() => {
                     if (!power || booting) return;
+                    click('key');
                     if (i === 0) saveKey();
                     else if (i === 7) set((x) => ({ ...x, menu: x.menu ? null : x.lastMenu, knobTarget: null }));
                     else itemsRef.current[i - 1]?.press?.();

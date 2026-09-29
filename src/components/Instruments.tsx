@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, BarChart3, Binary, Gauge, LineChart, Minus, PanelBottom, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
@@ -1009,9 +1009,21 @@ function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
 /* ------------------------------------------------------------------ */
 function Window({ win }: { win: InstrumentWindow }) {
   const { updateInstrument, closeInstrument, focusInstrument } = useEditor();
-  const drag = useRef<{ x: number; y: number; wx: number; wy: number; h: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; wx: number; wy: number } | null>(null);
   const resize = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const resizePending = useRef<{ w: number; h: number } | null>(null);
   const winRef = useRef<HTMLDivElement>(null);
+
+  // Runde 17 (W32a): Nach jedem Render die Resize-Größe wiederherstellen –
+  // Store-Updates während des Ziehens (z. B. Oszi-Persistenz) dürfen die
+  // direkten DOM-Schreibvorgänge nicht zurückschnappen lassen.
+  useLayoutEffect(() => {
+    const p = resizePending.current;
+    if (winRef.current && p) {
+      winRef.current.style.width = p.w + "px";
+      winRef.current.style.height = p.h + "px";
+    }
+  });
 
   useEffect(() => {
     let raf = 0;
@@ -1020,9 +1032,10 @@ function Window({ win }: { win: InstrumentWindow }) {
     const apply = () => {
       raf = 0;
       if (winRef.current) {
-        if (pendingPos) {
-          winRef.current.style.left = pendingPos.x + "px";
-          winRef.current.style.top = pendingPos.y + "px";
+        if (pendingPos && drag.current) {
+          // Transform = GPU, kein Layout-Recalc; die Basis (win.x/win.y) bleibt
+          // unangetastet, damit Store-Updates während des Ziehens nichts springen.
+          winRef.current.style.transform = `translate3d(${pendingPos.x - drag.current.wx}px, ${pendingPos.y - drag.current.wy}px, 0)`;
         }
         if (pendingSize) {
           winRef.current.style.width = pendingSize.w + "px";
@@ -1032,12 +1045,11 @@ function Window({ win }: { win: InstrumentWindow }) {
     };
     const move = (e: PointerEvent) => {
       if (drag.current) {
-        // Runde 16 (W31a): Fenster dürfen teilweise unter die Menü-/Werkzeug-
-        // leisten rutschen – mindestens 120 px (bzw. die ganze Titelleiste
-        // kleiner Fenster) müssen sichtbar bleiben.
+        // W32a: kein Clamp – Fenster dürfen über die Leisten und aus dem Screen
+        // gezogen werden; die Rückholhilfe (openInstrument) holt sie zurück.
         pendingPos = {
-          x: Math.max(0, drag.current.wx + e.clientX - drag.current.x),
-          y: Math.max(-(drag.current.h - Math.min(120, drag.current.h)), drag.current.wy + e.clientY - drag.current.y),
+          x: drag.current.wx + e.clientX - drag.current.x,
+          y: drag.current.wy + e.clientY - drag.current.y,
         };
         if (!raf) raf = requestAnimationFrame(apply);
       }
@@ -1046,17 +1058,23 @@ function Window({ win }: { win: InstrumentWindow }) {
           w: Math.max(300, resize.current.w + e.clientX - resize.current.x),
           h: Math.max(220, resize.current.h + e.clientY - resize.current.y),
         };
+        resizePending.current = pendingSize;
         if (!raf) raf = requestAnimationFrame(apply);
       }
     };
     const up = () => {
-      if (drag.current && pendingPos) {
+      if (drag.current && pendingPos && winRef.current) {
+        // Endposition direkt setzen + Transform leeren, DANN committen – so ist
+        // die Darstellung auch bei synchronem React-Flush konsistent.
+        winRef.current.style.left = pendingPos.x + "px";
+        winRef.current.style.top = pendingPos.y + "px";
+        winRef.current.style.transform = "";
         // Magnetischer unterer Rand: Titelzeile nah am Boden loslassen = andocken.
-        const parent = winRef.current?.parentElement?.getBoundingClientRect();
+        const parent = winRef.current.parentElement?.getBoundingClientRect();
         if (parent && pendingPos.y > parent.height - 56) {
           updateInstrument(win.id, { docked: true });
         } else {
-          updateInstrument(win.id, pendingPos);
+          updateInstrument(win.id, { x: pendingPos.x, y: pendingPos.y });
         }
       }
       if (resize.current && pendingSize) {
@@ -1064,6 +1082,7 @@ function Window({ win }: { win: InstrumentWindow }) {
       }
       drag.current = null;
       resize.current = null;
+      resizePending.current = null;
       pendingPos = null;
       pendingSize = null;
       if (raf) cancelAnimationFrame(raf);
@@ -1134,7 +1153,7 @@ function Window({ win }: { win: InstrumentWindow }) {
         title={win.docked ? "Im Dock – mit dem Dock-Knopf wieder lösen" : "Ziehen bewegt das Fenster – am unteren Rand loslassen dockt es ein"}
         onPointerDown={(e) => {
           if (win.docked) return;
-          drag.current = { x: e.clientX, y: e.clientY, wx: win.x, wy: win.y, h: win.minimized ? 36 : win.h };
+          drag.current = { x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
         }}
       >
         <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
