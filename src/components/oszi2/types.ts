@@ -177,3 +177,8 @@ export function fmtShort(v: number, unit: string): string {
 }
 
 export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+
+/** Wall-Time Helper for Single-Trigger Timeout */
+let _wallNow = () => performance.now() / 1000;
+export const setWallNow = (fn: () => number) => { _wallNow = fn; };
+export const wallNow = () => _wallNow();

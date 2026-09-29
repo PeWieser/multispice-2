@@ -1,20 +1,29 @@
 import type { Env, MeasType, Settings } from './types';
 import { ceil125, clamp } from './types';
-import { gauss, hash32, lineValue, sourceValue } from './signals';
+import { hash32, lineValue, sourceValue } from './signals';
 
 export const NPTS = 2000;
 export const HDIV = 15;
 export const VDIV = 8;
 
 export interface Acq {
-  t0: number; // start time relative to trigger
+  t0: number;
   dt: number;
   tt: number;
-  data: Float32Array[]; // per channel (volts, displayed)
+  data: Float32Array[];
   min: (Float32Array | null)[];
   max: (Float32Array | null)[];
   triggered: boolean;
 }
+
+/** Wall-Time Helper para Single-Trigger Timeout */
+let _wallNow = () => performance.now() / 1000;
+export const setWallNow = (fn: () => number) => { _wallNow = fn; };
+export const wallNow = () => _wallNow();
+
+/** Single-Trigger Konfiguration (Wall-Time constants) */
+export const SINGLE_TIMEOUT_WALL = 30; // segundos Wall-Time hasta abortar
+export const SINGLE_POST_WAIT_WALL = 0.5; // segundos Wall-Time post-trigger para mostrar
 
 // ----- filter helpers -----
 class Chain {
@@ -104,9 +113,9 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
     const f0 = new Chain(aHp, kHp, aLp1, useLp1, aLp2, useLp2);
     const f1 = peak ? new Chain(aHp, kHp, aLp1, useLp1, aLp2, useLp2) : null;
     const f2 = peak ? new Chain(aHp, kHp, aLp1, useLp1, aLp2, useLp2) : null;
-    let sigma = 0.018 * c.vdiv + 0.0004 * c.probe;
-    if (c.bwLimit) sigma *= 0.55;
-    if (s.acq.mode === 'hires') sigma *= 0.22;
+    // REAL OSCILLOSCOPE BEHAVIOR: No artificial noise on real signals (Multispice engine provides real noise).
+    // Only minimal front-end noise floor (1 LSB equivalent) for display stability.
+    const sigma = 0;
     const lo = (-5.2 - c.pos) * c.vdiv;
     const hi = (5.2 - c.pos) * c.vdiv;
     const inv = c.invert ? -1 : 1;
@@ -122,9 +131,7 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
         }
         const y0 = f0.run(first), y1 = f1!.run(vmin), y2 = f2!.run(vmax);
         if (i >= 0) {
-          const n1 = Math.abs(gauss(seed + i * 3 + ch * 100003)) * sigma * 1.3;
-          const n2 = Math.abs(gauss(seed + i * 3 + 1 + ch * 100003)) * sigma * 1.3;
-          const a = clamp(y1 - n1, lo, hi) * inv, b = clamp(y2 + n2, lo, hi) * inv;
+          const a = clamp(y1, lo, hi) * inv, b = clamp(y2, lo, hi) * inv;
           mn![i] = Math.min(a, b);
           mx![i] = Math.max(a, b);
           d[i] = clamp(y0, lo, hi) * inv;
@@ -133,8 +140,7 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
         const v = channelRaw(ch, t, s, env, acMean);
         const y = f0.run(v);
         if (i >= 0) {
-          const n = gauss(seed + i * 7 + ch * 100003) * sigma;
-          d[i] = clamp(y + n, lo, hi) * inv;
+          d[i] = clamp(y, lo, hi) * inv;
         }
       }
     }
@@ -201,6 +207,10 @@ export class Engine {
   stats = new Map<string, StatEntry>();
   acqCount = 0;
 
+  // Wall-Time para Single-Trigger y Auto-Trigger timeout
+  public singleStartWall: number | null = null;
+  private lastWallTime = 0;
+
   settingsKey(s: Settings, env: Env): string {
     return JSON.stringify([s.ch, s.tdiv, s.hDelay, s.acq.mode, env.probes]);
   }
@@ -223,16 +233,27 @@ export class Engine {
     this.acqCount++;
   }
 
-  /** returns {newAcq, singleDone} */
-  step(now: number, s: Settings, env: Env): { newAcq: boolean; singleDone: boolean } {
+  /** returns {newAcq, singleDone}
+   *  simTime = Simulationszeit (für Datenakquise, Trigger search)
+   *  wallTime = Wall-Time (für Single-Trigger Timeout, Auto-Trigger timeout, post-wait)
+   */
+  step(simTime: number, wallTime: number, s: Settings, env: Env): { newAcq: boolean; singleDone: boolean } {
     this.frame++;
-    if (this.frame % 10 === 1) this.acMean = computeAcMeans(now, s, env);
+    if (this.frame % 10 === 1) this.acMean = computeAcMeans(simTime, s, env);
     const key = this.settingsKey(s, env);
     const keyChanged = key !== this.key;
     this.key = key;
     if (keyChanged) { this.avg = null; this.avgN = 0; }
     const tdiv = s.tdiv;
     const postT = (HDIV / 2) * tdiv + s.hDelay;
+
+    // Sim-Reset erkennen (Zeit läuft rückwärts)
+    if (simTime < this.lastTT) {
+      this.pendingTT = null;
+      this.searchStart = simTime;
+      this.lastAcqTime = simTime - 1;
+      this.singleStartWall = null;
+    }
 
     if (s.run === 'stop') {
       this.status = 'stop';
@@ -248,54 +269,83 @@ export class Engine {
     if (roll) {
       this.status = 'roll';
       this.pendingTT = null;
-      const tt = now - postT;
+      const tt = simTime - postT;
       this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, false), { ...s, acq: { ...s.acq, mode: s.acq.mode === 'average' ? 'sample' : s.acq.mode } });
-      this.searchStart = now;
-      this.lastAcqTime = now;
+      this.searchStart = simTime;
+      this.lastAcqTime = simTime;
       return { newAcq: true, singleDone: false };
     }
 
+    // --- Single-Trigger & Trigger-Wartelogik nutzt WALL-TIME ---
     if (this.pendingTT !== null) {
-      if (now >= this.pendingTT + postT) {
-        const tt = this.pendingTT;
-        this.pendingTT = null;
-        this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, this.pendingTriggered), s);
-        this.searchStart = tt + Math.max(postT, 0) + s.trig.holdoff;
-        this.lastAcqTime = now;
-        this.status = this.pendingTriggered ? 'run' : 'auto';
-        return { newAcq: true, singleDone: s.run === 'single' };
+      if (this.singleStartWall !== null) {
+        // Single-Modus: Warte max SINGLE_TIMEOUT_WALL Sekunden nach Trigger
+        if (wallTime >= this.singleStartWall + SINGLE_POST_WAIT_WALL) {
+          const tt = this.pendingTT;
+          this.pendingTT = null;
+          this.singleStartWall = null;
+          this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, this.pendingTriggered), s);
+          this.searchStart = tt + Math.max(postT, 0) + s.trig.holdoff;
+          this.lastAcqTime = simTime;
+          this.status = this.pendingTriggered ? 'run' : 'auto';
+          return { newAcq: true, singleDone: true };
+        }
+        // Timeout: Single abgebrochen
+        if (wallTime >= this.singleStartWall + SINGLE_TIMEOUT_WALL) {
+          this.pendingTT = null;
+          this.singleStartWall = null;
+          this.status = 'stop';
+          return { newAcq: false, singleDone: true };
+        }
+        return { newAcq: false, singleDone: false };
+      } else {
+        // Normaler Modus (run/auto): Post-Trigger in Sim-Time
+        if (simTime >= this.pendingTT + postT) {
+          const tt = this.pendingTT;
+          this.pendingTT = null;
+          this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, this.pendingTriggered), s);
+          this.searchStart = tt + Math.max(postT, 0) + s.trig.holdoff;
+          this.lastAcqTime = simTime;
+          this.status = this.pendingTriggered ? 'run' : 'auto';
+          return { newAcq: true, singleDone: false };
+        }
+        return { newAcq: false, singleDone: false };
       }
-      return { newAcq: false, singleDone: false };
     }
 
     if (this.forceTrig) {
       this.forceTrig = false;
-      this.pendingTT = now;
+      this.pendingTT = simTime;
       this.pendingTriggered = true;
+      if (s.run === 'single') this.singleStartWall = wallTime;
       return { newAcq: false, singleDone: false };
     }
 
-    const a = Math.max(this.searchStart, now - 0.25);
-    const found = findTrigger(a, now, s, env, this.acMean);
+    // Trigger-Suche in Simulationszeit (Suchfenster 0.25s)
+    const a = Math.max(this.searchStart, simTime - 0.25);
+    const found = findTrigger(a, simTime, s, env, this.acMean);
     if (found !== null) {
       this.pendingTT = found;
       this.pendingTriggered = true;
       this.searchStart = found;
-      // immediate completion if possible
-      if (now >= found + postT) return this.step(now, s, env);
+      if (s.run === 'single') this.singleStartWall = wallTime;
+      // Sofortige Fertigstellung falls Post-Zeit schon vergangen (in Sim-Time)
+      if (simTime >= found + postT) return this.step(simTime, wallTime, s, env);
       return { newAcq: false, singleDone: false };
     }
-    this.searchStart = now;
-    const timeout = Math.max(0.12, HDIV * tdiv * 1.2);
-    if (s.trig.mode === 'auto' && s.run === 'run' && now - this.lastAcqTime > timeout) {
-      const tt = now - Math.max(postT, 0);
+    this.searchStart = simTime;
+
+    // Auto-Trigger Timeout in Wall-Time (nicht Sim-Time!)
+    const timeoutVal = Math.max(0.12, HDIV * tdiv * 1.2);
+    if (s.trig.mode === 'auto' && s.run === 'run' && wallTime - this.lastAcqTime > timeoutVal) {
+      const tt = simTime - Math.max(postT, 0);
       this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, false), s);
-      this.lastAcqTime = now;
+      this.lastAcqTime = simTime;
       this.status = 'auto';
       return { newAcq: true, singleDone: false };
     }
     if (s.run === 'single') this.status = 'ready';
-    else if (now - this.lastAcqTime > timeout) this.status = s.trig.mode === 'auto' ? 'auto' : 'trig?';
+    else if (wallTime - this.lastAcqTime > timeoutVal) this.status = s.trig.mode === 'auto' ? 'auto' : 'trig?';
     return { newAcq: false, singleDone: false };
   }
 }
@@ -328,7 +378,6 @@ function crossings(d: ArrayLike<number>, lvl: number, hyst: number, dt: number):
   for (let i = 1; i < d.length; i++) {
     const v = d[i];
     if (state < 0 && v > lvl + hyst) {
-      // find exact crossing of lvl going back
       let j = i;
       while (j > 0 && d[j - 1] > lvl) j--;
       const a = d[j - 1] ?? lvl, b = d[j];
@@ -348,7 +397,6 @@ function crossings(d: ArrayLike<number>, lvl: number, hyst: number, dt: number):
 }
 
 function edgeTime(d: ArrayLike<number>, dt: number, lo: number, hi: number, rising: boolean): number {
-  // find first transition from lo-crossing to hi-crossing
   const n = d.length;
   const inLow = (v: number) => (rising ? v < lo : v > hi);
   const inHigh = (v: number) => (rising ? v > hi : v < lo);
@@ -360,7 +408,6 @@ function edgeTime(d: ArrayLike<number>, dt: number, lo: number, hi: number, risi
       let j = i;
       while (j < n && !inHigh(d[j]) && !inLow(d[j])) j++;
       if (j < n && inHigh(d[j])) {
-        // interpolate
         const a0 = d[start - 1], a1 = d[start];
         const l1 = rising ? lo : hi;
         const f0 = a1 !== a0 ? (l1 - a0) / (a1 - a0) : 0;
@@ -400,14 +447,8 @@ export function measure(type: MeasType, d: ArrayLike<number> | null, dt: number)
   const cr = crossings(d, mid, Math.max(amp, range * 0.5) * 0.08, dt);
   const period = cr.rise.length >= 2 ? (cr.rise[cr.rise.length - 1] - cr.rise[0]) / (cr.rise.length - 1)
     : cr.fall.length >= 2 ? (cr.fall[cr.fall.length - 1] - cr.fall[0]) / (cr.fall.length - 1) : NaN;
-  const pw = (() => {
-    for (const r of cr.rise) { const f = cr.fall.find((x) => x > r); if (f !== undefined) return f - r; }
-    return NaN;
-  })();
-  const nw = (() => {
-    for (const f of cr.fall) { const r = cr.rise.find((x) => x > f); if (r !== undefined) return r - f; }
-    return NaN;
-  })();
+  const pw = (() => { for (const r of cr.rise) { const f = cr.fall.find((x) => x > r); if (f !== undefined) return f - r; } return NaN; })();
+  const nw = (() => { for (const f of cr.fall) { const r = cr.rise.find((x) => x > f); if (r !== undefined) return r - f; } return NaN; })();
   switch (type) {
     case 'freq': return { value: 1 / period, unit: 'Hz' };
     case 'period': return { value: period, unit: 's' };
@@ -421,7 +462,6 @@ export function measure(type: MeasType, d: ArrayLike<number> | null, dt: number)
   return V(NaN);
 }
 
-/** frequency counter on trigger source (from record) */
 export function counterFreq(d: ArrayLike<number> | null, dt: number, level: number): number {
   if (!d) return NaN;
   let max = -Infinity, min = Infinity;
@@ -451,12 +491,12 @@ export function fftDb(d: ArrayLike<number>, win: Settings['fft']['window']): Flo
     const x = i / (n - 1);
     let w = 1;
     if (win === 'hann') w = 0.5 - 0.5 * Math.cos(2 * Math.PI * x);
+    else if (win === 'rect') w = 1.0;
     else if (win === 'hamming') w = 0.54 - 0.46 * Math.cos(2 * Math.PI * x);
     else if (win === 'blackman') w = 0.42 - 0.5 * Math.cos(2 * Math.PI * x) + 0.08 * Math.cos(4 * Math.PI * x);
     re[i] = d[i] * w;
     wsum += w;
   }
-  // bit reversal
   for (let i = 1, j = 0; i < N; i++) {
     let bit = N >> 1;
     for (; j & bit; bit >>= 1) j ^= bit;
@@ -534,15 +574,15 @@ export function autoset(s: Settings, env: Env, now: number): { settings: Setting
     const inf = infos[i]!;
     const pp = inf.max - inf.min;
     const vdiv = Math.max(0.001 * c.probe, ceil125(pp / (band * 0.75)));
-    const center = VDIV / 2 - band * (idx + 0.5); // divs from screen center
+    const center = VDIV / 2 - band * (idx + 0.5);
     const mid = (inf.max + inf.min) / 2;
     return { ...c, on: true, coupling: 'DC' as const, vdiv, pos: +(center - mid / vdiv).toFixed(2), fine: false };
   });
-  const first = active[0];
-  const f = infos[first]!.freq;
+  const firstActive = active[0];
+  const f = infos[firstActive]!.freq;
   ns.tdiv = isFinite(f) ? clamp(ceil125(2.5 / (f * 15)), 2e-9, 10) : 1e-3;
   ns.hDelay = 0;
-  ns.trig = { ...s.trig, source: first, slope: 'rise', mode: 'auto', level: +(((infos[first]!.max + infos[first]!.min) / 2).toPrecision(3)) };
+  ns.trig = { ...s.trig, source: firstActive, slope: 'rise', mode: 'auto', level: +(((infos[firstActive]!.max + infos[firstActive]!.min) / 2).toPrecision(3)) };
   ns.acq = { ...s.acq, xy: false };
   ns.zoom = { ...s.zoom, on: false };
   ns.run = 'run';

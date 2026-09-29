@@ -1032,9 +1032,15 @@ function Window({ win }: { win: InstrumentWindow }) {
     };
     const move = (e: PointerEvent) => {
       if (drag.current) {
+        // Allow dragging anywhere on screen (including negative coordinates for off-screen)
+        // Only constrain to keep at least 50px of title bar visible
+        const titleBarHeight = 36;
+        const minX = -(win.w - 50); // Keep 50px of title bar visible on left
+        const minY = -(win.h - titleBarHeight); // Keep title bar visible on top
+        
         pendingPos = {
-          x: Math.max(0, drag.current.wx + e.clientX - drag.current.x),
-          y: Math.max(48, drag.current.wy + e.clientY - drag.current.y),
+          x: Math.max(minX, drag.current.wx + e.clientX - drag.current.x),
+          y: Math.max(minY, drag.current.wy + e.clientY - drag.current.y),
         };
         if (!raf) raf = requestAnimationFrame(apply);
       }
@@ -1073,7 +1079,7 @@ function Window({ win }: { win: InstrumentWindow }) {
       window.removeEventListener("pointerup", up);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [updateInstrument, win.id]);
+  }, [updateInstrument, win.id, win.w, win.h]);
 
   const body = () => {
     switch (win.kind) {

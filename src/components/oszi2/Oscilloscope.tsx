@@ -171,19 +171,20 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       if (!powerRef.current) { ctx.fillStyle = '#030404'; ctx.fillRect(0, 0, W, H); return; }
       const bootP = (t - bootStart.current) / 2.2;
       if (bootP < 1) { drawBoot(ctx, Math.max(0, bootP)); return; }
+      // Simulationszeit holen (für Datenakquise, Trigger, Autoset)
+      const simT = simEngine.lastState?.time ?? 0;
+      const eng = engine.current;
       const st = sRef.current;
       const env = envRef.current;
-      const eng = engine.current;
-      // W30: Die Akquise läuft in Simulationszeit (Multispice-Engine),
-      // UI-Timer (Boot, Meldungen, Kalibrierung) weiter in Wall-Time.
-      const simT = simEngine.lastState.time;
       if (simT < eng.lastTT) {
         // Simulation zurückgesetzt → Trigger-Suchzustand neu synchronisieren.
         eng.pendingTT = null;
         eng.searchStart = simT;
         eng.lastAcqTime = simT - 1;
+        eng.singleStartWall = null;
       }
-      const res = eng.step(simT, st, env);
+      const wallT = now(); // Wall-Time für UI/Trigger-Timeouts
+      const res = eng.step(simT, t, st, env);
       if (res.singleDone) setS((x) => ({ ...x, run: 'stop' }));
       let zoomAcq: Acq | null = null;
       if (st.zoom.on && eng.display && !st.acq.xy) {
