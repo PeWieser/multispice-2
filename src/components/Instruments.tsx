@@ -11,11 +11,14 @@ import { spectrum } from "@/lib/sim/fft";
 import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
 import { InstrumentKind, InstrumentWindow, engine, useEditor } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
+import { useIsMobile } from "@/lib/hooks/useMediaQuery";
 
 const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
 
-/** Höhe der Statusleiste (Desktop) – das Geräte-Dock sitzt darüber (Runde 19). */
+/** Runde 19 (W33): Höhe der Statusleiste – die Dock-Zeile der Gerätefenster
+ *  sitzt direkt darüber (mobil ist die Leiste etwas höher). */
 const STATUS_BAR_H = 26;
+const STATUS_BAR_H_MOBILE = 32;
 
 /* W24: SkeuoTek-Oszi (1:1-Port aus oszi/) – eigenes Chunk, kein SSR */
 const OsziScopeLazy = dynamic(() => import("./OsziScope"), { ssr: false });
@@ -1321,6 +1324,7 @@ export function DeviceBar() {
  *  und werden nicht mehr am Canvas abgeschnitten. Menü-Dropdowns, Dialoge und
  *  Toasts (z-50/z-100) bleiben darüber. */
 export function InstrumentLayer() {
+  const isMobile = useIsMobile();
   const instruments = useEditor((s) => s.instruments);
   const floating = instruments.filter((w) => !w.docked);
   const docked = instruments.filter((w) => w.docked);
@@ -1350,7 +1354,7 @@ export function InstrumentLayer() {
         <div
           className="pointer-events-auto absolute inset-x-0 flex items-stretch gap-1 p-1"
           style={{
-            bottom: STATUS_BAR_H,
+            bottom: isMobile ? STATUS_BAR_H_MOBILE : STATUS_BAR_H,
             height: "min(38vh, 360px)",
             minHeight: 140,
             background: "color-mix(in srgb, var(--bg) 82%, transparent)",
