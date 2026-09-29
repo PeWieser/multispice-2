@@ -1122,3 +1122,35 @@ Drag ist zäh und bleibt außerhalb des Screens hängen → mitfixieren.
 8. **Sanftes Ein-/Ausschalten**: Relais-Klang + Bild-Freeze mit weicher Überblendung zu Schwarz (0,65 s) beim Ausschalten, Boot-Sequenz + weiches Aufblenden (0,45 s) beim Einschalten.
 
 **Grenzen (dokumentiert):** Trigger-Rauschen nutzt ein deterministisches 20-ns-Rauschraster (kein Zufall pro Frame — reproducible Aufnahmen); Mess-Drossel betrifft die On-Scope-Messwert-Tabelle (die MSP-Messleiste unter dem Fenster liefert Live-Werte für die Bedienung); Library-Klemmung hält die Titelleiste im Viewport (im Gegensatz zu Fenstern, die frei ziehbar bleiben).
+
+---
+
+## Runde 18 – FG-2500 Funktionsgenerator (Portierung aus `function generator/`)
+
+### §18 Plan (bindende Nutzer-Entscheidungen dieser Runde)
+1. **Ton:** Audio-Monitor (Signal als Ton) entfällt komplett. Klick-Geräusche bleiben wie am Oszi (Runde 17), über Utility → Beep abschaltbar (`sys.beep`).
+2. **Anschlüsse:** Symbol mit OUT1, OUT2, COM, SYNC (vollständige Belegung wie am Gerät).
+3. **Alt:** „Funktionsgenerator (XFG)“ wird ersatzlos ersetzt (gleiche Bibliotheksposition, gleiche id `funcgen`); alte Projekte verlieren die XFG-Einstellungen (Nutzer-Entscheidung, keine Migration). AC-Quelle/Pulsquelle bleiben eigenständig.
+4. **Platzierung/Nutzung wie das Oszi:** Symbol aus der Bibliothek platzieren, Pins verdrahten, Doppelklick öffnet das gebundene Gerätefenster, Fenster-Auto-Size/Recall wie W32. Keine Patchkabel, kein Mini-Scope-Monitor (Verdrahtung = Schaltplan, PORTING.md Abschnitt 6).
+
+### §18.1 Architektur
+- **Build-Fix (Cloudflare):** `tsconfig.json` `exclude` += `"function generator"` (wie `oszi v2`) – der nächste Build type-checked das Demo-Projekt nicht mehr (Fehler: `clsx` nicht gefunden).
+- **Kern 1:1:** `function generator/src/generator/*` → `src/lib/fg/` (types/state/waveforms/fields/format/menu/reducer/core/spice), unverändert. Signalmodell bleibt analytisch/zustandslos (kein Phasenakkumulator).
+- **Sim-Integration:** neuer `SourceKind` `"fg"`/`"fgSync"` in `src/lib/sim/engine.ts`; `SourceSpec.fg = { ch: Channel, power: boolean }`; `sourceValue` liefert die offene Thévenin-Spannung `rawVoltage(c,t) · (load==='50' ? 2 : 1)` bzw. TTL-Sync – die 50 Ω macht das Device (`rser: 50`), keine doppelte Lastanwendung.
+- **Bauteil `funcgen`:** Pins OUT1/OUT2/COM/SYNC, Symbol als Geräteblock (Oszi-Stil), `toDevices` erzeugt 3 V-Quellen (OUT1, OUT2, SYNC je gegen COM). Zustand als `params.fgstate` (JSON von GenState).
+- **Fenster:** InstrumentKind `funcgen`, gebunden an die Instanz (Doppelklick, DeviceBar-Recall). Frontpanel-Komponenten (FunctionGenerator/Lcd/Knob/Key/Bnc/Icons + CSS) mit Adapter `src/components/FgScope.tsx` (GeneratorCore pro Instanz, Spiegelung nach `fgstate` debounced). Ohne CableLayer/Scope/hooks/monitor/installBridge; Keyboard-Shortcuts nur bei fokussiertem Fenster; Panel skaliert nur herunter (1:1-Regel).
+- **Verifikation:** tsc/eslint/npm test/next build + Kern-Selbsttests (`function generator/scripts/*`) + PORTING §8-Referenzwerte gegen die Kopie in `src/lib/fg`.
+
+### 18.1 Umsetzung Runde 18 (FG-2500 + Cloudflare-Build)
+
+**Ergebnis: alle Prüfungen grün.** Kern-Selbsttests der Demo (selftest/selftest2) unverändert (der dokumentierte „burst active"-FAIL bleibt Absicht), PORTING §8-Referenzwerte gegen die Kopie **15/15**, End-to-End (Bauteil → toDevices → Engine-Transient) **7/7** (Source-Knoten 0.953 Vpp = Theorie 0.953, RC-Mitte 0.150 Vpp = Theorie 0.150, SYNC 5,000 V TTL, OUT2 aus = 0 V), `npm test` **26× PASS** (410 Teile, 2098 Pins deckungsgleich), tsc/`next build` sauber (Cloudflare-Exclude `"function generator"` in `tsconfig.json`).
+
+**Port-Entscheidungen (R18):**
+- **Signalpfad (PORTING Weg B):** `toDevices` erzeugt 3 V-Quellen gegen COM (`params.rser: 50`, SYNC `rser: 0`) mit der offenen Thévenin-Spannung (`outputVoltage`); `sourceValue('fg')` = `outputVoltage(state, idx, t, ∞)`, `sourceValue('fgsync')` = `syncVoltage` (0/5 V TTL, folgt `state.active`).
+- **Ohne Ton (Ask-User):** Audio-Monitor/`beep()` tot (nicht importiert), Klick-Geräusche wie am Oszi (`uiClick`, Utility→Beep abschaltbar), `noiseFor`/`setMonitor` werden nicht angeschlossen.
+- **Bauteil/Pins (Ask-User):** OUT1, OUT2, COM, SYNC; altes XFG ersetzt ohne Migration (Params `freq/amplitude/kind` der Test-Szenarien werden ignoriert, Fallback `initialState()`).
+- **Fenster:** `FgScope.tsx` = GeneratorCore pro Instanz + `params.fgstate`-Spiegel (structuredClone, typisiert gecastet, Kern unverändert), debounced 300 ms (Undo/engine.rebuild), Auto-Size 1160×545 geclampt beim ersten Öffnen (Fenster klebt am Gerät), Panel-Scale `min(1, w/1160)`, Keyboard-Capture mit Fokus-Guard + `stopImmediatePropagation`, Boot-Splash über `bootTick`-Prop (kein Render-Ref, RC-konform).
+- **Platzierung wie am Oszi:** DeviceBar-Einträge `scope`+`funcgen` starten die Symbol-Platzierung; Doppelklick aufs Symbol öffnet das gebundene Gerät.
+- **Lint-RC-Regeln:** keine `eslint-disable`; Demo-Copys wurden für refs-during-render/set-state-in-effect auf `bootTick`/`msgHidden`-State umgebaut.
+
+**Verifikationsnotiz:** Der E2E-Scratch förderte einen Geometrie-Fallstrich zutage (schmale Bauteil-Pins liegen auf Leitungssegmenten — der SYNC-Pin berührte eine Diagonalleitung des RC-Tests); für die App irrelevant, da dort pin-genau verdrahtet wird.

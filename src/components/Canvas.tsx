@@ -1664,6 +1664,12 @@ export default function Canvas() {
         useEditor.getState().openInstrument("scope", { instanceId: hit.id, title: `Oszilloskop ${hit.label}` });
         return;
       }
+      if (part?.id === "funcgen") {
+        // W18: Doppelklick auf den FG-2500 öffnet das gebundene Gerät
+        // (Ausgänge OUT1/OUT2/SYNC werden im Schaltplan verdrahtet).
+        useEditor.getState().openInstrument("funcgen", { instanceId: hit.id, title: `Funktionsgenerator ${hit.label}` });
+        return;
+      }
       const key = part?.params[0]?.key;
       if (key && e.altKey) {
         // Alt+Doppelklick: Inline-Wertedit direkt auf der Fläche (Direct Manipulation).

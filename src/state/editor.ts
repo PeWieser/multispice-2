@@ -273,6 +273,13 @@ function recallPos(w: { x: number; y: number; w: number; h: number }): { x: numb
   };
 }
 
+/** W18: FG-2500 – Bühne 1160×545 + Chrome, viewport-geclampt. */
+function fgDefaultSize(): { w: number; h: number } {
+  const availW = (typeof window !== "undefined" ? window.innerWidth : 1600) - 40;
+  const availH = (typeof window !== "undefined" ? window.innerHeight : 1000) - 110;
+  return { w: Math.min(1190, Math.max(640, availW)), h: Math.min(593, Math.max(480, availH)) };
+}
+
 const newId = (prefix: string) => `${prefix}_` + Math.random().toString(36).slice(2, 10);
 
 /** Runde 16 (W31a): Standard-Gerätefenster für das OTX2074 (1420 px Chassis +
@@ -754,11 +761,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   clearToast: () => set({ toast: null }),
 
   openInstrument: (kind, opts) => {
-    // W29: Oszi-Fenster sind an ein Schaltsymbol auf dem Plan gebunden
-    // (Doppelklick). Pro Instanz genau ein Fenster; entkoppelte Oszi-Fenster
-    // gibt es nicht mehr.
-    if (kind === "scope" && opts?.instanceId) {
-      const bound = get().instruments.find((i) => i.kind === "scope" && i.instanceId === opts.instanceId);
+    // W29: Instrument-Fenster sind an ein Schaltsymbol auf dem Plan gebunden
+    // (Doppelklick). Pro Instanz genau ein Fenster; entkoppelte Oszi-/FG-Fenster
+    // gibt es nicht mehr. W18: gleiche Mechanik für den FG-2500.
+    if ((kind === "scope" || kind === "funcgen") && opts?.instanceId) {
+      const bound = get().instruments.find((i) => i.kind === kind && i.instanceId === opts.instanceId);
       if (bound) {
         get().focusInstrument(bound.id);
         // Runde 17 (W32a): Rückholhilfe – liegt das Fenster (fast) außerhalb
@@ -773,21 +780,21 @@ export const useEditor = create<EditorState>((set, get) => ({
         return;
       }
       const count = get().instruments.length;
-      // Runde 16 (W31a): 1500×980 (OTX2074-Chassis 1420 px + Luft), aber nie
-      // größer als der Viewport (Mindestmaß 640×480); Fit skaliert das Gerät
-      // ohnehin komplett hinein.
-      const { w: scopeW, h: scopeH } = scopeDefaultSize();
+      // W31a: Fenster klebt am Gerät (nie größer als der Viewport);
+      // W18: FG-2500 hat eine feste Bühne (1160×545) + Chrome-Rest.
+      const { w: defW, h: defH } =
+        kind === "funcgen" ? fgDefaultSize() : scopeDefaultSize();
       set((s) => ({
         instruments: [
           ...s.instruments,
           {
             id: "w_" + opts.instanceId,
             kind,
-            title: opts.title ?? "Oszilloskop",
+            title: opts.title ?? (kind === "funcgen" ? "Funktionsgenerator" : "Oszilloskop"),
             x: 180 + count * 34,
             y: 110 + count * 28,
-            w: scopeW,
-            h: scopeH,
+            w: defW,
+            h: defH,
             z: 10 + count,
             minimized: false,
             config: s.configArchive["w_" + opts.instanceId] ?? {},
