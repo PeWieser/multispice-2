@@ -2,6 +2,7 @@
 
 > Datum: 2026-09-25 · Branch `arena/01a0d95e-multispice-2` · Stand: nach Build-Fix (PR #2)
 > Vorgänger: `DESIGN_AUDIT_STEVE_JOBS.md` (Detail-Runde), `FINAL_AUDIT_STEVE_JOBS.md` (Funktionsabgleich Multisim)
+> Für den schnellen Einstieg (Auftrag, Runden 15–18, Regeln, Lagekarte): **[UEBERGABE.md](UEBERGABE.md)**
 > Dieses Audit prüft nicht Features, sondern **jede Oberfläche, mit der ein Mensch das Produkt berührt** —
 > inklusive der Flächen, die niemand sieht („die Rückseite des Schranks“).
 
