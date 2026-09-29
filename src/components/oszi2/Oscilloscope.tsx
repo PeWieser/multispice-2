@@ -9,7 +9,7 @@ import { H, W, SLOT_H, GY, drawBoot, drawGraticule, drawOverlay, drawWaves, MAIN
 import { MENU_TITLES, applyKnob, buildMenu, cursorSels, defaultKnob } from './menus';
 import type { MenuItem } from './menus';
 import { sourceLabel } from './signals';
-import { engine as simEngine } from '@/state/editor';
+import { engine as simEngine, useEditor } from '@/state/editor';
 
 interface Props {
   envRef: React.MutableRefObject<Env>;
@@ -55,6 +55,23 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
   const clearPersistFlag = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const itemsRef = useRef<MenuItem[]>([]);
+  // W31c (Runde 16): Oszi-Clock = Signal-Zeitachse – folgt der Simulationszeit,
+  // läuft bei pausierter Simulation in Wall-Time weiter (Bild bleibt lebendig),
+  // resynchronisiert bei Sprüngen (Sim-Reset bzw. Weiterlauf nach Pause).
+  const clockRef = useRef({ t: 0, prev: 0 });
+  // W31e: merkt, ob „Single“ die Simulation selbst gestartet hat – dann nach
+  // der Aufnahme wieder anhalten (User-Entscheidung).
+  const singleAutoSim = useRef(false);
+  // W31e: Fenster schließen mit laufender Single-Aktion → Simulation anhalten.
+  useEffect(
+    () => () => {
+      if (singleAutoSim.current) {
+        singleAutoSim.current = false;
+        useEditor.getState().pauseSim();
+      }
+    },
+    [],
+  );
   const [, force] = useState(0);
   const [searchCount, setSearchCount] = useState(0);
 
@@ -174,17 +191,31 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       const st = sRef.current;
       const env = envRef.current;
       const eng = engine.current;
-      // W30: Die Akquise läuft in Simulationszeit (Multispice-Engine),
-      // UI-Timer (Boot, Meldungen, Kalibrierung) weiter in Wall-Time.
+      // W31c (Runde 16): Die Akquise läuft auf der Oszi-Clock – sie folgt der
+      // Simulationszeit, läuft bei pausierter Simulation in Wall-Time weiter
+      // (Bild bleibt lebendig: Rauschen/Auto-Trigger), und resynchronisiert bei
+      // Sprüngen (Sim-Reset, Weiterlauf nach Pause). UI-Timer (Boot, Meldungen,
+      // Kalibrierung, Persistenz) bleiben in Wall-Time.
       const simT = simEngine.lastState.time;
-      if (simT < eng.lastTT) {
-        // Simulation zurückgesetzt → Trigger-Suchzustand neu synchronisieren.
+      const clock = clockRef.current;
+      clock.t = simEngine.running ? simT : clock.t + dtFrame;
+      if (clock.t < clock.prev) {
+        // Zurückgesetzte/neu gestartete Simulation → Trigger-Suchzustand neu
+        // synchronisieren; keine sofortige Auto-Aufnahme (Single-Arming hält).
         eng.pendingTT = null;
-        eng.searchStart = simT;
-        eng.lastAcqTime = simT - 1;
+        eng.searchStart = clock.t;
+        eng.lastAcqTime = clock.t;
       }
-      const res = eng.step(simT, st, env);
-      if (res.singleDone) setS((x) => ({ ...x, run: 'stop' }));
+      clock.prev = clock.t;
+      const res = eng.step(clock.t, st, env);
+      if (res.singleDone) {
+        setS((x) => ({ ...x, run: 'stop' }));
+        // W31e: nur die von „Single“ selbst gestartete Simulation wieder anhalten.
+        if (singleAutoSim.current) {
+          singleAutoSim.current = false;
+          useEditor.getState().pauseSim();
+        }
+      }
       let zoomAcq: Acq | null = null;
       if (st.zoom.on && eng.display && !st.acq.xy) {
         zoomAcq = acquire(eng.lastTT, st.hDelay + st.zoom.pos * st.tdiv, st.tdiv / st.zoom.factor, st, env, eng.acMean, true);
@@ -331,18 +362,32 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
   });
   const runStop = () => {
     const x = sRef.current;
-    engine.current.searchStart = simEngine.lastState.time;
+    engine.current.searchStart = clockRef.current.t;
     engine.current.pendingTT = null;
+    // W31e: eine laufende Single-Aktion abbrechen → selbst gestartete Simulation
+    // wieder anhalten.
+    if (singleAutoSim.current) {
+      singleAutoSim.current = false;
+      useEditor.getState().pauseSim();
+    }
     set((y) => ({ ...y, run: x.run === 'stop' ? 'run' : 'stop' }));
   };
   const single = () => {
-    engine.current.searchStart = simEngine.lastState.time;
+    const c = clockRef.current;
+    engine.current.searchStart = c.t;
     engine.current.pendingTT = null;
     engine.current.avg = null;
+    engine.current.lastAcqTime = c.t;
     set((y) => ({ ...y, run: 'single' }));
+    // W31e (User-Entscheidung): Single startet bei angehaltener Simulation die
+    // Messung selbst – eine Aufnahme, danach wird die Simulation wieder angehalten.
+    if (!simEngine.running && !singleAutoSim.current) {
+      singleAutoSim.current = true;
+      useEditor.getState().startSim();
+    }
   };
   const doAutoset = () => {
-    const r = autoset(sRef.current, envRef.current, simEngine.lastState.time);
+    const r = autoset(sRef.current, envRef.current, clockRef.current.t);
     set(() => r.settings);
     engine.current.stats.clear();
     msg(r.msg);
@@ -355,6 +400,11 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
     const p = !powerRef.current;
     powerRef.current = p;
     setPower(p);
+    // W31e: offene Single-Aktion beenden – selbst gestartete Simulation anhalten.
+    if (singleAutoSim.current) {
+      singleAutoSim.current = false;
+      useEditor.getState().pauseSim();
+    }
     if (p) {
       bootStart.current = now();
       engine.current = new Engine();

@@ -1009,7 +1009,7 @@ function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
 /* ------------------------------------------------------------------ */
 function Window({ win }: { win: InstrumentWindow }) {
   const { updateInstrument, closeInstrument, focusInstrument } = useEditor();
-  const drag = useRef<{ x: number; y: number; wx: number; wy: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; wx: number; wy: number; h: number } | null>(null);
   const resize = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const winRef = useRef<HTMLDivElement>(null);
 
@@ -1032,9 +1032,12 @@ function Window({ win }: { win: InstrumentWindow }) {
     };
     const move = (e: PointerEvent) => {
       if (drag.current) {
+        // Runde 16 (W31a): Fenster dürfen teilweise unter die Menü-/Werkzeug-
+        // leisten rutschen – mindestens 120 px (bzw. die ganze Titelleiste
+        // kleiner Fenster) müssen sichtbar bleiben.
         pendingPos = {
           x: Math.max(0, drag.current.wx + e.clientX - drag.current.x),
-          y: Math.max(48, drag.current.wy + e.clientY - drag.current.y),
+          y: Math.max(-(drag.current.h - Math.min(120, drag.current.h)), drag.current.wy + e.clientY - drag.current.y),
         };
         if (!raf) raf = requestAnimationFrame(apply);
       }
@@ -1131,7 +1134,7 @@ function Window({ win }: { win: InstrumentWindow }) {
         title={win.docked ? "Im Dock – mit dem Dock-Knopf wieder lösen" : "Ziehen bewegt das Fenster – am unteren Rand loslassen dockt es ein"}
         onPointerDown={(e) => {
           if (win.docked) return;
-          drag.current = { x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
+          drag.current = { x: e.clientX, y: e.clientY, wx: win.x, wy: win.y, h: win.minimized ? 36 : win.h };
         }}
       >
         <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>

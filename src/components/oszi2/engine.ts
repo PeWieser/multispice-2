@@ -287,12 +287,16 @@ export class Engine {
     }
     this.searchStart = now;
     const timeout = Math.max(0.12, HDIV * tdiv * 1.2);
-    if (s.trig.mode === 'auto' && s.run === 'run' && now - this.lastAcqTime > timeout) {
+    // W31 (Runde 16): Auto-Fallback auch für Single — in oszi v2 fiel das nie
+    // auf, weil das Demo-Signal immer periodisch lief; ein echtes Oszi nimmt
+    // im Auto-Modus die Einzelaufnahme spätestens nach dem Auto-Timeout auf.
+    // (run:'stop' ist zu diesem Zeitpunkt bereits ausgestiegen.)
+    if (s.trig.mode === 'auto' && now - this.lastAcqTime > timeout) {
       const tt = now - Math.max(postT, 0);
       this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, false), s);
       this.lastAcqTime = now;
       this.status = 'auto';
-      return { newAcq: true, singleDone: false };
+      return { newAcq: true, singleDone: s.run === 'single' };
     }
     if (s.run === 'single') this.status = 'ready';
     else if (now - this.lastAcqTime > timeout) this.status = s.trig.mode === 'auto' ? 'auto' : 'trig?';

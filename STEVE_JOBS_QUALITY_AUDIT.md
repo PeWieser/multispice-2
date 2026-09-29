@@ -918,3 +918,122 @@ Neuzugänge (oszi v2) kommen dazu; danach Push auf arena **und main**.
 Verifikation: tsc ✔ · eslint ✔ · Dauertest (Import/Sim/Kongruenz 410 Teile,
 2097 Pins) PASS ✔ · next build ✔ (/, /_not-found, /apple-icon.png,
 /apple-icon1.png, /icon.svg).
+
+---
+
+## §16 — Runde 16: Oszi-Port-Feinschliff (User-Rüge: „fehlerhafte Portierung")
+
+**User-Auftrag:** Die Runde-15-Portierung des Oszilloskops ist fehlerhaft
+(Störsignale/statisches Bild, Single-Trigger, Scrollbalken im Fenster, Fenster
+lässt sich nicht weit genug nach oben verschieben, + weitere, noch unentdeckte
+Fehler). Original liegt in `oszi v2/`. Bei Fragen immer fragen.
+
+**Befund (Code-Analyse, Diff oszi v2 → Port):** `engine.ts`/`render.ts` sind
+byte-identisch; die Fehler sitzen in der **Anbindung an die Multispice-Engine**
+und der **Fenster-Chrome**:
+1. **Statisches Bild:** Die Akquise hängt an der Simulationszeit
+   (`eng.step(simEngine.lastState.time)`). Simulation pausiert (Default!) =
+   Zeit friert ein → keine neuen Aufnahmen → Bild komplett tot (nicht mal das
+   Rauschen erneuert sich).
+2. **Störsignale/Garbage:** Ringpuffer deziert auf 40 kSa/s, Tiefe nur ~0,41 s
+   Sim-Zeit; `interpAt` klammert außerhalb auf Randwerte → flache/garbage-
+   Abschnitte ab ~27 ms/div, Roll-Modus (≥100 ms/div) fast komplett; negative
+   Startzeiten (`tt = simT − postT` bei simT≈0) zeigen eingefrorenen Müll.
+3. **Single-Trigger:** Bei pausierter Simulation findet `findTrigger` nie eine
+   Flanke → Status „ready", LED leuchtet dauerhaft, keine Aufnahme. Zusätzlich:
+   Auto+Single hat keinen Auto-Fallback (v2-Demo nie aufgefallen); Reset-Resync
+   (`lastAcqTime = simT − 1`) würde eine Auto-Aufnahme sofort auslösen.
+4. **Scrollbalken:** Gebundenes Oszi-Fenster öffnet mit **920×640** (alter
+   R14-Stand im `instanceId`-Pfad von `openInstrument`; 1500×980 stehen nur im
+   toten Fallback-Pfad); `OsziScope` hat `overflow-auto` + `pb-[170px]`
+   (Testbench-Relikt) und `Fit` skaliert nur nach Breite → Scrollbalken immer.
+5. **Nach oben:** Drag-Clamp `y ≥ 48` in `Instruments.tsx`.
+6. Nebenbefunde: Autoset/AC-Mittel suchen 1,2–4 s Geschichte (Puffer: 0,41 s);
+   Cursor-Crosshair beim Tastkopf fehlt; `startSim()` rebuilt stets,
+   `stopSim()` = Pause+Reset.
+
+**Ask-User-Entscheidungen (bindend, Runde 16):**
+1. „Störsignale" = **statisches Bild** („die Signale bewegen sich nicht").
+2. Single tut nichts, LED leuchtet dauerhaft. Bei pausierter Simulation:
+   **Simulation automatisch starten, eine Aufnahme, dann wieder anhalten.**
+3. Run-Modus + pausierte Simulation: Oszi tastet die Simulation **nie** an
+   (Play/Pause bleibt allein beim Simulations-Button). Anzeige dann:
+   **tote Schaltung, lebendes Bild** — alle Kanäle 0 V + Grundrauschen
+   (wie an einer unbestromten Schaltung), Rauschen erneuert sich, Auto-Trigger
+   feuert weiter. „Simulation an = Signal an; Simulation stopp = keine Spannung."
+4. Fenster darf **teilweise unter die Menü-/Werkzeugleisten rutschen**, ein Rest
+   muss sichtbar bleiben.
+5. Kleine Fenster: Gerät skaliert **komplett** hinein (Breite + Höhe),
+   **nie ein Scrollbalken**.
+
+**W31 — Plan (Reihenfolge der Umsetzung):**
+- **W31a Fenster-Chrome:** gebundenes Oszi-Fenster 1500×980 (clamp auf Viewport
+  mit Mindestmaß 640×480); Drag-Y-Clamp `-(h−120)` bis untere Kante; Canvas-
+  Container `overflow-hidden` (Fenster rutschen optisch unter die Leisten);
+  Recall-Clamp beim Öffnen (`y < 0 → y = 24`), damit nie ein unrecoverable
+  Zustand entsteht.
+- **W31b Fit/Scrollbalken:** `Fit` skaliert auf Breite **und** Höhe des
+  Containers (contain), `pb-[170px]`/`overflow-auto` → `overflow-hidden`,
+  zentriert, kleiner Rand. Scrollbalken im Oszi-Fenster unmöglich.
+- **W31c Oszi-Uhr (Bild beleben):** Scope-Clock im rAF-Loop: folgt
+  Simulationszeit-Advances, läuft bei pausierter Simulation in Wall-Time weiter,
+  rebaset bei Sim-Reset (bestehender Resync-Pfad). `sampler` liefert für
+  Netz-Ziele **0 V, solange die Simulation nicht läuft** (tote Schaltung);
+  comp/gnd-Klemmen bleiben als Geräte-Eigensignale lebendig.
+- **W31d Signalpfad-Treue:** zweistufiger History-Puffer in `realtime.ts`
+  (fast 16384 @ ~40 kSa/s = 0,41 s + slow 16384 @ ~3,2 kSa/s ≈ 5,1 s,
+  Push alle 12. Fast-Sample; `channelSlow()`); tiered `interpAt` im Adapter
+  (fast → slow → Hold/0; `t < 0` → 0). Schnellt-Basis bis ~27 ms/div sauber,
+  langsam bis ~340 ms/div abgedeckt.
+- **W31e Single-Trigger:** Single bei gestopfter Simulation → `startSim()`,
+  nach `singleDone` → `pauseSim()` (nur wenn selbst gestartet);
+  `lastAcqTime`-Resync ohne sofortige Auto-Aufnahme; Engine: Auto-Fallback auch
+  für `run:'single'` (Timeout-Aufnahme + `singleDone`), damit Single in
+  Auto-Modus immer abschließt (Normal-Modus wartet weiterhin auf echte Flanke —
+  Instrumenten-Semantik).
+- **W31f Kleinigkeiten:** Cursor `crosshair` bei „Tastkopf in der Hand" (v2).
+- **Verifikation:** tsc ✔ · eslint ✔ · npm test (VOLLausgabe) ✔ · next build ✔
+  mit Routen /, /_not-found, /apple-icon.png, /apple-icon1.png, /icon.svg;
+  Live-Preview prüfen.
+
+### §16.1 — Umsetzungsstand Runde 16 (2026-09-29) ✅
+
+- **W31a Fenster-Chrome:** `scopeDefaultSize()` in editor.ts (1500×980,
+  viewport-geclampt, min 640×480) für den `instanceId`-Pfad (alt: 920×640 —
+  das war der Scrollbalken-Auslöser); Restore-Migration für gespeicherte
+  920×640-Fenster; Recall-Clamp beim Öffnen (`y < 0 → 24`); Drag-Y-Clamp
+  `-(h − min(120, h))` statt `y ≥ 48`; Canvas-Container `overflow-hidden`
+  (Fenster rutschen optisch unter die Leisten).
+- **W31b Fit:** skaliert auf Breite **und** Höhe (contain) gegen den
+  Fensterkörper; `overflow-auto` + `pb-[170px]` (Testbench-Relikt) entfernt —
+  Scrollbalken im Oszi-Fenster ist konstruktiv ausgeschlossen.
+- **W31c Oszi-Clock:** Akquise auf einer eigenen Signal-Zeitachse, die der
+  Simulationszeit folgt, bei pausierter Simulation in Wall-Time weiterläuft
+  und bei Sprüngen (Sim-Reset/Weiterlauf) resynchronisiert; `sampler` liefert
+  bei angehaltener Simulation **0 V** für Netz-Ziele (tote Schaltung,
+  lebendiges Grundrauschen), comp/GND bleiben als Geräte-Eigensignale lebendig.
+- **W31d Signalpfad:** zweistufiger History-Puffer (fast 16384 @ ~40 kSa/s
+  ≈ 0,41 s; slow 8192 @ ~3,3 kSa/s ≈ 2,5 s, `channelSlow()`); tiered
+  `interpAt` (fast → slow → Hold; `t < 0` → 0 V). Keine geklammerten
+  Garbage-Abschnitte mehr im Normalbereich (bis ~170 ms/div vollständig).
+- **W31e Single:** bei gestopfter Simulation startet Single die Simulation
+  selbst (`startSim`), nach `singleDone` wieder `pauseSim` (nur wenn selbst
+  gestartet; auch bei Abbruch/Power-Off/Schließen aufgelöst); Engine:
+  Auto-Fallback auch für `run:'single'` (Timeout-Aufnahme, `singleDone`) —
+  Single im Auto-Modus schließt jetzt immer ab; Normal-Modus wartet auf echte
+  Flanke (Instrumenten-Semantik). Resync ohne sofortige Auto-Aufnahme, damit
+  das Single-Arming nicht sofort eine 0-V-Rahmenaufnahme auslöst.
+- **W31f:** Cursor `crosshair` bei „Tastkopf in der Hand" (v2-Parität).
+- **Engine-Checks (Scratch, 7 Fälle, alle PASS):** Single+Auto ohne/mit Signal,
+  Single+Normal wartet, Run+Auto lebendig (auch tote Schaltung: ~8 Aufnahmen/s),
+  Reset-Resync, Level über Signal.
+- **Verifikation:** tsc ✔ · eslint ✔ · npm test 26× PASS (Import/Sim/Kongruenz
+  410 Teile, 2097 Pins) ✔ · next build ✔ (/, /_not-found, /apple-icon.png,
+  /apple-icon1.png, /icon.svg).
+
+**Offen/Grenzen (bewusst dokumentiert):** Zeiteinstellungen jenseits ~170 ms/div
+zeigen links alte/„Hold"-Historie (Langzeit-Tier ≈ 2,5 s) — Roll-Modus damit
+bis ~200 ms/div vollständig; tdiv > 2 s/div ist mit Simulations-Historie
+prinzipiell limitiert. Single im **Normal**-Modus ohne Flanke wartet weiterhin
+(echtes Oszi-Verhalten). Auto-Start der Simulation passiert ausschließlich für
+Single (nicht für Run) — User-Entscheidung.

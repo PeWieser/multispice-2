@@ -247,6 +247,15 @@ const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 const newId = (prefix: string) => `${prefix}_` + Math.random().toString(36).slice(2, 10);
 
+/** Runde 16 (W31a): Standard-Gerätefenster für das OTX2074 (1420 px Chassis +
+ *  Luft), nie größer als der Viewport (Mindestmaß 640×480) – Fit skaliert das
+ *  Gerät ohnehin komplett hinein. */
+function scopeDefaultSize(): { w: number; h: number } {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1500;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 980;
+  return { w: Math.min(1500, Math.max(640, vw - 160)), h: Math.min(980, Math.max(480, vh - 180)) };
+}
+
 export const useEditor = create<EditorState>((set, get) => ({
   doc: PRESETS[2].build(),
   selection: [],
@@ -689,10 +698,22 @@ export const useEditor = create<EditorState>((set, get) => ({
       const bound = get().instruments.find((i) => i.kind === "scope" && i.instanceId === opts.instanceId);
       if (bound) {
         get().focusInstrument(bound.id);
-        set((s) => ({ instruments: s.instruments.map((w) => (w.id === bound.id ? { ...w, minimized: false, title: opts.title ?? w.title } : w)) }));
+        // Runde 16 (W31a): Recall-Clamp – liegt die Titelleiste außer Sicht
+        // (Fenster nach oben unter die Leisten geschoben), beim Öffnen zurückholen.
+        set((s) => ({
+          instruments: s.instruments.map((w) =>
+            w.id === bound.id
+              ? { ...w, minimized: false, title: opts.title ?? w.title, y: w.y < -4 ? 24 : w.y }
+              : w,
+          ),
+        }));
         return;
       }
       const count = get().instruments.length;
+      // Runde 16 (W31a): 1500×980 (OTX2074-Chassis 1420 px + Luft), aber nie
+      // größer als der Viewport (Mindestmaß 640×480); Fit skaliert das Gerät
+      // ohnehin komplett hinein.
+      const { w: scopeW, h: scopeH } = scopeDefaultSize();
       set((s) => ({
         instruments: [
           ...s.instruments,
@@ -702,8 +723,8 @@ export const useEditor = create<EditorState>((set, get) => ({
             title: opts.title ?? "Oszilloskop",
             x: 180 + count * 34,
             y: 110 + count * 28,
-            w: 920,
-            h: 640,
+            w: scopeW,
+            h: scopeH,
             z: 10 + count,
             minimized: false,
             config: {},
@@ -896,7 +917,14 @@ export const useEditor = create<EditorState>((set, get) => ({
         // W29: entkoppelte Oszi-Fenster alter Projekte verwerfen – das Oszi
         // gibt es nur noch als gebundenes Schaltsymbol (Doppelklick).
         instruments: Array.isArray(stored.instruments)
-          ? (stored.instruments as InstrumentWindow[]).filter((w) => !(w.kind === "scope" && !w.instanceId))
+          ? (stored.instruments as InstrumentWindow[])
+              .filter((w) => !(w.kind === "scope" && !w.instanceId))
+              .map((w) =>
+                // Runde 16 (W31a): alter buggy Default (920×640) → neue Standardgröße.
+                w.kind === "scope" && w.instanceId && w.w === 920 && w.h === 640
+                  ? { ...w, ...scopeDefaultSize() }
+                  : w,
+              )
           : [],
         lastSavedAt: stored.savedAt ? new Date(stored.savedAt).getTime() : null,
       });

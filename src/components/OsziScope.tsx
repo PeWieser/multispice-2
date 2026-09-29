@@ -108,8 +108,8 @@ function interpAt(b: Buf | null, t: number): number {
   return b.v[lo] + (b.v[hi] - b.v[lo]) * f;
 }
 
-/** Skaliert das 1420px-Chassis auf die Fensterbreite (aus oszi v2 App.tsx,
- *  aber gegen den Container statt das Browserfenster gemessen). */
+/** Skaliert das 1420px-Chassis komplett in den Container (Breite UND Höhe,
+ *  „contain"-Verhalten) — Runde 16 (W31b): nie ein Scrollbalken im Fenster. */
 function Fit({ width, children }: { width: number; children: ReactNode }) {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -117,9 +117,16 @@ function Fit({ width, children }: { width: number; children: ReactNode }) {
   const [h, setH] = useState(0);
   useLayoutEffect(() => {
     const upd = () => {
-      const avail = (outer.current?.clientWidth ?? width) - 8;
-      setScale(Math.min(1, avail / width));
-      if (inner.current) setH(inner.current.offsetHeight);
+      const availW = Math.max(0, (outer.current?.clientWidth ?? width) - 8);
+      const availH = Math.max(0, (outer.current?.clientHeight ?? 0) - 8);
+      const nh = inner.current?.offsetHeight ?? 0;
+      if (!nh) {
+        setScale(Math.min(1, availW / width));
+        return;
+      }
+      setH(nh);
+      const byH = availH > 0 ? availH / nh : 1;
+      setScale(Math.min(1, availW / width, byH));
     };
     upd();
     const ro = new ResizeObserver(upd);
@@ -128,8 +135,8 @@ function Fit({ width, children }: { width: number; children: ReactNode }) {
     return () => ro.disconnect();
   }, [width]);
   return (
-    <div ref={outer} className="w-full">
-      <div style={{ width: width * scale, height: h * scale, margin: "0 auto" }}>
+    <div ref={outer} className="flex h-full w-full items-center justify-center">
+      <div style={{ width: width * scale, height: h * scale }}>
         <div ref={inner} style={{ width, transform: `scale(${scale})`, transformOrigin: "top left" }}>
           {children}
         </div>
@@ -237,20 +244,40 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   );
 
   // ---- Sampler: Netzspannung aus der laufenden Simulation (Frame-Cache) ----
-  const bufCache = useRef<{ frame: number; map: Map<string, Buf | null> }>({ frame: -1, map: new Map() });
+  // Runde 16 (W31c): Simulation angehalten = tote Schaltung → 0 V + Grund-
+  // rauschen (User-Entscheidung: „Simulation an = Signal an; Simulation stopp =
+  // keine Spannung"). comp/GND laufen als Geräte-Eigensignale weiter.
+  // W31d: zweistufiger Lookup – Fast-Tier (≈40 kSa/s, ~0,41 s), sonst
+  // Langzeit-Tier (≈3,3 kSa/s, ~2,5 s); vor Sim-Start 0 V, verjüngte Historie
+  // = Hold am Rand.
+  const bufCache = useRef<{ frame: number; fast: Map<string, Buf | null>; slow: Map<string, Buf | null> }>({
+    frame: -1,
+    fast: new Map(),
+    slow: new Map(),
+  });
   const sampler = useCallback((net: string, t: number): number => {
+    if (!simEngine.running) return 0;
     const frame = Math.floor(performance.now() / 16);
     const c = bufCache.current;
     if (c.frame !== frame) {
       c.frame = frame;
-      c.map.clear();
+      c.fast.clear();
+      c.slow.clear();
     }
-    let b = c.map.get(net);
-    if (b === undefined) {
-      b = simEngine.channel(net, 8192);
-      c.map.set(net, b);
+    let f = c.fast.get(net);
+    if (f === undefined) {
+      f = simEngine.channel(net, 16384);
+      c.fast.set(net, f);
     }
-    return interpAt(b, t);
+    if (f && f.t.length > 0 && t >= f.t[0]) return interpAt(f, t);
+    let s = c.slow.get(net);
+    if (s === undefined) {
+      s = simEngine.channelSlow(net, 8192);
+      c.slow.set(net, s);
+    }
+    if (!s || s.t.length === 0) return 0;
+    if (t >= s.t[0]) return interpAt(s, t);
+    return t < 0 ? 0 : s.v[0];
   }, []);
 
   const envRef = useRef<Env>({ probes, gndRef, sampler });
@@ -262,8 +289,11 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   const onHelp = useCallback(() => setHelp(true), []);
 
   return (
-    <div className="h-full w-full overflow-auto" style={BENCH_BG}>
-      <div className="min-h-full pb-[170px] pt-4" style={{ userSelect: "none" }}>
+    <div
+      className="h-full w-full overflow-hidden"
+      style={{ ...BENCH_BG, cursor: held !== null ? "crosshair" : undefined }}
+    >
+      <div className="flex h-full w-full flex-col" style={{ userSelect: "none" }}>
         {held !== null && (
           <div
             className="fixed left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black/85 px-5 py-2 text-[13px] text-white shadow-xl"
@@ -277,25 +307,27 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
           </div>
         )}
 
-        <Fit width={1420}>
-          <div className="otx-scope">
-            <Oscilloscope
-              envRef={envRef}
-              probes={probes}
-              heldProbe={held}
-              onTargetClick={onTargetClick}
-              onPickProbe={onPickProbe}
-              onHelp={onHelp}
-              initialSettings={initialSettings}
-              onSettings={onSettings}
-              onToggleAtten={onToggleAtten}
-              onProbeComp={onProbeComp}
-            />
-          </div>
-        </Fit>
-
-        {help && <HelpOverlay onClose={() => setHelp(false)} />}
+        <div className="flex min-h-0 flex-1 items-center justify-center p-1">
+          <Fit width={1420}>
+            <div className="otx-scope">
+              <Oscilloscope
+                envRef={envRef}
+                probes={probes}
+                heldProbe={held}
+                onTargetClick={onTargetClick}
+                onPickProbe={onPickProbe}
+                onHelp={onHelp}
+                initialSettings={initialSettings}
+                onSettings={onSettings}
+                onToggleAtten={onToggleAtten}
+                onProbeComp={onProbeComp}
+              />
+            </div>
+          </Fit>
+        </div>
       </div>
+
+      {help && <HelpOverlay onClose={() => setHelp(false)} />}
     </div>
   );
 }
