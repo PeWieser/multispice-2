@@ -78,10 +78,16 @@ export interface InstrumentWindow {
   config: Record<string, unknown>;
 }
 
-/** Runde 17 (W32c): eine herausgenommene Messleitung (BNC-Klick). */
-export interface ProbeArm {
+/** Runde 17 (W32c): eine herausgenommene Messleitung (BNC-Klick).
+ *  Runde 19 (W36): generisch für alle Geräte – das Oszi nimmt damit einen
+ *  Tastkopf auf (CH1–CH4), der FG-2500 ein Kabel (OUT1/OUT2). */
+export interface ArmedLead {
   instanceId: string;
   pinIndex: number;
+  /** Anzeigename des Anschlusses („CH3“, „OUT1“) – Banner + Log. */
+  name?: string;
+  /** Farbe des Anschlusses (Oszi-Kanalfarbe; FG = Buchsenfarbe). */
+  color?: string;
 }
 
 export interface LogEntry {
@@ -191,8 +197,8 @@ export interface EditorState {
   /** W32c: Messleitung an Leitung/Pin legen – ersetzt die Leitung des Kanals. */
   connectProbeWire: (instanceId: string, pinIndex: number, target: { x: number; y: number }) => void;
   /** W32c: Welcher Kanal hält gerade eine Messleitung in der Hand? */
-  probeArmed: ProbeArm | null;
-  setProbeArmed: (a: ProbeArm | null) => void;
+  leadArmed: ArmedLead | null;
+  setLeadArmed: (a: ArmedLead | null) => void;
   /** W32a/Sicherheitsnetz: Geräte-Konfiguration überlebt Schließen/Wiederöffnen. */
   configArchive: Record<string, Record<string, unknown>>;
   addMeasurementProbe: (kind: import("@/lib/schematic/model").ProbeKind, x: number, y: number) => string | null;
@@ -261,34 +267,53 @@ const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 /** Runde 17 (W32a): Rückholhilfe – zieht ein Fenster wieder in den sichtbaren
  *  Bereich, wenn es (fast) vollständig außerhalb liegt. Fenster-Koordinaten sind
  *  Layer-relativ (Canvas-Ebene ≈ Viewport minus Menü-/Werkzeugleisten). */
+/* Runde 19 (W33): Die Gerätefenster liegen jetzt in einer Ebene über der ganzen
+ * App (Portal) – Positionen sind damit Viewport-Koordinaten, nicht mehr relativ
+ * zum Canvas. */
 function recallPos(w: { x: number; y: number; w: number; h: number }): { x: number; y: number } {
-  const layerW = (typeof window !== "undefined" ? window.innerWidth : 1280) - 44;
-  const layerH = (typeof window !== "undefined" ? window.innerHeight : 800) - 150;
-  const visX = Math.min(w.x + w.w, layerW) - Math.max(w.x, 0);
-  const visY = Math.min(w.y + w.h, layerH) - Math.max(w.y, 0);
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
+  const grab = Math.min(220, Math.max(80, w.w));
+  const visX = Math.min(w.x + w.w, vw) - Math.max(w.x, 0);
+  const visY = Math.min(w.y + w.h, vh) - Math.max(w.y, 0);
   if (visX >= 120 && visY >= 80) return { x: w.x, y: w.y }; // noch griffig
   return {
-    x: Math.max(8, Math.min(w.x, layerW - 200)),
-    y: Math.max(8, Math.min(w.y, layerH - 120)),
+    x: Math.max(grab - w.w, Math.min(w.x, vw - grab)),
+    y: Math.max(0, Math.min(w.y, vh - 40)),
   };
 }
 
-/** W18: FG-2500 – Bühne 1160×545 + Chrome, viewport-geclampt. */
+/* Runde 19 (W35): Fenster-Chrome (2 px Rahmen + 8 px Fit-Rand bzw. Titelzeile
+ * 36 px) und die echten Gerätemaße. Die Adapter messen beim Öffnen per
+ * DeviceFit nach – diese Zahlen sind der Startwert, damit schon das erste Bild
+ * ohne Leerraum sitzt (Oszi-Chassis 1420 breit, Höhe aus dem Chassis-Aufbau). */
+const CHROME_W = 10;
+const CHROME_H = 46;
+const SCOPE_CHASSIS = { w: 1420, h: 688 };
+const FG_STAGE = { w: 1160, h: 545 };
+
+/** W18/R19: FG-2500 – Bühne 1160×545 + Chrome, viewport-geclampt. */
 function fgDefaultSize(): { w: number; h: number } {
-  const availW = (typeof window !== "undefined" ? window.innerWidth : 1600) - 40;
-  const availH = (typeof window !== "undefined" ? window.innerHeight : 1000) - 110;
-  return { w: Math.min(1190, Math.max(640, availW)), h: Math.min(593, Math.max(480, availH)) };
+  const vw = (typeof window !== "undefined" ? window.innerWidth : 1600) - 8;
+  const vh = (typeof window !== "undefined" ? window.innerHeight : 1000) - 8;
+  return {
+    w: Math.max(640, Math.min(FG_STAGE.w + CHROME_W, vw)),
+    h: Math.max(480, Math.min(FG_STAGE.h + CHROME_H, vh)),
+  };
 }
 
 const newId = (prefix: string) => `${prefix}_` + Math.random().toString(36).slice(2, 10);
 
-/** Runde 16 (W31a): Standard-Gerätefenster für das OTX2074 (1420 px Chassis +
- *  Luft), nie größer als der Viewport (Mindestmaß 640×480) – Fit skaliert das
- *  Gerät ohnehin komplett hinein. */
+/** Runde 16/19 (W31a/W35): Standard-Gerätefenster für das OTX2074 – exakt
+ *  Chassis (1420×688) + Chrome, nie größer als der Viewport (Mindestmaß
+ *  640×480); bei Platzmangel skaliert DeviceFit das Gerät herunter. */
 function scopeDefaultSize(): { w: number; h: number } {
-  const vw = typeof window !== "undefined" ? window.innerWidth : 1500;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 980;
-  return { w: Math.min(1500, Math.max(640, vw - 160)), h: Math.min(980, Math.max(480, vh - 180)) };
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
+  return {
+    w: Math.max(640, Math.min(SCOPE_CHASSIS.w + CHROME_W, vw - 8)),
+    h: Math.max(480, Math.min(SCOPE_CHASSIS.h + CHROME_H, vh - 8)),
+  };
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
@@ -410,10 +435,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       d.notes = d.notes.filter((n) => !sel.has(n.id));
       d.probes = d.probes.filter((pr) => !sel.has(pr.id));
     });
-    // W29: an gelöschte Instanzen gebundene Gerätefenster (Oszi) schließen.
+    // W29: an gelöschte Instanzen gebundene Gerätefenster (Oszi/FG) schließen.
     set((s) => ({
       selection: [],
       instruments: s.instruments.filter((w) => !(w.instanceId && sel.has(w.instanceId))),
+      // Runde 19: hängt eine Messleitung an der gelöschten Instanz, fällt sie mit weg.
+      leadArmed: s.leadArmed && sel.has(s.leadArmed.instanceId) ? null : s.leadArmed,
     }));
   },
 
@@ -610,6 +637,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   // folgt einer Z-Route: erst aus dem Symbol heraus, dann auf Höhe des Ziels.
   // Die Messung folgt automatisch – sie hängt an der Verdrahtung (nets[k]).
   connectProbeWire: (instanceId, pinIndex, target) => {
+    const leadName = get().leadArmed?.instanceId === instanceId && get().leadArmed?.pinIndex === pinIndex ? get().leadArmed?.name : undefined;
     get().commit((d) => {
       const inst = d.instances.find((i) => i.id === instanceId);
       if (!inst) return;
@@ -624,20 +652,42 @@ export const useEditor = create<EditorState>((set, get) => ({
           ? { x: dx || -1, y: 0 }
           : { x: 0, y: dy || 1 };
       const out = { x: pinPt.x + dir.x * 20, y: pinPt.y + dir.y * 20 };
+      // Runde 19 (W36): Die Leitung darf das Gerätesymbol nicht überqueren –
+      // wenn der direkte Weg durch das Symbol liefe, führt sie außen herum.
+      const box = instanceBounds(inst);
+      const crossesBody = (a: { x: number; y: number }, c: { x: number; y: number }) => {
+        const x1 = Math.min(a.x, c.x);
+        const x2 = Math.max(a.x, c.x);
+        const y1 = Math.min(a.y, c.y);
+        const y2 = Math.max(a.y, c.y);
+        return x2 > box.x && x1 < box.x + box.w && y2 > box.y && y1 < box.y + box.h;
+      };
       const mid = dir.x !== 0 ? { x: out.x, y: target.y } : { x: target.x, y: out.y };
+      const detour =
+        crossesBody(out, mid) || crossesBody(mid, target)
+          ? dir.x !== 0
+            ? [
+                { x: out.x, y: out.y <= box.y + box.h / 2 ? box.y - 20 : box.y + box.h + 20 },
+                { x: target.x, y: out.y <= box.y + box.h / 2 ? box.y - 20 : box.y + box.h + 20 },
+              ]
+            : [
+                { x: out.x <= box.x + box.w / 2 ? box.x - 20 : box.x + box.w + 20, y: out.y },
+                { x: out.x <= box.x + box.w / 2 ? box.x - 20 : box.x + box.w + 20, y: target.y },
+              ]
+          : [mid];
       const pts: Array<{ x: number; y: number }> = [];
-      for (const p of [pinPt, out, mid, target]) {
+      for (const p of [pinPt, out, ...detour, target]) {
         const last = pts[pts.length - 1];
         if (!last || Math.abs(last.x - p.x) > 0.5 || Math.abs(last.y - p.y) > 0.5) pts.push(p);
       }
       if (pts.length >= 2) d.wires.push({ id: newId("w"), points: pts });
     });
     if (get().sim.running) engine.rebuild(get().doc);
-    get().log("info", `Messleitung CH${pinIndex + 1} verbunden`);
+    get().log("info", `Messleitung ${leadName ?? `CH${pinIndex + 1}`} verbunden`);
   },
 
-  probeArmed: null,
-  setProbeArmed: (a) => set({ probeArmed: a }),
+  leadArmed: null,
+  setLeadArmed: (a) => set({ leadArmed: a }),
   configArchive: {},
 
   addMeasurementProbe: (kind, x, y) => {
@@ -797,7 +847,9 @@ export const useEditor = create<EditorState>((set, get) => ({
             h: defH,
             z: 10 + count,
             minimized: false,
-            config: s.configArchive["w_" + opts.instanceId] ?? {},
+            // Runde 19 (W35): Jedes Öffnen klebt wieder exakt am Gerät
+            // (deviceFit: 0 = noch anpassen; der Adapter setzt danach 1).
+            config: { ...(s.configArchive["w_" + opts.instanceId] ?? {}), deviceFit: 0 },
             instanceId: opts.instanceId,
           },
         ],
@@ -879,6 +931,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       const w = s.instruments.find((i) => i.id === id);
       return {
         instruments: s.instruments.filter((i) => i.id !== id),
+        // Runde 19: eine im Gerät aufgenommene Messleitung fällt mit dem Fenster weg.
+        leadArmed: w?.instanceId && s.leadArmed?.instanceId === w.instanceId ? null : s.leadArmed,
         // Runde 17: Konfiguration merken – Wiederöffnen bringt die Einstellungen
         // des Geräts zurück (Sicherheitsnetz, „kein Fenster geht verloren").
         configArchive: w ? { ...s.configArchive, [id]: w.config } : s.configArchive,

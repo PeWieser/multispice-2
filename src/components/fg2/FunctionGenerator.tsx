@@ -32,7 +32,24 @@ const seedOf = (a: Action): number =>
   : a.type === 'output' ? a.ch + 3
   : 1;
 
-export function FunctionGenerator({ core }: { core: GeneratorCore }) {
+/** Runde 19 (W36): die beiden Ausgangsbuchsen – Klick nimmt das Kabel auf,
+ *  danach legt ein Klick im Schaltplan die Messleitung (wie am Oszi). */
+export interface JackState {
+  held: 'out1' | 'out2' | null;
+  nets: { out1: string; out2: string };
+  onPick: (jack: 'out1' | 'out2') => void;
+}
+
+export function FunctionGenerator({
+  core,
+  jacks,
+  autoScale = true,
+}: {
+  core: GeneratorCore;
+  jacks?: JackState;
+  /** false = das Gerät wird von außen (DeviceFit) skaliert und bleibt 1:1. */
+  autoScale?: boolean;
+}) {
   const state = useSyncExternalStore(core.subscribe, core.getState);
   const wrapRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -52,14 +69,17 @@ export function FunctionGenerator({ core }: { core: GeneratorCore }) {
   }, [core]);
 
   // Panel skaliert nur herunter (1:1-Regel wie am Oszi), nie weich hoch.
+  // Runde 19 (W35): Im Gerätefenster übernimmt das DeviceFit (Breite UND Höhe);
+  // dann bleibt das Panel unverändert 1:1 und die Messung stimmt.
   useEffect(() => {
+    if (!autoScale) return;
     const el = wrapRef.current!;
     const fit = () => setScale(Math.min(1, el.clientWidth / STAGE_W));
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     fit();
     return () => ro.disconnect();
-  }, []);
+  }, [autoScale]);
 
   // Tastatur: Ziffern, Punkt, Minus, Backspace, Pfeile, Enter, F1–F5.
   // Capture-Phase + stopImmediatePropagation: die App-Shortcuts (Canvas) dürfen
@@ -199,8 +219,34 @@ export function FunctionGenerator({ core }: { core: GeneratorCore }) {
                 <div className="fg-label" style={{ left: 143, top: 62, fontSize: 12 }}>50 Ω</div>
                 <div style={{ position: 'absolute', left: 90, top: 60, width: 148, height: 40, borderTop: '1px solid #fff', borderLeft: '1px solid #fff', borderRight: '1px solid #fff', opacity: 0.0 }} />
                 <div className="fg-label" style={{ left: 134, top: 118, fontSize: 10 }}>▽ 42Vpk max</div>
-                <Bnc x={75} y={100} live={power && state.ch[0].output} title="OUT1 (CH1) – Verdrahtung im Schaltplan" jackId="out1" />
-                <Bnc x={251} y={100} live={power && state.ch[1].output} title="OUT2 (CH2) – Verdrahtung im Schaltplan" jackId="out2" />
+                {(['out1', 'out2'] as const).map((jack, i) => {
+                  const held = jacks?.held === jack;
+                  const net = jacks?.nets[jack] ?? '';
+                  const title = held
+                    ? `${jack.toUpperCase()}: Kabel in der Hand – Klick im Schaltplan auf eine Leitung oder einen Pin legt die Messleitung, Klick auf die Buchse steckt sie zurück`
+                    : net
+                      ? `${jack.toUpperCase()}: verbunden mit Netz „${net}“ – Klick nimmt das Kabel auf (Umstecken ersetzt die Leitung)`
+                      : `${jack.toUpperCase()}: offen – Klick nimmt das Kabel auf, danach im Schaltplan eine Leitung oder einen Pin anklicken`;
+                  return (
+                    <div key={jack}>
+                      <Bnc
+                        x={i === 0 ? 75 : 251}
+                        y={100}
+                        live={power && state.ch[i].output}
+                        title={title}
+                        jackId={jack}
+                        held={held}
+                        onClick={jacks ? () => jacks.onPick(jack) : undefined}
+                      />
+                      <div
+                        className="fg-label"
+                        style={{ left: i === 0 ? 22 : 198, top: 149, width: 106, textAlign: 'center', fontSize: 9, fontWeight: 600, opacity: held ? 1 : 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      >
+                        {held ? 'in der Hand' : net ? `→ ${net}` : 'offen'}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

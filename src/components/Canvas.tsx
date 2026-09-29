@@ -1086,11 +1086,11 @@ export default function Canvas() {
 
     // Runde 17 (W32c): Messleitung legen – Vorrang vor allen Werkzeugen.
     // Klick auf Leitung oder Bauteil-Pin verbindet den gehaltenen Kanal dorthin.
-    if (st.probeArmed && e.button === 0 && !spaceDown.current) {
+    if (st.leadArmed && e.button === 0 && !spaceDown.current) {
       const tgt = probeTarget(st.doc, world);
       if (tgt) {
-        st.connectProbeWire(st.probeArmed.instanceId, st.probeArmed.pinIndex, tgt);
-        st.setProbeArmed(null);
+        st.connectProbeWire(st.leadArmed.instanceId, st.leadArmed.pinIndex, tgt);
+        st.setLeadArmed(null);
         click("plug");
         return;
       }
@@ -1763,7 +1763,13 @@ export default function Canvas() {
   useEffect(() => { const t = setTimeout(() => useEditor.getState().fitView(), 120); return () => clearTimeout(t); }, []);
 
   const tool = useEditor((s) => s.tool);
-  const probeArmed = useEditor((s) => s.probeArmed);
+  const leadArmed = useEditor((s) => s.leadArmed);
+  // Runde 19 (W36): Quelle der aufgenommenen Messleitung markieren (Oszi-Pin
+  // CH1–CH4 bzw. FG-Pin OUT1/OUT2) – man sieht, wo das Kabel herkommt.
+  const armedInst = useEditor((s) =>
+    s.leadArmed ? (s.doc.instances.find((i) => i.id === s.leadArmed!.instanceId) ?? null) : null,
+  );
+  const armedPin = armedInst && leadArmed ? toScreen(pinPosition(armedInst, leadArmed.pinIndex)) : null;
   const [showHelp, setShowHelp] = useState(false);
 
   // Show help on ? key
@@ -1786,7 +1792,7 @@ export default function Canvas() {
         className="block h-full w-full touch-none"
         aria-label="Schaltplan Zeichenfläche"
         tabIndex={0}
-        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" || tool.startsWith("probe") || probeArmed ? "crosshair" : tool === "erase" ? "not-allowed" : "default" }}
+        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" || tool.startsWith("probe") || leadArmed ? "crosshair" : tool === "erase" ? "not-allowed" : "default" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -1973,6 +1979,29 @@ export default function Canvas() {
             </div>
             <div className="mt-4 text-[10px] text-mute">Tipp: Halte <kbd className="kbd">Alt</kbd> im Live-Modus für Spannungs-Tooltip, ziehe Oszilloskop-Fenster mit rAF für 60fps, Library drag ist will-change transform.</div>
           </div>
+        </div>
+      )}
+      {armedPin && leadArmed && (
+        <div
+          className="pointer-events-none absolute z-10 animate-pulse"
+          style={{ left: armedPin.x, top: armedPin.y }}
+          aria-hidden
+        >
+          <div
+            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{
+              width: 22,
+              height: 22,
+              border: `2px solid ${leadArmed.color ?? "var(--accent)"}`,
+              boxShadow: `0 0 0 4px color-mix(in srgb, ${leadArmed.color ?? "var(--accent)"} 30%, transparent)`,
+            }}
+          />
+          <span
+            className="absolute left-0 top-3 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 py-[1px] text-[9.5px] font-bold"
+            style={{ background: leadArmed.color ?? "var(--accent)", color: "#101010" }}
+          >
+            {leadArmed.name ?? "Messleitung"}
+          </span>
         </div>
       )}
       <div className="absolute bottom-3 right-3 flex flex-col gap-1.5">

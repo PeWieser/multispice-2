@@ -5,6 +5,7 @@ import {
   Activity, BarChart3, Binary, Gauge, LineChart, Minus, PanelBottom, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
 import dynamic from "next/dynamic";
+import { createPortal } from "react-dom";
 import { formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
 import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
@@ -12,6 +13,9 @@ import { InstrumentKind, InstrumentWindow, engine, useEditor } from "@/state/edi
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
+
+/** Höhe der Statusleiste (Desktop) – das Geräte-Dock sitzt darüber (Runde 19). */
+const STATUS_BAR_H = 26;
 
 /* W24: SkeuoTek-Oszi (1:1-Port aus oszi/) – eigenes Chunk, kein SSR */
 const OsziScopeLazy = dynamic(() => import("./OsziScope"), { ssr: false });
@@ -959,9 +963,34 @@ function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
 /* ------------------------------------------------------------------ */
 /* window chrome + dock                                                */
 /* ------------------------------------------------------------------ */
+const TITLE_H = 36;
+/** Runde 19 (W34): Sicherheitsnetz statt freiem Verlieren – Titelzeile und eine
+ *  Greifbreite bleiben immer im Bild (Nutzer-Entscheidung R19). */
+function clampWindowPos(x: number, y: number, w: number): { x: number; y: number } {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
+  const grab = Math.min(220, Math.max(80, w));
+  return {
+    x: Math.min(Math.max(x, grab - w), Math.max(0, vw - grab)),
+    y: Math.min(Math.max(y, 0), Math.max(0, vh - TITLE_H - 4)),
+  };
+}
+
+/** Flächen, an denen ein Zug das Fenster verschiebt (Rahmen/Hintergrund) –
+ *  Bedienelemente und das Gerät selbst bleiben unangetastet. */
+function isDragSurface(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.closest !== "function") return false;
+  return !el.closest("[data-no-drag],button,input,select,textarea,a,canvas,svg,[role='button']");
+}
+
+/** Runde 19 (W34): Der laufende Fenster-Zug lebt modulweit – ein Zug an einem
+ *  gedockten Fenster löst es (Container-Wechsel = React-Mount) und muss danach
+ *  weiter am Zeiger kleben. */
+let activeDrag: { id: string; x: number; y: number; wx: number; wy: number } | null = null;
+
 function Window({ win }: { win: InstrumentWindow }) {
   const { updateInstrument, closeInstrument, focusInstrument } = useEditor();
-  const drag = useRef<{ x: number; y: number; wx: number; wy: number } | null>(null);
   const resize = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const resizePending = useRef<{ w: number; h: number } | null>(null);
   const winRef = useRef<HTMLDivElement>(null);
@@ -981,28 +1010,31 @@ function Window({ win }: { win: InstrumentWindow }) {
     let raf = 0;
     let pendingPos: { x: number; y: number } | null = null;
     let pendingSize: { w: number; h: number } | null = null;
+    const live = () => useEditor.getState().instruments.find((i) => i.id === win.id);
     const apply = () => {
       raf = 0;
-      if (winRef.current) {
-        if (pendingPos && drag.current) {
-          // Transform = GPU, kein Layout-Recalc; die Basis (win.x/win.y) bleibt
-          // unangetastet, damit Store-Updates während des Ziehens nichts springen.
-          winRef.current.style.transform = `translate3d(${pendingPos.x - drag.current.wx}px, ${pendingPos.y - drag.current.wy}px, 0)`;
-        }
-        if (pendingSize) {
-          winRef.current.style.width = pendingSize.w + "px";
-          winRef.current.style.height = pendingSize.h + "px";
-        }
+      const el = winRef.current;
+      if (!el) return;
+      if (pendingPos && activeDrag) {
+        // Transform = GPU, kein Layout-Recalc; die Basis (win.x/win.y) bleibt
+        // unangetastet, damit Store-Updates während des Ziehens nichts springen.
+        el.style.transform = `translate3d(${pendingPos.x - activeDrag.wx}px, ${pendingPos.y - activeDrag.wy}px, 0)`;
+      }
+      if (pendingSize) {
+        el.style.width = pendingSize.w + "px";
+        el.style.height = pendingSize.h + "px";
       }
     };
     const move = (e: PointerEvent) => {
-      if (drag.current) {
-        // W32a: kein Clamp – Fenster dürfen über die Leisten und aus dem Screen
-        // gezogen werden; die Rückholhilfe (openInstrument) holt sie zurück.
-        pendingPos = {
-          x: drag.current.wx + e.clientX - drag.current.x,
-          y: drag.current.wy + e.clientY - drag.current.y,
-        };
+      if (activeDrag && activeDrag.id === win.id) {
+        // W34: kontinuierlich klemmen – das Fenster kann nicht mehr aus dem
+        // Bild rutschen (Rückholhilfe bleibt als zweites Netz bestehen).
+        const w = live()?.w ?? 0;
+        pendingPos = clampWindowPos(
+          activeDrag.wx + e.clientX - activeDrag.x,
+          activeDrag.wy + e.clientY - activeDrag.y,
+          w,
+        );
         if (!raf) raf = requestAnimationFrame(apply);
       }
       if (resize.current) {
@@ -1015,24 +1047,23 @@ function Window({ win }: { win: InstrumentWindow }) {
       }
     };
     const up = () => {
-      if (drag.current && pendingPos && winRef.current) {
-        // Endposition direkt setzen + Transform leeren, DANN committen – so ist
-        // die Darstellung auch bei synchronem React-Flush konsistent.
-        winRef.current.style.left = pendingPos.x + "px";
-        winRef.current.style.top = pendingPos.y + "px";
-        winRef.current.style.transform = "";
-        // Magnetischer unterer Rand: Titelzeile nah am Boden loslassen = andocken.
-        const parent = winRef.current.parentElement?.getBoundingClientRect();
-        if (parent && pendingPos.y > parent.height - 56) {
-          updateInstrument(win.id, { docked: true });
-        } else {
+      const el = winRef.current;
+      // Nur das Fenster, das gerade gezogen wird, committet und räumt auf –
+      // die Listener aller Fenster hängen am selben Pointer-Event.
+      if (activeDrag?.id === win.id) {
+        if (pendingPos && el) {
+          // Endposition direkt setzen + Transform leeren, DANN committen – so ist
+          // die Darstellung auch bei synchronem React-Flush konsistent.
+          el.style.left = pendingPos.x + "px";
+          el.style.top = pendingPos.y + "px";
+          el.style.transform = "";
           updateInstrument(win.id, { x: pendingPos.x, y: pendingPos.y });
         }
+        activeDrag = null;
       }
       if (resize.current && pendingSize) {
         updateInstrument(win.id, pendingSize);
       }
-      drag.current = null;
       resize.current = null;
       resizePending.current = null;
       pendingPos = null;
@@ -1048,6 +1079,20 @@ function Window({ win }: { win: InstrumentWindow }) {
       if (raf) cancelAnimationFrame(raf);
     };
   }, [updateInstrument, win.id]);
+
+  /** W34: Zug starten – aus dem Titel, aus dem leeren Hintergrund oder aus dem Dock. */
+  const beginDrag = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    if (win.docked) {
+      // Ein Zug an der Titelzeile löst das Fenster und zieht es gleich weiter.
+      const r = winRef.current?.getBoundingClientRect();
+      if (!r) return;
+      activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: r.left, wy: r.top };
+      updateInstrument(win.id, { docked: false, x: r.left, y: r.top });
+      return;
+    }
+    activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
+  };
 
   const body = () => {
     switch (win.kind) {
@@ -1102,11 +1147,8 @@ function Window({ win }: { win: InstrumentWindow }) {
       <div
         className={`flex h-9 shrink-0 items-center gap-2 px-3 ${win.docked ? "" : "cursor-grab"}`}
         style={{ borderBottom: "1px solid var(--border)" }}
-        title={win.docked ? "Im Dock – mit dem Dock-Knopf wieder lösen" : "Ziehen bewegt das Fenster – am unteren Rand loslassen dockt es ein"}
-        onPointerDown={(e) => {
-          if (win.docked) return;
-          drag.current = { x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
-        }}
+        title={win.docked ? "Im Dock – Ziehen löst das Fenster, der Dock-Knopf unten rechts hält es hier" : "Ziehen (auch am Fensterhintergrund) bewegt das Fenster – es bleibt immer greifbar"}
+        onPointerDown={(e) => beginDrag(e)}
       >
         <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
           {iconFor(win.kind)}
@@ -1115,18 +1157,40 @@ function Window({ win }: { win: InstrumentWindow }) {
         <button
           className="btn px-1 py-0.5"
           title={win.docked ? "Aus dem Dock lösen – wird wieder freies Fenster" : "Ins Dock unten einrasten – Geräte teilen sich den unteren Rand"}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={() => updateInstrument(win.id, { docked: !win.docked })}
         >
           <PanelBottom size={13} />
         </button>
-        <button className="btn px-1 py-0.5" title="Minimieren" onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}>
+        <button
+          className="btn px-1 py-0.5"
+          title="Minimieren"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}
+        >
           <Minus size={13} />
         </button>
-        <button className="btn px-1 py-0.5" title="Schließen" onClick={() => closeInstrument(win.id)}>
+        <button
+          className="btn px-1 py-0.5"
+          title="Schließen"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => closeInstrument(win.id)}
+        >
           <X size={13} />
         </button>
       </div>
-      {!win.minimized && <div className="min-h-0 flex-1">{body()}</div>}
+      {!win.minimized && (
+        <div
+          className="min-h-0 flex-1"
+          onPointerDown={(e) => {
+            // W34: „überall greifbar" – leere Flächen bewegen das Fenster,
+            // Gerät und Bedienelemente behalten ihre eigene Bedienung.
+            if (isDragSurface(e.target)) beginDrag(e);
+          }}
+        >
+          {body()}
+        </div>
+      )}
       {!win.minimized && !win.docked && (
         <div
           className="absolute bottom-0 right-0 h-3.5 w-3.5 cursor-nwse-resize"
@@ -1252,12 +1316,31 @@ export function DeviceBar() {
   );
 }
 
+/** Runde 19 (W33/W34): Die Gerätefenster liegen in einer eigenen Ebene über der
+ *  ganzen App (Portal auf <body>) – sie dürfen Menüband und Leisten überdecken
+ *  und werden nicht mehr am Canvas abgeschnitten. Menü-Dropdowns, Dialoge und
+ *  Toasts (z-50/z-100) bleiben darüber. */
 export function InstrumentLayer() {
   const instruments = useEditor((s) => s.instruments);
   const floating = instruments.filter((w) => !w.docked);
   const docked = instruments.filter((w) => w.docked);
-  return (
-    <div className="pointer-events-none absolute inset-0 z-30 flex flex-col">
+
+  // Runde 19 (W36): Escape legt eine aufgenommene Messleitung zurück – an einer
+  // Stelle für alle Geräte (Oszi-Tastkopf wie FG-Kabel).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const st = useEditor.getState();
+      if (st.leadArmed) st.setLeadArmed(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="pointer-events-none fixed inset-0 z-40 flex flex-col">
       <div className="relative min-h-0 flex-1">
         {floating.map((w) => (
           <Window key={w.id} win={w} />
@@ -1265,15 +1348,23 @@ export function InstrumentLayer() {
       </div>
       {docked.length > 0 && (
         <div
-          className="pointer-events-auto flex h-[38%] max-h-[360px] min-h-[140px] shrink-0 items-stretch gap-1 p-1"
-          style={{ background: "color-mix(in srgb, var(--bg) 82%, transparent)", borderTop: "1px solid var(--border-strong)", backdropFilter: "blur(10px)" }}
-          title="Geräte-Dock – Fenster teilen sich den unteren Rand; Dock-Knopf im Titel löst sie wieder"
+          className="pointer-events-auto absolute inset-x-0 flex items-stretch gap-1 p-1"
+          style={{
+            bottom: STATUS_BAR_H,
+            height: "min(38vh, 360px)",
+            minHeight: 140,
+            background: "color-mix(in srgb, var(--bg) 82%, transparent)",
+            borderTop: "1px solid var(--border-strong)",
+            backdropFilter: "blur(10px)",
+          }}
+          title="Geräte-Dock – Fenster teilen sich den unteren Rand; Ziehen an der Titelzeile löst sie wieder"
         >
           {docked.map((w) => (
             <Window key={w.id} win={w} />
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

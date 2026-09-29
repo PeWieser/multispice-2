@@ -1155,3 +1155,134 @@ Drag ist zäh und bleibt außerhalb des Screens hängen → mitfixieren.
 - **Lint-RC-Regeln:** keine `eslint-disable`; Demo-Copys wurden für refs-during-render/set-state-in-effect auf `bootTick`/`msgHidden`-State umgebaut.
 
 **Verifikationsnotiz:** Der E2E-Scratch förderte einen Geometrie-Fallstrich zutage (schmale Bauteil-Pins liegen auf Leitungssegmenten — der SYNC-Pin berührte eine Diagonalleitung des RC-Tests); für die App irrelevant, da dort pin-genau verdrahtet wird.
+
+---
+
+## §19 — Runde 19: Fenstermanager & Geräte-Integration (Oszi + FG-2500)
+
+**User-Auftrag (wörtlich):** „prüfe bitte einmal den Fenstermanager (verschieben ist
+scheiße und fenster sind unter menüband von der hierarchie, was auch scheiße ist.
+Ausserdem ist die oszi und funktionsgenerator integrations scheiße. also z.b. ist beim
+oszi das fenster nicht an das oszi angepasst, genauso wie beim generator. ausserdem
+funktioniert das mit dem anschließen vom funktionsgenerator nicht. Das soll so sein,
+wie beim oszi, wo ich im oszi einen ch auswähle und dann im schaltplan eine leitung
+oder pin."
+
+**Befund (Code, vor der Umsetzung):**
+1. **Hierarchie:** `InstrumentLayer` hing im Canvas-Container
+   (`relative min-h-0 flex-1 overflow-hidden`, Workbench) → Fenster wurden an den
+   Leisten abgeschnitten; ein Zug über das Menüband war unmöglich (W32a-Zusage
+   „frei über Leisten ziehen" damit nicht eingehalten).
+2. **Verschieben:** Magnet-Dock (Loslassen in den unteren ~56 px des Canvas = Docken),
+   Drag nur an der 36-px-Titelzeile, Titel-Knöpfe starteten den Drag mit, Fenster
+   konnte komplett aus dem Bild rutschen (Recall nur über Symbol-Doppelklick).
+3. **Fenstergröße:** Oszi-Fenster startete mit 1500×980, das Chassis ist aber
+   1420×688 (20/24/26-padding, Screen 800×480, Bezel 508, BNC-Zeile 110) → ~290 px
+   toter Bench-Rand; FG-Fenster 1190×593 bei Bühne 1160×545, Panel skalierte nur
+   über die Breite (Höhe nie) → bei flachen Fenstern Scrollbalken/Überstand.
+4. **FG-Anschluss:** `fg2/Bnc.tsx` zeichnet die Buchsen OUT1/OUT2 (`data-jack`), es
+   gab aber **keinen** Klick-Pfad in den Editor; Anschluss nur per manuellem
+   Verdrahten am Symbol. Elektrisch ist der FG in Ordnung (Scratch-Test: OUT1→1 kΩ→GND
+   gegen COM, 1 kHz, Vpp 1,905 V = Theorie) — es fehlte die Bedienung.
+
+**Ask-User-Antworten (bindend, Runde 19):**
+1. **Verschieben:** alles — ruckelfrei, Titelzeile bleibt immer greifbar, Magnet-Dock
+   weg, Fenster auch am Rahmen/Hintergrund ziehbar.
+2. **Hierarchie:** Fenster-Layer über der ganzen App (über Menüband/Leisten);
+   Menü-Dropdowns, Dialoge, Toasts bleiben darüber.
+3. **Fenstergröße:** Fenster = Gerät + Chrome (kein Leerraum); bei Platzmangel wird
+   das Gerät maßstäblich heruntergerechnet (nie hochskaliert).
+4. **FG-Anschluss:** wie Oszi — Klick auf die BNC-Buchse OUT1/OUT2, dann im Schaltplan
+   Leitung/Pin anklicken; Messleitung wird von OUT1/OUT2 hingelegt (ersetzt die alte),
+   Zielnetz steht danach an der Buchse. COM/SYNC bleiben manuell verdrahtet.
+
+**W33 — Fenster-Layer (Portal):** `InstrumentLayer` rendert per `createPortal` auf
+`document.body` (position: fixed, inset 0, z-index 40, pointer-events: none; Fenster
+wieder auto). Menü-Dropdowns/Dialoge (z-50) und Toasts (z-100) bleiben darüber.
+Dock-Zeile über der Statusleiste (bottom 26 px) statt im Canvas.
+
+**W34 — Fenster-Zug:** Drag an Titelzeile **und** an leeren Flächen des Fenster-
+Hintergrunds (Ziel-Check: Event-Target ist der Hintergrund, nicht das Gerät);
+Titel-Knöpfe stoppen den Drag-Start. Kein Magnet-Dock mehr (nur Dock-Knopf); nach dem
+Loslassen wird geklemmt, dass Titelzeile + ≥140 px Breite sichtbar bleiben (Rückholhilfe
+`recallPos` zieht analog auf die neue Layer-Geometrie). Ruckelfrei bleibt der
+Transform-Ansatz aus W32a; Ziehen an einem gedockten Fenster löst es und zieht es.
+
+**W35 — Fenster am Gerät:** gemeinsames `DeviceFit` (aus OsziScope-Fit extrahiert,
+contain, scale ≤ 1) misst Gerät und Platz; die Adapter setzen beim (ersten) Öffnen die
+Fenstergröße exakt auf Gerät + Chrome (`w = Gerät + 8 + Fenster-Rahmen`,
+`h = Gerät + 8 + Titelzeile+Rahmen`), geklemmt auf den Viewport. Oszi: Chassis
+1420×688 → Fenster 1430×734 (statt 1500×980); FG: Bühne 1160×545 → Fenster 1170×591;
+Panel skaliert jetzt auch über die Höhe (kein Scrollbalken). Nutzer-Resizes bleiben
+(Flag `deviceFit` in der Fenster-Config).
+
+**W36 — FG-Anschluss per Klick (wie Oszi):** `probeArmed` → generisches `leadArmed`
+(`{instanceId, pinIndex, name?, color?}`, Oszi nutzt es unverändert); `connectProbeWire`
+loggt den Gerätenamen; `FgScope` liest die Pin-Netze (`instId:0/1` = OUT1/OUT2),
+Buchsen-Klick nimmt das Kabel auf (Banner `LeadBanner` wie am Oszi, Escape/„Zurück-
+stecken" bricht ab), Canvas-Klick auf Leitung/Pin legt die Leitung, Zielnetz erscheint
+an der Buchse („offen"/Netzname), Quelle-Pin wird auf dem Symbol markiert. Fenster
+schließen/Bauteil löschen räumt `leadArmed` ab.
+
+**Verifikation (Pflicht):** `./node_modules/.bin/tsc --noEmit` · `npx --no-install
+eslint src` · `npm test` · `npx --no-install next build` + Dev-Server-Sichtprüfung +
+Scratch-E2E für den Anschluss-Pfad (Store-Aktion → Leitung → Engine).
+
+### §19.1 — Umsetzungsstand Runde 19 (2026-09-29) ✅
+
+**W33 Fenster-Layer.** `InstrumentLayer` rendert per `createPortal(document.body)` in
+eine `fixed inset-0`-Ebene (z-40, `pointer-events: none`, Fenster wieder `auto`), sodass
+Gerätefenster nicht mehr im Canvas geclippt werden und Menüband/Leisten überdecken
+dürfen; Menü-Dropdowns/Dialoge (z-50) und Toasts (z-100) liegen weiterhin darüber.
+Die gedockten Fenster sitzen in einer Dock-Zeile über der Statusleiste
+(`bottom: STATUS_BAR_H = 26px`) statt im Canvas. `Workbench.tsx` blieb unverändert
+(Mountpunkt bleibt, nur ein Layout-Zweig rendert gleichzeitig → kein Doppel-Dock).
+
+**W34 Fenster-Zug.** Drag an Titelzeile und an leeren Hintergrundflächen
+(`isDragSurface` verschont Gerät/Bedienelemente via `data-no-drag`, Button, Input,
+Canvas, SVG). Ruckelfrei per `transform` + `requestAnimationFrame` (W32a-Ansatz), beim
+Loslassen wird die Endposition direkt ins DOM geschrieben und dann committet. Der
+Dock-Magnet am unteren Rand ist entfernt; `clampWindowPos` hält Titelzeile + Greifbreite
+im Bild. `recallPos` rechnet jetzt mit Viewport-Koordinaten der neuen Ebene. Der
+laufende Zug liegt in `activeDrag` (modulweit), damit ein Zug an einem **gedockten**
+Fenster auch nach dem Container-Wechsel weiter am Zeiger klebt.
+
+**W35 Fenster am Gerät.** Gemeinsames `DeviceFit` (contain, `scale ≤ 1`) misst Gerät und
+Platz; `useDeviceWindowFit` setzt beim ersten Öffnen die Fenstergröße auf
+`Gerät + FIT_MARGIN(8) + Fenster-Chrome`, geklemmt auf den Viewport
+(`SCOPE_CHASSIS 1420×688 + CHROME 10/46 = 10 px Breite, 46 px Titel+Rahmen`;
+`FG_STAGE 1160×545` analog). Jedes Öffnen erzwingt `config.deviceFit = 0`, danach bleiben
+Nutzer-Resizes unangetastet. Damit sitzt kein Leerraum mehr im Fenster und bei knappem
+Bildschirm wird nur noch heruntergerechnet.
+
+**W36 FG-Anschluss wie am Oszi.** `probeArmed` wurde generisch zu `leadArmed`
+(`{instanceId, pinIndex, name?, color?}`) – das Oszi nutzt es unverändert. Die
+FG-Buchsen OUT1/OUT2 (`JACK_PIN 0/1`) nehmen per Klick das Kabel auf (`held`-Ring,
+`LeadBanner` mit Farbe/Hinweis/„Zurückstecken", Escape legt zurück), der Canvas-Klick
+auf Leitung/Pin legt die Messleitung (ersetzt eine alte am selben Signalpin) und die
+Buchse zeigt danach das Zielnetz. Der aufgenommene Quell-Pin wird im Schaltplan mit
+pulsierendem Ring + Namenslabel markiert; die Statusleiste weist auf den nächsten Klick
+hin (mobil in Kurzform). Verbindungsleitungen weichen dem Gerätesymbol aus
+(`crossesBody` → Umwegpunkte über `instanceBounds`). Fenster schließen oder Bauteil
+löschen räumt `leadArmed` ab. COM/SYNC bleiben manuell verdrahtet.
+
+**Verifikation (Runde 19, alles grün):**
+- `./node_modules/.bin/tsc --noEmit` — clean
+- `npx --no-install eslint src` — clean (kein `eslint-disable`-Workaround)
+- `npm test` — alle PASS (divider/diode/RC/BJT/opamp/MOSFET/555 + Pin-Kongruenz
+  410 Teile / 2098 Pins)
+- `npx --no-install next build` — ✓ (7/7 statisch prärendert, FG-Kern unverändert 1:1)
+- Scratch-E2E (`tsx`, danach gelöscht): OUT1 → R1.1 ergibt Netz N001; Umstecken auf COM
+  ersetzt die Leitung (genau 1 Leitung, 0 Fehler); Routenpunkte weichen dem Symbol aus
+  (`[{160,180},{140,180},{140,150},{370,150},{370,200}]`); unverbundene Pins heißen
+  `XFG1_nc<i>` → Buchse bleibt „offen“.
+- DOM-Smoke (jsdom, danach gelöscht): Fenster liegt per Portal außerhalb des Canvas in
+  der z-40-Ebene; Buchsenklick armiert `leadArmed{instanceId:"XFG1",pinIndex:0,name:"OUT1"}`,
+  Banner sichtbar, zweiter Klick + Escape legen zurück; Zug über den Bildrand wird auf
+  `980,760` geklemmt (800×… sichtbar), Zug aus dem Dock löst das Fenster und zieht es mit
+  (+40 px Delta), Leitung liegt danach im Netz N001 am Symbolpin.
+
+**Offene Sichtprüfung:** echte Browsersichtbarkeit (Fenster sitzt exakt am Gerät,
+Dock-Zeile klickbar über der Statusleiste, Banner/Ring-Optik) ist hier nur im
+Dev-Server-Live-Vorschau möglich – Headless-Browser ist in dieser Umgebung nicht
+installierbar (Chromium ohne libnss3/libnspr4, Paketquellen gesperrt).
