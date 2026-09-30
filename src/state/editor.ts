@@ -283,12 +283,12 @@ function recallPos(w: { x: number; y: number; w: number; h: number }): { x: numb
   };
 }
 
-/* Runde 19 (W35): Fenster-Chrome (2 px Rahmen + 8 px Fit-Rand bzw. Titelzeile
- * 36 px) und die echten Gerätemaße. Die Adapter messen beim Öffnen per
- * DeviceFit nach – diese Zahlen sind der Startwert, damit schon das erste Bild
- * ohne Leerraum sitzt (Oszi-Chassis 1420 breit, Höhe aus dem Chassis-Aufbau). */
-const CHROME_W = 10;
-const CHROME_H = 46;
+/* Runde 20 (W38): Fenster-Chrome = 2 px Rahmen (1 px je Seite) + 36 px
+ * Titelzeile. Nur noch der Startwert fürs erste Bild – danach misst
+ * `useWindowFit` das echte Chrome und setzt die Größe exakt auf Gerät + Chrome
+ * (kein Leerraum, kein brauner Rand). */
+const CHROME_W = 2;
+const CHROME_H = 38;
 const SCOPE_CHASSIS = { w: 1420, h: 688 };
 const FG_STAGE = { w: 1160, h: 545 };
 
@@ -301,6 +301,39 @@ function fgDefaultSize(): { w: number; h: number } {
     h: Math.max(480, Math.min(FG_STAGE.h + CHROME_H, vh)),
   };
 }
+
+/** Runde 20 (W39): Grenzen des Fenster-Griffs. Geräte dürfen maßstäblich bis
+ *  640×480 herunter (darunter ist nichts mehr bedienbar); Panels bis 320×220. */
+const DEVICE_MIN = { w: 640, h: 480 };
+const PANEL_MIN = { w: 320, h: 220 };
+
+/** Runde 20 (W40): Ein Fenstermanager für alle Instrumente. Je Art stehen hier
+ *  die Entwurfsbreite (Panel-Layout) und die Mindesthöhe bzw. das natürliche
+ *  Maß der Geräte-Fenster – der Fenster-Fit misst beim Öffnen nach und setzt
+ *  die Größe exakt (`useWindowFit`, `DeviceFit`/`PanelProbe`). */
+export interface WindowSpec {
+  /** Entwurfsbreite des Inhalts (Layout-Bezug für die Messung). */
+  w: number;
+  /** Natürliche Höhe (Geräte) bzw. Höhen-Untergrenze (Panels). */
+  h: number;
+}
+
+export const WINDOW_SPECS: Record<InstrumentKind, WindowSpec> = {
+  scope: SCOPE_CHASSIS,
+  funcgen: FG_STAGE,
+  bode: { w: 560, h: 320 },
+  logic: { w: 600, h: 300 },
+  logicconv: { w: 460, h: 420 },
+  iv: { w: 560, h: 320 },
+  spectrum: { w: 560, h: 300 },
+  dmm: { w: 320, h: 280 },
+  watt: { w: 360, h: 300 },
+  pattern: { w: 400, h: 260 },
+  distortion: { w: 360, h: 250 },
+  network: { w: 560, h: 300 },
+  counter: { w: 300, h: 250 },
+  inspector: { w: 320, h: 480 },
+};
 
 const newId = (prefix: string) => `${prefix}_` + Math.random().toString(36).slice(2, 10);
 
@@ -847,9 +880,16 @@ export const useEditor = create<EditorState>((set, get) => ({
             h: defH,
             z: 10 + count,
             minimized: false,
-            // Runde 19 (W35): Jedes Öffnen klebt wieder exakt am Gerät
+            // Runde 19/20 (W35/W38): Jedes Öffnen klebt wieder exakt am Gerät
             // (deviceFit: 0 = noch anpassen; der Adapter setzt danach 1).
-            config: { ...(s.configArchive["w_" + opts.instanceId] ?? {}), deviceFit: 0 },
+            // W39: Skalieren bis 640×480 herunter (Gerät wird maßstäblich
+            // kleiner, nie kleiner als bedienbar); Obergrenze bleibt das Bild.
+            config: {
+              ...(s.configArchive["w_" + opts.instanceId] ?? {}),
+              deviceFit: 0,
+              minW: DEVICE_MIN.w,
+              minH: DEVICE_MIN.h,
+            },
             instanceId: opts.instanceId,
           },
         ],
@@ -883,25 +923,15 @@ export const useEditor = create<EditorState>((set, get) => ({
       }));
       return;
     }
-    const sizes: Partial<Record<InstrumentKind, { w: number; h: number }>> = {
-      scope: { w: 1500, h: 980 }, // W30: OTX2074-Chassis (1420 px breit) braucht Platz
-      bode: { w: 600, h: 430 },
-      logic: { w: 640, h: 420 },
-      logicconv: { w: 480, h: 500 },
-      iv: { w: 580, h: 420 },
-      spectrum: { w: 600, h: 400 },
-      dmm: { w: 330, h: 300 },
-      funcgen: { w: 360, h: 430 },
-      watt: { w: 360, h: 300 },
-      pattern: { w: 420, h: 340 },
-      distortion: { w: 360, h: 260 },
-      network: { w: 600, h: 400 },
-      counter: { w: 300, h: 250 },
-      inspector: { w: 320, h: 480 },
-    };
-    const size = sizes[kind] ?? { w: 420, h: 340 };
+    // Runde 20 (W40): Alle Fenster laufen durch denselben Manager. Startgröße
+    // kommt aus WINDOW_SPECS (Entwurfsbreite, Untergrenze der Höhe); der
+    // Fenster-Fit misst direkt nach dem ersten Bild den echten Inhalt und setzt
+    // die Größe exakt (config.deviceFit = 0 erzwingt die Messung).
+    const spec = WINDOW_SPECS[kind];
     const count = get().instruments.length;
     const id = "w_" + Math.random().toString(36).slice(2, 8);
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
     set((s) => ({
       instruments: [
         ...s.instruments,
@@ -911,10 +941,13 @@ export const useEditor = create<EditorState>((set, get) => ({
           title: titles[kind],
           x: 180 + count * 34,
           y: 110 + count * 28,
-          ...size,
+          w: Math.max(320, Math.min(spec.w + CHROME_W, vw - 8)),
+          h: Math.max(220, Math.min(spec.h + CHROME_H, vh - 8)),
           z: 10 + count,
           minimized: false,
-          config: s.configArchive[id] ?? {},
+          // Panels: Mindestmaß 320×220 (Layout bricht sonst um); die
+          // Inhaltsmessung setzt die Startgröße darüber.
+          config: { ...(s.configArchive[id] ?? {}), deviceFit: 0, minW: PANEL_MIN.w, minH: PANEL_MIN.h },
         },
       ],
     }));

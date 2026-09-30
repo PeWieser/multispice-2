@@ -5,7 +5,7 @@ import { GeneratorCore, type StorageLike } from "@/lib/fg/core";
 import type { GenState } from "@/lib/fg/types";
 import { useEditor, type InstrumentWindow } from "@/state/editor";
 import { click } from "./oszi2/sound";
-import { DeviceFit, useDeviceWindowFit } from "./DeviceFit";
+import { DeviceFit, useReportNatural } from "./DeviceFit";
 import { LeadBanner } from "./LeadBanner";
 import FunctionGenerator, { type JackState } from "./fg2/FunctionGenerator";
 
@@ -18,6 +18,9 @@ import FunctionGenerator, { type JackState } from "./fg2/FunctionGenerator";
  * - Runde 19 (W35/W36): Fenster misst sich über DeviceFit exakt am Gerät, und die
  *   Ausgangsbuchsen OUT1/OUT2 nehmen per Klick eine Messleitung auf – genau wie
  *   die Kanäle am Oszi (Kabel in der Hand → Klick auf Leitung/Pin im Schaltplan). */
+
+/** Runde 20 (W38): Bühnenmaße des FG-2500 als Startwert für den Fenster-Fit. */
+const FG_STAGE_SIZE = { w: 1160, h: 545 };
 
 /** Pin-Indizes des FG-Symbols: OUT1, OUT2, COM, SYNC (catalog.ts). */
 const JACK_PIN: Record<"out1" | "out2", number> = { out1: 0, out2: 1 };
@@ -55,8 +58,8 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
     return c;
   });
 
-  // ---- Runde 19 (W35): Fenster klebt beim Öffnen exakt am Gerät ----
-  const { bodyRef, onMeasure } = useDeviceWindowFit(win);
+  // ---- Runde 19/20 (W35/W38/W40): Fenster klebt beim Öffnen exakt am Gerät ----
+  const reportNatural = useReportNatural();
 
   // ---- Runde 19 (W36): Messleitung an OUT1/OUT2 (wie Oszi CH1–CH4) ----
   const instId = win.instanceId;
@@ -127,14 +130,7 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
   }, [core, win.instanceId]);
 
   return (
-    <div
-      ref={bodyRef}
-      className="h-full w-full"
-      style={{
-        background: "linear-gradient(180deg, #3a3f46 0%, #24282d 60%, #181b1f 100%)",
-        overflow: "hidden",
-      }}
-    >
+    <div className="relative flex h-full w-full flex-col overflow-hidden">
       {heldJack && (
         <LeadBanner
           color={JACK_COLOR[heldJack]}
@@ -143,11 +139,13 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
           onCancel={() => useEditor.getState().setLeadArmed(null)}
         />
       )}
-      <DeviceFit naturalWidth={1160} onMeasure={onMeasure}>
-        <div data-no-drag>
-          <FunctionGenerator core={core} jacks={jacks} autoScale={false} />
-        </div>
-      </DeviceFit>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <DeviceFit natural={FG_STAGE_SIZE} onMeasure={reportNatural}>
+          <div data-no-drag>
+            <FunctionGenerator core={core} jacks={jacks} autoScale={false} />
+          </div>
+        </DeviceFit>
+      </div>
     </div>
   );
 }

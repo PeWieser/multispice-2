@@ -1286,3 +1286,120 @@ löschen räumt `leadArmed` ab. COM/SYNC bleiben manuell verdrahtet.
 Dock-Zeile klickbar über der Statusleiste, Banner/Ring-Optik) ist hier nur im
 Dev-Server-Live-Vorschau möglich – Headless-Browser ist in dieser Umgebung nicht
 installierbar (Chromium ohne libnss3/libnspr4, Paketquellen gesperrt).
+
+## §20 — Runde 20: Fenstermanager global (Ziehen ohne Sprung, kein Rand, Skalieren)
+
+**Nutzer-Kritik (Runde 20):** „Verschieben ist immer noch scheiße – das Fenster springt
+nach dem Verschieben an die Stelle des Cursors" · „beim Oszi ist immer noch links und
+rechts etwas brauner Rand" · „man soll die Fenster leicht skalieren können" · „das soll
+für alle Fenster gelten, also einen globalen Fenstermanager, basierend auf dem dann
+gefixten von Oszi und Generator".
+
+**Ursachenanalyse (belegt):**
+1. *Sprung:* Die Fensterwurzel trägt `.rise` (`animation: rise 250ms both`), dessen
+   Endzustand `transform: none` ist. Eine laufende/gefillte CSS-Animation schlägt jede
+   Inline-Deklaration – der Zug-`transform` wurde also nie gezeichnet; das Fenster blieb
+   stehen und sprang erst beim Loslassen in die neue Position („an die Cursor-Stelle").
+2. *Brauner Rand:* Fensterbreite war mit Pauschal-Chrome (10 px) plus 8 px `FIT_MARGIN`
+   gerechnet, das Chassis ist aber 1420 px breit → ~4–5 px Werkbank-Hintergrund
+   (`BENCH_BG`, brauner Gradient) links und rechts; derselbe Rest oben/unten.
+3. *Skalieren:* nur ein 14 px kleines Eck-Dreieck ohne sichtbaren Griff und ohne
+   Seitenverhältnis-Sperre – Geräte dürfen nicht verzerren.
+
+**Ask-User-Antworten (bindend, Runde 20):**
+1. **Skalieren:** nur unten rechts, aber deutlich besserer Griff; **Geräte behalten die
+   Proportionen**.
+2. **Wachstum:** nur verkleinern – Maximum ist Gerät + Chrome (nie Leerraum); kleiner
+   gezogen skaliert das Gerät maßstäblich mit (1:1 bleibt Obergrenze).
+3. **Übrige Fenster:** global derselbe Manager; Größe beim Öffnen inhaltsbestimmt
+   (Geräte exakt gemessen), danach frei skalierbar.
+
+**W37 — Ziehen ohne Sprung.** Fenster bekommen eine eigene Einblendung ohne `transform`
+(`.win-in`, nur Opacity). `.rise` bleibt für Dialoge. Damit greift der rAF-/Transform-Zug
+ab dem ersten Pixel.
+
+**W38 — Fenster exakt am Gerät (kein Rand).** `DeviceFit` rechnet ohne künstlichen Rand
+(`avail = clientWidth/clientHeight`, `scale = min(1, …)`, 1-px-Epsilon gegen Subpixel-
+Zittern). Das Fenster-Chrome (Rahmen + Titelzeile) wird per
+`getBoundingClientRect`-Differenz gemessen (fraktional, kein Pauschalwert) und das
+Fenster einmalig auf `Gerät + Chrome` gesetzt (Viewport-geklemmt) → Oszi und FG sitzen
+kantenbündig.
+
+**W39 — Skalieren (global, ein Griff).** Griff unten rechts, 20×20 Fangfläche, sichtbar
+(drei Diagonalstriche, `cursor: nwse-resize`). Geräte-Fenster (Oszi, FG) skalieren
+**proportionsgesperrt** über die Diagonale (Projektion auf die Ecke), Skala
+`s ∈ [0,25 … 1]`, Maximum = Gerät + Chrome; Panel-Fenster frei, Minimum 300×220,
+Maximum = Viewport. Vorschau live per DOM/rAF, Commit beim Loslassen (wie beim Ziehen).
+
+**W40 — Ein Fenstermanager für alle Fenster.** `Window` behandelt Ziehen, Skalieren,
+Dock, Minimieren, Ebene und Klemme für **alle** Instrumente gleich. `useWindowFit`
+misst Chrome + Größe; Geräte nutzen `DeviceFit` (gemessen, aspect-locked, `scale ≤ 1`),
+Panels eine Inhalts-Probe (`PanelProbe`: Inhalt einmal offscreen mit Entwurfsbreite
+rendern → benötigte Höhe messen, Untergrenze je Art) und sind danach frei skalierbar.
+`WINDOW_SPECS` (in `editor.ts`) bündelt Entwurfsbreite, Höhen-Untergrenze und
+Mindestmaße je Instrument; `openInstrument` setzt für **jedes** Fenster
+`config.deviceFit = 0`, damit beim Öffnen neu gemessen wird.
+
+**W41 — Verifikation + Doku.** Pflicht-Checks plus DOM-Smoke: Fensterklasse ohne
+`transform`-Animation, Griff vorhanden (nicht im Dock), Zug ändert Größe
+(Seitenverhältnis erhalten, Obergrenze Gerät), Panel-Größe ≥ Inhaltsbedarf.
+
+### §20.1 — Umsetzungsstand Runde 20 (2026-09-30) ✅
+
+**W37 Sprung beim Verschieben behoben.** Ursache war die Eingangsanimation der
+Fenster: `.rise` animiert `transform` und endet mit `transform: none` – eine
+laufende/gefillte CSS-Animation gewinnt gegen den Inline-`transform` des Zugs, der
+Zug-Transform wurde also nie gezeichnet und das Fenster sprang erst beim Loslassen
+an die Cursor-Stelle. Fenster nutzen jetzt `.win-in` (nur Deckkraft, 150 ms);
+`.rise` bleibt für Dialoge. Belegt im DOM-Smoke: Während des Ziehens steht
+`transform: translate3d(120px, 100px, 0)`, nach dem Loslassen sitzt das Fenster
+mit `+120/+100` an der Zeigerstelle.
+
+**W38 Kein brauner Rand mehr.** Der „Werkbank"-Gradient aus oszi v2 (`BENCH_BG`,
+`#5b4a3a → #4a3b2e`) ist aus dem Oszi-Adapter entfernt (der FG hatte seinerseits
+einen selbst gebauten dunklen Verlauf – ebenfalls raus). Zusätzlich rechnet
+`DeviceFit` jetzt **ohne** künstlichen Rand (`avail = clientWidth/clientHeight`,
+`scale = min(1, …)`, 1-px-Epsilon), und `useWindowFit` misst das echte Fenster-
+Chrome per `getBoundingClientRect`-Differenz statt Pauschal 10/46 px. Ergebnis:
+Fenster = Gerät + 2 px Rahmen + Titelzeile, das Gehäuse füllt die Fläche bündig.
+
+**W39 Skalieren am Griff (nur unten rechts, deutlich besserer Griff).** 20 × 20 px
+Fangfläche mit sichtbaren Diagonalstrichen und `cursor: nwse-resize` (statt 14 px
+Dreieck). Geräte-Fenster (Oszi, FG-2500) skalieren **proportionsgesperrt**
+(Projektion des Zeigerdeltas auf die Diagonale, `fitAspect` = Fenstermaß im
+1:1-Zustand), Panels frei. Grenzen: **Maximum = Startgröße am Inhalt** (Entscheidung
+„nur verkleinern, max = Gerät" – kein Leerraum, Gerät bleibt ≤ 1:1), **Minimum**
+640 × 480 (Geräte, darunter nichts mehr bedienbar) bzw. 320 × 220 (Panels); ein
+teilweise außerhalb liegendes Fenster wird durch einen Zug nie ruckartig verkleinert.
+Wie beim Ziehen läuft die Vorschau per DOM/rAF, committet wird beim Loslassen.
+
+**W40 Globaler Fenstermanager für alle Fenster.** `Window` behandelt Ziehen,
+Skalieren, Docken, Minimieren, Fokus-Ebene, Klemme und den Fenster-Fit für **jedes**
+Instrument. `WINDOW_SPECS` (in `editor.ts`) bündelt je Art Entwurfsbreite + Höhen-
+Untergrenze; `openInstrument` setzt für **alle** Fenster `config.deviceFit = 0`,
+`minW`, `minH`, sodass beim Öffnen neu gemessen wird. Geräte melden ihr natürliches
+Maß über `DeviceFit` (Kontext `WindowFitContext`), Panels rendert der Manager einmal
+offscreen mit der Entwurfsbreite (`PanelProbe`, entfernt sich nach der Messung
+selbst) und nimmt das Maximum aus Messung und Untergrenze – danach ist jedes Fenster
+frei skalierbar. `restoreLocalProject` setzt Oszi-Fenster weiter auf das Gerätemaß
+(1422 × 726).
+
+**Verifikation (Runde 20, alles grün):**
+- `./node_modules/.bin/tsc --noEmit` clean · `npx --no-install eslint src` clean
+  (kein `eslint-disable`) · `npm test` alle PASS (410 Teile/2098 Pins) ·
+  `npx --no-install next build` ✓ (7/7 statisch)
+- DOM-Smoke (jsdom, danach gelöscht) – 8/8 PASS:
+  1. Fensterklasse `win-in` **ohne** `transform`-Animation (Sprung-Ursache weg),
+  2. Zug folgt live (`translate3d(120px, 100px, 0)`) und committet `+120/+100`,
+  3. Griff vorhanden (`cursor: nwse-resize`),
+  4. Zug nach außen gedeckelt auf exakt 1422 × 726 (Maximum = Gerät),
+  5. Verkleinern: 940 × 480 – Untergrenze 640 × 480, Seitenverhältnis exakt
+     1,9587 (Gerät),
+  6. Panel bis zur Startgröße gedeckelt (322 × 318),
+  7. Panel frei verkleinerbar bis 320 × 220,
+  8. kein Griff im Dock.
+- Dev-Server (Live-Vorschau) läuft auf Port 3000, `/` HTTP 200.
+
+**Hinweis:** In der Sandbox wurde `node_modules` zwischen zwei Runden geleert
+(Snapshot schließt `node_modules` aus); mit `npm ci` exakt aus `package-lock.json`
+wiederhergestellt – `package.json`/`package-lock.json` bleiben unverändert.

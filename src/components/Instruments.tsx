@@ -9,9 +9,10 @@ import { createPortal } from "react-dom";
 import { formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
 import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
-import { InstrumentKind, InstrumentWindow, engine, useEditor } from "@/state/editor";
+import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, engine, useEditor } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { useIsMobile } from "@/lib/hooks/useMediaQuery";
+import { PanelProbe, WindowFitContext, type NaturalSize } from "./DeviceFit";
 
 const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
 
@@ -992,15 +993,74 @@ function isDragSurface(target: EventTarget | null): boolean {
  *  weiter am Zeiger kleben. */
 let activeDrag: { id: string; x: number; y: number; wx: number; wy: number } | null = null;
 
+/**
+ * Runde 20 (W40): **Der** Fenstermanager. Jedes Instrumentenfenster – Oszi,
+ * FG-2500 und alle Panels – läuft durch dieselbe Komponente: Ziehen (Titelzeile
+ * und leerer Hintergrund, ruckelfrei per Transform + rAF), Skalieren am Griff
+ * unten rechts (Geräte proportionsgesperrt), Docken, Minimieren, Fokus-Ebene,
+ * Klemme und der einmalige Fenster-Fit am Inhalt (W38).
+ *
+ * Der Inhalt meldet sein natürliches Maß über `WindowFitContext` (Geräte per
+ * `DeviceFit`, Panels per `PanelProbe`); daraus wird beim Öffnen exakt
+ * „Inhalt + echtes Fenster-Chrome“ gesetzt – ohne Leerraum und ohne dass der
+ * braune Werkbank-Hintergrund an den Seiten durchscheint.
+ */
 function Window({ win }: { win: InstrumentWindow }) {
   const { updateInstrument, closeInstrument, focusInstrument } = useEditor();
-  const resize = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
-  const resizePending = useRef<{ w: number; h: number } | null>(null);
   const winRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [natural, setNatural] = useState<NaturalSize | null>(null);
+  const resize = useRef<{ x: number; y: number; w: number; h: number; ratio: number | null } | null>(null);
+  const resizePending = useRef<{ w: number; h: number } | null>(null);
 
-  // Runde 17 (W32a): Nach jedem Render die Resize-Größe wiederherstellen –
-  // Store-Updates während des Ziehens (z. B. Oszi-Persistenz) dürfen die
-  // direkten DOM-Schreibvorgänge nicht zurückschnappen lassen.
+  // Geräte (Oszi, FG-2500) bringen ihr Maß selbst mit; Panels werden gemessen.
+  const isDevice = win.kind === "scope" || win.kind === "funcgen";
+
+  /** Inhalt meldet sein natürliches Maß (Gerät bzw. Panel-Bedarf). */
+  const reportNatural = useCallback((size: NaturalSize) => {
+    setNatural((p) => (p && p.w === size.w && p.h === size.h ? p : { w: size.w, h: size.h }));
+  }, []);
+
+  // Runde 20 (W38): Fenster einmalig exakt an den Inhalt legen. Das echte
+  // Fenster-Chrome wird gemessen (Außenmaß Fenster − Außenmaß Inhalt), nicht
+  // geschätzt; danach bleiben Nutzer-Resizes unangetastet (deviceFit-Flag).
+  useLayoutEffect(() => {
+    const st = useEditor.getState();
+    const w = st.instruments.find((i) => i.id === win.id);
+    const el = winRef.current;
+    const body = bodyRef.current;
+    if (!w || !el || !body || !natural || w.config.deviceFit === 1) return;
+    const er = el.getBoundingClientRect();
+    const br = body.getBoundingClientRect();
+    const slackW = Math.max(0, er.width - br.width);
+    const slackH = Math.max(0, er.height - br.height);
+    const wantW = Math.round(natural.w + slackW);
+    const wantH = Math.round(natural.h + slackH);
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
+    const minW = Number(w.config.minW ?? 320);
+    const minH = Number(w.config.minH ?? 220);
+    st.updateInstrument(win.id, {
+      w: Math.max(Math.min(minW, wantW), Math.min(wantW, vw - 8)),
+      h: Math.max(Math.min(minH, wantH), Math.min(wantH, vh - 8)),
+      config: {
+        ...w.config,
+        deviceFit: 1,
+        // W39: Der Griff darf nur verkleinern – Maximum ist „Inhalt + Chrome“
+        // (nie Leerraum). fitW/fitH merken das Naturmaß, fitAspect das
+        // Seitenverhältnis der Geräte-Frontplatte.
+        fitW: natural.w,
+        fitH: natural.h,
+        fitAspect: wantW / Math.max(wantH, 1),
+        maxW: Math.max(Math.min(minW, wantW), Math.min(wantW, vw - 8)),
+        maxH: Math.max(Math.min(minH, wantH), Math.min(wantH, vh - 8)),
+      },
+    });
+  });
+
+  // Runde 17 (W32a)/20: Nach jedem Render die Live-Größe wiederherstellen –
+  // Store-Updates während des Ziehens dürfen die DOM-Schreibvorgänge nicht
+  // zurückschnappen lassen.
   useLayoutEffect(() => {
     const p = resizePending.current;
     if (winRef.current && p) {
@@ -1041,10 +1101,37 @@ function Window({ win }: { win: InstrumentWindow }) {
         if (!raf) raf = requestAnimationFrame(apply);
       }
       if (resize.current) {
-        pendingSize = {
-          w: Math.max(300, resize.current.w + e.clientX - resize.current.x),
-          h: Math.max(220, resize.current.h + e.clientY - resize.current.y),
-        };
+        // W39: Griff unten rechts. Geräte-Fenster halten ihr Seitenverhältnis
+        // (Projektion auf die Diagonale), Panels skalieren frei.
+        const g = resize.current;
+        const cur = live();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const dx = e.clientX - g.x;
+        const dy = e.clientY - g.y;
+        const cfg = cur?.config ?? {};
+        const minW = Number(cfg.minW ?? 300);
+        const minH = Number(cfg.minH ?? 220);
+        // Untergrenze = Mindestmaß, Obergrenze = Startgröße am Inhalt (W39:
+        // „nur verkleinern, max = Gerät/Inhalt“) und nie über das Bild hinaus.
+        // Nie unter die aktuelle Größe deckeln: liegt ein Fenster schon (teilweise)
+        // außerhalb, darf ein Zug es nicht ruckartig verkleinern.
+        const capW = Math.max(g.w, minW, Math.min(Number(cfg.maxW ?? Infinity), vw - 8 - (cur?.x ?? 0)));
+        const capH = Math.max(g.h, minH, Math.min(Number(cfg.maxH ?? Infinity), vh - 8 - (cur?.y ?? 0)));
+        if (g.ratio) {
+          // Geräte: Projektion auf die Diagonale hält die Proportionen exakt.
+          const denom = g.w * g.w + g.h * g.h;
+          const s = 1 + (dx * g.w + dy * g.h) / Math.max(denom, 1);
+          const lo = Math.max(minW / g.w, minH / g.h);
+          const hi = Math.min(capW / g.w, capH / g.h);
+          const sClamped = Math.max(lo, Math.min(s, Math.max(hi, lo)));
+          pendingSize = { w: Math.round(g.w * sClamped), h: Math.round(g.h * sClamped) };
+        } else {
+          pendingSize = {
+            w: Math.max(minW, Math.min(g.w + dx, capW)),
+            h: Math.max(minH, Math.min(g.h + dy, capH)),
+          };
+        }
         resizePending.current = pendingSize;
         if (!raf) raf = requestAnimationFrame(apply);
       }
@@ -1097,6 +1184,23 @@ function Window({ win }: { win: InstrumentWindow }) {
     activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
   };
 
+  /** W39: Skalieren am Griff unten rechts starten. */
+  const beginResize = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const r = winRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const aspect = Number(win.config.fitAspect);
+    resize.current = {
+      x: e.clientX,
+      y: e.clientY,
+      w: r.width,
+      h: r.height,
+      // Geräte-Fenster (Oszi/FG) halten die Proportionen ihrer Frontplatte.
+      ratio: Number.isFinite(aspect) && aspect > 0 ? aspect : null,
+    };
+  };
+
   const body = () => {
     switch (win.kind) {
       case "scope":
@@ -1133,77 +1237,99 @@ function Window({ win }: { win: InstrumentWindow }) {
   };
 
   return (
-    <div
-      ref={winRef}
-      className={
-        win.docked
-          ? "rise pointer-events-auto relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl"
-          : "rise pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl will-change-transform"
-      }
-      style={
-        win.docked
-          ? { background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)", height: win.minimized ? 36 : undefined, flex: win.minimized ? "0 0 auto" : undefined, minWidth: win.minimized ? 160 : 300 }
-          : { left: win.x, top: win.y, width: win.w, height: win.minimized ? 36 : win.h, zIndex: win.z, background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }
-      }
-      onPointerDown={() => focusInstrument(win.id)}
-    >
+    <WindowFitContext.Provider value={reportNatural}>
       <div
-        className={`flex h-9 shrink-0 items-center gap-2 px-3 ${win.docked ? "" : "cursor-grab"}`}
-        style={{ borderBottom: "1px solid var(--border)" }}
-        title={win.docked ? "Im Dock – Ziehen löst das Fenster, der Dock-Knopf unten rechts hält es hier" : "Ziehen (auch am Fensterhintergrund) bewegt das Fenster – es bleibt immer greifbar"}
-        onPointerDown={(e) => beginDrag(e)}
+        ref={winRef}
+        className={
+          win.docked
+            ? "win-in pointer-events-auto relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl"
+            : "win-in pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl will-change-transform"
+        }
+        style={
+          win.docked
+            ? { background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)", height: win.minimized ? 36 : undefined, flex: win.minimized ? "0 0 auto" : undefined, minWidth: win.minimized ? 160 : 300 }
+            : { left: win.x, top: win.y, width: win.w, height: win.minimized ? 36 : win.h, zIndex: win.z, background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }
+        }
+        onPointerDown={() => focusInstrument(win.id)}
       >
-        <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
-          {iconFor(win.kind)}
-        </span>
-        <span className="flex-1 truncate text-[12px] font-medium">{win.title}</span>
-        <button
-          className="btn px-1 py-0.5"
-          title={win.docked ? "Aus dem Dock lösen – wird wieder freies Fenster" : "Ins Dock unten einrasten – Geräte teilen sich den unteren Rand"}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => updateInstrument(win.id, { docked: !win.docked })}
-        >
-          <PanelBottom size={13} />
-        </button>
-        <button
-          className="btn px-1 py-0.5"
-          title="Minimieren"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}
-        >
-          <Minus size={13} />
-        </button>
-        <button
-          className="btn px-1 py-0.5"
-          title="Schließen"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => closeInstrument(win.id)}
-        >
-          <X size={13} />
-        </button>
-      </div>
-      {!win.minimized && (
         <div
-          className="min-h-0 flex-1"
-          onPointerDown={(e) => {
-            // W34: „überall greifbar" – leere Flächen bewegen das Fenster,
-            // Gerät und Bedienelemente behalten ihre eigene Bedienung.
-            if (isDragSurface(e.target)) beginDrag(e);
-          }}
+          className={`flex h-9 shrink-0 items-center gap-2 px-3 ${win.docked ? "" : "cursor-grab"}`}
+          style={{ borderBottom: "1px solid var(--border)" }}
+          title={win.docked ? "Im Dock – Ziehen löst das Fenster, der Dock-Knopf unten rechts hält es hier" : "Ziehen (auch am Fensterhintergrund) bewegt das Fenster – es bleibt immer greifbar"}
+          onPointerDown={(e) => beginDrag(e)}
         >
-          {body()}
+          <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
+            {iconFor(win.kind)}
+          </span>
+          <span className="flex-1 truncate text-[12px] font-medium">{win.title}</span>
+          <button
+            className="btn px-1 py-0.5"
+            title={win.docked ? "Aus dem Dock lösen – wird wieder freies Fenster" : "Ins Dock unten einrasten – Geräte teilen sich den unteren Rand"}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => updateInstrument(win.id, { docked: !win.docked })}
+          >
+            <PanelBottom size={13} />
+          </button>
+          <button
+            className="btn px-1 py-0.5"
+            title="Minimieren"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}
+          >
+            <Minus size={13} />
+          </button>
+          <button
+            className="btn px-1 py-0.5"
+            title="Schließen"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => closeInstrument(win.id)}
+          >
+            <X size={13} />
+          </button>
         </div>
-      )}
-      {!win.minimized && !win.docked && (
-        <div
-          className="absolute bottom-0 right-0 h-3.5 w-3.5 cursor-nwse-resize"
-          onPointerDown={(e) => {
-            resize.current = { x: e.clientX, y: e.clientY, w: win.w, h: win.h };
-          }}
-          style={{ background: "linear-gradient(135deg, transparent 50%, var(--border-strong) 50%)" }}
-        />
-      )}
-    </div>
+        {!win.minimized && (
+          <div
+            ref={bodyRef}
+            className="relative min-h-0 flex-1"
+            onPointerDown={(e) => {
+              // W34: „überall greifbar" – leere Flächen bewegen das Fenster,
+              // Gerät und Bedienelemente behalten ihre eigene Bedienung.
+              if (isDragSurface(e.target)) beginDrag(e);
+            }}
+          >
+            {/* W40: Panels melden ihren Höhenbedarf nicht selbst – der Manager
+                rendert sie einmal offscreen mit der Entwurfsbreite (PanelProbe
+                entfernt sich nach der Messung selbst). Oszi/FG messen im Gerät
+                (DeviceFit) und brauchen die Probe nicht. */}
+            {!isDevice && win.config.deviceFit !== 1 && (
+              <PanelProbe width={WINDOW_SPECS[win.kind].w} onMeasure={reportNatural}>
+                {body()}
+              </PanelProbe>
+            )}
+            {body()}
+          </div>
+        )}
+        {!win.minimized && !win.docked && (
+          <div
+            role="button"
+            aria-label="Fenstergröße ziehen"
+            data-no-drag
+            title="Größe ziehen – Geräte behalten ihre Proportionen (kleiner = maßstäblich kleiner, größer = Gerät wächst mit)"
+            className="absolute bottom-0 right-0 grid h-5 w-5 place-items-end rounded-br-xl"
+            style={{ cursor: "nwse-resize", touchAction: "none" }}
+            onPointerDown={beginResize}
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden className="text-mute" style={{ color: "var(--text-mute)" }}>
+              <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.85">
+                <path d="M15 7 L7 15" />
+                <path d="M15 11 L11 15" />
+                <path d="M15 14.5 L14.5 15" />
+              </g>
+            </svg>
+          </div>
+        )}
+      </div>
+    </WindowFitContext.Provider>
   );
 }
 
@@ -1352,7 +1478,7 @@ export function InstrumentLayer() {
       </div>
       {docked.length > 0 && (
         <div
-          className="pointer-events-auto absolute inset-x-0 flex items-stretch gap-1 p-1"
+          className="pointer-events-auto absolute inset-x-0 flex items-stretch gap-1 overflow-x-auto p-1"
           style={{
             bottom: isMobile ? STATUS_BAR_H_MOBILE : STATUS_BAR_H,
             height: "min(38vh, 360px)",

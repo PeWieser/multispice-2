@@ -375,6 +375,16 @@ input[type="range"]::-moz-range-thumb {
 }
 .rise { animation: rise var(--dur-slow) var(--ease) both; }
 
+/* Runde 20 (W37): Gerätefenster blenden nur über die Deckkraft ein. Ein
+   `transform` in der Animation (wie bei .rise) gewinnt gegen jede Inline-
+   Deklaration und würde den Zug-Transform der Fenster aushebeln – Beobachtung
+   aus Runde 19: Fenster blieben beim Ziehen stehen und sprangen erst los. */
+@keyframes win-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.win-in { animation: win-in 150ms var(--ease) both; }
+
 @keyframes fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
