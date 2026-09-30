@@ -6,6 +6,7 @@ import type { GenState } from "@/lib/fg/types";
 import { useEditor, type InstrumentWindow } from "@/state/editor";
 import { click } from "./oszi2/sound";
 import { DeviceFit, useReportNatural } from "./DeviceFit";
+import { BENCH_PAD } from "@/lib/windows/geometry";
 import { LeadBanner } from "./LeadBanner";
 import FunctionGenerator, { type JackState } from "./fg2/FunctionGenerator";
 
@@ -130,7 +131,13 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
   }, [core, win.instanceId]);
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden">
+    <div
+      className="relative flex h-full w-full flex-col overflow-hidden"
+      // Runde 21 (W44): eigener Labor-Untergrund wie vor Runde 20 – sichtbar nur
+      // dort, wo neben dem heruntergerechneten Gerät Platz bleibt (die FG-Bühne
+      // hat konstruktiv ~30 px Gummischutz-Rand).
+      style={{ background: "linear-gradient(180deg, #3a3f46 0%, #24282d 60%, #181b1f 100%)" }}
+    >
       {heldJack && (
         <LeadBanner
           color={JACK_COLOR[heldJack]}
@@ -139,7 +146,7 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
           onCancel={() => useEditor.getState().setLeadArmed(null)}
         />
       )}
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col" style={{ padding: BENCH_PAD }}>
         <DeviceFit natural={FG_STAGE_SIZE} onMeasure={reportNatural}>
           <div data-no-drag>
             <FunctionGenerator core={core} jacks={jacks} autoScale={false} />

@@ -1403,3 +1403,72 @@ frei skalierbar. `restoreLocalProject` setzt Oszi-Fenster weiter auf das Geräte
 **Hinweis:** In der Sandbox wurde `node_modules` zwischen zwei Runden geleert
 (Snapshot schließt `node_modules` aus); mit `npm ci` exakt aus `package-lock.json`
 wiederhergestellt – `package.json`/`package-lock.json` bleiben unverändert.
+
+## §21 — Runde 21: Fenstermanager nachgeschärft (Hintergrund, 4 Ecken, kein Aufblitzen)
+
+**Nutzer-Kritik (Runde 21):** „den Hintergrund jeweils möchte ich doch wieder haben,
+das sah schöner aus" · „doch eine 4 Ecken-Transformation" · „das Fenster blitzt nach
+dem Loslassen kurz an einer anderen Stelle auf" · „beim Skalieren bleiben die Geräte
+noch riesig, also eine minimale Größe scheint festgelegt zu sein" · „beim Oszi sind
+trotz weißem Hintergrund immer noch links und rechts zwei große Abstände".
+
+**Ursachenanalyse (belegt):**
+1. *Große Abstände am Oszi:* Der Fenster-Fit setzte die Größe aus dem **Naturmaß**
+   (1420×688). Ist der Bildschirm niedriger, begrenzt `DeviceFit` die Skalierung –
+   das Fenster blieb aber auf Naturmaß-Breite stehen, sodass das heruntergerechnete
+   Gehäuse zentriert in einer zu breiten Fläche saß (links/rechts Lücken).
+2. *„Minimale Größe festgelegt":* Die Untergrenze war 640×480. Auf knappen
+   Bildschirmen war das bereits die Startgröße; die Projektions-Untergrenze
+   `lo = max(minW/w, minH/h)` ergab dann genau 1 – das Fenster ließ sich **nicht**
+   mehr verkleinern.
+3. *Aufblitzen nach dem Loslassen:* Der Zug schrieb `transform` und stellte beim
+   Loslassen auf `left/top` um. In dem Moment, in dem `transform` geleert wurde,
+   bevor React mit der neuen Position gerendert hatte, zeigte die Ebene noch die
+   alte Position (klassisches Composited-Layer-Artefakt).
+4. *Hintergrund:* In Runde 20 wurden Werkbank-Gradient (Oszi) und FG-Verlauf
+   ersatzlos entfernt – Nutzerwunsch geht zurück auf „wieder haben".
+
+**Ask-User-Antworten (bindend, Runde 21, nachgefragt wo nötig):**
+1. Skalieren: **vier Ecken**.
+2. Geräte: Proportionen behalten (unverändert), nur verkleinern bis zum Gerät.
+3. Übrige Fenster: globale Behandlung, Startgröße am Inhalt, Panels frei skalierbar.
+
+**W42 Fensterbreite folgt der Skalierung.** `DeviceFit` meldet jetzt neben dem
+Naturmaß auch die **angezeigte** Größe (`dispW/dispH`); `fitWindowSize()` rechnet
+daraus Fenster = *angezeigtes* Gerät + Chrome. Auf knappen Bildschirmen geht die
+Breite mit, statt Lücken zu lassen. Sobald der Nutzer selbst an der Größe zieht
+(Größe ≠ gemerkte Fit-Größe), fasst der Fit nichts mehr an – nur noch die Grenzen
+werden gepflegt. Beim Laden eines Projekts werden Geräte-Fenster einmalig neu
+ausgerichtet (`deviceFit: 0`).
+
+**W43 Vier Eck-Griffe.** `resizeRect()` (neu: `src/lib/windows/geometry.ts`) rechnet
+Zug an NW/NE/SW/SE mit Anker in der **Gegen**ecke; Geräte-Fenster halten über die
+Diagonalprojektion exakt ihre Proportionen, Panels sind frei. Griffe 14 px (oben,
+damit die Titel-Knöpfe frei bleiben) bzw. 18 px (unten) mit passenden Cursorn
+(`nwse-resize`/`nesw-resize`). Untergrenze jetzt **320×240** (Geräte) bzw. 240×180
+(Panels) – auf knappen Bildschirmen bleibt Verkleinern dadurch tatsächlich möglich.
+Obergrenze bleibt die Startgröße am Inhalt („nur verkleinern, nie Leerraum").
+
+**W43b Kein Aufblitzen mehr.** Position und Größe laufen während Zug/Skalierung
+ausschließlich über `transform`/`width`/`height`; beim Loslassen werden **exakt
+dieselben Werte** ins DOM geschrieben und anschließend in den Store übernommen –
+es gibt keinen Frame mit abweichender Position mehr.
+
+**W44 Hintergrund zurück (Nutzerwunsch).** Oszi: `BENCH_BG` (Werkbank-Gradient aus
+oszi v2) wieder aktiv; FG: eigener dunkler Verlauf wieder aktiv. Damit der Look
+„schöner Rahmen" statt „Lücke" ist, sitzt das Gerät in einem schmalen, symmetrischen
+Werkbank-Rahmen (`BENCH_PAD = 12`, im Fit als `pad` enthalten, Innenabstand in den
+Adaptern) – Fenster = Gerät + 2×12 + Chrome.
+
+**Verifikation (Runde 21):**
+- `./node_modules/.bin/tsc --noEmit` clean · `npx --no-install eslint src scripts`
+  clean · `npm test` alle PASS (**neu: `scripts/windowtest.ts`** – 14 Prüfungen der
+  Fenster-Geometrie: Startgröße mit/ohne Werkbank-Rahmen, knapper Bildschirm
+  (Breite 1352 bei Höhe 692), Vier-Ecken-Anker, Proportionen, Deckel = Gerät,
+  Bildschirmklemme, Panel-Mindestmaß) · `npx --no-install next build` ✓ (7/7).
+- DOM-Smoke (jsdom, danach gelöscht), 6/6 PASS: vier Eck-Griffe mit korrekten
+  Cursorn, Position über `transform`, NW-Zug mit Anker in der Gegenecke und
+  Proportion, Deckel 1446×750 (Gerät + Rahmen), tiefes Verkleinern auf 463×240,
+  und – für das Aufblitzen entscheidend – nach dem Loslassen steht **derselbe**
+  Transform-Wert im DOM wie im Store.
+- Dev-Server (Live-Vorschau) auf Port 3000, `/` HTTP 200.

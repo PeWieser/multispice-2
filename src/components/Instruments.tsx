@@ -12,7 +12,18 @@ import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
 import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, engine, useEditor } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { useIsMobile } from "@/lib/hooks/useMediaQuery";
-import { PanelProbe, WindowFitContext, type NaturalSize } from "./DeviceFit";
+import { PanelProbe, WindowFitContext, type NaturalMeasure } from "./DeviceFit";
+import {
+  BENCH_PAD,
+  CORNER_CURSOR,
+  CORNER_STYLE,
+  SCREEN_MARGIN,
+  fitWindowSize,
+  resizeRect,
+  type Corner,
+  type Rect,
+  type Size,
+} from "@/lib/windows/geometry";
 
 const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
 
@@ -991,101 +1002,153 @@ function isDragSurface(target: EventTarget | null): boolean {
 /** Runde 19 (W34): Der laufende Fenster-Zug lebt modulweit – ein Zug an einem
  *  gedockten Fenster löst es (Container-Wechsel = React-Mount) und muss danach
  *  weiter am Zeiger kleben. */
+/** Runde 19 (W34): Der laufende Fenster-Zug lebt modulweit – ein Zug an einem
+ *  gedockten Fenster löst es (Container-Wechsel = React-Mount) und muss danach
+ *  weiter am Zeiger kleben. */
 let activeDrag: { id: string; x: number; y: number; wx: number; wy: number } | null = null;
 
+/** Runde 21 (W43): Greiffläche der vier Eck-Griffe (oben etwas kleiner, damit
+ *  die Titel-Knöpfe frei bleiben). */
+const GRIP_TOP = 14;
+const GRIP_BOTTOM = 18;
+const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
+const CORNER_ROT: Record<Corner, number> = { nw: 180, ne: 90, sw: 270, se: 0 };
+
 /**
- * Runde 20 (W40): **Der** Fenstermanager. Jedes Instrumentenfenster – Oszi,
- * FG-2500 und alle Panels – läuft durch dieselbe Komponente: Ziehen (Titelzeile
- * und leerer Hintergrund, ruckelfrei per Transform + rAF), Skalieren am Griff
- * unten rechts (Geräte proportionsgesperrt), Docken, Minimieren, Fokus-Ebene,
- * Klemme und der einmalige Fenster-Fit am Inhalt (W38).
+ * Runde 20/21 (W40/W42/W43): **Der** Fenstermanager. Jedes Instrumentenfenster –
+ * Oszi, FG-2500 und alle Panels – läuft durch dieselbe Komponente:
  *
- * Der Inhalt meldet sein natürliches Maß über `WindowFitContext` (Geräte per
- * `DeviceFit`, Panels per `PanelProbe`); daraus wird beim Öffnen exakt
- * „Inhalt + echtes Fenster-Chrome“ gesetzt – ohne Leerraum und ohne dass der
- * braune Werkbank-Hintergrund an den Seiten durchscheint.
+ * - Ziehen an Titelzeile und leerem Hintergrund (Transform + rAF, kein Ruckeln),
+ * - Skalieren an **vier Ecken** (Geräte proportionsgesperrt, Panels frei),
+ * - Docken, Minimieren, Fokus-Ebene, Klemme,
+ * - Fenster = sichtbarer Inhalt + Chrome (passt sich knappen Bildschirmen an).
+ *
+ * Position und Größe laufen während des Ziehens ausschließlich über
+ * `transform`/`width`/`height` im DOM; beim Loslassen wird **derselbe** Wert in
+ * den Store übernommen. Dadurch gibt es keinen Zwischenframe mit anderer
+ * Position („Aufblitzen" nach dem Loslassen, Befund Runde 20).
  */
 function Window({ win }: { win: InstrumentWindow }) {
   const { updateInstrument, closeInstrument, focusInstrument } = useEditor();
   const winRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [natural, setNatural] = useState<NaturalSize | null>(null);
-  const resize = useRef<{ x: number; y: number; w: number; h: number; ratio: number | null } | null>(null);
-  const resizePending = useRef<{ w: number; h: number } | null>(null);
+  const [measure, setMeasure] = useState<NaturalMeasure | null>(null);
+  const resize = useRef<{ id: string; rect: Rect; corner: Corner; ratio: number | null; max: Size | null; x: number; y: number } | null>(null);
+  const liveSize = useRef<Size | null>(null);
+  const livePos = useRef<{ x: number; y: number } | null>(null);
 
   // Geräte (Oszi, FG-2500) bringen ihr Maß selbst mit; Panels werden gemessen.
   const isDevice = win.kind === "scope" || win.kind === "funcgen";
+  const spec = WINDOW_SPECS[win.kind];
 
   /** Inhalt meldet sein natürliches Maß (Gerät bzw. Panel-Bedarf). */
-  const reportNatural = useCallback((size: NaturalSize) => {
-    setNatural((p) => (p && p.w === size.w && p.h === size.h ? p : { w: size.w, h: size.h }));
-  }, []);
+  const reportNatural = useCallback(
+    (size: NaturalMeasure) => {
+      const w = isDevice ? size.w : Math.max(size.w, spec.w);
+      const h = isDevice ? size.h : Math.max(size.h, spec.h);
+      const dispW = isDevice ? size.dispW : w;
+      const dispH = isDevice ? size.dispH : h;
+      setMeasure((p) =>
+        p && p.w === w && p.h === h && p.dispW === dispW && p.dispH === dispH ? p : { w, h, dispW, dispH },
+      );
+    },
+    [isDevice, spec.w, spec.h],
+  );
 
-  // Runde 20 (W38): Fenster einmalig exakt an den Inhalt legen. Das echte
-  // Fenster-Chrome wird gemessen (Außenmaß Fenster − Außenmaß Inhalt), nicht
-  // geschätzt; danach bleiben Nutzer-Resizes unangetastet (deviceFit-Flag).
+  /**
+   * Runde 21 (W42): Fenster = **sichtbarer** Inhalt + Chrome. Wird die
+   * Skalierung von der Bildschirmhöhe begrenzt, geht die Breite mit – sonst
+   * klaffen links und rechts Lücken neben dem Gehäuse. Sobald der Nutzer selbst
+   * an der Größe zieht, fasst der Fit nichts mehr an.
+   */
   useLayoutEffect(() => {
     const st = useEditor.getState();
     const w = st.instruments.find((i) => i.id === win.id);
     const el = winRef.current;
     const body = bodyRef.current;
-    if (!w || !el || !body || !natural || w.config.deviceFit === 1) return;
+    if (!w || !el || !body || !measure) return;
     const er = el.getBoundingClientRect();
     const br = body.getBoundingClientRect();
-    const slackW = Math.max(0, er.width - br.width);
-    const slackH = Math.max(0, er.height - br.height);
-    const wantW = Math.round(natural.w + slackW);
-    const wantH = Math.round(natural.h + slackH);
-    const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
-    const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
-    const minW = Number(w.config.minW ?? 320);
-    const minH = Number(w.config.minH ?? 220);
+    const slack = { w: Math.max(0, er.width - br.width), h: Math.max(0, er.height - br.height) };
+    const viewport = {
+      w: typeof window !== "undefined" ? window.innerWidth : 1600,
+      h: typeof window !== "undefined" ? window.innerHeight : 1000,
+    };
+    const min = { w: Number(w.config.minW ?? 320), h: Number(w.config.minH ?? 240) };
+    // W44: Geräte sitzen auf der Werkbank (schmaler Hintergrund-Rahmen), Panels nicht.
+    const pad = isDevice ? BENCH_PAD * 2 : 0;
+    const target = fitWindowSize({
+      natural: { w: measure.w, h: measure.h },
+      disp: { w: measure.dispW, h: measure.dispH },
+      slack,
+      viewport,
+      min,
+      pad: pad / 2,
+    });
+    const maxW = Math.round(Math.min(measure.w + pad + slack.w, viewport.w - SCREEN_MARGIN));
+    const maxH = Math.round(Math.min(measure.h + pad + slack.h, viewport.h - SCREEN_MARGIN));
+    // Nutzer hat selbst gezogen (Größe ≠ gemerkte Fit-Größe)? Dann nur noch die
+    // Grenzen pflegen, nicht mehr nachmessen.
+    const touched =
+      w.config.deviceFit === 1 &&
+      (Math.abs(w.w - Number(w.config.fitWinW ?? 0)) > 2 || Math.abs(w.h - Number(w.config.fitWinH ?? 0)) > 2);
+    const nextW = touched ? w.w : target.w;
+    const nextH = touched ? w.h : target.h;
+    const aspect = isDevice ? maxW / Math.max(maxH, 1) : undefined;
+    const unchanged =
+      Math.abs(w.w - nextW) <= 2 &&
+      Math.abs(w.h - nextH) <= 2 &&
+      w.config.deviceFit === 1 &&
+      Math.abs(Number(w.config.fitWinW ?? 0) - nextW) <= 2 &&
+      Math.abs(Number(w.config.fitWinH ?? 0) - nextH) <= 2 &&
+      Math.abs(Number(w.config.fitMaxW ?? 0) - (isDevice ? maxW : 0)) <= 2 &&
+      Math.abs(Number(w.config.fitMaxH ?? 0) - (isDevice ? maxH : 0)) <= 2 &&
+      Math.abs(Number(w.config.fitAspect ?? 0) - (aspect ?? 0)) <= 0.001;
+    if (unchanged) return;
     st.updateInstrument(win.id, {
-      w: Math.max(Math.min(minW, wantW), Math.min(wantW, vw - 8)),
-      h: Math.max(Math.min(minH, wantH), Math.min(wantH, vh - 8)),
+      w: nextW,
+      h: nextH,
       config: {
         ...w.config,
         deviceFit: 1,
-        // W39: Der Griff darf nur verkleinern – Maximum ist „Inhalt + Chrome“
-        // (nie Leerraum). fitW/fitH merken das Naturmaß, fitAspect das
-        // Seitenverhältnis der Geräte-Frontplatte.
-        fitW: natural.w,
-        fitH: natural.h,
-        fitAspect: wantW / Math.max(wantH, 1),
-        maxW: Math.max(Math.min(minW, wantW), Math.min(wantW, vw - 8)),
-        maxH: Math.max(Math.min(minH, wantH), Math.min(wantH, vh - 8)),
+        fitWinW: nextW,
+        fitWinH: nextH,
+        fitMaxW: isDevice ? maxW : undefined,
+        fitMaxH: isDevice ? maxH : undefined,
+        fitAspect: aspect,
+        fitW: measure.w,
+        fitH: measure.h,
       },
     });
   });
 
-  // Runde 17 (W32a)/20: Nach jedem Render die Live-Größe wiederherstellen –
-  // Store-Updates während des Ziehens dürfen die DOM-Schreibvorgänge nicht
-  // zurückschnappen lassen.
+  // Runde 17/21: Nach jedem Render die Live-Werte wiederherstellen – Store-
+  // Updates während des Ziehens dürfen die DOM-Schreibvorgänge nicht zurücksetzen.
   useLayoutEffect(() => {
-    const p = resizePending.current;
-    if (winRef.current && p) {
-      winRef.current.style.width = p.w + "px";
-      winRef.current.style.height = p.h + "px";
+    const el = winRef.current;
+    if (!el || win.docked) return;
+    const s = liveSize.current;
+    if (s) {
+      el.style.width = s.w + "px";
+      el.style.height = s.h + "px";
     }
+    const p = livePos.current;
+    if (p) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
   });
 
   useEffect(() => {
     let raf = 0;
-    let pendingPos: { x: number; y: number } | null = null;
-    let pendingSize: { w: number; h: number } | null = null;
     const live = () => useEditor.getState().instruments.find((i) => i.id === win.id);
     const apply = () => {
       raf = 0;
       const el = winRef.current;
       if (!el) return;
-      if (pendingPos && activeDrag) {
-        // Transform = GPU, kein Layout-Recalc; die Basis (win.x/win.y) bleibt
-        // unangetastet, damit Store-Updates während des Ziehens nichts springen.
-        el.style.transform = `translate3d(${pendingPos.x - activeDrag.wx}px, ${pendingPos.y - activeDrag.wy}px, 0)`;
-      }
-      if (pendingSize) {
-        el.style.width = pendingSize.w + "px";
-        el.style.height = pendingSize.h + "px";
+      const p = livePos.current;
+      if (p) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+      const s = liveSize.current;
+      if (s) {
+        el.style.width = s.w + "px";
+        el.style.height = s.h + "px";
       }
     };
     const move = (e: PointerEvent) => {
@@ -1093,46 +1156,29 @@ function Window({ win }: { win: InstrumentWindow }) {
         // W34: kontinuierlich klemmen – das Fenster kann nicht mehr aus dem
         // Bild rutschen (Rückholhilfe bleibt als zweites Netz bestehen).
         const w = live()?.w ?? 0;
-        pendingPos = clampWindowPos(
+        livePos.current = clampWindowPos(
           activeDrag.wx + e.clientX - activeDrag.x,
           activeDrag.wy + e.clientY - activeDrag.y,
           w,
         );
         if (!raf) raf = requestAnimationFrame(apply);
       }
-      if (resize.current) {
-        // W39: Griff unten rechts. Geräte-Fenster halten ihr Seitenverhältnis
-        // (Projektion auf die Diagonale), Panels skalieren frei.
-        const g = resize.current;
-        const cur = live();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const dx = e.clientX - g.x;
-        const dy = e.clientY - g.y;
-        const cfg = cur?.config ?? {};
-        const minW = Number(cfg.minW ?? 300);
-        const minH = Number(cfg.minH ?? 220);
-        // Untergrenze = Mindestmaß, Obergrenze = Startgröße am Inhalt (W39:
-        // „nur verkleinern, max = Gerät/Inhalt“) und nie über das Bild hinaus.
-        // Nie unter die aktuelle Größe deckeln: liegt ein Fenster schon (teilweise)
-        // außerhalb, darf ein Zug es nicht ruckartig verkleinern.
-        const capW = Math.max(g.w, minW, Math.min(Number(cfg.maxW ?? Infinity), vw - 8 - (cur?.x ?? 0)));
-        const capH = Math.max(g.h, minH, Math.min(Number(cfg.maxH ?? Infinity), vh - 8 - (cur?.y ?? 0)));
-        if (g.ratio) {
-          // Geräte: Projektion auf die Diagonale hält die Proportionen exakt.
-          const denom = g.w * g.w + g.h * g.h;
-          const s = 1 + (dx * g.w + dy * g.h) / Math.max(denom, 1);
-          const lo = Math.max(minW / g.w, minH / g.h);
-          const hi = Math.min(capW / g.w, capH / g.h);
-          const sClamped = Math.max(lo, Math.min(s, Math.max(hi, lo)));
-          pendingSize = { w: Math.round(g.w * sClamped), h: Math.round(g.h * sClamped) };
-        } else {
-          pendingSize = {
-            w: Math.max(minW, Math.min(g.w + dx, capW)),
-            h: Math.max(minH, Math.min(g.h + dy, capH)),
-          };
-        }
-        resizePending.current = pendingSize;
+      const r = resize.current;
+      if (r && r.id === win.id) {
+        // W43: Vier Ecken, Geräte mit Anker in der Gegenecke und Proportionen.
+        const cfg = live()?.config ?? {};
+        const res = resizeRect({
+          rect: r.rect,
+          corner: r.corner,
+          dx: e.clientX - r.x,
+          dy: e.clientY - r.y,
+          aspect: r.ratio,
+          min: { w: Number(cfg.minW ?? 320), h: Number(cfg.minH ?? 240) },
+          max: r.max,
+          viewport: { w: window.innerWidth, h: window.innerHeight },
+        });
+        livePos.current = { x: res.x, y: res.y };
+        liveSize.current = { w: res.w, h: res.h };
         if (!raf) raf = requestAnimationFrame(apply);
       }
     };
@@ -1141,23 +1187,29 @@ function Window({ win }: { win: InstrumentWindow }) {
       // Nur das Fenster, das gerade gezogen wird, committet und räumt auf –
       // die Listener aller Fenster hängen am selben Pointer-Event.
       if (activeDrag?.id === win.id) {
-        if (pendingPos && el) {
-          // Endposition direkt setzen + Transform leeren, DANN committen – so ist
-          // die Darstellung auch bei synchronem React-Flush konsistent.
-          el.style.left = pendingPos.x + "px";
-          el.style.top = pendingPos.y + "px";
-          el.style.transform = "";
-          updateInstrument(win.id, { x: pendingPos.x, y: pendingPos.y });
+        const p = livePos.current;
+        if (p) {
+          // Endwerte direkt ins DOM schreiben, DANN committen: Die Darstellung
+          // wechselt nie – es blitzt nichts an anderer Stelle auf.
+          if (el) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+          updateInstrument(win.id, { x: p.x, y: p.y });
         }
         activeDrag = null;
+        livePos.current = null;
       }
-      if (resize.current && pendingSize) {
-        updateInstrument(win.id, pendingSize);
+      if (resize.current?.id === win.id) {
+        const p = livePos.current;
+        const s = liveSize.current;
+        if (el && s) {
+          el.style.width = s.w + "px";
+          el.style.height = s.h + "px";
+        }
+        if (el && p) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+        updateInstrument(win.id, { ...(s ?? {}), ...(p ? { x: p.x, y: p.y } : {}) });
+        resize.current = null;
+        livePos.current = null;
+        liveSize.current = null;
       }
-      resize.current = null;
-      resizePending.current = null;
-      pendingPos = null;
-      pendingSize = null;
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
     };
@@ -1184,20 +1236,31 @@ function Window({ win }: { win: InstrumentWindow }) {
     activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
   };
 
-  /** W39: Skalieren am Griff unten rechts starten. */
-  const beginResize = (e: React.PointerEvent) => {
+  /** W43: Skalieren an einer der vier Ecken starten. */
+  const beginResize = (e: React.PointerEvent, corner: Corner) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    const r = winRef.current?.getBoundingClientRect();
-    if (!r) return;
-    const aspect = Number(win.config.fitAspect);
+    const el = winRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const cur = useEditor.getState().instruments.find((i) => i.id === win.id);
+    const cfgAspect = Number(cur?.config.fitAspect);
+    const localAspect = r.width / Math.max(r.height, 1);
     resize.current = {
+      id: win.id,
+      rect: { x: r.left, y: r.top, w: r.width, h: r.height },
+      corner,
+      // Geräte-Fenster halten die Proportionen ihrer Frontplatte.
+      ratio: isDevice ? (Number.isFinite(cfgAspect) && cfgAspect > 0 ? cfgAspect : localAspect) : null,
+      // Obergrenze ist die Startgröße am Gerät („nur verkleinern"); Panels frei.
+      max: isDevice
+        ? {
+            w: Number(cur?.config.fitMaxW ?? Math.round(r.width)),
+            h: Number(cur?.config.fitMaxH ?? Math.round(r.height)),
+          }
+        : null,
       x: e.clientX,
       y: e.clientY,
-      w: r.width,
-      h: r.height,
-      // Geräte-Fenster (Oszi/FG) halten die Proportionen ihrer Frontplatte.
-      ratio: Number.isFinite(aspect) && aspect > 0 ? aspect : null,
     };
   };
 
@@ -1243,12 +1306,22 @@ function Window({ win }: { win: InstrumentWindow }) {
         className={
           win.docked
             ? "win-in pointer-events-auto relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl"
-            : "win-in pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl will-change-transform"
+            : "win-in pointer-events-auto absolute left-0 top-0 flex flex-col overflow-hidden rounded-xl will-change-transform"
         }
         style={
           win.docked
-            ? { background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)", height: win.minimized ? 36 : undefined, flex: win.minimized ? "0 0 auto" : undefined, minWidth: win.minimized ? 160 : 300 }
-            : { left: win.x, top: win.y, width: win.w, height: win.minimized ? 36 : win.h, zIndex: win.z, background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }
+            ? { background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)", height: win.minimized ? TITLE_H : undefined, flex: win.minimized ? "0 0 auto" : undefined, minWidth: win.minimized ? 160 : 300 }
+            : {
+                // W42: Position läuft über transform – der Wechsel „ziehen → loslassen"
+                // schreibt nie einen anderen Wert, also blitzt nichts auf.
+                transform: `translate3d(${win.x}px, ${win.y}px, 0)`,
+                width: win.w,
+                height: win.minimized ? TITLE_H : win.h,
+                zIndex: win.z,
+                background: "var(--panel-solid)",
+                border: "1px solid var(--border-strong)",
+                boxShadow: "var(--shadow)",
+              }
         }
         onPointerDown={() => focusInstrument(win.id)}
       >
@@ -1302,32 +1375,56 @@ function Window({ win }: { win: InstrumentWindow }) {
                 entfernt sich nach der Messung selbst). Oszi/FG messen im Gerät
                 (DeviceFit) und brauchen die Probe nicht. */}
             {!isDevice && win.config.deviceFit !== 1 && (
-              <PanelProbe width={WINDOW_SPECS[win.kind].w} onMeasure={reportNatural}>
+              <PanelProbe width={spec.w} onMeasure={reportNatural}>
                 {body()}
               </PanelProbe>
             )}
             {body()}
           </div>
         )}
-        {!win.minimized && !win.docked && (
-          <div
-            role="button"
-            aria-label="Fenstergröße ziehen"
-            data-no-drag
-            title="Größe ziehen – Geräte behalten ihre Proportionen (kleiner = maßstäblich kleiner, größer = Gerät wächst mit)"
-            className="absolute bottom-0 right-0 grid h-5 w-5 place-items-end rounded-br-xl"
-            style={{ cursor: "nwse-resize", touchAction: "none" }}
-            onPointerDown={beginResize}
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden className="text-mute" style={{ color: "var(--text-mute)" }}>
-              <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.85">
-                <path d="M15 7 L7 15" />
-                <path d="M15 11 L11 15" />
-                <path d="M15 14.5 L14.5 15" />
-              </g>
-            </svg>
-          </div>
-        )}
+        {/* W43: vier Eck-Griffe – Geräte halten ihre Proportionen, Panels sind frei. */}
+        {!win.minimized &&
+          !win.docked &&
+          CORNERS.map((c) => {
+            const top = c === "nw" || c === "ne";
+            const size = top ? GRIP_TOP : GRIP_BOTTOM;
+            return (
+              <div
+                key={c}
+                role="button"
+                aria-label="Fenstergröße ziehen"
+                data-corner={c}
+                data-no-drag
+                title="Größe ziehen – Geräte behalten ihre Proportionen, größer als das Gerät geht nicht"
+                className="absolute grid place-items-center rounded-md"
+                style={{
+                  ...CORNER_STYLE[c],
+                  width: size,
+                  height: size,
+                  cursor: CORNER_CURSOR[c],
+                  touchAction: "none",
+                  zIndex: 5,
+                }}
+                onPointerDown={(e) => beginResize(e, c)}
+              >
+                {!top && (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 18 18"
+                    aria-hidden
+                    style={{ transform: `rotate(${CORNER_ROT[c]}deg)`, color: "var(--text-mute)", opacity: 0.8 }}
+                  >
+                    <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none">
+                      <path d="M15 7 L7 15" />
+                      <path d="M15 11 L11 15" />
+                      <path d="M15 14.5 L14.5 15" />
+                    </g>
+                  </svg>
+                )}
+              </div>
+            );
+          })}
       </div>
     </WindowFitContext.Provider>
   );

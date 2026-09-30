@@ -22,6 +22,7 @@ import { RealtimeEngine } from "@/lib/sim/realtime";
 import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
 import { loadLibraryLocal, loadProjectLocal, saveLibraryLocal, saveProjectLocal } from "@/lib/storage";
 import { IntegrationMethod } from "@/lib/sim/engine";
+import { BENCH_PAD } from "@/lib/windows/geometry";
 import { DEFAULT_MCU_SKETCH } from "@/lib/sim/digital";
 
 /* Auto-Save: 2 s nach der letzten Schaltplan-Änderung in den localStorage.
@@ -296,16 +297,20 @@ const FG_STAGE = { w: 1160, h: 545 };
 function fgDefaultSize(): { w: number; h: number } {
   const vw = (typeof window !== "undefined" ? window.innerWidth : 1600) - 8;
   const vh = (typeof window !== "undefined" ? window.innerHeight : 1000) - 8;
+  // Runde 21 (W44): + Werkbank-Rahmen (2× BENCH_PAD), wie im Fenster-Fit.
   return {
-    w: Math.max(640, Math.min(FG_STAGE.w + CHROME_W, vw)),
-    h: Math.max(480, Math.min(FG_STAGE.h + CHROME_H, vh)),
+    w: Math.max(320, Math.min(FG_STAGE.w + 2 * BENCH_PAD + CHROME_W, vw)),
+    h: Math.max(240, Math.min(FG_STAGE.h + 2 * BENCH_PAD + CHROME_H, vh)),
   };
 }
 
-/** Runde 20 (W39): Grenzen des Fenster-Griffs. Geräte dürfen maßstäblich bis
- *  640×480 herunter (darunter ist nichts mehr bedienbar); Panels bis 320×220. */
-const DEVICE_MIN = { w: 640, h: 480 };
-const PANEL_MIN = { w: 320, h: 220 };
+/** Runde 21 (W43): Untergrenzen des Fenster-Griffs. Runde 20 hatte 640×480 –
+ *  auf knappen Bildschirmen war das bereits die Startgröße, sodass sich Geräte
+ *  überhaupt nicht mehr verkleinern ließen („bleiben riesig"). Jetzt darf ein
+ *  Gerät maßstäblich bis 320×240 herunter (Skalierung bis ≈ 0,23), Panels bis
+ *  240×180 – die Obergrenze bleibt jeweils die Startgröße am Inhalt. */
+const DEVICE_MIN = { w: 320, h: 240 };
+const PANEL_MIN = { w: 240, h: 180 };
 
 /** Runde 20 (W40): Ein Fenstermanager für alle Instrumente. Je Art stehen hier
  *  die Entwurfsbreite (Panel-Layout) und die Mindesthöhe bzw. das natürliche
@@ -337,15 +342,16 @@ export const WINDOW_SPECS: Record<InstrumentKind, WindowSpec> = {
 
 const newId = (prefix: string) => `${prefix}_` + Math.random().toString(36).slice(2, 10);
 
-/** Runde 16/19 (W31a/W35): Standard-Gerätefenster für das OTX2074 – exakt
- *  Chassis (1420×688) + Chrome, nie größer als der Viewport (Mindestmaß
- *  640×480); bei Platzmangel skaliert DeviceFit das Gerät herunter. */
+/** Runde 16/19/21 (W31a/W35/W44): Startgröße des Oszi-Fensters – Chassis
+ *  (1420×688) + Werkbank-Rahmen + Chrome, nie größer als der Viewport; bei
+ *  Platzmangel skaliert DeviceFit das Gerät herunter und der Fenster-Fit zieht
+ *  die Breite nach. */
 function scopeDefaultSize(): { w: number; h: number } {
   const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
   const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
   return {
-    w: Math.max(640, Math.min(SCOPE_CHASSIS.w + CHROME_W, vw - 8)),
-    h: Math.max(480, Math.min(SCOPE_CHASSIS.h + CHROME_H, vh - 8)),
+    w: Math.max(320, Math.min(SCOPE_CHASSIS.w + 2 * BENCH_PAD + CHROME_W, vw - 8)),
+    h: Math.max(240, Math.min(SCOPE_CHASSIS.h + 2 * BENCH_PAD + CHROME_H, vh - 8)),
   };
 }
 
@@ -1090,12 +1096,22 @@ export const useEditor = create<EditorState>((set, get) => ({
         instruments: Array.isArray(stored.instruments)
           ? (stored.instruments as InstrumentWindow[])
               .filter((w) => !(w.kind === "scope" && !w.instanceId))
-              .map((w) =>
-                // Runde 16 (W31a): alter buggy Default (920×640) → neue Standardgröße.
-                w.kind === "scope" && w.instanceId && w.w === 920 && w.h === 640
-                  ? { ...w, ...scopeDefaultSize() }
-                  : w,
-              )
+              .map((w) => {
+                // Runde 21 (W42): Geräte-Fenster nach dem Laden neu am Gerät
+                // ausrichten (deviceFit: 0) – die Fenstergröße hängt am
+                // sichtbaren Gerät inkl. Werkbank-Rahmen, alte Werte passen nicht.
+                const device = w.kind === "scope" || w.kind === "funcgen";
+                const stretched =
+                  w.kind === "scope" && w.instanceId && w.w === 920 && w.h === 640
+                    ? scopeDefaultSize()
+                    : null;
+                if (!device && !stretched) return w;
+                return {
+                  ...w,
+                  ...(stretched ?? {}),
+                  config: device ? { ...w.config, deviceFit: 0 } : w.config,
+                };
+              })
           : [],
         lastSavedAt: stored.savedAt ? new Date(stored.savedAt).getTime() : null,
       });

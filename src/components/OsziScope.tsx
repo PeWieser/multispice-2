@@ -19,6 +19,7 @@ import { click } from "./oszi2/sound";
 import { CH_COLORS, clamp, defaultSettings, type ChannelSettings, type Env, type ProbeState, type Settings } from "./oszi2/types";
 import { engine as simEngine, useEditor, type InstrumentWindow } from "@/state/editor";
 import { DeviceFit, useReportNatural } from "./DeviceFit";
+import { BENCH_PAD } from "@/lib/windows/geometry";
 import { LeadBanner } from "./LeadBanner";
 
 const NCH = 4;
@@ -28,11 +29,17 @@ const NCH = 4;
 const OSZI_CHASSIS = { w: 1420, h: 688 };
 
 /** Labortisch-Hintergrund aus oszi v2 (dort am <body>). */
-/* Runde 20 (W38): Der braune Labortisch-Hintergrund aus oszi v2 ist raus. Er
- *  war im Fenster als Streifen links/rechts neben dem Gehäuse zu sehen, weil
- *  Fenster-Chrome zu großzügig gerechnet war. Jetzt gilt: Fenster = Gerät +
- *  Chrome – das Gehäuse füllt die Fläche bündig aus. */
-const WINDOW_BG: React.CSSProperties = { background: "transparent" };
+/** Labortisch-Hintergrund aus oszi v2 (dort am <body>) – Runde 21 (W44):
+ *  ausdrücklicher Nutzerwunsch („den Hintergrund möchte ich doch wieder haben,
+ *  das sah schöner aus"). Er ist nur dort zu sehen, wo neben dem herunter-
+ *  gerechneten Gerät Platz bleibt; bei Fenstergröße = Gerät + Chrome verschwindet
+ *  er hinter dem Gehäuse. */
+const BENCH_BG: React.CSSProperties = {
+  background:
+    "radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.08), transparent 60%)," +
+    "repeating-linear-gradient(90deg, rgba(0,0,0,.05) 0 2px, transparent 2px 7px)," +
+    "linear-gradient(180deg, #5b4a3a 0%, #4a3b2e 100%)",
+};
 interface ProbeCfg {
   atten: 1 | 10;
   comp: number;
@@ -275,7 +282,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   return (
     <div
       className="relative flex h-full w-full flex-col overflow-hidden"
-      style={{ ...WINDOW_BG, cursor: held !== null ? "crosshair" : undefined }}
+      style={{ ...BENCH_BG, cursor: held !== null ? "crosshair" : undefined }}
     >
       {held !== null && (
         <LeadBanner
@@ -285,7 +292,10 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
           onCancel={() => useEditor.getState().setLeadArmed(null)}
         />
       )}
-      <div className="flex min-h-0 flex-1 flex-col" style={{ userSelect: "none" }}>
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        style={{ userSelect: "none", padding: BENCH_PAD }}
+      >
         <DeviceFit natural={OSZI_CHASSIS} onMeasure={reportNatural}>
           <div className="otx-scope" data-no-drag>
             <Oscilloscope
