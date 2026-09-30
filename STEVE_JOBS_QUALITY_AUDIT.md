@@ -1909,3 +1909,120 @@ presettest — alle grün) · `npx --no-install next build` ✓.
 - Der Buck rechnet jetzt durch, aber der Startvorgang ist langsam (VOUT erreicht erst nach
   mehreren ms die Nähe des Sollwerts). Rein kosmetisch für die Anzeige, nicht Teil dieser Runde.
 
+---
+
+## §25 — Runde 25: Netz zeichnen wie in Multisim (Pin anklicken), Anschluss-Magnet, kein Fadenkreuz
+
+**Auftrag (wörtlich):** „manche Bauteile sind leicht verschoben, was zu schrägen leiterbahnen bzw. am
+Anfang nicht verbundenen pins führt. Also das soll so funktionieren. Ich platziere über die library
+zwei bauteile. Dann klicke ich einmal mit der maus auf einen pin, worauf ich im netzmodus bin und
+direkt ausgehend von dem pin ein netz zeichne, wenn ich auf einen anderen pin oder netz klicke, bin
+ich aus dem modus raus und die leitung verbunden. klicke ich auf die leinwand, wo nichts ist, wird
+hier ein eckpunkt gesetzt, wie in multisim. mit esc will ich aus jedem modi raus. ausserdem hasse ich
+das fadenkreuz, das soll weg. beim zeichnen will ich was sinnvoll ist, wie einen stift, oder eine art
+drahtrolle (stilisiert). ein fadenkreuz macht halt null sinn."
+
+### 25.0 · Prüfung: woher kommen „leicht verschoben" und „nicht verbundene Pins"?
+
+Gemessen über alle 410 Bauteile der Bibliothek (2098 Pins, `_tmp`-Skript, danach gelöscht):
+**alle Pins liegen exakt auf dem 10-px-Raster** — die Symbole sind also in Ordnung. Die Ursachen
+liegen woanders:
+
+1. **Beispielschaltungen haben krumme Koordinaten.** `astable555` und `arduino-blink` je 2 Bauteile
+   neben dem Raster (→ 4 Pins off-grid), `logic-counter` 2 (→ 2 Pins); zusätzlich liegen in mehreren
+   Beispielen 1–7 Leitungsenden nicht exakt auf einem Pin und es gibt einzelne **schräge Segmente**
+   (`astable555`, `arduino-blink`). Das sind genau die „leicht verschobenen Bauteile" und „schrägen
+   Leiterbahnen" aus dem Bericht.
+2. **Der Anschluss beim Zeichnen ist zu pingelig.** Verbunden wird nur, wenn der Klickpunkt < 1 px
+   neben Pin/Leitung liegt (`pointOnSegment`-Toleranz). Ein Klick 3 px neben der Leitung, „auf" einen
+   Pin oder ans Leitungsende erzeugt deshalb ein **offenes Ende** („am Anfang nicht verbundener Pin").
+3. **Der Netzmodus ist kein Modus.** Heute: Pin anklicken startet nur mit vorher gewähltem
+   Werkzeug `W`; jeder weitere Klick **beendet** die Leitung und startet eine neue (statt Ecken zu
+   setzen); es gibt keinen Magneten, keine Hervorhebung des Ziels und keinen Abschluss „auf Netz".
+4. **Modus-Ausstieg ist unvollständig.** `Esc` räumt nur Leitung + Platzieren + Probe; Bauteil-/
+   Proben-Platzieren, Messleitungs-Pick, Text-/Label-Eingabe und Rechtsklick-Menü bleiben teils offen.
+5. **Fadenkreuz** steht an drei Stellen im Code (`Canvas.tsx` Z. 1387/1564/1855) — ersatzlos weg.
+
+### 25.1 · Arbeitspakete
+
+- **W62 · Geometrie-Bereinigung.** Neues `normalizeDocGeometry(doc)` in `model.ts`: Bauteile aufs
+  Raster rücken (Pins liegen dann garantiert auf dem Raster), Leitungsenden auf Pins rasten,
+  Segmente rechtwinklig machen, doppelte Punkte entfernen. Angewendet auf die Beispiele beim Bau,
+  nach Import und über den Menüpunkt „Leitungen prüfen & reparieren". Damit sind die Beispiele
+  sauber und alte Pläne reparierbar.
+- **W63 · Netzmodus wie in Multisim.** Neuer Zeichenzustand (`netDraft`) statt der bisherigen
+  Klick-Kette:
+  - Klick auf einen **Pin** (auch im Auswahlmodus, ohne vorher `W` zu drücken) startet den Modus,
+    Anker = exakter Pin-Punkt.
+  - Vorschau läuft **rechtwinklig** mit (Rubber-Band, Ecke kippt je nach Mausposition).
+  - Klick auf **leere Fläche** = **Eckpunkt** setzen (bleibt im Modus, wie in Multisim).
+  - Klick auf **anderen Pin / Leitung / Verbindungspunkt** = exakt anschließen, Leitung ist ein
+    Objekt mit allen Ecken, Modus endet.
+  - `Esc`, Doppelklick oder Rechtsklick beendet den Modus (Verhalten siehe Frage unten).
+- **W64 · Anschluss-Magnet.** Beim Zeichnen wird in bildschirmkonstanter Toleranz (≈ 12 px, zoom-
+  unabhängig) das beste Ziel gesucht: **Pin → Verbindungspunkt → Leitung (Fußpunkt)**. Der
+  Vorschau-Endpunkt springt exakt auf das Ziel, das Ziel wird hervorgehoben (Ring + Netzname).
+  Beim Abschluss auf einer fremden Leitung wird automatisch ein **Verbindungspunkt** gesetzt (W61).
+- **W65 · Cursor.** Fadenkreuz restlos raus. Über Pin/Leitung: „Ziel"-Cursor (Magnet), beim Zeichnen
+  ein Stift- oder Drahtrollen-Cursor als SVG (Form nach Nutzerantwort).
+- **W66 · Esc verlässt jeden Modus.** Ein zentraler `exitAllModes()`: Zeichnen, Platzieren (Bauteil),
+  Proben-Setzen, Messleitungs-Pick, Text-/Label-Eingabe, Kontextmenü, Auswahlrahmen → Auswahlmodus.
+- **Tests:** `scripts/wiretest.ts` um W62/W63/W64-Prüfungen erweitern (Anschluss-Magnet trifft Pin
+  3 px daneben exakt; Ecke setzen erzeugt einen Punkt; Klick auf Leitung erzeugt Verbindungspunkt und
+  Verbindung; Geometrie-Normalisierung der Beispiele: 0 Pins off-grid, 0 schräge Segmente,
+  0 offene Enden) sowie ein Test, dass die Beispiele nach W62 unverändert funktionieren
+  (`presettest`).
+### 25.2 · Rückfragen und Antworten (bindend)
+
+| Frage | Antwort |
+|---|---|
+| Welcher Cursor ersetzt das Fadenkreuz? | **Stift** (schräger Bleistift, Spitze am Anschlusspunkt) |
+| Netz auch auf leerer Leinwand beginnen? | **Ja, mit `W`** und Klick ins Leere |
+| Was macht `Esc` mit der angefangenen Leitung? | **Verwerfen** – die Leitung wird nicht gespeichert |
+
+### 25.3 · Umsetzung (W62–W66, alles verifiziert)
+
+- **W62 · Geometrie-Bereinigung** (`src/lib/schematic/netdraw.ts` → `normalizeDocGeometry`):
+  Bauteile aufs Raster, Leitungsenden auf Pins (`snapWiresToPins`), Segmente rechtwinklig
+  (`straightenWirePoints`). Angewendet beim Bau der Beispiele (`tools.ts`), nach jedem Import
+  (`importers.ts`) und über **„Leitungen prüfen & reparieren"** (`editor.ts`), das jetzt auch
+  die ausgewählten Bauteile aufs Raster holt. Ergebnis, gemessen über die 8 Beispiele:
+  **0 verschobene Bauteile, 0 Off-Grid-Pins, 0 schräge Segmente, 0 offene Enden** (vorher:
+  `astable555` und `arduino-blink` je 2 verschobene Bauteile + je 1 schräges Segment,
+  `logic-counter` 2, insgesamt 7–13 lose Enden).
+- **W63 · Netzmodus** (`netClick` in `netdraw.ts`, verdrahtet in `Canvas.tsx`):
+  1. Klick auf einen **Pin** (auch ohne vorher `W` zu drücken) öffnet den Modus, Anker ist der
+     exakte Pin-Punkt; die Vorschau läuft sofort rechtwinklig mit.
+  2. Klick auf **leere Fläche** = **Eckpunkt**, der Modus bleibt offen (wie in Multisim).
+  3. Klick auf **Pin / Verbindungspunkt / Leitung** = exakter Anschluss, eine Leitung mit allen
+     Ecken entsteht, der Modus endet (Werkzeug zurück auf Auswahl).
+  4. `Esc` **verwirft** die angefangene Leitung, `Esc`/Rechtsklick/Doppelklick beenden den Modus.
+     Mit `W` darf ein Netz auch auf freier Fläche beginnen.
+  - Bewusst **nicht** geändert: im Auswahlmodus startet ein Klick auf eine Leitung **kein** Netz
+    (sonst wäre das Ziehen an Leitungsgriffen, W54, kaputt) – geprüft.
+- **W64 · Anschluss-Magnet** (`findNetTarget`): bildschirmkonstante 14 px, Priorität
+  **Pin → Verbindungspunkt → Leitung (Fußpunkt)**. Der Vorschau-Endpunkt springt exakt auf das
+  Ziel, das Ziel wird mit Ring und Namen hervorgehoben; ein Klick 3 px neben einem Pin verbindet
+  jetzt korrekt. Endet die Leitung auf einer fremden Leitung, setzt `addWire` automatisch einen
+  **Verbindungspunkt** (W61) – die Kreuzung ist damit sichtbar und leitend.
+- **W65 · Cursor** (`src/components/cursors.ts`): Fadenkreuz restlos entfernt. Beim Zeichnen und
+  über einem möglichen Anschluss zeigt ein **Stift** (Spitze am Zeiger) die Tätigkeit; wer eine
+  Messleitung in der Hand hat, sieht einen **Bananenstecker** (vorher Fadenkreuz im Oszi-Fenster).
+  Die übrigen Zeiger (Leitungsgriff „copy/grab", Pan, Löschen) bleiben wie gehabt.
+- **W66 · `Esc` verlässt jeden Modus**: Zeichnen (verworfen), Bauteil-/Proben-Platzieren,
+  Messleitungs-Pick, Auswahlrahmen und Rechtsklick-Menü → zurück zur Auswahl. Ein Werkzeugwechsel
+  beendet ein angefangenes Netz ebenfalls (kein unsichtbarer Zustand). Dialoge (Bibliothek,
+  Einstellungen) hatten `Esc` schon.
+- **Werkzeugleiste:** Die Schaltfläche „Leitung" zeigt jetzt ✎ statt ∿ – sie ist der Einstieg in
+  denselben Modus (Pin anklicken geht auch ohne sie).
+- **Tests** (`scripts/wiretest.ts`, 20 neue Prüfungen): Geometrie-Bereinigung (Bauteil aufs Raster,
+  Ende exakt am Pin, keine schrägen Segmente, Beispiele sauber), Magnet (Pin 3 px daneben, Fußpunkt
+  auf der Leitung, Priorität, Verbindungspunkt, kein Ziel in der Ferne), Klickfolge
+  „Pin → Ecke → Pin" (rechtwinklig, beide Pins im selben Netz), Anschluss mitten auf einer Leitung
+  (+ Verbindungspunkt), Gegenprobe Auswahlmodus/Leitungswerkzeug.
+
+### 25.4 · Verifikation
+
+`tsc --noEmit` ✓ · `eslint src scripts` ✓ · `npm test` ✓ (142 Prüfungen, 0 Fehler) ·
+`next build` ✓ · Vorschau `/` HTTP 200.
+

@@ -19,10 +19,10 @@ import {
   instanceBounds,
   pinPosition,
   pointOnSegment,
-  snapWiresToPins,
   straightenWirePoints,
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
+import { normalizeDocGeometry } from "@/lib/schematic/netdraw";
 import { orthoFollow } from "@/lib/schematic/ortho";
 import { RealtimeEngine } from "@/lib/sim/realtime";
 import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
@@ -990,26 +990,28 @@ export const useEditor = create<EditorState>((set, get) => ({
         w.points = straightenWirePoints(w.points);
         n++;
       }
-      // Enden wieder auf die Pins rasten (begradigen kann Pins minimal verfehlen)
-      snapWiresToPins(d, 15);
+      // Enden wieder auf die Pins rasten (begradigen kann Pins minimal verfehlen);
+      // W62: dabei auch die ausgewählten Bauteile aufs Raster holen.
+      for (const inst of d.instances) {
+        if (!sel.has(inst.id)) continue;
+        inst.x = Math.round(inst.x / GRID) * GRID;
+        inst.y = Math.round(inst.y / GRID) * GRID;
+      }
+      normalizeDocGeometry(d);
     });
     get().log("ok", `${n} Leitung${n > 1 ? "en" : ""} begradigt – Stützpunkte auf dem Raster, rechte Winkel`);
   },
 
   repairWires: () => {
-    let moved = 0;
-    let count = 0;
+    // W62: „Leitungen prüfen & reparieren" bringt auch gewachsene Pläne in Form:
+    // Bauteile aufs Raster, Enden auf Pins, Segmente rechtwinklig. Genau die
+    // Fälle „leicht verschobenes Bauteil", „schräge Leiterbahn", „Pin am Anfang
+    // nicht verbunden" verschwinden damit.
+    let rep = { instances: 0, ends: 0, wires: 0 };
     get().commit((d) => {
-      const rep = snapWiresToPins(d, 15);
-      moved = rep.moved;
-      for (const w of d.wires) {
-        const before = JSON.stringify(w.points);
-        w.points = straightenWirePoints(w.points);
-        if (JSON.stringify(w.points) !== before) count++;
-      }
-      snapWiresToPins(d, 15);
+      rep = normalizeDocGeometry(d);
     });
-    get().log("ok", `Leitungen geprüft: ${moved} Ende${moved === 1 ? "" : "n"} auf Pins gerastet, ${count} Leitung${count === 1 ? "" : "en"} begradigt`);
+    get().log("ok", `Leitungen geprüft: ${rep.instances} Bauteil${rep.instances === 1 ? "" : "e"} aufs Raster gerückt, ${rep.ends} Ende${rep.ends === 1 ? "" : "n"} auf Pins gerastet, ${rep.wires} Leitung${rep.wires === 1 ? "" : "en"} begradigt`);
   },
 
   // Runde 17 (W32c): Messleitung auf eine Leitung/einen Pin legen. Die alte

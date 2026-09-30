@@ -13,7 +13,7 @@ import {
   pinPosition,
   rotatePoint,
 } from "@/lib/schematic/model";
-import { obstaclesFor, routeOrthogonal } from "@/lib/schematic/tools";
+import { findNetTarget, netClick, previewNetPath, type NetTarget } from "@/lib/schematic/netdraw";
 import { engine, hitTestInstance, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
 import { LEGACY_PROBE_COLORS, PROBE_CSSVAR, PROBE_HEX } from "@/lib/probe-style";
 import { Library as LibIcon, Sparkles } from "lucide-react";
@@ -23,6 +23,7 @@ import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
+import { PEN_CURSOR } from "@/components/cursors";
 
 interface Pt { x: number; y: number; }
 
@@ -92,8 +93,10 @@ export default function Canvas() {
     marquee: null as null | { x0: number; y0: number; x1: number; y1: number },
     dragStart: { x: 0, y: 0 },
     moved: false,
-    wireStart: null as null | Pt,
-    wirePreview: [] as Pt[],
+    // W63: Netzmodus. Anker + bereits gesetzte Ecken; null = kein Netz in Arbeit.
+    netDraft: null as null | { anchor: Pt; corners: Pt[] },
+    // W64: Ziel unter dem Zeiger (Pin/Verbindungspunkt/Leitung) für den Magneten.
+    netHover: null as null | NetTarget,
     lastMouse: { x: 0, y: 0 },
     duplicated: false,
   });
@@ -115,21 +118,6 @@ export default function Canvas() {
   const toScreen = useCallback((p: Pt): { x: number; y: number } => {
     const { view } = useEditor.getState();
     return { x: (p.x - view.x) * view.zoom, y: (p.y - view.y) * view.zoom };
-  }, []);
-
-  const findPin = useCallback((doc: SchematicDoc, p: Pt, r = 9): Pt | null => {
-    let best: Pt | null = null;
-    let bestD = r * r;
-    for (const inst of doc.instances) {
-      const part = PART_MAP[inst.partId];
-      if (!part) continue;
-      part.pins.forEach((_, idx) => {
-        const pos = pinPosition(inst, idx);
-        const d = (pos.x - p.x) ** 2 + (pos.y - p.y) ** 2;
-        if (d < bestD) { bestD = d; best = pos; }
-      });
-    }
-    return best;
   }, []);
 
   const findPinInfo = useCallback((doc: SchematicDoc, p: Pt, r = 12): { inst: Instance; pinIdx: number; pos: Pt; pinName: string; net?: string } | null => {
@@ -863,9 +851,44 @@ export default function Canvas() {
     }
 
     const sr = stateRef.current;
-    if (sr.wireStart && sr.wirePreview.length > 1) {
-      ctx.strokeStyle = css("--accent", "#5b8cff"); ctx.setLineDash([5, 4]); ctx.lineWidth = 2 / view.zoom;
-      ctx.beginPath(); sr.wirePreview.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke(); ctx.setLineDash([]);
+    // W63/W64: Netz in Arbeit – gesetzte Ecken stehen fest, der Rest läuft als
+    // gestrichelte Vorschau bis zum Zeiger bzw. exakt auf das Magnet-Ziel.
+    if (sr.netDraft) {
+      const draft = sr.netDraft;
+      const ref = draft.corners.length ? draft.corners[draft.corners.length - 1] : draft.anchor;
+      const hover = sr.netHover;
+      const magnetHit = hover && Math.hypot(hover.x - ref.x, hover.y - ref.y) > 0.01 ? { x: hover.x, y: hover.y } : null;
+      const preview = previewNetPath(draft.anchor, draft.corners, magnetHit ?? { x: cursor.x, y: cursor.y });
+      const zLine = 2 / Math.max(view.zoom, 0.3);
+      // fester Teil (Anker + gesetzte Ecken)
+      ctx.strokeStyle = css("--accent", "#5b8cff"); ctx.lineWidth = zLine;
+      ctx.beginPath();
+      ctx.moveTo(draft.anchor.x, draft.anchor.y);
+      for (const c of draft.corners) ctx.lineTo(c.x, c.y);
+      ctx.stroke();
+      // Vorschau ab dem letzten festen Punkt
+      ctx.setLineDash([5, 4]); ctx.lineWidth = zLine * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(ref.x, ref.y);
+      for (let i = 1; i < preview.length; i++) ctx.lineTo(preview[i].x, preview[i].y);
+      ctx.stroke(); ctx.setLineDash([]);
+      // Anker- und Eckpunkte sichtbar machen
+      ctx.fillStyle = css("--accent", "#5b8cff");
+      for (const p of [draft.anchor, ...draft.corners]) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3 / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.fill();
+      }
+      // Magnet-Ziel hervorheben, damit klar ist, wo angeschlossen wird
+      if (magnetHit && hover) {
+        const r = hover.kind === "pin" ? 7 : 6;
+        ctx.save();
+        ctx.strokeStyle = hover.kind === "wire" ? css("--accent-2", "#22d3ee") : css("--ok", "#4ade80");
+        ctx.lineWidth = 1.8 / Math.max(view.zoom, 0.3);
+        ctx.beginPath(); ctx.arc(hover.x, hover.y, r / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = css("--text-dim", "#cbd5e1");
+        ctx.font = `${11 / Math.max(view.zoom, 0.5)}px ui-monospace, monospace`;
+        ctx.fillText(hover.label, hover.x + 12 / Math.max(view.zoom, 0.5), hover.y - 8 / Math.max(view.zoom, 0.5));
+        ctx.restore();
+      }
     }
 
     if (st.tool === "place" && st.placingPartId || useHud.getState().dragPart) {
@@ -1099,6 +1122,32 @@ export default function Canvas() {
 
     if (ctxMenu) { setCtxMenu(null); return; }
 
+    // W63/W64: Netzmodus wie in Multisim – hat Vorrang, solange gezeichnet
+    // wird. Pin anklicken öffnet den Modus, Klick ins Leere setzt einen
+    // Eckpunkt, Klick auf Pin/Verbindungspunkt/Leitung schließt exakt an und
+    // beendet ihn (Esc verwirft die angefangene Leitung).
+    const magnet = 14 / Math.max(st.view.zoom, 0.25);
+    {
+      const res = netClick(st.doc, sr.netDraft, world, sp, { magnet, allowStartOnEmpty: st.tool === "wire", startOnWire: st.tool === "wire" });
+      if (res) {
+        if (res.kind === "start") {
+          sr.netDraft = res.draft;
+          sr.netHover = null;
+          if (canvasRef.current) canvasRef.current.style.cursor = PEN_CURSOR;
+          st.log("info", `Netz von (${Math.round(res.draft.anchor.x)}, ${Math.round(res.draft.anchor.y)}): Klick setzt Ecken, Klick auf Pin/Leitung verbindet, Esc bricht ab`);
+        } else if (res.kind === "corner") {
+          sr.netDraft = res.draft;
+          st.log("info", `Eckpunkt gesetzt (${Math.round(sp.x)}, ${Math.round(sp.y)}) – weiter zeichnen, Esc bricht ab`);
+        } else {
+          st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: res.points });
+          st.log("ok", `Netz angeschlossen – ${res.target.label}`);
+          sr.netDraft = null; sr.netHover = null;
+          st.setTool("select");
+        }
+        return;
+      }
+    }
+
     // Runde 17 (W32c): Messleitung legen – Vorrang vor allen Werkzeugen.
     // Klick auf Leitung oder Bauteil-Pin verbindet den gehaltenen Kanal dorthin.
     if (st.leadArmed && e.button === 0 && !spaceDown.current) {
@@ -1235,19 +1284,6 @@ export default function Canvas() {
       return;
     }
 
-    if (st.tool === "wire") {
-      const pin = findPin(st.doc, world) ?? sp;
-      if (!sr.wireStart) {
-        sr.wireStart = pin; sr.wirePreview = [pin];
-      } else {
-        const pts = sr.wirePreview.length > 1 ? sr.wirePreview : [sr.wireStart, pin];
-        st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: pts });
-        const endsOnPin = !!findPin(st.doc, pin, 8);
-        if (endsOnPin) { sr.wireStart = null; sr.wirePreview = []; }
-        else { sr.wireStart = pin; sr.wirePreview = [pin]; }
-      }
-      return;
-    }
 
     if (st.tool === "label" || st.tool === "text") {
       const rect = canvasRef.current?.getBoundingClientRect();
@@ -1552,16 +1588,20 @@ export default function Canvas() {
 
     if (sr.marquee) { sr.marquee.x1 = world.x; sr.marquee.y1 = world.y; }
 
-    if (sr.wireStart) {
-      const target = findPin(st.doc, world) ?? sp;
-      sr.wirePreview = st.autoRoute ? routeOrthogonal(sr.wireStart, target, obstaclesFor(st.doc)) : [sr.wireStart, { x: target.x, y: sr.wireStart.y }, target];
-    }
+    // W64: Anschluss-Magnet. Das beste Ziel (Pin → Verbindungspunkt → Leitung)
+    // wird gemerkt, die Vorschau springt exakt dorthin – Klicks müssen nicht
+    // mehr pixelgenau treffen, Anschlüsse gehen nicht mehr verloren.
+    const magnet = 14 / Math.max(st.view.zoom, 0.25);
+    sr.netHover = findNetTarget(st.doc, world, magnet);
 
-    // W4: Pins ändern nur den Cursor – kein Text beim Hover.
-    const pinInfo = findPinInfo(st.doc, world, 12);
-    if (pinInfo && !st.sim.running) {
-      const canvas = canvasRef.current;
-      if (canvas) canvas.style.cursor = "crosshair";
+    // W65: kein Fadenkreuz mehr. Beim Zeichnen (und über einem möglichen
+    // Anschluss) zeigt der Stift, dass hier ein Netz entsteht. Andere Zeiger
+    // (Leitungsgriff „copy/grab", Pan, Löschen) bleiben unangetastet.
+    const canvasEl = canvasRef.current;
+    if (canvasEl && !(sr as any)._hoveredHandle) {
+      const drawing = Boolean(sr.netDraft) || st.tool === "wire" || sr.netHover !== null;
+      if (drawing) canvasEl.style.cursor = PEN_CURSOR;
+      else if (!spaceDown.current && !sr.panning && !sr.dragging) canvasEl.style.cursor = st.tool === "erase" ? "not-allowed" : st.tool === "pan" ? "grab" : "default";
     }
 
     // Human Design: Tooltips everywhere – explain how to edit, no flicker
@@ -1696,7 +1736,8 @@ export default function Canvas() {
 
   const onDoubleClick = (e: React.MouseEvent) => {
     const sr = stateRef.current;
-    if (sr.wireStart) { sr.wireStart = null; sr.wirePreview = []; return; }
+    // W63: Doppelklick beendet den Netzmodus (die angefangene Leitung wird verworfen).
+    if (sr.netDraft) { sr.netDraft = null; sr.netHover = null; return; }
     const st = useEditor.getState();
     const world = toWorld(e.clientX, e.clientY);
     // Double-click on wire handle deletes point (if >2 points) – delightful editing
@@ -1797,7 +1838,12 @@ export default function Canvas() {
       else if (e.key.toLowerCase() === "m") st.mirrorSelection();
       else if (e.key.toLowerCase() === "w") st.setTool("wire");
       else if (e.key === "Escape") {
-        stateRef.current.wireStart = null; stateRef.current.wirePreview = [];
+        // W66: Esc verlässt jeden Modus. Die angefangene Leitung wird verworfen
+        // (wie am echten Editor), Platzieren/Proben/Messleitungs-Pick ebenso.
+        const sr = stateRef.current;
+        sr.netDraft = null; sr.netHover = null;
+        sr.marquee = null; (sr as any).wireSegDrag = null;
+        useEditor.getState().setLeadArmed(null);
         st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null); setCtxMenu(null);
       } else if (e.key.toLowerCase() === "v") st.setPlacingProbe("voltage");
       else if (e.key.toLowerCase() === "a") st.setPlacingProbe("current");
@@ -1822,7 +1868,15 @@ export default function Canvas() {
 
   useEffect(() => { const t = setTimeout(() => useEditor.getState().fitView(), 120); return () => clearTimeout(t); }, []);
 
+
   const tool = useEditor((s) => s.tool);
+
+  // W66: Werkzeugwechsel beendet ein angefangenes Netz – kein Zustand, der
+  // unsichtbar weiterläuft, wenn der Nutzer z. B. auf „Auswahl" umschaltet.
+  useEffect(() => {
+    const sr = stateRef.current;
+    if (tool !== "wire") { sr.netDraft = null; sr.netHover = null; }
+  }, [tool]);
   const leadArmed = useEditor((s) => s.leadArmed);
   // Runde 19 (W36): Quelle der aufgenommenen Messleitung markieren (Oszi-Pin
   // CH1–CH4 bzw. FG-Pin OUT1/OUT2) – man sieht, wo das Kabel herkommt.
@@ -1852,13 +1906,17 @@ export default function Canvas() {
         className="block h-full w-full touch-none"
         aria-label="Schaltplan Zeichenfläche"
         tabIndex={0}
-        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" || tool.startsWith("probe") || leadArmed ? "crosshair" : tool === "erase" ? "not-allowed" : "default" }}
+        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? "not-allowed" : "default" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onDoubleClick={onDoubleClick}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          // W63: Rechtsklick bricht das Zeichnen ab (Multisim-Verhalten).
+          if (stateRef.current.netDraft) { stateRef.current.netDraft = null; stateRef.current.netHover = null; }
+        }}
         onDragOver={(e) => {
           const types = Array.from(e.dataTransfer.types);
           if (types.includes("text/multispice-part") || types.includes("Files")) {

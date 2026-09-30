@@ -1,6 +1,7 @@
 /** Smart orthogonal auto-routing (A*) and ready-to-run example circuits. */
 
-import { GRID, Instance, SchematicDoc, emptyDoc, instanceBounds, snapWiresToPins } from "./model";
+import { GRID, Instance, SchematicDoc, emptyDoc, instanceBounds } from "./model";
+import { normalizeDocGeometry } from "./netdraw";
 
 export interface Rect {
   x: number;
@@ -468,7 +469,11 @@ export const PRESETS: Preset[] = PRESET_DEFS.map((p) => ({
   ...p,
   build: () => {
     const doc = p.build();
-    snapWiresToPins(doc);
+    // W62: Beispiele kommen sauber auf die Leinwand – Bauteile aufs Raster,
+    // Leitungsenden exakt auf die Pins, keine schrägen Segmente. Vorher waren
+    // einzelne Bauteile „leicht verschoben", dadurch liefen Leitungen schräg
+    // und Pins hingen am Anfang in der Luft.
+    normalizeDocGeometry(doc);
     return doc;
   },
 }));

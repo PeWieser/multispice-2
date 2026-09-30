@@ -6,6 +6,7 @@
  * W51 offene Enden/Null-/Doppelleitungen melden · W52 Drehen/Spiegeln reißt nicht ab
  * W53 Verbindungspunkte · W54 Segment verschieben · W55 Ausrichten/Verteilen/Begradigen
  * W56 Überlappungswarnung · W61 Kreuzungen wie in Multisim (Punkt = verbunden)
+ * W62 Geometrie reinigen · W63 Netz zeichnen · W64 Anschluss-Magnet
  */
 import {
   GRID,
@@ -22,6 +23,7 @@ import { PART_MAP } from "../src/lib/library/catalog";
 import { PRESETS, routeOrthogonal } from "../src/lib/schematic/tools";
 import { collectPins, reattachWiresToPins, useEditor, wireJunctionCandidates } from "../src/state/editor";
 import { isValidProjectDoc, normalizeProjectDoc } from "../src/lib/storage";
+import { buildNetPath, findNetTarget, needsJunction, netClick, normalizeDocGeometry } from "../src/lib/schematic/netdraw";
 
 let failed = 0;
 function check(name: string, ok: boolean, info = "") {
@@ -294,6 +296,176 @@ const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointN
   check("W61 toggle: Kreuzung wird verbunden", netAt(useEditor.getState().doc, 0, 100) === netAt(useEditor.getState().doc, 100, 0) && (useEditor.getState().doc.junctions ?? []).length === 1);
   st.toggleJunction(100, 100);
   check("W61 toggle: Punkt entfernt, wieder getrennt", netAt(useEditor.getState().doc, 0, 100) !== netAt(useEditor.getState().doc, 100, 0) && (useEditor.getState().doc.junctions ?? []).length === 0);
+}
+
+/* ---------------- W62/W63/W64 · Netz zeichnen wie in Multisim ---------------- */
+{
+  // W62: Geometrie-Bereinigung – leicht verschobenes Bauteil, schräge Leitung,
+  // Ende knapp neben dem Pin.
+  const inst: any = { id: "r9", partId: "resistor", x: 105, y: 97, rot: 0, label: "R9", params: {} };
+  const p0 = pinPosition(inst, 0);
+  const doc: SchematicDoc = {
+    id: "geo",
+    name: "geo",
+    instances: [inst],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+    wires: [
+      // schräg und mit einem Ende 4 px neben Pin 1
+      { id: "w1", points: [{ x: Math.round(p0.x + 4), y: Math.round(p0.y + 3) }, { x: 300, y: 250 }] },
+    ],
+  };
+  const rep = normalizeDocGeometry(doc);
+  const p1 = pinPosition(doc.instances[0], 0);
+  const end = doc.wires[0].points[0];
+  check("W62 Bauteil sitzt nach der Reinigung auf dem Raster", doc.instances[0].x % GRID === 0 && doc.instances[0].y % GRID === 0, `(${doc.instances[0].x}, ${doc.instances[0].y})`);
+  check("W62 keine schrägen Segmente mehr", doc.wires[0].points.every((q: any, i: number) => i === 0 || q.x === doc.wires[0].points[i - 1].x || q.y === doc.wires[0].points[i - 1].y), JSON.stringify(doc.wires[0].points));
+  check("W62 Leitungsende sitzt exakt auf dem Pin", Math.abs(end.x - p1.x) < 0.01 && Math.abs(end.y - p1.y) < 0.01, `${JSON.stringify(end)} vs ${JSON.stringify(p1)}`);
+  check("W62 Leitung ist danach verbunden", buildNets(doc).pointNets[`${Math.round(p1.x)},${Math.round(p1.y)}`] !== undefined || buildNets(doc).pinNets["r9:0"] !== undefined);
+  check("W62 Bericht zählt die Änderungen", rep.instances >= 1 && rep.ends >= 1, JSON.stringify(rep));
+}
+{
+  // W64: Anschluss-Magnet – Pin vor Leitung, Fußpunkt auf der Leitung.
+  const doc: SchematicDoc = {
+    id: "mag",
+    name: "mag",
+    instances: [{ id: "r1", partId: "resistor", x: 100, y: 100, rot: 0, label: "R1", params: {} }],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+    wires: [{ id: "w1", points: [{ x: 100, y: 200 }, { x: 300, y: 200 }] }],
+  };
+  const pin = pinPosition(doc.instances[0], 0);
+  const hitPin = findNetTarget(doc, { x: pin.x + 3, y: pin.y + 2 }, 14);
+  check("W64 Magnet trifft den Pin sogar 3 px daneben", hitPin?.kind === "pin" && hitPin.x === pin.x && hitPin.y === pin.y, JSON.stringify(hitPin));
+  const hitWire = findNetTarget(doc, { x: 220, y: 205 }, 14);
+  check("W64 Magnet trifft die Leitung (Fußpunkt)", hitWire?.kind === "wire" && hitWire.y === 200 && Math.abs(hitWire.x - 220) < 0.01, JSON.stringify(hitWire));
+  check("W64 nichts in Reichweite → kein Ziel", findNetTarget(doc, { x: 600, y: 600 }, 14) === null);
+  const nearBoth = findNetTarget(doc, { x: pin.x + 2, y: pin.y + 2 }, 14);
+  check("W64 Pin hat Vorrang", nearBoth?.kind === "pin");
+  check("W64 Verbindungspunkt zählt als Ziel", findNetTarget({ ...doc, junctions: [{ id: "j1", x: 250, y: 200 }] }, { x: 252, y: 202 }, 14)?.kind === "junction");
+}
+{
+  // W63: Verlauf – exakt am Anschluss, keine schrägen Segmente, Ecken bleiben.
+  const path = buildNetPath({ x: 100, y: 100 }, [{ x: 200, y: 100 }], { x: 260, y: 180 });
+  const orth = path.every((q, i) => i === 0 || q.x === path[i - 1].x || q.y === path[i - 1].y);
+  check("W63 Verlauf ist rechtwinklig", orth, JSON.stringify(path));
+  check("W63 Verlauf startet am Anker", path[0].x === 100 && path[0].y === 100);
+  check("W63 Verlauf endet exakt am Ziel", path[path.length - 1].x === 260 && path[path.length - 1].y === 180);
+  check("W63 gesetzte Ecke bleibt erhalten", path.some((q) => q.x === 200 && q.y === 100), JSON.stringify(path));
+  // Ecke setzen (Klick ins Leere) + Anschluss an eine Leitung → Verbindungspunkt nötig
+  const doc: SchematicDoc = {
+    id: "target",
+    name: "target",
+    instances: [],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+    wires: [{ id: "w1", points: [{ x: 0, y: 300 }, { x: 400, y: 300 }] }],
+  };
+  check("W64 Anschluss auf fremder Leitung braucht einen Verbindungspunkt", needsJunction(doc, { x: 200, y: 300 }));
+  check("W64 Anschluss auf eigener Leitung nicht", !needsJunction(doc, { x: 200, y: 300 }, "w1"));
+  check("W64 Punkt neben der Leitung braucht keinen", !needsJunction(doc, { x: 200, y: 340 }));
+}
+{
+  // W62 · Beispiele: keine krummen Bauteile, keine schrägen Segmente, keine offenen Enden.
+  let worst = "";
+  for (const preset of PRESETS) {
+    const doc = preset.build();
+    const offGridInst = doc.instances.filter((i) => i.x % GRID !== 0 || i.y % GRID !== 0).length;
+    let offPins = 0;
+    for (const inst of doc.instances) {
+      const part = PART_MAP[inst.partId];
+      if (!part) continue;
+      part.pins.forEach((_, idx) => {
+        const q = pinPosition(inst, idx);
+        if (q.x % GRID !== 0 || q.y % GRID !== 0) offPins++;
+      });
+    }
+    let diag = 0;
+    for (const w of doc.wires) {
+      for (let i = 0; i + 1 < w.points.length; i++) {
+        const a = w.points[i];
+        const b = w.points[i + 1];
+        if (a.x !== b.x && a.y !== b.y) diag++;
+      }
+    }
+    const res = buildNets(doc);
+    const ok = offGridInst === 0 && offPins === 0 && diag === 0 && res.openEnds.length === 0;
+    if (!ok) worst += `${preset.id}(inst${offGridInst}/pins${offPins}/schräg${diag}/offen${res.openEnds.length}) `;
+  }
+  check("W62 alle Beispiele ohne verschobene Bauteile, schräge Segmente oder offene Enden", worst === "", worst || "8 Beispiele sauber");
+}
+
+{
+  // W63: die komplette Klickfolge „Pin anklicken – Ecke setzen – Pin anklicken".
+  const twoPins: SchematicDoc = {
+    id: "flow",
+    name: "flow",
+    instances: [
+      { id: "r1", partId: "resistor", x: 100, y: 100, rot: 0, label: "R1", params: {} },
+      { id: "r2", partId: "resistor", x: 300, y: 200, rot: 0, label: "R2", params: {} },
+    ],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+    wires: [],
+  };
+  const magnets = { magnet: 14, allowStartOnEmpty: false };
+  const pinA = pinPosition(twoPins.instances[0], 0);
+  const pinB = pinPosition(twoPins.instances[1], 0);
+  let draft: any = null;
+
+  // 1 · Klick auf den Pin (3 px daneben – Magnet fängt es ab)
+  const c1 = netClick(twoPins, draft, { x: pinA.x + 3, y: pinA.y + 2 }, { x: pinA.x + 3, y: pinA.y + 2 }, magnets);
+  draft = c1 && c1.kind === "start" ? c1.draft : null;
+  check("W63 Klick auf Pin startet den Netzmodus", c1?.kind === "start" && draft && draft.anchor.x === pinA.x && draft.anchor.y === pinA.y, JSON.stringify(c1));
+
+  // 2 · Klick ins Leere setzt eine Ecke (bleibt im Modus)
+  const corner = { x: pinA.x, y: 300 };
+  const c2 = netClick(twoPins, draft, corner, corner, magnets);
+  draft = c2 && c2.kind === "corner" ? c2.draft : null;
+  check("W63 Klick ins Leere setzt einen Eckpunkt und bleibt im Modus", c2?.kind === "corner" && draft?.corners.length === 1, JSON.stringify(c2));
+
+  // 3 · Klick auf den zweiten Pin schließt an und beendet den Modus
+  const c3 = netClick(twoPins, draft, { x: pinB.x + 2, y: pinB.y }, { x: pinB.x + 2, y: pinB.y }, magnets);
+  check("W63 Klick auf zweiten Pin schließt das Netz", c3?.kind === "finish", JSON.stringify(c3 ? { kind: c3.kind } : null));
+  if (c3 && c3.kind === "finish") {
+    const pts = c3.points;
+    const orth = pts.every((q, i) => i === 0 || q.x === pts[i - 1].x || q.y === pts[i - 1].y);
+    check("W63 angeschlossenes Netz ist rechtwinklig", orth, JSON.stringify(pts));
+    check("W63 Netz endet exakt am zweiten Pin", pts[pts.length - 1].x === pinB.x && pts[pts.length - 1].y === pinB.y, JSON.stringify(pts[pts.length - 1]));
+    check("W63 Netz startet exakt am ersten Pin", pts[0].x === pinA.x && pts[0].y === pinA.y);
+    // elektrisch prüfen: beide Pins müssen jetzt im selben Netz liegen
+    twoPins.wires.push({ id: "w_new", points: pts });
+    const res = buildNets(twoPins);
+    check("W63 beide Pins sind danach elektrisch verbunden", res.pinNets["r1:0"] === res.pinNets["r2:0"], `${res.pinNets["r1:0"]} / ${res.pinNets["r2:0"]}`);
+  }
+
+  // 4 · Klick auf eine bestehende Leitung schließt in der Mitte an (Fußpunkt exakt)
+  const withWire: SchematicDoc = { ...twoPins, wires: [{ id: "w_bus", points: [{ x: 0, y: 300 }, { x: 400, y: 300 }] }] };
+  const start = netClick(withWire, null, { x: pinA.x, y: pinA.y }, { x: pinA.x, y: pinA.y }, magnets);
+  const fin = netClick(withWire, start && start.kind === "start" ? start.draft : null, { x: 210, y: 303 }, { x: 210, y: 300 }, magnets);
+  check("W63 Klick auf eine Leitung schließt mit exaktem Fußpunkt an", fin?.kind === "finish" && fin.points[fin.points.length - 1].y === 300 && fin.points[fin.points.length - 1].x === 210, JSON.stringify(fin && fin.kind === "finish" ? fin.points : fin));
+  check("W63 dieser Anschluss braucht einen Verbindungspunkt", needsJunction(withWire, { x: 210, y: 300 }));
+
+  // 5 · im Auswahlmodus startet ein Klick auf eine Leitung NICHT das Zeichnen
+  // (sonst wäre das Ziehen an Leitungsgriffen kaputt).
+  const onWire = netClick(withWire, null, { x: 210, y: 301 }, { x: 210, y: 300 }, magnets);
+  check("W63 Auswahlmodus: Klick auf Leitung startet kein Netz", onWire === null, JSON.stringify(onWire));
+  const toolStart = netClick(withWire, null, { x: 210, y: 301 }, { x: 210, y: 300 }, { magnet: 14, allowStartOnEmpty: true, startOnWire: true });
+  check("W63 Leitungswerkzeug darf auf einer Leitung beginnen", toolStart?.kind === "start", JSON.stringify(toolStart));
+
+  // 6 · ohne Pin und ohne Leitungswerkzeug startet nichts (Auswahlmodus bleibt ruhig)
+  check("W63 Klick ins Leere ohne Werkzeug startet kein Netz", netClick(twoPins, null, { x: 700, y: 700 }, { x: 700, y: 700 }, magnets) === null);
+  // 7 · mit Leitungswerkzeug (W) startet es auch auf leerer Fläche
+  const start2 = netClick(twoPins, null, { x: 703, y: 697 }, { x: 700, y: 700 }, { magnet: 14, allowStartOnEmpty: true });
+  check("W63 Leitungswerkzeug startet auch auf freier Fläche", start2?.kind === "start" && start2.draft.anchor.x === 700 && start2.draft.anchor.y === 700, JSON.stringify(start2));
 }
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);

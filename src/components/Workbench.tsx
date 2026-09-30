@@ -154,7 +154,7 @@ function MobileBottomToolbar() {
 
   const tools = [
     { id: "select", label: "Auswahl", icon: "↖" },
-    { id: "wire", label: "Leitung", icon: "∿" },
+    { id: "wire", label: "Leitung (W) – Pin anklicken, Ecken setzen, Pin/Netz anklicken", icon: "✎" },
     { id: "probe_voltage", label: "Spannungs-Probe", icon: "V" },
     { id: "probe_current", label: "Strom-Probe", icon: "A" },
     { id: "erase", label: "Löschen", icon: "⌫" },

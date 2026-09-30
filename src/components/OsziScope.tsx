@@ -17,6 +17,7 @@ import Oscilloscope from "./oszi2/Oscilloscope";
 import HelpOverlay from "./oszi2/HelpOverlay";
 import { click } from "./oszi2/sound";
 import { CH_COLORS, clamp, defaultSettings, type ChannelSettings, type Env, type ProbeState, type Settings } from "./oszi2/types";
+import { PLUG_CURSOR } from "@/components/cursors";
 import { engine as simEngine, useEditor, type InstrumentWindow } from "@/state/editor";
 import { DeviceFit, useReportNatural } from "./DeviceFit";
 import { BENCH_PAD } from "@/lib/windows/geometry";
@@ -282,7 +283,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   return (
     <div
       className="relative flex h-full w-full flex-col overflow-hidden"
-      style={{ ...BENCH_BG, cursor: held !== null ? "crosshair" : undefined }}
+      style={{ ...BENCH_BG, cursor: held !== null ? PLUG_CURSOR : undefined }}
     >
       {held !== null && (
         <LeadBanner
