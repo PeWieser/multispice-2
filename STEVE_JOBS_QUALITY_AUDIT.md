@@ -1584,3 +1584,84 @@ Lämpchen), ebenso die LEDs der Tasten.
   Portierungs-MD zu `oszi v2/` liegt im Repo **nicht** vor (nur die FG-Datei) – die
   Oszi-Regeln (Aufdruck fest, Stop = Speicher) sind aus dem 1:1-Code von `oszi v2`
   abgeleitet und im Audit dokumentiert.
+
+## §23 — Bestandsaufnahme Runde 23 (nur Analyse, keine Änderung am Verhalten)
+
+**Auftrag:** „Leitungsverlegung und Bauteilanordnung — mach dir selber ein Bild, vielleicht
+findest du schon das, was ich meine (noch nichts ändern)." Untersucht wurden Code
+(`Canvas.tsx`, `state/editor.ts`, `lib/schematic/*`) und das Verhalten über einen
+Scratch-Lauf gegen die Store-/Modell-API (Zahlen unten sind gemessen, nicht geschätzt).
+
+### Leitungsverlegung
+
+**L1 · Raster-Falle im Auto-Router (schwer).** `routeOrthogonal()` (tools.ts) rastet
+Start **und** Ende immer auf das 10-px-Raster — unabhängig vom Schalter „Raster
+einrasten" (der nur den Mauszeiger betrifft). Liegt ein Pin nicht auf dem Raster
+(Bauteil mit ⇧+G frei gezogen, importiert, per JSON gesetzt), beginnt/endet die
+Leitung bis zu ~7 px daneben. Messung: Pins bei (273,197)/(473,203) → Leitung
+(270,200)…(470,200), Abstand je 4,2 px, Netze **beide `_nc`** – die Leitung hängt in
+der Luft, ohne Warnung. Mit `autoRoute = false` wird die L-Route aus den exakten
+Pins gebaut (dann verbunden, aber ggf. quer durchs Symbol).
+
+**L2 · Kein Verbindungspunkt (Junction) gezeichnet.** Verbindungen entstehen im
+Modell über gleiche Koordinaten **und** über Punkte, die auf einem Segment liegen
+(`pointOnSegment`, model.ts) — gezeichnet werden aber nur Polylinien. Messung:
+Leitung endet mitten auf einer anderen → Netz `N001` (elektrisch verbunden), aber kein
+Punkt im Bild. Damit ist optisch nicht unterscheidbar, ob ein T-Kontakt verbunden ist
+oder eine Kreuzung nur aussieht wie eine Verbindung. Kreuzt eine Leitung eine andere
+genau in einem Knickpunkt, sind sie sogar verbunden, ohne dass es sichtbar wäre.
+
+**L3 · Keine Leitungs-Hygiene.** Zweimal dieselben Pins verbinden → zwei Leitungen
+zwischen denselben Punkten (0 Fehler, 0 Warnungen); zweimal derselbe Pin → Leitung mit
+zwei identischen Punkten (Länge 0). Es gibt kein „Aufräumen"/„redundante Leitung
+entfernen", und `buildNets` prüft nur unbekannte Bauteile, Faults, fehlende Masse und
+„keine simulierbaren Teile".
+
+**L4 · Bearbeitung nur punktweise.** Es lassen sich nur einzelne Stützpunkte ziehen
+(mit Führungslinien/Snap); kein Segment-Verschieben, kein Punkt einfügen/entfernen per
+Doppelklick, kein Orthogonalisieren/Glätten, kein Warnen beim Abreißen einer
+Verbindung. Offene Pins sind im ERC nicht gemeldet; ERC-Marker werden per
+Textsuche an Bauteile geheftet (Fehlerobjekte sind Strings ohne Koordinaten).
+
+**L5 · Was funktioniert.** Der A*-Router umgeht Bauteile nachweislich (Test: Hindernis
+in der Mitte → Route läuft darunter durch, die einfache L-Route würde schneiden);
+Leitungen führen beim Verschieben eines Bauteils rechtwinklig nach (`orthoFollow`,
+W2/W26, Hindernis-Ausweichen für die Knickvariante); beim Ziehen eines Punktes
+erscheinen Ausrichtungs-Führungen.
+
+### Bauteilanordnung
+
+**B1 · Drehen/Spiegeln reißt die Verdrahtung ab (schwer).** `rotateSelection`/
+`mirrorSelection` ändern nur `rot`/`mirror`; Leitungen werden nicht nachgeführt.
+Messung: Pin (270,200) → nach 90° (300,170), Leitungsende bleibt bei (270,200) →
+42,4 px Abstand, Netz kippt von `N001` zu `r1_nc0`. Keine Warnung, kein Hinweis.
+
+**B2 · Keine Kollisions-/Überlappungsprüfung.** Zwei Bauteile exakt übereinander
+(identische BBoxen) → 0 Fehler, 0 Warnungen; Ziehen erlaubt das jederzeit.
+
+**B3 · Keine Ausricht-/Verteil-/Aufräum-Befehle.** Menü „Bearbeiten" bietet nur
+Undo/Redo, Kopieren/Einfügen/Duplizieren, Alles auswählen, Löschen. Es fehlen
+Ausrichten (links/oben/mitte), Verteilen/gleicher Abstand, Aufräumen/Auto-Layout,
+„Leitungen neu verlegen". Vorhanden ist immerhin das Figma-artige Führungslinien-
+Einrasten beim Ziehen (Kanten/Mitten, Schwelle 8 px).
+
+**B4 · Einfügen immer +20/+20 px.** `pasteClipboard`/`duplicateSelection` verschieben
+starr um 20 px (2 Raster), d. h. die Kopie kann auf einer Nachbar-BBox landen; bei
+mehrfachem Einfügen gibt es keine Kaskade.
+
+**B5 · Platzierung.** Über die Bibliothek rastet die Platzierung im Canvas ein; der
+Store (`addInstance`) rastet nicht → programmatische/importierte Platzierung kann
+krumme Koordinaten erzeugen (siehe L1).
+
+### Nebenbei aufgefallen (nicht angefasst)
+- `oszi v2/PORTIERUNG.md` lag im main-Branch (dort per „Add files via upload"
+  nachgereicht) und wurde in unseren Branch übernommen — damit ist die Doku im
+  Branch vorhanden und gelesen.
+- **Abweichung zur Doku (bewusst, Nutzerentscheidung R22):** §10.1/§10.2 der
+  PORTIERUNG.md sagt „`settingsKey` serialisiert `env.probes` … Beibehalten" und „im
+  Stop wird bei geänderten Settings neu erfasst". Runde 22 hat auf Nutzerwunsch das
+  Gegenteil umgesetzt (Stop hält den Datensatz, `env.probes` ist aus dem Key
+  entfernt). Eine doku-konforme Variante wäre: `probes` im Key lassen, aber im Stop
+  nur dann neu erfassen, wenn die Simulation läuft (dann gäbe es keine 0-V-Linie aus
+  pausierter Simulation und trotzdem die von der Doku gewünschte Neuaufnahme).
+  Entscheidung offen.
