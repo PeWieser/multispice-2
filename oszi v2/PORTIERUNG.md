@@ -395,9 +395,17 @@ Instrumenten‑Realismus erhalten.
 1. **`settingsKey` (`engine.ts:205`)** serialisiert `env.probes`. Das ist Absicht: Ändert sich die
    Verkabelung/Skalierung, wird gemittelt/neu erfasst. **Simulationszustand darf NICHT in diesen Key.**
    Im Port ist das erfüllt (nur `probes`, nicht `sim`). Beibehalten.
+   **Multispice-Anpassung Runde 24 (W60, umgesetzt):** `env.probes` ist wieder im Key — im **Run**
+   löst eine umgesteckte Messleitung sofort eine neue Aufnahme aus (Mittelung wird verworfen), im
+   **Stop/Single** nicht: dort steht das Bild (wie am echten Gerät), die Änderung wird nur vorgemerkt
+   und beim nächsten Run eingelöst. Grund: Bei pausierter Simulation würde eine Neuaufnahme aus einem
+   Signal eine 0‑V‑Linie machen (Runde 22).
 2. **Stop‑Modus + Live‑Puffer:** Bei `run:'stop'` re‑erfasst die Engine aus `eng.lastTT`, wenn sich
    Settings ändern (`keyChanged`). Der Zeitpunkt kann aus einem kleinen Ringpuffer herausgescrollt
    sein → Puffer groß genug wählen oder in Strategie B den letzten Fensterblock cachen.
+   **Port-Anpassung (W60):** Diesen Punkt bewusst *nicht* übernommen. Der Nutzer will Stop/Single wie
+   am echten Oszilloskop: Bild friert ein, Skalieren wirkt nur auf den gespeicherten Datensatz;
+   Neuakquise erst beim nächsten Run (`Engine.pendingKeyChange`).
 3. **Roll‑Modus** (`tdiv ≥ 0.1`, Auto‑Trigger): setzt Samples an `now − postT` fortlaufend. Benötigt
    kontinuierliche Historie in Strategie A. In Strategie B: Roll‑Fenster gleitend resimulieren.
 4. **Peak‑Detect ohne `extentOver`:** funktioniert, aber nur so gut wie die Sim‑Auflösung. Für echte

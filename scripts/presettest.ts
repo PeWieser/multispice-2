@@ -3,6 +3,8 @@ import { PRESETS } from "../src/lib/schematic/tools";
 import { buildNets } from "../src/lib/schematic/model";
 import { runOperatingPoint, runTransient } from "../src/lib/sim/analyses";
 
+let failed = 0;
+
 for (const preset of PRESETS) {
   const doc = preset.build();
   const built = buildNets(doc);
@@ -15,8 +17,16 @@ for (const preset of PRESETS) {
     const max = s.length ? Math.max(...s) : 0;
     return `${n}:${min.toFixed(2)}..${max.toFixed(2)}`;
   });
+  const ok = op.ok && tran.ok;
+  if (!ok) failed++;
   console.log(
-    `${op.ok && tran.ok ? "PASS" : "FAIL"} ${preset.id.padEnd(16)} devices=${String(built.netlist.devices.length).padStart(3)} nets=${String(built.nets.length).padStart(3)} op=${op.ok} tran=${tran.ok} ${tran.message ?? ""} | ${ranges.join(" ")}`,
+    `${ok ? "PASS" : "FAIL"} ${preset.id.padEnd(16)} devices=${String(built.netlist.devices.length).padStart(3)} nets=${String(built.nets.length).padStart(3)} op=${op.ok} tran=${tran.ok} ${tran.message ?? ""} | ${ranges.join(" ")}`,
   );
   if (built.errors.length) console.log("   errors:", built.errors.join("; "));
 }
+
+if (failed) {
+  console.log(`\nPresets: ${failed} FEHLER`);
+  process.exit(1);
+}
+console.log("\nPresets: alle lösen (op + tran).");

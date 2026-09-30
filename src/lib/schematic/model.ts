@@ -40,6 +40,20 @@ export interface NetLabel {
   name: string;
 }
 
+/**
+ * Runde 24 (W61): Verbindungspunkt (Multisim-Verhalten).
+ * Zwei Leitungen, die sich nur kreuzen, sind elektrisch NICHT verbunden; eine
+ * Verbindung entsteht nur an echten Anschlussstellen (Leitungsende auf einer
+ * Leitung, Pin, Netzlabel) oder an einem ausdrücklich gesetzten
+ * Verbindungspunkt. Genau so verhält sich Multisim, und genau das ist der
+ * Unterschied zwischen „sieht aus wie verbunden" und „ist verbunden".
+ */
+export interface Junction {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export interface TextNote {
   id: string;
   x: number;
@@ -98,10 +112,12 @@ export interface SchematicDoc {
   labels: NetLabel[];
   notes: TextNote[];
   probes: MeasurementProbe[];
+  /** W61: ausdrücklich gesetzte Verbindungspunkte (Kreuzungen verbinden). */
+  junctions?: Junction[];
 }
 
 export function emptyDoc(name = "Neue Schaltung"): SchematicDoc {
-  return { id: "sch_" + Math.random().toString(36).slice(2, 9), name, instances: [], wires: [], labels: [], notes: [], probes: [] };
+  return { id: "sch_" + Math.random().toString(36).slice(2, 9), name, instances: [], wires: [], labels: [], notes: [], probes: [], junctions: [] };
 }
 
 /* ----------------------------- geometry ----------------------------- */
@@ -296,7 +312,7 @@ class UnionFind {
 
 const key = (x: number, y: number) => `${Math.round(x)},${Math.round(y)}`;
 
-function pointOnSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): boolean {
+export function pointOnSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): boolean {
   if (ax === bx && ay === by) return px === ax && py === ay;
   const cross = (px - ax) * (by - ay) - (py - ay) * (bx - ax);
   if (Math.abs(cross) > 1) return false;
@@ -384,10 +400,22 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     });
   }
 
-  const allPoints = new Set<string>();
-  for (const s of segments) {
-    allPoints.add(key(s[0], s[1]));
-    allPoints.add(key(s[2], s[3]));
+  /* W61: Multisim-Regel – nur echte Anschlussstellen verbinden.
+   * Kandidaten sind Leitungsenden, Pins, Netzlabels und gesetzte
+   * Verbindungspunkte. Ein Knick mitten in einer Leitung ist KEINE
+   * Anschlussstelle: kreuzen sich zwei Leitungen dort, bleiben die Netze
+   * getrennt (im Bild auch kein Punkt), bis der Nutzer einen Verbindungspunkt
+   * setzt. Vorher zählte jeder Leitungs-Stützpunkt, dadurch waren Kreuzungen an
+   * Knicks unbemerkt leitend. */
+  const docJunctions = doc.junctions ?? [];
+  const junctionKeys = new Set(docJunctions.map((j) => key(j.x, j.y)));
+  const allPoints = new Set<string>(junctionKeys);
+  for (const w of doc.wires) {
+    if (w.points.length < 2) continue;
+    const a = w.points[0];
+    const b = w.points[w.points.length - 1];
+    allPoints.add(key(a.x, a.y));
+    allPoints.add(key(b.x, b.y));
   }
   for (const p of pinPoints) allPoints.add(key(p.x, p.y));
   for (const l of doc.labels) allPoints.add(key(l.x, l.y));
@@ -633,21 +661,34 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   if (hiddenWireWarnings > 0) wireWarn.push(`… und ${hiddenWireWarnings} weitere Leitungs-Warnungen`);
   warnings.push(...wireWarn);
 
-  // Verbindungspunkte: ≥ 3 Anschlüsse an einem Punkt (T-Kontakt, Kreuzung, Pin auf Leitung)
-  const junctionCandidates = new Set<string>([...pinKeys, ...labelKeys, ...wireEnds.map((p) => key(p.x, p.y))]);
+  // Verbindungspunkte: automatische T-Kontakte (≥ 3 Anschlüsse) plus alle
+  // ausdrücklich gesetzten Punkte.
+  const autoCandidates = new Set<string>([...pinKeys, ...labelKeys, ...wireEnds.map((p) => key(p.x, p.y))]);
   const junctions: Array<{ x: number; y: number }> = [];
-  for (const c of junctionCandidates) {
+  const junctionDegree = (c: string) => {
     const [jx, jy] = c.split(",").map(Number);
     let degree = (endCount.get(c) ?? 0) + (pinKeys.has(c) ? 1 : 0) + (labelKeys.has(c) ? 1 : 0);
     for (let si = 0; si < segments.length; si++) {
       const [ax, ay, bx, by] = segments[si];
       if (Math.abs(ax - bx) < 0.01 && Math.abs(ay - by) < 0.01) continue;
-      // streng im Inneren? (Endpunkte sind schon über endCount/Pins gezählt)
+      // Endpunkte sind schon über endCount/Pins gezählt
       if (jx === ax && jy === ay) continue;
       if (jx === bx && jy === by) continue;
       if (pointOnSegment(jx, jy, ax, ay, bx, by)) degree += 2;
     }
-    if (degree >= 3) junctions.push({ x: jx, y: jy });
+    return degree;
+  };
+  for (const c of autoCandidates) {
+    if (junctionDegree(c) >= 3) {
+      const [jx, jy] = c.split(",").map(Number);
+      junctions.push({ x: jx, y: jy });
+    }
+  }
+  for (const j of docJunctions) {
+    const k = key(j.x, j.y);
+    // Ein gesetzter Punkt ohne Leitung verbindet nichts – sagen statt schweigen.
+    if (junctionDegree(k) < 2) warnWire(`Verbindungspunkt ohne Leitung bei (${Math.round(j.x)}, ${Math.round(j.y)}) – sitzt auf keiner Leitung`);
+    if (!junctions.some((q) => Math.abs(q.x - j.x) < 0.01 && Math.abs(q.y - j.y) < 0.01)) junctions.push({ x: j.x, y: j.y });
   }
 
   return { netlist: { devices, title: doc.name }, nets, pinNets, pointNets, errors, warnings, openEnds, junctions };

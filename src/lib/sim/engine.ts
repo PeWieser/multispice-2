@@ -250,6 +250,24 @@ function pnjlim(vnew: number, vold: number, vt: number, vcrit: number): number {
   return vnew;
 }
 
+/**
+ * Runde 24 (W58): Standard-Begrenzung der Drain-Source-Spannung (SPICE3
+ * `limvds`). Ohne sie konnte der Schaltknoten eines Wandlers zwischen zwei
+ * Iterationen um hunderte Volt springen (z. B. 24 V → −257 V), weil der
+ * Kanal beim Verlassen des Triodenbereichs seine Steilheit schlagartig
+ * ändert; Newton pendelte dann zwischen "aus" und "voll an" und lief in die
+ * Iterationsgrenze. Mit der Begrenzung wandert die Spannung in kleinen,
+ * monotonen Schritten zum Arbeitspunkt.
+ */
+function limvds(vnew: number, vold: number): number {
+  if (vold >= 3.5) {
+    if (vnew > vold) vnew = Math.min(vnew, 3 * vold + 2);
+    else if (vnew < 3.5) vnew = Math.max(vnew, 2);
+  } else if (vnew > vold) vnew = Math.min(vnew, 4);
+  else vnew = Math.max(vnew, -0.5);
+  return vnew;
+}
+
 function fetlim(vnew: number, vold: number, vto: number): number {
   const vtsthi = Math.abs(2 * (vold - vto)) + 2;
   const vtstlo = vtsthi / 2 + 2;
@@ -268,6 +286,9 @@ function fetlim(vnew: number, vold: number, vto: number): number {
   } else if (-delv > vtsthi) return vold - vtsthi;
   return vnew;
 }
+
+/** Runde 24 (W59): Obergrenze für sinnvolle Knotenspannungen/Zweigströme. */
+const SANE_LIMIT = 1e9;
 
 const p = (d: Device, key: string, def: number): number => {
   const v = d.params?.[key];
@@ -798,35 +819,60 @@ export class Simulator {
           const rs = p(d, "rs", d.type === "LED" ? 8 : 0.01);
           const bv = p(d, "bv", d.type === "ZENER" ? 5.1 : 1e3);
           const nvt = n * vt;
-          const vdRaw = this.vOf(n0) - this.vOf(n1);
+          const vd = this.vOf(n0) - this.vOf(n1); // Klemmenspannung (inkl. Bahnwiderstand)
           const vcrit = nvt * Math.log(nvt / (Math.SQRT2 * is));
-          const vd = pnjlim(vdRaw, st.vprev[0], nvt, vcrit);
-          if (Math.abs(vd - vdRaw) > 1e-9) this.limited = true;
-          st.vprev[0] = vd;
-          let id: number;
-          let gd: number;
-          if (vd >= -3 * nvt) {
-            const e = Math.exp(Math.min(vd / nvt, 60));
-            id = is * (e - 1) + vd * ctx.gmin;
-            gd = (is * e) / nvt + ctx.gmin;
-          } else if (vd > -bv) {
-            const arg = (3 * nvt) / (vd * Math.E);
-            const a3 = arg * arg * arg;
-            id = -is * (1 + a3) + vd * ctx.gmin;
-            gd = (is * 3 * a3) / vd + ctx.gmin;
+          /** Diodengleichung am inneren pn-Übergang (ohne Bahnwiderstand). */
+          const junction = (v: number) => {
+            if (v >= -3 * nvt) {
+              const e = Math.exp(Math.min(v / nvt, 60));
+              return { i: is * (e - 1) + v * ctx.gmin, g: (is * e) / nvt + ctx.gmin };
+            }
+            if (v > -bv) {
+              const arg = (3 * nvt) / (v * Math.E);
+              const a3 = arg * arg * arg;
+              return { i: -is * (1 + a3) + v * ctx.gmin, g: (is * 3 * a3) / v + ctx.gmin };
+            }
+            const e = Math.exp(Math.min(-(bv + v) / nvt, 60));
+            return { i: -is * e, g: (is * e) / nvt + ctx.gmin };
+          };
+          /*
+           * Runde 24 (W57): Bahnwiderstand rs exakt statt über eine
+           * Conductance-Näherung. Vorher wurde `ieq = id - gd*vd` mit
+           * `geff/gd` skaliert – bei großen Strömen heben sich dabei zwei
+           * riesige Zahlen auf: die Kennlinie wurde grob falsch (1N5819:
+           * 5,4 V Flussspannung statt 0,4 V) und der Schaltknoten des
+           * Buck-Wandlers landete bei −5 V. Jetzt wird die innere
+           * Sperrschichtspannung vj so bestimmt, dass vd = vj + I(vj)·rs gilt
+           * (Newton auf eine Unbekannte, danach SPICE-übliche Begrenzung).
+           */
+          let vj: number;
+          if (rs > 0) {
+            vj = st.vprev[0] ?? vd;
+            const gs = 1 / rs;
+            for (let k = 0; k < 50; k++) {
+              const { i, g } = junction(vj);
+              const step = (i + (vj - vd) * gs) / (g + gs);
+              vj -= step;
+              if (!Number.isFinite(vj)) { vj = vd; break; }
+              if (Math.abs(step) < 1e-10) break;
+            }
+            const vjLim = pnjlim(vj, st.vprev[0] ?? vj, nvt, vcrit);
+            if (Math.abs(vjLim - vj) > 1e-9) this.limited = true;
+            vj = vjLim;
           } else {
-            const e = Math.exp(Math.min(-(bv + vd) / nvt, 60));
-            id = -is * e;
-            gd = (is * e) / nvt + ctx.gmin;
+            const vjLim = pnjlim(vd, st.vprev[0] ?? vd, nvt, vcrit);
+            if (Math.abs(vjLim - vd) > 1e-9) this.limited = true;
+            vj = vjLim;
           }
-          // series resistance folded in via conductance limiting
-          const geff = rs > 0 ? 1 / (1 / Math.max(gd, 1e-15) + rs) : gd;
-          const ieq = id - gd * vd;
-          const ieqEff = ieq * (geff / Math.max(gd, 1e-15));
-          st.extra!.id = geff * vd + ieqEff;
+          st.vprev[0] = vj;
+          const { i: id, g: gd } = junction(vj);
+          const geff = rs > 0 ? 1 / (1 / gd + rs) : gd;
+          const ieqEff = id - geff * vd;
+          st.extra!.id = id;
           st.extra!.geff = geff;
           st.extra!.ieqEff = ieqEff;
           st.extra!.vd = vd;
+          st.extra!.vj = vj;
           this.stampConductance(m, n0, n1, geff);
           this.stampCurrent(m, n0, n1, ieqEff);
           if (ctx.transient) {
@@ -917,9 +963,13 @@ export class Simulator {
           const vto = p(d, "vto", 2) * pmos;
           const lambda = p(d, "lambda", 0.02);
           const vgsRaw = pmos * (this.vOf(ng) - this.vOf(ns));
-          const vds = pmos * (this.vOf(nd) - this.vOf(ns));
+          const vdsRaw = pmos * (this.vOf(nd) - this.vOf(ns));
           const vgs = fetlim(vgsRaw, st.vprev[0], Math.abs(vto));
+          // W58: auch vds begrenzen – sonst springt der Kanal zwischen den
+          // Iterationen zwischen Sperr- und Triodenbereich hin und her.
+          const vds = limvds(vdsRaw, st.vprev[1]);
           if (Math.abs(vgs - vgsRaw) > 1e-9) this.limited = true;
+          if (Math.abs(vds - vdsRaw) > 1e-9) this.limited = true;
           st.vprev[0] = vgs;
           st.vprev[1] = vds;
           const vth = Math.abs(vto);
@@ -1193,7 +1243,12 @@ export class Simulator {
     for (let i = 0; i < this.size; i++) {
       const a = xNew[i];
       const b = this.x[i];
-      if (!Number.isFinite(a)) return false;
+      // Runde 24 (W59): Divergenzschutz. Ohne ihn galt eine entgleiste
+      // Iteration als "konvergiert", sobald die Werte nur groß genug waren
+      // (die relative Toleranz wächst mit dem Betrag) – der Buck-Wandler
+      // „konvergierte“ so auf 1e17 V. Absurde Beträge gelten jetzt als
+      // Nicht-Konvergenz, der Schritt wird verworfen und kleiner wiederholt.
+      if (!Number.isFinite(a) || Math.abs(a) > SANE_LIMIT) return false;
       const tol = i < nNodes ? vntol + reltol * Math.max(Math.abs(a), Math.abs(b)) : abstol + reltol * Math.max(Math.abs(a), Math.abs(b)) + 1e-9;
       if (Math.abs(a - b) > tol) return false;
     }
@@ -1420,10 +1475,40 @@ export class Simulator {
     this.lastDt = dt;
   }
 
+  /**
+   * Runde 24 (W59): Analoger Zustand für einen Schritt sichern. Wird ein
+   * Schritt verworfen (Nicht-Konvergenz), muss der nächste Versuch exakt vom
+   * letzten *akzeptierten* Zustand starten – vorher lief er aus dem entgleisten
+   * Iterationsstand weiter und war damit praktisch aussichtslos.
+   */
+  private savePoint(): { x: Float64Array; devices: Array<{ vprev: number[]; extra: Record<string, number>; outputs: number[] | undefined }> } {
+    return {
+      x: Float64Array.from(this.x),
+      devices: this.netlist.devices.map((d) => ({
+        vprev: d.state ? Array.from(d.state.vprev) : [],
+        extra: { ...(d.state?.extra ?? {}) },
+        outputs: d.state?.outputs ? Array.from(d.state.outputs) : undefined,
+      })),
+    };
+  }
+
+  private restorePoint(sp: { x: Float64Array; devices: Array<{ vprev: number[]; extra: Record<string, number>; outputs: number[] | undefined }> }): void {
+    this.x.set(sp.x);
+    this.netlist.devices.forEach((d, i) => {
+      const s = d.state;
+      const p0 = sp.devices[i];
+      if (!s || !p0) return;
+      for (let k = 0; k < s.vprev.length && k < p0.vprev.length; k++) s.vprev[k] = p0.vprev[k];
+      if (s.extra) for (const key of Object.keys(s.extra)) s.extra[key] = p0.extra[key];
+      if (p0.outputs) s.outputs = Array.from(p0.outputs);
+    });
+  }
+
   /** Advance one transient step. Returns false when the step failed to converge. */
   step(dt: number): SolveResult {
     const t0 = this.time;
     const t = t0 + dt;
+    const sp = this.savePoint();
     this.time = t;
     this.updateEvents(dt);
     const res = this.iterate(this.makeCtx(t, dt, true));
@@ -1431,6 +1516,7 @@ export class Simulator {
       this.acceptTimestep(dt);
     } else {
       this.time = t0;
+      this.restorePoint(sp);
     }
     return res;
   }

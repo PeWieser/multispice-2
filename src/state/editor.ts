@@ -18,6 +18,7 @@ import {
   emptyDoc,
   instanceBounds,
   pinPosition,
+  pointOnSegment,
   snapWiresToPins,
   straightenWirePoints,
 } from "@/lib/schematic/model";
@@ -119,6 +120,8 @@ export interface ClipboardData {
   labels: NetLabel[];
   notes: TextNote[];
   probes: import("@/lib/schematic/model").MeasurementProbe[];
+  /** W61: Verbindungspunkte mitkopieren, damit Kreuzungsverbindungen erhalten bleiben. */
+  junctions?: import("@/lib/schematic/model").Junction[];
 }
 
 export type ThemePref = "system" | "dark" | "light";
@@ -210,6 +213,8 @@ export interface EditorState {
   straightenSelection: () => void;
   /** W55: alle Leitungen prüfen und reparieren (Importe, alte Pläne). */
   repairWires: () => void;
+  /** W61: Verbindungspunkt setzen/entfernen (Multisim-Kreuzung). */
+  toggleJunction: (x: number, y: number) => void;
   /** W32c: Messleitung an Leitung/Pin legen – ersetzt die Leitung des Kanals. */
   connectProbeWire: (instanceId: string, pinIndex: number, target: { x: number; y: number }) => void;
   /** W32c: Welcher Kanal hält gerade eine Messleitung in der Hand? */
@@ -385,6 +390,55 @@ export interface PinRef {
   pinIndex: number;
   x: number;
   y: number;
+}
+
+/**
+ * W61: Punkte, an denen zwei verschiedene Leitungen sich treffen – echte
+ * Kreuzungen (nicht nur ein Knick der eigenen Leitung) und T-Kontakte. Nur an
+ * solchen Stellen ist ein Verbindungspunkt sinnvoll; der Editor bietet ihn dort
+ * an und setzt ihn automatisch, wenn eine Leitung auf einer anderen endet.
+ */
+export function wireJunctionCandidates(doc: SchematicDoc): Array<{ x: number; y: number }> {
+  const out: Array<{ x: number; y: number }> = [];
+  for (const j of doc.junctions ?? []) out.push({ x: j.x, y: j.y });
+  const segs: Array<[number, number, number, number, string]> = [];
+  const key = (x: number, y: number) => `${Math.round(x * 100)},${Math.round(y * 100)}`;
+  const seen = new Set<string>();
+  for (const w of doc.wires) {
+    for (let i = 0; i + 1 < w.points.length; i++) {
+      const a = w.points[i];
+      const b = w.points[i + 1];
+      if (Math.hypot(b.x - a.x, b.y - a.y) > 0.01) segs.push([a.x, a.y, b.x, b.y, w.id]);
+    }
+  }
+  for (let i = 0; i < segs.length; i++) {
+    for (let k = i + 1; k < segs.length; k++) {
+      const [ax, ay, bx, by, wa] = segs[i];
+      const [cx, cy, dx, dy, wb] = segs[k];
+      if (wa === wb) continue;
+      const r = segmentHit(ax, ay, bx, by, cx, cy, dx, dy);
+      if (!r) continue;
+      const kk = key(r.x, r.y);
+      if (seen.has(kk)) continue;
+      seen.add(kk);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+/** Schnittpunkt zweier Strecken (auch Endpunkt-Treffer); null bei parallel/verfehlt. */
+function segmentHit(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): { x: number; y: number } | null {
+  const r1 = bx - ax;
+  const r2 = by - ay;
+  const s1 = dx - cx;
+  const s2 = dy - cy;
+  const den = r1 * s2 - r2 * s1;
+  if (Math.abs(den) < 1e-9) return null; // parallel oder kollinear
+  const t = ((cx - ax) * s2 - (cy - ay) * s1) / den;
+  const u = ((cx - ax) * r2 - (cy - ay) * r1) / den;
+  if (t < -1e-9 || t > 1 + 1e-9 || u < -1e-9 || u > 1 + 1e-9) return null;
+  return { x: ax + t * r1, y: ay + t * r2 };
 }
 
 export function collectPins(doc: SchematicDoc, ids: Set<string>): PinRef[] {
@@ -689,6 +743,18 @@ export const useEditor = create<EditorState>((set, get) => ({
         labels: doc.labels.filter((l) => sel.has(l.id)).map(cloneJson),
         notes: doc.notes.filter((n) => sel.has(n.id)).map(cloneJson),
         probes: doc.probes.filter((pr) => sel.has(pr.id)).map(cloneJson),
+        // W61: Verbindungspunkte, die auf einer mitkopierten Leitung sitzen
+        junctions: (doc.junctions ?? []).filter((j) =>
+          doc.wires.some((w) => {
+            if (!sel.has(w.id)) return false;
+            for (let i = 0; i + 1 < w.points.length; i++) {
+              const a = w.points[i];
+              const b = w.points[i + 1];
+              if (pointOnSegment(j.x, j.y, a.x, a.y, b.x, b.y)) return true;
+            }
+            return false;
+          }),
+        ).map(cloneJson),
       },
     });
     if (sel.size) get().log("info", `${sel.size} Element${sel.size > 1 ? "e" : ""} kopiert`);
@@ -735,12 +801,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     const freshLabels: NetLabel[] = cb.labels.map((src) => ({ ...cloneJson(src), id: newId("l"), x: src.x + DX, y: src.y + DY }));
     const freshNotes: TextNote[] = cb.notes.map((src) => ({ ...cloneJson(src), id: newId("n"), x: src.x + DX, y: src.y + DY }));
     const freshProbes = cb.probes.map((src) => ({ ...cloneJson(src), id: newId("pr"), x: src.x + DX, y: src.y + DY }));
+    const freshJunctions = (cb.junctions ?? []).map((src) => ({ ...cloneJson(src), id: newId("jnc"), x: src.x + DX, y: src.y + DY }));
     get().commit((d) => {
       d.instances.push(...freshInstances);
       d.wires.push(...freshWires);
       d.labels.push(...freshLabels);
       d.notes.push(...freshNotes);
       d.probes.push(...freshProbes);
+      if (freshJunctions.length) {
+        if (!Array.isArray(d.junctions)) d.junctions = [];
+        d.junctions.push(...freshJunctions);
+      }
     });
     set({ selection: [...freshInstances.map((i) => i.id), ...freshWires.map((w) => w.id), ...freshProbes.map((pr) => pr.id)] });
     get().log("ok", `${total} Element${total > 1 ? "e" : ""} eingefügt`);
@@ -775,7 +846,60 @@ export const useEditor = create<EditorState>((set, get) => ({
   addWire: (w) => {
     get().commit((d) => {
       d.wires.push(w);
+      // W61: Multisim-Regel. Ein Leitungsende, das auf einer anderen Leitung
+      // landet, ist eine echte Verbindung und bekommt einen Punkt. Kreuzen sich
+      // zwei Leitungen nur, entsteht kein Punkt – und damit auch keine
+      // Verbindung (buildNets verbindet nur noch an Anschlussstellen/Markern).
+      if (!Array.isArray(d.junctions)) d.junctions = [];
+      const segs: Array<[number, number, number, number]> = [];
+      for (const other of d.wires) {
+        if (other.id === w.id) continue;
+        for (let i = 0; i + 1 < other.points.length; i++) {
+          const a = other.points[i];
+          const b = other.points[i + 1];
+          if (Math.hypot(b.x - a.x, b.y - a.y) > 0.01) segs.push([a.x, a.y, b.x, b.y]);
+        }
+      }
+      const add = (x: number, y: number) => {
+        if (d.junctions!.some((j) => Math.hypot(j.x - x, j.y - y) < 0.5)) return;
+        d.junctions!.push({ id: "jnc_" + Math.random().toString(36).slice(2, 9), x, y });
+      };
+      for (const e of [w.points[0], w.points[w.points.length - 1]]) {
+        for (const [ax, ay, bx, by] of segs) if (pointOnSegment(e.x, e.y, ax, ay, bx, by)) { add(e.x, e.y); break; }
+      }
+      for (const other of d.wires) {
+        if (other.id === w.id) continue;
+        for (const e of [other.points[0], other.points[other.points.length - 1]]) {
+          for (let i = 0; i + 1 < w.points.length; i++) {
+            const a = w.points[i];
+            const b = w.points[i + 1];
+            if (pointOnSegment(e.x, e.y, a.x, a.y, b.x, b.y)) { add(e.x, e.y); break; }
+          }
+        }
+      }
     });
+  },
+
+  toggleJunction: (x, y) => {
+    const doc = get().doc;
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (const c of wireJunctionCandidates(doc)) {
+      const dd = Math.hypot(c.x - x, c.y - y);
+      if (dd < bestD) { bestD = dd; best = c; }
+    }
+    if (!best || bestD > 14) {
+      get().log("warn", "Kein Treffpunkt zweier Leitungen in der Nähe – Leitungen übereinander legen oder auf die Kreuzung klicken");
+      return;
+    }
+    const point = best;
+    const hatte = (doc.junctions ?? []).some((j) => Math.hypot(j.x - point.x, j.y - point.y) < 0.5);
+    get().commit((d) => {
+      if (!Array.isArray(d.junctions)) d.junctions = [];
+      if (hatte) d.junctions = d.junctions.filter((j) => Math.hypot(j.x - point.x, j.y - point.y) >= 0.5);
+      else d.junctions.push({ id: "jnc_" + Math.random().toString(36).slice(2, 9), x: point.x, y: point.y });
+    });
+    get().log("info", hatte ? "Verbindungspunkt entfernt – die Leitungen sind jetzt getrennt" : "Verbindungspunkt gesetzt – die Leitungen sind jetzt verbunden");
   },
 
   setWireSegmentOffset: (wireId, segIdx, orig, dx, dy) => {

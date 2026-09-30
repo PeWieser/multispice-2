@@ -5,7 +5,7 @@
  * W49 Leitungsenden rasten auf Pins · W50 Router endet exakt am Pin
  * W51 offene Enden/Null-/Doppelleitungen melden · W52 Drehen/Spiegeln reißt nicht ab
  * W53 Verbindungspunkte · W54 Segment verschieben · W55 Ausrichten/Verteilen/Begradigen
- * W56 Überlappungswarnung
+ * W56 Überlappungswarnung · W61 Kreuzungen wie in Multisim (Punkt = verbunden)
  */
 import {
   GRID,
@@ -20,7 +20,8 @@ import {
 } from "../src/lib/schematic/model";
 import { PART_MAP } from "../src/lib/library/catalog";
 import { PRESETS, routeOrthogonal } from "../src/lib/schematic/tools";
-import { collectPins, reattachWiresToPins, useEditor } from "../src/state/editor";
+import { collectPins, reattachWiresToPins, useEditor, wireJunctionCandidates } from "../src/state/editor";
+import { isValidProjectDoc, normalizeProjectDoc } from "../src/lib/storage";
 
 let failed = 0;
 function check(name: string, ok: boolean, info = "") {
@@ -207,6 +208,92 @@ function makeDoc2(): SchematicDoc {
   st.setDoc(doc, false);
   const res = buildNets(useEditor.getState().doc);
   check("W56: deckungsgleiche Bauteile werden gemeldet", res.warnings.some((w) => w.includes("überlagern")), JSON.stringify(res.warnings));
+}
+
+/* ---------------- W61 · Kreuzungen wie in Multisim ---------------- */
+function kreuzDoc(): SchematicDoc {
+  return {
+    id: "test_kreuz",
+    name: "kreuz",
+    instances: [],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+    wires: [
+      { id: "w1", points: [{ x: 0, y: 100 }, { x: 200, y: 100 }] },
+      { id: "w2", points: [{ x: 100, y: 0 }, { x: 100, y: 200 }] },
+    ],
+  };
+}
+const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointNets[`${x},${y}`];
+{
+  const doc = kreuzDoc();
+  check("W61 Kreuzung ohne Punkt: getrennte Netze", netAt(doc, 0, 100) !== netAt(doc, 100, 0), `${netAt(doc, 0, 100)} vs ${netAt(doc, 100, 0)}`);
+  const mitPunkt: SchematicDoc = { ...doc, junctions: [{ id: "j1", x: 100, y: 100 }] };
+  check("W61 Kreuzung mit Punkt: ein Netz", netAt(mitPunkt, 0, 100) === netAt(mitPunkt, 100, 0), `${netAt(mitPunkt, 0, 100)}`);
+  const res = buildNets(doc);
+  check("W61 Kreuzung erzeugt keinen Verbindungspunkt", !res.junctions.some((j) => Math.abs(j.x - 100) < 0.5 && Math.abs(j.y - 100) < 0.5), JSON.stringify(res.junctions));
+}
+{
+  // T-Kontakt: Leitungsende auf fremder Leitung ist eine echte Verbindung
+  const doc: SchematicDoc = {
+    ...kreuzDoc(),
+    wires: [
+      { id: "w1", points: [{ x: 0, y: 100 }, { x: 200, y: 100 }] },
+      { id: "w2", points: [{ x: 100, y: 0 }, { x: 100, y: 100 }] },
+    ],
+  };
+  check("W61 T-Kontakt verbindet", netAt(doc, 0, 100) === netAt(doc, 100, 0), `${netAt(doc, 0, 100)}`);
+  const res = buildNets(doc);
+  check("W61 T-Kontakt bekommt einen Punkt", res.junctions.some((j) => Math.abs(j.x - 100) < 0.5 && Math.abs(j.y - 100) < 0.5), JSON.stringify(res.junctions));
+}
+{
+  // Knick auf fremder Leitung war früher unbemerkt leitend → Migration erhält das
+  const legacy = kreuzDoc() as any;
+  delete legacy.junctions;
+  legacy.wires = [
+    { id: "w1", points: [{ x: 0, y: 100 }, { x: 200, y: 100 }] },
+    { id: "w2", points: [{ x: 100, y: 0 }, { x: 100, y: 100 }, { x: 100, y: 200 }] },
+  ];
+  check("W61 Altbestand ohne junctions bleibt gültig", isValidProjectDoc(legacy));
+  const mig = normalizeProjectDoc(legacy);
+  check("W61 Migration setzt Punkt am alten Kontakt", (mig.junctions ?? []).some((j) => Math.abs(j.x - 100) < 0.5 && Math.abs(j.y - 100) < 0.5), JSON.stringify(mig.junctions));
+  check("W61 Migration verbindet nicht mehr als vorher", netAt(mig, 0, 100) === netAt(mig, 100, 0) && netAt(mig, 0, 100) === netAt(mig, 100, 200));
+  // Reine Kreuzung (kein Stützpunkt auf der fremden Leitung) war auch früher
+  // nicht leitend – die Migration darf dort keinen Punkt erfinden.
+  const legacyCross = kreuzDoc() as any;
+  delete legacyCross.junctions;
+  const migCross = normalizeProjectDoc(legacyCross);
+  check("W61 Migration erfindet keinen Punkt an reiner Kreuzung", (migCross.junctions ?? []).length === 0, JSON.stringify(migCross.junctions));
+  check("W61 reine Kreuzung bleibt auch im Altbestand getrennt", netAt(migCross, 0, 100) !== netAt(migCross, 100, 0));
+}
+{
+  // Editor: neue Leitung, die auf einer bestehenden endet → Punkt automatisch
+  const st = useEditor.getState();
+  const doc = kreuzDoc();
+  doc.wires = [{ id: "w1", points: [{ x: 0, y: 100 }, { x: 200, y: 100 }] }];
+  st.setDoc(doc, false);
+  st.addWire({ id: "w3", points: [{ x: 50, y: 0 }, { x: 50, y: 100 }] });
+  const after = useEditor.getState().doc;
+  check("W61 addWire: Ende auf fremder Leitung bekommt Punkt", (after.junctions ?? []).some((j) => Math.abs(j.x - 50) < 0.5 && Math.abs(j.y - 100) < 0.5), JSON.stringify(after.junctions));
+  check("W61 addWire: Ende auf fremder Leitung ist verbunden", netAt(after, 0, 100) === netAt(after, 50, 0));
+  // Überkreuzung ohne Ende auf der Leitung → kein Punkt, keine Verbindung
+  st.setDoc(kreuzDoc(), false);
+  st.addWire({ id: "w4", points: [{ x: 150, y: 0 }, { x: 150, y: 200 }] });
+  const cross = useEditor.getState().doc;
+  check("W61 addWire: Überkreuzung ohne Punkt", !(cross.junctions ?? []).some((j) => Math.abs(j.x - 150) < 0.5), JSON.stringify(cross.junctions));
+  check("W61 addWire: Überkreuzung bleibt getrennt", netAt(cross, 0, 100) !== netAt(cross, 150, 0));
+}
+{
+  // Editor: Verbindungspunkt per Kontextfunktion setzen/entfernen
+  const st = useEditor.getState();
+  st.setDoc(kreuzDoc(), false);
+  check("W61 Treffpunkte werden gefunden", wireJunctionCandidates(useEditor.getState().doc).some((c) => Math.abs(c.x - 100) < 0.5 && Math.abs(c.y - 100) < 0.5));
+  st.toggleJunction(100, 100);
+  check("W61 toggle: Kreuzung wird verbunden", netAt(useEditor.getState().doc, 0, 100) === netAt(useEditor.getState().doc, 100, 0) && (useEditor.getState().doc.junctions ?? []).length === 1);
+  st.toggleJunction(100, 100);
+  check("W61 toggle: Punkt entfernt, wieder getrennt", netAt(useEditor.getState().doc, 0, 100) !== netAt(useEditor.getState().doc, 100, 0) && (useEditor.getState().doc.junctions ?? []).length === 0);
 }
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);

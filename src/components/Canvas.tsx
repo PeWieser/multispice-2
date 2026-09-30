@@ -14,7 +14,7 @@ import {
   rotatePoint,
 } from "@/lib/schematic/model";
 import { obstaclesFor, routeOrthogonal } from "@/lib/schematic/tools";
-import { engine, hitTestInstance, useEditor, useHud } from "@/state/editor";
+import { engine, hitTestInstance, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
 import { LEGACY_PROBE_COLORS, PROBE_CSSVAR, PROBE_HEX } from "@/lib/probe-style";
 import { Library as LibIcon, Sparkles } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
@@ -586,10 +586,10 @@ export default function Canvas() {
       ctx.restore();
     }
 
-    // W53: Verbindungspunkte kommen jetzt aus der Netzprüfung – dort, wo
-    // elektrisch ≥ 3 Anschlüsse zusammenkommen (T-Kontakt, Kreuzung, Pin auf
-    // Leitung). Zwei Leitungsenden an derselben Stelle sind eine Ecke und
-    // bekommen keinen Punkt (wie in jedem Schaltplan-Editor).
+    // W53/W61: Verbindungspunkte kommen aus der Netzprüfung – T-Kontakte
+    // (≥ 3 Anschlüsse), Pin auf Leitung und alle ausdrücklich gesetzten
+    // Verbindungspunkte. Eine bloße Kreuzung zweier Leitungen hat keinen Punkt
+    // und ist deshalb auch nicht leitend (Multisim-Regel).
     const jz = 1 / Math.max(view.zoom, 0.4);
     ctx.fillStyle = css("--wire", "#7dd3fc");
     for (const j of netResult.junctions) {
@@ -1201,6 +1201,12 @@ export default function Canvas() {
                       // Auto-connect: create wire from pin to projection
                       st.commit((d)=>{
                         d.wires.push({ id: "w_" + Math.random().toString(36).slice(2,8), points: [ { x: pp.x, y: pp.y }, { x: proj.x, y: proj.y } ] });
+                        // W61: Das neue Leitungsende sitzt auf einer bestehenden
+                        // Leitung → Verbindungspunkt wie in Multisim setzen.
+                        if (!Array.isArray(d.junctions)) d.junctions = [];
+                        if (!d.junctions.some((j) => Math.hypot(j.x - proj.x, j.y - proj.y) < 0.5)) {
+                          d.junctions.push({ id: "jnc_" + Math.random().toString(36).slice(2,8), x: proj.x, y: proj.y });
+                        }
                       });
                       break;
                     }
@@ -2176,7 +2182,23 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               <div className="ml-auto h-2 w-2 rounded-full" style={{ background: "#22d3ee", boxShadow: "0 0 6px #22d3ee" }} />
             </div>
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Bearbeiten – Wow Handles</div>
-            <button className="row" onClick={() => { onClose(); st.log("info","Tipp: Klicke auf + in Mitte eines Segments um Punkt hinzuzufügen, Doppelklick auf Punkt zum Löschen"); }}><span>✨ Anfasser erklären</span></button>
+            {(() => {
+              // W61: Multisim – Kreuzung ist nur mit Punkt leitend. Der Eintrag
+              // erscheint genau dann, wenn hier zwei Leitungen aufeinandertreffen.
+              let near = false;
+              let verbunden = false;
+              for (const c of wireJunctionCandidates(doc)) {
+                if (Math.hypot(c.x - wx, c.y - wy) > 14) continue;
+                near = true;
+                if ((doc.junctions ?? []).some((j) => Math.hypot(j.x - c.x, j.y - c.y) < 0.5)) verbunden = true;
+              }
+              if (!near) return null;
+              return (
+                <button className="row" onClick={() => { st.toggleJunction(wx, wy); onClose(); }} data-active={verbunden}>
+                  <span>{verbunden ? "⭕ Verbindungspunkt entfernen" : "🔗 Verbindungspunkt setzen (Kreuzung verbinden)"}</span>
+                </button>
+              );
+            })()}
             <button className="row" onClick={() => {
               // W55: begradigt wirklich – Stützpunkte aufs Raster, rechte Winkel,
               // Enden zurück auf die Pins (statt Mittelpunkte wegzuwerfen).

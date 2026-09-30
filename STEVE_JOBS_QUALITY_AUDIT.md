@@ -1791,3 +1791,121 @@ ihn. Offen sind nur Segment-Verschieben und ein Aufräum-/Begradigungsbefehl.
   zeigt es.
 - `emitterschaltung`: Masse-Symbol grenzt direkt an die Quelle (84 % Überdeckung) – bewusst
   unter der Meldeschwelle, optisch unauffällig.
+
+---
+
+## §24 — Runde 24: Kreuzungen wie in Multisim, Oszi-Doku mit Standbild, buck-Konvergenz
+
+**Auftrag (wörtlich):** „das mit den kreuzungen soll so wie in multisim sein" · „die doku soll
+eingehalten werden mit ausnahme wenn das bild steht, also bei stop oder single. wie bei einem
+echten oszi halt." · „Bitte finde danach die Ursache für deinen Befund den du genannt hast. Und fixe
+ggf." · „Bitte beachte, dass du alles, was du machst dokumentiert werden soll."
+
+**Reihenfolge:** erst die Ursache des buck-Befunds (blockiert das Vertrauen in den Simulator), dann
+das Kreuzungsmodell (ändert die Netze), dann die Oszi-Akquise. Verifikation: `tsc --noEmit` ✓,
+`eslint src scripts` ✓, `npm test` ✓ (jetzt inkl. `scripts/ozsitest.ts` + `scripts/presettest.ts`),
+`next build` ✓.
+
+### 24.1 · buck-Konvergenz — Ursachen und Fixes (W57–W59, `src/lib/sim/engine.ts`)
+
+Der in §23.2 als offener Punkt notierte Abbruch („Keine Konvergenz (Newton-Raphson Grenze
+erreicht)", FAIL t = 2,51e-4 s) hatte **drei** Ursachen; alle drei sind behoben.
+
+- **W57 · Dioden-Stamp mit Bahnwiderstand `rs` war zahlenmäßig kaputt.**
+  Vorher: `geff = 1/(1/gd + rs)` und `ieqEff = (id − gd·vd)·(geff/gd)`. Bei großen Strömen ist
+  `id − gd·vd` die Differenz zweier riesiger Zahlen → die Kennlinie wurde grob falsch.
+  Nachweis (`scripts/_tmp_bucktrace2.ts`, dt 1 µs): bei gate = 0 (t = 221 µs) sprang der
+  Schaltknoten auf **SW = −5,401 V** und `extra.id` stand still auf **0,272 A**, obwohl 6,05 A
+  durch die Spule flossen — die 1N5819 fiel also mit 5,4 V ab statt ≈ 1 V.
+  Fix: die innere Sperrschichtspannung `vj` wird so bestimmt, dass `vd = vj + I(vj)·rs` gilt
+  (Newton auf eine Unbekannte, ≤ 50 Schritte, danach das übliche `pnjlim`); gestempelt wird
+  `geff = 1/(1/gd + rs)`, `ieqEff = id − geff·vd`, Zustand `extra.vj`. Nachher an derselben
+  Stelle: **SW = −1,038 V bei 6,426 A** = vj (≈ 0,4 V) + 6,43 A · 0,1 Ω — physikalisch richtig.
+- **W58 · fehlende Drain-Source-Klemmung im MOSFET.** Ohne sie machte der Newton-Schritt zwischen
+  den Iterationen Sprünge von 24 V auf −257 V (Oszillation FET ↔ Diode). Fix: `limvds(vnew, vold)`
+  nach SPICE3 direkt vor `fetlim`; im M-Fall wird `vds` geklemmt und als `limited` gemeldet.
+- **W59 · Divergenz wurde als Konvergenz akzeptiert.** `converged()` prüfte nur *relative*
+  Toleranzen — je größer der Wert, desto leichter „konvergiert". Dadurch konnte ein entgleister
+  Schritt mit 1e17 V als gültig durchgehen (der Buck „lief" bei 2e-6 s bis ±1e18 V). Zwei Fixes:
+  1. **SANE_LIMIT = 1e9:** Knotenspannungen/Ströme über 1e9 gelten als Nicht-Konvergenz → der
+     Schritt wird verworfen und kleiner wiederholt.
+  2. **Zustands-Rollback (`savePoint`/`restorePoint`):** ein verworfener Schritt startet wieder
+     exakt beim letzten akzeptierten Zustand (`x`, `vprev`, `extra`, `outputs`), vorher lief er aus
+     dem entgleisten Iterationsstand weiter.
+
+**Messung (`scripts/_tmp_buckcheck.ts`, `runTransient`, stopTime 20 ms, VOUT/SW/N002):**
+
+| stepTime | vor W57–W59 | nach den Fixes |
+|---|---|---|
+| 2e-5 s | FAIL (5 steps/11 rej, Endwert 4,81 V) | OK · 1003 steps/2 rej · Endwert **9,92 V** |
+| 1e-5 s | FAIL | OK · 2008/5 · **9,81 V** |
+| 2e-6 s | „OK", aber VOUT ±1e18 (Endwert −3,6e17) | OK · 10034/25 · **11,09 V** |
+| 1e-6 s | FAIL | OK · 20007/6 · **10,81 V** |
+
+Dazu die beiden Dauerläufe: adaptiver Schritt bis 20 ms **ohne Boom**, fester Schritt 2e-6
+über 40 000 Schritte **ohne Boom** (vorher Ausreißer auf SW = −3,58e17 bei t = 2,3 ms).
+`scripts/presettest.ts` ist jetzt grün: `PASS buck … tran=true | N001:23.99..24.00 N002:0.00..34.00
+SW:-1.35..24.00 VOUT:0.23..16.08`. Beide Prüfskripte sind in `npm test` aufgenommen; die
+Temporärskripte (`_tmp_buck*.ts`) werden vor dem Commit gelöscht.
+
+### 24.2 · Kreuzungen wie in Multisim (W61)
+
+Bisher galt: **jeder** Leitungs-Stützpunkt, der auf einer fremden Leitung lag, war leitend —
+ohne Punkt im Bild, also unsichtbar verbunden. Jetzt gilt die Multisim-Regel: **nur mit Punkt
+ist die Kreuzung leitend.**
+
+- **Modell** (`src/lib/schematic/model.ts`): neues `SchematicDoc.junctions` (Liste ausdrücklicher
+  Verbindungspunkte). `buildNets` verbindet nur noch an **Anschlussstellen**: Leitungsenden, Pins,
+  Netzlabels und gesetzten Verbindungspunkten. Ein Knick mitten in einer Leitung ist keine
+  Anschlussstelle — kreuzen sich dort zwei Leitungen, bleiben die Netze getrennt. Die Ausgabe
+  `junctions` liefert die Punkte fürs Zeichnen (T-Kontakte automatisch, ausdrückliche Punkte immer;
+  ein Punkt ohne Leitung wird gemeldet).
+- **Zeichnen** (`src/state/editor.ts`): `addWire` setzt automatisch einen Punkt, wenn ein
+  Leitungsende auf einer anderen Leitung landet (T-Kontakt). Eine Überkreuzung erzeugt keinen
+  Punkt. Dieselbe Automatik greift, wenn ein Bauteil beim Setzen automatisch an eine bestehende
+  Leitung angeschlossen wird.
+- **Kontextmenü** (Canvas, Leitung): an einem Treffpunkt zweier Leitungen erscheint
+  **„Verbindungspunkt setzen (Kreuzung verbinden)"** bzw. **„…entfernen"**; der Store-Befehl
+  `toggleJunction` schnappt auf den exakten Treffpunkt (`wireJunctionCandidates`).
+- **Kopieren/Einfügen** nimmt die Punkte auf den kopierten Leitungen mit.
+- **Altbestand** (`src/lib/storage.ts`): `isDoc` akzeptiert das neue Feld; `migrateDoc` trägt beim
+  Laden an allen Stellen einen Punkt nach, die vorher tatsächlich leitend waren (Stützpunkt auf
+  fremder Leitung). Eine reine Kreuzung mitten auf zwei Leitungen war auch vorher nicht leitend
+  und bekommt deshalb keinen Punkt — gespeicherte Schaltungen ändern ihr Verhalten also nicht,
+  sehen aber jetzt wie in Multisim aus.
+- **Tests** (`scripts/wiretest.ts`, 17 neue Prüfungen): Kreuzung ohne Punkt getrennt, mit Punkt
+  verbunden; T-Kontakt verbindet und bekommt einen Punkt; Migration erhält den Altkontakt und
+  erfindet keinen Punkt an reiner Kreuzung; `addWire`-Automatik inkl. Gegenprobe; `toggleJunction`
+  setzt/entfernt.
+
+### 24.3 · Oszi-Doku mit Ausnahme Stop/Single (W60)
+
+`oszi v2/PORTIERUNG.md` §10.1 verlangt `env.probes` im `settingsKey`; Runde 22 hatte den Eintrag
+entfernt, damit im Stop keine 0-V-Linie entsteht — damit war die Doku-Absicht aber auch im **Run**
+verloren. Jetzt sind beide Anforderungen getrennt:
+
+- `settingsKey` enthält wieder `env.probes` (`src/components/oszi2/engine.ts`): Umstecken oder
+  Skalieren der Messleitung löst im **Run** eine neue Aufnahme aus, die Mittelung beginnt neu.
+- **Stop und Single halten das Bild** (wie am echten Gerät): im Stop wird nicht neu gemessen,
+  Skalieren/Position wirken nur auf den gespeicherten Datensatz. Die Änderung wird in
+  `pendingKeyChange` vorgemerkt und beim nächsten Run eingelöst (frische Aufnahme, neuer
+  Mittelungsdurchlauf).
+- **Test** (`scripts/ozsitest.ts`, 13 Prüfungen, in `npm test`): Schlüssel reagiert auf Leitung und
+  V/div; im Run Neuaufnahme beim Umstecken; im Stop keine Neuaufnahme und unveränderter Datensatz
+  (R22-Schutz); Vormerkung greift beim Wiederanlauf; Single→Stop hält ebenfalls.
+- `PORTIERUNG.md` §10.1/§10.2 sind entsprechend als bewusste Port-Anpassung kommentiert.
+
+### 24.4 · Verifikation
+
+`./node_modules/.bin/tsc --noEmit` ✓ · `npx --no-install eslint src scripts` ✓ ·
+`npm test` ✓ (importtest, simtest, check-pin-congruence, windowtest, wiretest inkl. W61, ozsitest,
+presettest — alle grün) · `npx --no-install next build` ✓.
+
+### 24.5 · Hinweise
+
+- Die drei Temp-Skripte der Fehlersuche wurden nach der Verifikation entfernt; die dauerhaften
+  Prüfungen sind `scripts/wiretest.ts` (W49–W61), `scripts/ozsitest.ts` (W60) und
+  `scripts/presettest.ts` (jetzt mit Exit-Code).
+- Der Buck rechnet jetzt durch, aber der Startvorgang ist langsam (VOUT erreicht erst nach
+  mehreren ms die Nähe des Sollwerts). Rein kosmetisch für die Anzeige, nicht Teil dieser Runde.
+
