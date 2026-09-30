@@ -1472,3 +1472,115 @@ Adaptern) – Fenster = Gerät + 2×12 + Chrome.
   und – für das Aufblitzen entscheidend – nach dem Loslassen steht **derselbe**
   Transform-Wert im DOM wie im Store.
 - Dev-Server (Live-Vorschau) auf Port 3000, `/` HTTP 200.
+
+## §22 — Runde 22: Geräte-Prüfung Oszi + FG-2500 (Aufdruck vs. Bildschirminhalt)
+
+**Nutzer-Befunde (Runde 22):** (1) FG: gesteckte Leitung wird am Gerät nicht angezeigt –
+„da wurde glaube ich nicht ganz portiert". (2) Oszi: die Beschriftung unter den BNC-Buchsen
+ändert sich je nach Netz/Kanal – soll sie nicht. **Regel des Nutzers: „bei den Geräten darf
+sich nur der Bildschirminhalt ändern und nicht das, was in echt nur aufgedruckt ist – die
+Hardware soll sich nicht ändern."** (3) FG-Drehknopf klingt beim schnellen Drehen „komisch
+und ruckelt". (4) Oszi Single/Stop: Skalierungsänderung erzeugt aus einem Signal eine
+0-V-Linie, „wie wenn die Simulation im Aus-Zustand beim Anpassen neu gemessen wird".
+
+**Ursachenanalyse (belegt im Code):**
+1. *Oszi-Aufdruck:* `src/components/oszi2/Oscilloscope.tsx` Z. 636 druckt
+   `sourceLabel(p.target) · {p.atten}X` unter jede Buchse. Mit der Multispice-Verdrahtung
+   wird `p.target` zum **Netznamen** (N001 …) – im Original stand dort ein fester
+   Prüfpunkt (TP1/GEN/COMP). Also: Portierungsfehler, nicht Originalverhalten.
+2. *Single/Stop-Neumessung:* `Engine.step()` hat einen `run === 'stop'`-Zweig, der bei
+   `keyChanged` (Änderung von `s.ch`, `s.tdiv`, `s.hDelay`, `acq.mode`, **`env.probes`**)
+   **neu akquiriert**. `settingsKey()` enthält u. a. `env.probes`; `connectProbeWire`
+   schreibt die Verdrahtung um → Key ändert sich → im Stop/Single wird neu gemessen –
+   bei pausierter Simulation also 0 V. Ein echtes Oszi nutzt im Stop den **Speicher**.
+3. *FG-Drehknopf:* `Knob.onTurn` erzeugt pro Raste einen eigenen WebAudio-`uiTick()`
+   (`for i < Math.min(|steps|, 6)`). Beim schnellen Drehen (Trackpad/Mausrad liefert
+   große Deltas) starten alle Rastgeräusche **gleichzeitig** → Phasing/Verzerrung, und
+   das Rendering läuft pro Mausrad-Event (kein rAF, keine Batchung) → Ruckeln.
+4. *FG-Kabel:* Der Port hat `CableLayer`/`cables.ts` bewusst weggelassen (Patchfeld der
+   Demo). Ersetzt werden soll das nur für die Anzeige „hier steckt eine Leitung" –
+   weiterhin Tooltip + jetzt sichtbarer Stecker.
+
+**Ask-User-Antworten (bindend, Runde 22):**
+1. Oszi-Buchsen: **fest „CH1…CH4"**; die Dämpfung (1X/10X) wandert als Etikett auf den
+   **Stecker**.
+2. Netzname: **nur im Tooltip** (Hardware unverändert), kein Text im Display.
+3. FG-Kabel: **Stecker + Kabelstummel + Original-Steckgeräusche** (`uiPlug`/`uiUnplug`).
+4. Oszi Stop/Single: **Datensatz halten** – V/div ändert nur den Maßstab des
+   gespeicherten Signals, t/div wird im Stop ignoriert, neu gemessen erst wieder mit Run.
+
+**W45 Oszi-Aufdruck fest.** Unter der BNC steht `CH1…CH4`; der Stecker (bzw. die freie
+Buchse) trägt das Dämpfungs-Etikett `1X`/`10X`. Netzverbindung weiterhin nur im Tooltip
+und im Bildschirminhalt (MATH/Cursor/Mess-Quellen dort wie gehabt).
+
+**W46 Stop/Single hält den Datensatz.** `settingsKey()` ohne `env.probes` und ohne
+`s.ch`; im Stop-Zweig wird **nicht** neu akquiriert (nur der gespeicherte Datensatz
+gerendert, V/div/Position als reine Darstellung). Neu messen erst bei Run/Single.
+
+**W47 FG-Drehknopf.** Rastgeräusche werden ge-batcht (max. 1 pro ~28 ms, harte Grenze),
+die Drehung wird pro Frame (rAF) verrechnet statt pro Event – kein gleichzeitiges
+Anschlagen vieler Ticks mehr, gleichmäßiger Klang und flüssige Bewegung.
+
+**W48 FG-Stecker sichtbar.** `FgScope` leitet aus der Netzliste ab, welche Buchse belegt
+ist (Netz = `netResult.pinNets[instId:pin]`, `*_nc*`/`0` = frei, wie beim Patchfeld);
+das Panel zeichnet Stecker + Kabelstummel (`Plug`) an belegten Buchsen, hält die
+Trefferfläche der Buchse frei (Klick bleibt am Panel) und spielt beim Stecken/Ziehen
+`uiPlug`/`uiUnplug`.
+
+**Verifikation:** Pflicht-Checks (tsc/eslint/npm test/build) + neue Scratch-Tests:
+Engine-Test (Stop + geänderte vdiv → gleicher Datensatz, Run → neue Akquise) und
+Panel-Test (Buchsen-Aufdruck fest, Stecker nur bei belegter Buchse).
+
+### §22.1 — Umsetzungsstand Runde 22 (2026-09-30) ✅
+
+**W45 Oszi-Aufdruck ist fest.** Unter den BNC-Buchsen steht jetzt immer `CH1…CH4`
+(vorher `sourceLabel(p.target) · {p.atten}X`, mit der Verdrahtung also der Netname
+wie „N001 · 10X" – ein Portierungsfehler). Das Dämpfungs-Etikett `1X`/`10X` wanderte
+wie am echten Tastkopf **auf den Stecker** (farbiger Aufdruck auf dem Steckergehäuse),
+der Netname steht nur noch im Tooltip. Im DOM-Smoke belegt: sichtbarer Text enthält
+„CH1…CH4" und kein „N001", der Tooltip schon.
+
+**W46 Stop/Single hält den Datensatz.** Ursache: `Engine.step()` akquirierte im
+`run === 'stop'`-Zweig bei jedem `keyChanged` neu, und `settingsKey()` enthielt
+`env.probes` (die Verdrahtung) – schon ein umgesteckter Tastkopf löste also eine
+Neumessung aus (bei pausierter Simulation: 0 V). Jetzt: `settingsKey` ohne
+`env.probes`, und der Stop-Zweig misst grundsätzlich **nicht** neu; V/div und
+Position wirken nur als Darstellung auf den gespeicherten Datensatz. Neu aufgenommen
+wird erst bei Run/Single. Test (`tsx`, danach gelöscht): im Stop ändern Skalierung
+und Umstecken nichts (Datensatz identisch, `newAcq = false`), Run nimmt wieder auf.
+
+**W47 FG-Drehknopf ruckelt/klingt nicht mehr komisch.** Zwei Ursachen: (a) pro Raste
+ein eigenes WebAudio-`uiTick()` – beim schnellen Drehen schlugen bis zu sechs Ticks
+gleichzeitig an (Phasing/Verzerrung); (b) pro Mausrad-Event ein React-Update und ein
+`turn()`-Aufruf. Jetzt: höchstens ein Rastgeräusch je 28 ms, Rasten werden gesammelt
+und **einmal pro Frame** verrechnet (Mausrad und Ziehen) – gleichmäßiges Ratscheln,
+flüssige Bewegung.
+
+**W48 FG-Stecker sichtbar (Portierungs-Nachtrag).** Der Port hatte `CableLayer`/
+`cables.ts` bewusst weggelassen (Patchfeld der Demo) – dadurch war an den Buchsen
+nicht zu sehen, ob eine Messleitung steckt. `FgScope` leitet die Belegung aus der
+Netzliste ab (`instId:0/1`, `*_nc*`/`0` = frei) und das Panel zeichnet an belegten
+Buchsen einen **BNC-Stecker mit Kabelstummel** in Aderfarbe (`fg2/CablePlug.tsx`,
+reine Anzeige, `pointer-events: none` – der Klick bleibt an der Buchse). Beim Abziehen
+(Aufnehmen) bzw. Aufstecken (Zurücklegen) spielen die **Original-Steckgeräusche**
+`uiUnplug`/`uiPlug`.
+
+**Nutzerregel umgesetzt:** „nur der Bildschirminhalt darf sich ändern, nicht der
+Aufdruck." Deshalb entfiel auch die in Runde 19 gebaute dynamische Beschriftung unter
+den FG-Buchsen („→ N001"/„offen"); Verbindung zeigt jetzt der Stecker, der Netname
+steht im Tooltip. „in der Hand" bleibt als Bedien-Rückmeldung (wie das aufleuchtende
+Lämpchen), ebenso die LEDs der Tasten.
+
+**Verifikation (Runde 22):**
+- `./node_modules/.bin/tsc --noEmit` clean · `npx --no-install eslint src scripts`
+  clean · `npm test` alle PASS (inkl. 14 Fenster-Geometrie-Prüfungen) ·
+  `npx --no-install next build` ✓ (7/7 statisch)
+- Scratch-Tests (danach gelöscht), 10/10 PASS: Engine hält im Stop den Datensatz
+  (Skalierung + Umstecken ohne Neuaufnahme, Run nimmt wieder auf); DOM-Smoke: Aufdruck
+  `CH1…CH4` fest, kein Netname im sichtbaren Text, Netname im Tooltip, Dämpfungs-Etikett
+  am Stecker, FG-Stecker nur bei echter Verbindung (nicht bei `0`/offen).
+- Portierungs-Notizen gelesen: `function generator/PORTING.md` (Abschnitt „Patchfeld/
+  Messleitungen" und „Frontpanel-Realismus" = Grundlage für W47/W48). Eine
+  Portierungs-MD zu `oszi v2/` liegt im Repo **nicht** vor (nur die FG-Datei) – die
+  Oszi-Regeln (Aufdruck fest, Stop = Speicher) sind aus dem 1:1-Code von `oszi v2`
+  abgeleitet und im Audit dokumentiert.

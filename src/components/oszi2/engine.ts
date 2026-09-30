@@ -215,8 +215,16 @@ export class Engine {
   stats = new Map<string, StatEntry>();
   acqCount = 0;
 
+  /**
+   * Runde 22 (W46): Der Schlüssel bestimmt, wann im Stop neu gemessen wird.
+   * `env.probes` (Verdrahtung) gehört **nicht** hierher: Im Stop/Single hält das
+   * Gerät seinen Datensatz, ein Umstecken der Messleitung darf keine neue
+   * Aufnahme auslösen (bei pausierter Simulation wäre das eine 0-V-Linie).
+   * `s.ch` bleibt enthalten, damit eine im Stop geänderte Messaufgabe neu greift.
+   */
   settingsKey(s: Settings, env: Env): string {
-    return JSON.stringify([s.ch, s.tdiv, s.hDelay, s.acq.mode, env.probes]);
+    void env;
+    return JSON.stringify([s.ch, s.tdiv, s.hDelay, s.acq.mode]);
   }
 
   private finish(acq: Acq, s: Settings) {
@@ -250,11 +258,13 @@ export class Engine {
 
     if (s.run === 'stop') {
       this.status = 'stop';
-      if (keyChanged && this.display) {
-        const a = acquire(this.lastTT, s.hDelay, tdiv, s, env, this.acMean, this.display.triggered);
-        this.display = a;
-        return { newAcq: true, singleDone: false };
-      }
+      // Runde 22 (W46): Im Stop wird **nicht** neu gemessen. V/div & Position
+      // wirken nur als Darstellung auf den gespeicherten Datensatz (wie am
+      // echten Gerät); neu aufgenommen wird erst wieder bei Run/Single.
+      // Vorher löste jede Änderung am settingsKey (u. a. umgesteckte Messleitung
+      // über env.probes) eine frische Akquise aus – bei pausierter Simulation
+      // wurde aus einem Signal eine 0-V-Linie.
+      if (keyChanged) this.avg = null;
       return { newAcq: false, singleDone: false };
     }
 

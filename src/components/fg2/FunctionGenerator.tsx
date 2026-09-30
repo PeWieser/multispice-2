@@ -7,6 +7,7 @@ import { Bnc } from './Bnc';
 import { Lcd } from './Lcd';
 import { PowerIcon, WaveIcon } from './Icons';
 import { uiClick, uiTick, type KeyKind } from './audio';
+import { CablePlug } from './CablePlug';
 import './fg-panel.css';
 
 /* W18: Frontpanel des SimTech FG-2500 (1:1 aus function generator/).
@@ -20,6 +21,10 @@ const WAVES: WaveId[] = ['sine', 'square', 'ramp', 'pulse', 'noise', 'arb'];
 const WAVE_TITLES: Record<WaveId, string> = {
   sine: 'Sinus', square: 'Rechteck', ramp: 'Dreieck / Rampe', pulse: 'Puls', noise: 'Rauschen', arb: 'Arbiträr',
 };
+
+/** W47: Mindestabstand zweier Rastgeräusche (ms) – schnelles Drehen klingt
+ *  dadurch wie ein sauberes Ratscheln statt wie überlagerte Klicks. */
+const SOUND_GAP = 28;
 
 const KIND_OF: Partial<Record<Action['type'], KeyKind>> = {
   digit: 'num', sign: 'num', fkey: 'soft', wave: 'wave', power: 'power',
@@ -56,6 +61,8 @@ export function FunctionGenerator({
   const [scale, setScale] = useState(1);
   // W18: Einschalt-Splash – 1 beim ersten Bild, +1 pro Netzschalter.
   const [bootTick, setBootTick] = useState(1);
+  // W47: Zeitstempel des letzten Rastgeräuschs (Batchung beim schnellen Drehen).
+  const lastTickAt = useRef(0);
 
   /** Geräusche an/aus (Utility → Beep) */
   const soundOn = () => core.getState().sys.beep;
@@ -184,12 +191,20 @@ export function FunctionGenerator({
             })}
 
             {/* Knopf + Pfeiltasten */}
+            {/* W47: Rastgeräusche gebündelt – beim schnellen Drehen schlugen vorher
+                bis zu 6 uiTick() gleichzeitig an (Phasing, „klingt komisch"), und
+                jeder Mausrad-Schritt löste ein eigenes React-Update aus (Ruckeln).
+                Jetzt: max. 1 Rastgeräusch pro SOUND_GAP, Drehung gebündelt pro Frame. */}
             <Knob
               x={913}
               y={116}
               size={104}
               onTurn={(steps) => {
-                if (soundOn()) for (let i = 0; i < Math.min(Math.abs(steps), 6); i++) uiTick();
+                const now = performance.now();
+                if (soundOn() && steps !== 0 && now - lastTickAt.current >= SOUND_GAP) {
+                  lastTickAt.current = now;
+                  uiTick();
+                }
                 press({ type: 'knob', steps });
               }}
               onPress={() => press({ type: 'knobPress' })}
@@ -222,6 +237,10 @@ export function FunctionGenerator({
                 {(['out1', 'out2'] as const).map((jack, i) => {
                   const held = jacks?.held === jack;
                   const net = jacks?.nets[jack] ?? '';
+                  // W48: Nur echte Verbindungen zeigen einen Stecker. „0" ist die
+                  // Masse (COM) – dort hängt kein Stecker am Ausgang, das wäre im
+                  // Schaltplan eine direkte Masserverdrahtung.
+                  const plugged = !held && net !== '' && net !== '0';
                   const title = held
                     ? `${jack.toUpperCase()}: Kabel in der Hand – Klick im Schaltplan auf eine Leitung oder einen Pin legt die Messleitung, Klick auf die Buchse steckt sie zurück`
                     : net
@@ -238,12 +257,30 @@ export function FunctionGenerator({
                         held={held}
                         onClick={jacks ? () => jacks.onPick(jack) : undefined}
                       />
-                      <div
-                        className="fg-label"
-                        style={{ left: i === 0 ? 22 : 198, top: 149, width: 106, textAlign: 'center', fontSize: 9, fontWeight: 600, opacity: held ? 1 : 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                      >
-                        {held ? 'in der Hand' : net ? `→ ${net}` : 'offen'}
-                      </div>
+                      {/* W48: Der Aufdruck der Frontplatte bleibt fest – hier stand
+                          vorher das gemessene Netz („→ N001"). Verbindungen zeigt der
+                          Stecker, der Netname steht nur im Tooltip (Nutzerregel R22:
+                          nur der Bildschirminhalt darf sich ändern, nicht der Aufdruck).
+                          „in der Hand" ist dagegen Bedien-Rückmeldung wie das
+                          aufleuchtende Lämpchen am Steckplatz. */}
+                      {held && (
+                        <div
+                          className="fg-label"
+                          style={{ left: i === 0 ? 22 : 198, top: 149, width: 106, textAlign: 'center', fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}
+                        >
+                          in der Hand
+                        </div>
+                      )}
+                      {/* W48: gesteckte Messleitung sichtbar machen (nur Anzeige) */}
+                      {plugged && (
+                        <CablePlug
+                          x={i === 0 ? 75 : 251}
+                          y={100}
+                          size={78}
+                          tint={i === 0 ? '#d24450' : '#3a86d8'}
+                          idPrefix={`fg-plug-${jack}`}
+                        />
+                      )}
                     </div>
                   );
                 })}

@@ -5,6 +5,7 @@ import { GeneratorCore, type StorageLike } from "@/lib/fg/core";
 import type { GenState } from "@/lib/fg/types";
 import { useEditor, type InstrumentWindow } from "@/state/editor";
 import { click } from "./oszi2/sound";
+import { uiPlug, uiUnplug } from "./fg2/audio";
 import { DeviceFit, useReportNatural } from "./DeviceFit";
 import { BENCH_PAD } from "@/lib/windows/geometry";
 import { LeadBanner } from "./LeadBanner";
@@ -81,18 +82,29 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
         : "out2"
       : null;
 
+  const jackNetsRef = useRef(jackNets);
+  useEffect(() => {
+    jackNetsRef.current = jackNets;
+  }, [jackNets]);
+
   const onPickJack = useCallback(
     (jack: "out1" | "out2") => {
       const st = useEditor.getState();
       if (!win.instanceId) return;
       const cur = st.leadArmed;
       const beep = core.getState().sys.beep;
+      const plugged = (jackNetsRef.current[jack] ?? "") !== "";
       if (cur && cur.instanceId === win.instanceId && cur.pinIndex === JACK_PIN[jack]) {
         st.setLeadArmed(null); // Kabel zurück auf die Buchse
         if (beep) click("plug");
         return;
       }
-      if (beep) click("plug");
+      // W48: Original-Steckgeräusche des FG-2500 – abziehen (Buchse belegt)
+      // bzw. aufstecken (Buchse frei).
+      if (beep) {
+        if (plugged) uiUnplug();
+        else uiPlug();
+      }
       st.setLeadArmed({
         instanceId: win.instanceId,
         pinIndex: JACK_PIN[jack],
