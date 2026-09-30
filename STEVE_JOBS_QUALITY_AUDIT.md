@@ -1665,3 +1665,129 @@ krumme Koordinaten erzeugen (siehe L1).
   nur dann neu erfassen, wenn die Simulation läuft (dann gäbe es keine 0-V-Linie aus
   pausierter Simulation und trotzdem die von der Doku gewünschte Neuaufnahme).
   Entscheidung offen.
+
+## §23.1 — Fixplan Runde 23: Leitungsverlegung + Bauteilanordnung
+
+**Auftrag:** „Plane die Fixes und arbeite sie der Reihe nach ab, wichtigste zuerst."
+Reihenfolge deshalb nach Risiko: erst, was die Elektrik still falsch macht, dann
+Optik/Bedienung. Jeder Block wird einzeln verifiziert (tsc, eslint, `npm test`, build).
+
+### Neue Messung vorweg (verschärft L1 erheblich)
+Die **Beispielschaltungen sind teils elektrisch tot**: In den 8 `PRESETS` liegen 67 von
+220 Leitungsenden 2–9 px neben dem Pin (die Beispiele wurden mit gerundeten Koordinaten
+geschrieben, die Pins liegen aber nicht immer auf dem 10er-Raster). Folge laut `buildNets`:
+`astable555` = 8 von 17 Netzen ohne Verbindung, `logic-counter` = 6 Netze ganz ohne Pin.
+Prototyp „Enden auf Pins rasten" (Toleranz 15 px, Geometrie bleibt orthogonal, gemessen):
+**0 leere Netze in allen 8 Beispielen**, `astable555` nc 8→1, `logic-counter` nc 20→4 (Rest
+= echte unbeschaltete Bauteil-Pins).
+
+**Korrektur zur Bestandsaufnahme §23/L4:** „kein Punkt einfügen/entfernen" war falsch —
+Doppelklick auf ein Segment fügt einen Stützpunkt ein, Doppelklick auf einen Griff löscht
+ihn. Offen sind nur Segment-Verschieben und ein Aufräum-/Begradigungsbefehl.
+
+### Stufe A — elektrisch (unsichtbare Fehler zuerst)
+- **W49 · Leitungsenden an Pins rasten (L1).** Neues `snapWiresToPins(doc, tol)` in
+  `model.ts`: jedes Leitungsende, das ≤ 15 px neben einem Pin liegt, wandert exakt auf den
+  Pin, das Nachbarsegment wird orthogonal mitgezogen (Knick einfügen oder Nachbarpunkt
+  verschieben). Angewendet auf Beispiele (`PRESETS`) und Importe (SPICE/LTspice) mit
+  Logzeile „N Leitungsenden an Pins ausgerichtet". Gespeicherte Nutzerdokumente werden
+  **nicht** still verändert. Zusätzlich: `addInstance` rastet aufs Raster (B5).
+- **W50 · Auto-Router exakt am Pin (L1).** `routeOrthogonal` rastet nicht mehr absolut aufs
+  Raster, sondern legt das Gitter durch den Startpunkt (Offset-Gitter) und hängt am Ende
+  ein kurzes, exaktes L bis zum Pin an (Variante ohne Bauteilschnitt gewählt). Damit gibt
+  es keine 2–9-px-Lücken mehr, auch bei Off-Grid-Pins.
+- **W51 · Netzprüfung sichtbar (L1/L3).** `buildNets` meldet zusätzlich: „Leitungsende ohne
+  Anschluss", „Leitung ohne Länge" (2× derselbe Punkt), „Leitung doppelt vorhanden"
+  (gleiche Endpunkte/Geometrie) – gedeckelt, damit das Fehlerfenster lesbar bleibt. Offene
+  Enden bekommen zusätzlich eine kleine Markierung auf dem Canvas (offener Kreis), damit der
+  Fehler dort auffällt, wo er entsteht.
+- **W52 · Drehen/Spiegeln zieht Leitungen nach (B1).** `rotateSelection`/`mirrorSelection`
+  merken sich die Pin-Positionen vor der Transformation, setzen betroffene Leitungsenden auf
+  die neuen Pin-Positionen und führen die Knicke orthogonal nach (Hindernis-Ausweichen wie
+  W2/W26). Bleibt ein Ende ohne Pin, wird es als offen markiert (Warnung) statt still zu
+  brechen.
+
+### Stufe B — Optik/Bedienung
+- **W53 · Verbindungspunkte zeichnen (L2).** `buildNets` liefert die Punkte, an denen
+  elektrisch ≥ 3 Anschlüsse zusammenkommen (T-Kontakt, Kreuzung, Pin auf Segment); der
+  Canvas zeichnet dort gefüllte Punkte in Leitungsfarbe. Damit ist ein T sichtbar verbunden
+  und eine Kreuzung nicht mehr „unsichtbar verbunden".
+- **W54 · Segment verschieben (L4).** Ein Segment lässt sich (abseits der Griffe) greifen
+  und senkrecht zu seiner Richtung ziehen; die Nachbarsegmente strecken sich, Raster-Snap
+  und Undo inklusive.
+- **W55 · Anordnen/Aufräumen (B3/B4).** Menü „Bearbeiten": Ausrichten (links/rechts/oben/
+  unten/mitte waagerecht/mitte senkrecht), Verteilen (waagerecht/senkrecht), „Leitungen
+  begradigen" (Stützpunkte aufs Raster, Segmente exakt orthogonal). Einfügen bekommt eine
+  Kaskade: die Kopie landet nicht mehr auf der Vorlage.
+- **W56 · Rest (B2/B5).** Überlappungswarnung, wenn zwei Bauteile sich fast deckungsgleich
+  überlagern; `addInstance` rastet (siehe W49).
+
+## §23.2 — Umsetzung Runde 23 (W49–W56, alles verifiziert)
+
+**Reihenfolge wie geplant:** erst die elektrisch gefährlichen Sachen (A), dann Optik/Bedienung
+(B). Verifikation: `tsc --noEmit` ✓, `eslint src scripts` ✓ (0 Treffer), `npm test` ✓
+(neu dabei: `scripts/wiretest.ts`, 39 Prüfungen), `next build` ✓.
+
+### Stufe A — elektrisch
+- **W49 · `snapWiresToPins` (model.ts, Toleranz 15 px).** Enden ≤ 15 px neben einem Pin
+  wandern exakt auf den Pin, das Nachbarsegment wird orthogonal mitgezogen
+  (`attachWireEnd` + `cleanWirePoints`). Angewendet beim Erzeugen der Beispiele und nach
+  SPICE-/LTspice-Import; gespeicherte Nutzerdokumente bleiben unangetastet (dort repariert
+  auf Wunsch der Menüpunkt **„Leitungen prüfen & reparieren"**). `addInstance` rastet
+  jetzt ebenfalls aufs Raster (B5).
+  - Wirkung, gemessen: die 8 Beispiele hatten **67 von 220 Leitungsenden 2–9 px neben dem
+    Pin**; `astable555` 8 von 17 Netzen ohne Verbindung, `logic-counter` 6 Netze ganz ohne
+    Pin, `buck` hatte den **MOSFET-Drain nicht an der Versorgung**. Nach dem Rasten:
+    `openEnds = 0`, keine leeren Netze, alle Beispiele mit echten Netzen
+    (`logic-counter` 35 → 15 Netze = die vorher getrennten Teile sind jetzt verbunden).
+  - Datenfehler, die die neue Prüfung gefunden hat und die behoben sind: VCC-Schiene in
+    `astable555` endete bei x = 700 im Nichts (jetzt bis zum letzten Abzweig 500).
+- **W50 · Auto-Router endet exakt am Pin.** Das A*-Gitter wird vom Startpunkt aufgespannt
+  (Offset-Gitter statt absolutem Raster) und der Gitterpunkt am Ende wird **in
+  Startrichtung** gewählt; die kurzen Reststrecken (≤ halbe Rasterweite) werden als
+  exaktes L angeschlossen, Variante ohne Bauteilschnitt. Nachweis: Pins (273,197)/(473,203)
+  ⇒ Route beginnt/endet exakt dort, bleibt orthogonal, umgeht die BBox; auf dem Raster
+  unverändert gerade.
+- **W51 · Netzprüfung sichtbar.** `buildNets` meldet zusätzlich „Leitungsende ohne
+  Anschluss (x, y) – hängt in der Luft", „Leitung ohne Länge", „Leitung doppelt vorhanden"
+  (gedeckelt auf 12 + Sammelzeile) und liefert `openEnds` an den Canvas, der offene Enden
+  als kleinen roten Kreis markiert (nicht während des Ziehens). Testfall mit 6 Leitungen:
+  4 offene Enden, alle drei Warnungsarten erkannt.
+- **W52 · Drehen/Spiegeln reißt nicht mehr ab.** Vor der Transformation werden die
+  Pin-Positionen festgehalten (`collectPins`), Leitungsenden darauf exakt neu gesetzt
+  (`reattachWiresToPins`, orthogonal nachgezogen) und die Zahl der mitgeführten Enden
+  geloggt. Nachweis: nach 90° sitzen beide Enden exakt auf den neuen Pins, Netz bleibt
+  verbunden (vorher 42,4 px Lücke, Netz `r1_nc0`).
+
+### Stufe B — Optik/Bedienung
+- **W53 · Verbindungspunkte.** Die alte Punkte-Heuristik („derselbe Punkt in ≥ 2 Leitungen")
+  ist ersetzt: `buildNets` liefert echte Verbindungspunkte (Grad ≥ 3: T-Kontakt, Kreuzung,
+  Pin auf Leitung), Canvas zeichnet sie bildschirmkonstant. Eine Ecke aus zwei
+  Leitungsenden ist bewusst **kein** Punkt. Beispiele: 15 Verbindungspunkte, 0 Fehlpunkte.
+- **W54 · Segment verschieben.** Segment greifen und senkrecht ziehen (Raster-Snap,
+  Nachbarsegmente strecken sich, Undo-fähig, neuer Store-Befehl
+  `setWireSegmentOffset`). `Alt`-Ziehen behält das bisherige Mitziehen der ganzen Auswahl;
+  in einer Mehrfachauswahl mit Bauteilen bleibt es ebenfalls beim Verschieben der Auswahl.
+- **W55 · Anordnen/Aufräumen.** Neu im Menü „Bearbeiten": Ausrichten (links/oben/mittig),
+  Verteilen (gleicher Abstand), **Leitungen begradigen (⇧L)** und **Leitungen prüfen &
+  reparieren**. Das Kontextmenü von Bauteilen bietet den vollen Satz (⇤ ⇥ ⇧ ⇩ ↔ ↕ +
+  Verteilen waagerecht/senkrecht), das Kontextmenü einer Leitung jetzt echtes „Leitung
+  begradigen (Raster + rechte Winkel)" statt des alten Mittelpunkte-Wegwerfens. Einfügen
+  bekommt eine Kaskade: +20 px pro weiterer Einfügung und zusätzlich so lange weiter, bis
+  die Kopie auf keinem fremden Bauteil mehr liegt.
+- **W56 · Überlappungswarnung.** Bauteile, die sich zu ≥ 90 % überdecken, werden gemeldet
+  (Schwelle bewusst streng: angrenzende Symbole wie Masse an der Quelle sind normal und
+  lösen nicht aus – geprüft, alle 8 Beispiele warnungsfrei).
+
+### Neue Befunde (aus der Reparatur sichtbar geworden, nicht in dieser Runde gefixt)
+- **`buck`-Beispiel rechnet nicht durch.** Nach der Reparatur ist der Schaltregler
+  elektrisch korrekt verdrahtet (vorher hing der MOSFET-Drain in der Luft, deshalb
+  „konvergierte" die Analyse über getrennte Teilnetze). Jetzt bricht die Transientenanalyse
+  mit „Keine Konvergenz (Newton-Raphson Grenze erreicht)" ab – geprüft mit Schrittweiten
+  von 2e-5 bis 5e-7 s, mit 2 kHz/5 kHz PWM, mit langsameren Gate-Flanken und mit
+  stärkerem FET: immer derselbe Abbruch. Das ist ein **Simulationskern-Thema** (steifes
+  Schalten von MOSFET + Schottky-Diode im Fest-Schritt-MNA), kein Verdrahtungsfehler →
+  offener Punkt für eine eigene Runde; `scripts/presettest.ts` (nicht Teil von `npm test`)
+  zeigt es.
+- `emitterschaltung`: Masse-Symbol grenzt direkt an die Quelle (84 % Überdeckung) – bewusst
+  unter der Meldeschwelle, optisch unauffällig.

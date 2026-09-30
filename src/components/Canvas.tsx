@@ -181,7 +181,7 @@ export default function Canvas() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const st = useEditor.getState();
-    const { doc, view, selection, showGrid, netResult, sim, showCurrentFlow, showVoltageColors } = st;
+    const { doc, view, selection, showGrid, netResult, sim, showCurrentFlow, showVoltageColors, showErcMarkers } = st;
     const live = sim.running || engine.lastState.time > 0 ? engine.lastState : null;
     const now = performance.now();
 
@@ -586,15 +586,30 @@ export default function Canvas() {
       ctx.restore();
     }
 
-    const counts = new Map<string, number>();
-    for (const wire of doc.wires) for (const p of wire.points) {
-      const k = `${Math.round(p.x)},${Math.round(p.y)}`;
-      counts.set(k, (counts.get(k) ?? 0) + 1);
-    }
+    // W53: Verbindungspunkte kommen jetzt aus der Netzprüfung – dort, wo
+    // elektrisch ≥ 3 Anschlüsse zusammenkommen (T-Kontakt, Kreuzung, Pin auf
+    // Leitung). Zwei Leitungsenden an derselben Stelle sind eine Ecke und
+    // bekommen keinen Punkt (wie in jedem Schaltplan-Editor).
+    const jz = 1 / Math.max(view.zoom, 0.4);
     ctx.fillStyle = css("--wire", "#7dd3fc");
-    for (const [k, c] of counts) if (c >= 2) {
-      const [px, py] = k.split(",").map(Number);
-      ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
+    for (const j of netResult.junctions) {
+      ctx.beginPath();
+      ctx.arc(j.x, j.y, 3.4 * jz, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // W51: offene Leitungsenden sichtbar machen – der Fehler fällt dort auf,
+    // wo er entsteht. Während des Ziehens eines Leitungspunkts nicht flackern.
+    const draggingWirePoint = Boolean((stateRef.current as any).wirePointDrag);
+    if (showErcMarkers && !draggingWirePoint) {
+      ctx.save();
+      ctx.strokeStyle = css("--err", "#b3372c");
+      ctx.lineWidth = 1.6 * jz;
+      for (const e of netResult.openEnds) {
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 5 * jz, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     for (const inst of doc.instances) drawInstance(ctx, inst, selection.includes(inst.id), view.zoom, live);
@@ -1289,6 +1304,22 @@ export default function Canvas() {
       if (wireHit) {
         if (e.shiftKey || e.metaKey || e.ctrlKey) st.setSelection([...new Set([...st.selection, wireHit])]);
         else if (!st.selection.includes(wireHit)) st.setSelection([wireHit]);
+        // W54: Ein Segment lässt sich senkrecht verschieben; Alt zieht wie bisher
+        // die ganze Auswahl (Leitung bzw. Leitung + Bauteile) mit.
+        const seg = e.altKey ? null : hitWireSegment(st.doc, world.x, world.y);
+        const multi = st.selection.length > 1 && st.selection.some((id) => st.doc.instances.some((i) => i.id === id));
+        if (seg && !multi) {
+          const segWire = st.doc.wires.find((x) => x.id === seg.wireId);
+          if (segWire) {
+            (sr as any).wireSegDrag = {
+              wireId: seg.wireId,
+              segIdx: seg.segIdx,
+              orig: segWire.points.map((p) => ({ x: p.x, y: p.y })),
+              applied: { dx: 0, dy: 0 },
+            };
+            return;
+          }
+        }
         sr.dragging = true;
       } else {
         if (!e.shiftKey && !e.metaKey && !e.ctrlKey) st.setSelection([]);
@@ -1375,8 +1406,29 @@ export default function Canvas() {
     }
     sr.lastMouse = { x: e.clientX, y: e.clientY };
 
+    // W54: Segment verschieben – senkrecht zur Segmentrichtung, Raster-Snap.
+    if ((sr as any).wireSegDrag) {
+      const seg = (sr as any).wireSegDrag as { wireId: string; segIdx: number; orig: Array<{ x: number; y: number }>; applied: { dx: number; dy: number } };
+      const sa = seg.orig[seg.segIdx];
+      const sb = seg.orig[seg.segIdx + 1];
+      const horizontal = Math.abs(sb.x - sa.x) >= Math.abs(sb.y - sa.y);
+      let dx = 0;
+      let dy = 0;
+      if (horizontal) dy = Math.round((sp.y - sr.dragStart.y) / GRID) * GRID;
+      else dx = Math.round((sp.x - sr.dragStart.x) / GRID) * GRID;
+      if (Math.abs(dx) < GRID / 2) dx = 0;
+      if (Math.abs(dy) < GRID / 2) dy = 0;
+      if (dx !== seg.applied.dx || dy !== seg.applied.dy) {
+        st.setWireSegmentOffset(seg.wireId, seg.segIdx, seg.orig, dx, dy);
+        seg.applied = { dx, dy };
+        sr.moved = true;
+      }
+      return;
+    }
+
     // Wire point drag – with alignment guides and snap, delightful
     if ((sr as any).wirePointDrag) {
+
       const { wireId, pointIdx } = (sr as any).wirePointDrag;
       // Alignment guides: find nearby pins or other wire points aligned horizontally/vertically within 12px
       let guideX: number | null = null;
@@ -1632,7 +1684,7 @@ export default function Canvas() {
       }
       sr.marquee = null;
     }
-    sr.dragging = false; sr.panning = false;
+    sr.dragging = false; sr.panning = false; (sr as any).wireSegDrag = null;
     if (sr.moved && st.sim.running) engine.rebuild(st.doc);
   };
 
@@ -1747,6 +1799,8 @@ export default function Canvas() {
         if (e.shiftKey) useEditor.setState({ snap: !st.snap });
         else useEditor.setState({ showGrid: !st.showGrid });
       }
+      // W55: ⇧L begradigt die ausgewählten Leitungen (L allein = Label-Werkzeug)
+      else if (e.shiftKey && e.key.toLowerCase() === "l") st.straightenSelection();
       else if (e.key.toLowerCase() === "l") st.setTool("label");
       else if (e.key.toLowerCase() === "t") st.setTool("text");
       else if (e.key.toLowerCase() === "e") st.setTool("erase");
@@ -2066,6 +2120,32 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
             <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
             <button className="row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘C", apple)}</span></button>
             <div className="sep" />
+            {(() => {
+              const selInst = doc.instances.filter((i) => st.selection.includes(i.id));
+              const n = selInst.length;
+              if (n < 2) return null;
+              const act = (fn: () => void) => { fn(); onClose(); };
+              return (
+                <>
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Anordnen – {n} Bauteile (W55)</div>
+                  <div className="grid grid-cols-3 gap-1 mb-1">
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("left"))} title="Links ausrichten">⇤ links</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("centerH"))} title="Waagerecht mittig">↔ Mitte</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("right"))} title="Rechts ausrichten">⇥ rechts</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("top"))} title="Oben ausrichten">⇧ oben</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("centerV"))} title="Senkrecht mittig">↕ Mitte</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("bottom"))} title="Unten ausrichten">⇩ unten</button>
+                  </div>
+                  {n >= 3 && (
+                    <div className="grid grid-cols-2 gap-1 mb-1">
+                      <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.distributeSelection("h"))} title="Gleicher Abstand waagerecht">⇹ verteilen</button>
+                      <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.distributeSelection("v"))} title="Gleicher Abstand senkrecht">⇳ verteilen</button>
+                    </div>
+                  )}
+                  <div className="sep" />
+                </>
+              );
+            })()}
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Probe auf Netz{netLabel} – Multisim Style</div>
             <div className="grid grid-cols-2 gap-1">
               {([
@@ -2098,20 +2178,12 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Bearbeiten – Wow Handles</div>
             <button className="row" onClick={() => { onClose(); st.log("info","Tipp: Klicke auf + in Mitte eines Segments um Punkt hinzuzufügen, Doppelklick auf Punkt zum Löschen"); }}><span>✨ Anfasser erklären</span></button>
             <button className="row" onClick={() => {
-              const w = doc.wires.find(x=>x.id===target.id);
-              if (!w) return;
-              st.commit((d)=>{
-                const ww = d.wires.find(x=>x.id===target.id);
-                if (!ww) return;
-                // Straighten: keep first and last, remove middle, make Manhattan
-                if (ww.points.length > 2) {
-                  const a = ww.points[0];
-                  const b = ww.points[ww.points.length-1];
-                  ww.points = [a, { x: b.x, y: a.y }, b].filter((p,i,arr)=> i===0 || p.x!==arr[i-1].x || p.y!==arr[i-1].y);
-                }
-              });
+              // W55: begradigt wirklich – Stützpunkte aufs Raster, rechte Winkel,
+              // Enden zurück auf die Pins (statt Mittelpunkte wegzuwerfen).
+              st.setSelection([target.id]);
+              st.straightenSelection();
               onClose();
-            }}><span>📐 Gerade ausrichten (Manhattan)</span></button>
+            }}><span>📐 Leitung begradigen (Raster + rechte Winkel)</span></button>
             <button className="row" onClick={() => {
               const w = doc.wires.find(x=>x.id===target.id);
               if (!w) return;
@@ -2330,6 +2402,25 @@ function tangentAtLength(pts: Pt[], len: number): Pt | null {
 function roundRect(ctx: CanvasRenderingContext2D, x:number,y:number,w:number,h:number,r:number) {
   ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
 }
+/** W54: nächstes Leitungssegment unter dem Zeiger (für das Segment-Ziehen). */
+function hitWireSegment(doc: SchematicDoc, x: number, y: number, tol = 8): { wireId: string; segIdx: number; dist: number } | null {
+  let best: { wireId: string; segIdx: number; dist: number } | null = null;
+  for (const w of doc.wires) {
+    for (let i = 0; i + 1 < w.points.length; i++) {
+      const a = w.points[i];
+      const b = w.points[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy || 1;
+      let t = ((x - a.x) * dx + (y - a.y) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const d = Math.hypot(a.x + t * dx - x, a.y + t * dy - y);
+      if (d <= tol && (!best || d < best.dist)) best = { wireId: w.id, segIdx: i, dist: d };
+    }
+  }
+  return best;
+}
+
 function hitWire(doc: SchematicDoc, p: Pt): string | null {
   for (const w of doc.wires) for (let i=0;i+1<w.points.length;i++) {
     const a=w.points[i], b=w.points[i+1]; const dx=b.x-a.x, dy=b.y-a.y; const len2=dx*dx+dy*dy||1;

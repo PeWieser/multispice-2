@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { PART_MAP, PartDef, defaultParams } from "@/lib/library/catalog";
 import { SymbolStylePref } from "@/lib/settings";
 import {
+  GRID,
   Instance,
   NetLabel,
   NetlistBuildResult,
@@ -11,10 +12,14 @@ import {
   SchematicDoc,
   TextNote,
   Wire,
+  attachWireEnd,
   buildNets,
+  cleanWirePoints,
   emptyDoc,
   instanceBounds,
   pinPosition,
+  snapWiresToPins,
+  straightenWirePoints,
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
 import { orthoFollow } from "@/lib/schematic/ortho";
@@ -195,6 +200,16 @@ export interface EditorState {
   setParam: (instanceId: string, key: string, value: number | string | boolean) => void;
   setInstanceText: (instanceId: string, text: string) => void;
   addWire: (w: Wire) => void;
+  /** W54: ein Segment einer Leitung senkrecht verschieben (Basis = Ursprungsform). */
+  setWireSegmentOffset: (wireId: string, segIdx: number, orig: Array<{ x: number; y: number }>, dx: number, dy: number) => void;
+  /** W55: ausgewählte Bauteile ausrichten (links/rechts/oben/unten/mitte). */
+  alignSelection: (mode: "left" | "right" | "top" | "bottom" | "centerH" | "centerV") => void;
+  /** W55: ausgewählte Bauteile mit gleichem Abstand verteilen. */
+  distributeSelection: (axis: "h" | "v") => void;
+  /** W55: ausgewählte Leitungen begradigen (Raster, rechte Winkel, Pins). */
+  straightenSelection: () => void;
+  /** W55: alle Leitungen prüfen und reparieren (Importe, alte Pläne). */
+  repairWires: () => void;
   /** W32c: Messleitung an Leitung/Pin legen – ersetzt die Leitung des Kanals. */
   connectProbeWire: (instanceId: string, pinIndex: number, target: { x: number; y: number }) => void;
   /** W32c: Welcher Kanal hält gerade eine Messleitung in der Hand? */
@@ -262,6 +277,9 @@ function nextLabel(doc: SchematicDoc, part: PartDef): string {
 }
 
 const clone = (doc: SchematicDoc): SchematicDoc => JSON.parse(JSON.stringify(doc)) as SchematicDoc;
+
+/** W55: Zähler für die Einfüge-Kaskade (mehrfaches Einfügen staffelt sich). */
+let pasteCascade = 0;
 
 const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
@@ -355,6 +373,61 @@ function scopeDefaultSize(): { w: number; h: number } {
   };
 }
 
+
+/* --------------------------------------------------------------------------
+ * W52 (Runde 23): Drehen/Spiegeln darf keine Verdrahtung abreißen.
+ * Vor der Transformation werden die Pin-Positionen der betroffenen Bauteile
+ * festgehalten; Leitungsenden, die auf einem dieser Pins saßen, wandern exakt
+ * auf die neue Pin-Position (orthogonal nachgezogen, wie beim Verschieben).
+ * ------------------------------------------------------------------------ */
+export interface PinRef {
+  instId: string;
+  pinIndex: number;
+  x: number;
+  y: number;
+}
+
+export function collectPins(doc: SchematicDoc, ids: Set<string>): PinRef[] {
+  const out: PinRef[] = [];
+  for (const inst of doc.instances) {
+    if (!ids.has(inst.id)) continue;
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    for (let idx = 0; idx < part.pins.length; idx++) {
+      const p = pinPosition(inst, idx);
+      out.push({ instId: inst.id, pinIndex: idx, x: p.x, y: p.y });
+    }
+  }
+  return out;
+}
+
+/** Leitungsenden auf die neuen Pin-Positionen setzen; liefert die Anzahl. */
+export function reattachWiresToPins(doc: SchematicDoc, before: PinRef[], skipWires: Set<string>): number {
+  if (!before.length) return 0;
+  const find = (p: { x: number; y: number }) =>
+    before.find((b) => Math.abs(b.x - p.x) <= 2 && Math.abs(b.y - p.y) <= 2);
+  let moved = 0;
+  for (const w of doc.wires) {
+    if (skipWires.has(w.id) || w.points.length < 2) continue;
+    let touched = false;
+    const attach = (idx: number) => {
+      const b = find(w.points[idx]);
+      if (!b) return;
+      const inst = doc.instances.find((i) => i.id === b.instId);
+      if (!inst) return;
+      const np = pinPosition(inst, b.pinIndex);
+      if (Math.abs(np.x - w.points[idx].x) < 0.01 && Math.abs(np.y - w.points[idx].y) < 0.01) return;
+      attachWireEnd(w.points, idx, np);
+      moved++;
+      touched = true;
+    };
+    attach(0);
+    attach(w.points.length - 1);
+    if (touched) w.points = cleanWirePoints(w.points);
+  }
+  return moved;
+}
+
 export const useEditor = create<EditorState>((set, get) => ({
   doc: PRESETS[2].build(),
   selection: [],
@@ -375,7 +448,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   showPageFrame: false,
   showErcMarkers: true,
   showRated: true,
-  netResult: { netlist: { devices: [] }, nets: [], pinNets: {}, pointNets: {}, errors: [], warnings: [] },
+  netResult: { netlist: { devices: [] }, nets: [], pinNets: {}, pointNets: {}, errors: [], warnings: [], openEnds: [], junctions: [] },
   past: [],
   future: [],
   logs: [
@@ -445,11 +518,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     const part = PART_MAP[partId];
     if (!part) return null;
     const id = "i_" + Math.random().toString(36).slice(2, 10);
+    // W49/B5: auch programmatische Platzierung rastet aufs Raster – krumme
+    // Koordinaten waren die Ursache für Leitungen, die neben dem Pin enden.
+    const gx = Math.round(x / GRID) * GRID;
+    const gy = Math.round(y / GRID) * GRID;
     const inst: Instance = {
       id,
       partId,
-      x,
-      y,
+      x: gx,
+      y: gy,
       rot: 0,
       label: nextLabel(get().doc, part),
       params: defaultParams(part),
@@ -484,19 +561,34 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   rotateSelection: (dir = 1) => {
-    const sel = new Set(get().selection);
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    if (!sel.size) return;
+    // W52: Pin-Positionen vor dem Drehen festhalten (siehe reattachWiresToPins).
+    const before = collectPins(st0.doc, sel);
+    const skipWires = new Set(st0.doc.wires.filter((w) => sel.has(w.id)).map((w) => w.id));
+    let moved = 0;
     get().commit((d) => {
       for (const i of d.instances) {
         if (sel.has(i.id)) i.rot = (((i.rot + dir * 90) % 360) + 360) % 360 as Rotation;
       }
+      moved = reattachWiresToPins(d, before, skipWires);
     });
+    if (moved) get().log("info", `${moved} Leitungsende${moved > 1 ? "n" : ""} beim Drehen mitgeführt`);
   },
 
   mirrorSelection: () => {
-    const sel = new Set(get().selection);
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    if (!sel.size) return;
+    const before = collectPins(st0.doc, sel);
+    const skipWires = new Set(st0.doc.wires.filter((w) => sel.has(w.id)).map((w) => w.id));
+    let moved = 0;
     get().commit((d) => {
       for (const i of d.instances) if (sel.has(i.id)) i.mirror = !i.mirror;
+      moved = reattachWiresToPins(d, before, skipWires);
     });
+    if (moved) get().log("info", `${moved} Leitungsende${moved > 1 ? "n" : ""} beim Spiegeln mitgeführt`);
   },
 
   moveSelection: (dx, dy) => {
@@ -588,6 +680,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   copySelection: () => {
     const { doc, selection } = get();
+    pasteCascade = 0;
     const sel = new Set(selection);
     set({
       clipboard: {
@@ -606,8 +699,22 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!cb) return;
     const total = cb.instances.length + cb.wires.length + cb.labels.length + cb.notes.length + cb.probes.length;
     if (!total) return;
-    const DX = 20;
-    const DY = 20;
+    // W55: Einfüge-Kaskade – jede weitere Einfügung rückt weiter, und wenn die
+    // Kopie auf einem fremden Bauteil landen würde, wird weiter gerückt.
+    pasteCascade++;
+    const base = 20 * pasteCascade;
+    const others = get().doc.instances.filter((i) => !cb.instances.some((c) => c.id === i.id)).map((i) => instanceBounds(i));
+    const hits = (ox: number, oy: number) =>
+      cb.instances.some((src) => {
+        const b = instanceBounds({ ...src, x: src.x + ox, y: src.y + oy });
+        return others.some((o) => b.x < o.x + o.w + 4 && b.x + b.w > o.x - 4 && b.y < o.y + o.h + 4 && b.y + b.h > o.y - 4);
+      });
+    let DX = base;
+    let DY = base;
+    for (let k = 0; k < 12 && hits(DX, DY); k++) {
+      DX += 20;
+      DY += 20;
+    }
     const used = new Set(get().doc.instances.map((i) => i.label));
     const freshInstances: Instance[] = cb.instances.map((src) => {
       const part = PART_MAP[src.partId];
@@ -669,6 +776,116 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().commit((d) => {
       d.wires.push(w);
     });
+  },
+
+  setWireSegmentOffset: (wireId, segIdx, orig, dx, dy) => {
+    if (dx === 0 && dy === 0) return;
+    get().commit((d) => {
+      const w = d.wires.find((x) => x.id === wireId);
+      if (!w || segIdx < 0 || segIdx + 1 >= orig.length) return;
+      const pts = orig.map((p, i) => (i === segIdx || i === segIdx + 1 ? { x: p.x + dx, y: p.y + dy } : { x: p.x, y: p.y }));
+      w.points = cleanWirePoints(pts);
+    });
+  },
+
+  alignSelection: (mode) => {
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    const insts = st0.doc.instances.filter((i) => sel.has(i.id));
+    if (insts.length < 2) {
+      get().log("warn", "Ausrichten braucht mindestens zwei ausgewählte Bauteile");
+      return;
+    }
+    const boxes = insts.map((i) => ({ i, b: instanceBounds(i) }));
+    const left = Math.min(...boxes.map((x) => x.b.x));
+    const right = Math.max(...boxes.map((x) => x.b.x + x.b.w));
+    const top = Math.min(...boxes.map((x) => x.b.y));
+    const bottom = Math.max(...boxes.map((x) => x.b.y + x.b.h));
+    const move = (x: (inst: Instance, b: { x: number; y: number; w: number; h: number }) => number,
+                  y: (inst: Instance, b: { x: number; y: number; w: number; h: number }) => number) => {
+      get().commit((d) => {
+        for (const { i, b } of boxes) {
+          const inst = d.instances.find((k) => k.id === i.id);
+          if (!inst) continue;
+          inst.x += x(inst, b);
+          inst.y += y(inst, b);
+        }
+      });
+    };
+    const label: Record<typeof mode, string> = {
+      left: "links", right: "rechts", top: "oben", bottom: "unten",
+      centerH: "waagerecht mittig", centerV: "senkrecht mittig",
+    };
+    move(
+      (inst, b) => (mode === "left" ? left - b.x : mode === "right" ? right - (b.x + b.w) : mode === "centerH" ? (left + right) / 2 - (b.x + b.w / 2) : 0),
+      (inst, b) => (mode === "top" ? top - b.y : mode === "bottom" ? bottom - (b.y + b.h) : mode === "centerV" ? (top + bottom) / 2 - (b.y + b.h / 2) : 0),
+    );
+    get().log("ok", `${insts.length} Bauteile ${label[mode]} ausgerichtet`);
+  },
+
+  distributeSelection: (axis) => {
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    const insts = st0.doc.instances.filter((i) => sel.has(i.id));
+    if (insts.length < 3) {
+      get().log("warn", "Verteilen braucht mindestens drei ausgewählte Bauteile");
+      return;
+    }
+    const boxes = insts.map((i) => ({ i, b: instanceBounds(i), c: axis === "h" ? instanceBounds(i).x + instanceBounds(i).w / 2 : instanceBounds(i).y + instanceBounds(i).h / 2 }));
+    boxes.sort((a, b) => a.c - b.c);
+    const first = boxes[0];
+    const last = boxes[boxes.length - 1];
+    const step = (last.c - first.c) / (boxes.length - 1);
+    let n = 0;
+    get().commit((d) => {
+      boxes.forEach(({ i }, k) => {
+        if (k === 0 || k === boxes.length - 1) return;
+        const inst = d.instances.find((x) => x.id === i.id);
+        if (!inst) return;
+        const target = first.c + step * k;
+        if (axis === "h") inst.x += target - (instanceBounds(inst).x + instanceBounds(inst).w / 2);
+        else inst.y += target - (instanceBounds(inst).y + instanceBounds(inst).h / 2);
+        n++;
+      });
+    });
+    get().log("ok", `${n} Bauteile gleichmäßig verteilt (${axis === "h" ? "waagerecht" : "senkrecht"})`);
+  },
+
+  straightenSelection: () => {
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    const wires = st0.doc.wires.filter((w) => sel.has(w.id));
+    if (!wires.length) {
+      get().log("warn", "Keine Leitung ausgewählt – Leitungen zum Begradigen markieren");
+      return;
+    }
+    let n = 0;
+    get().commit((d) => {
+      for (const w of d.wires) {
+        if (!sel.has(w.id)) continue;
+        w.points = straightenWirePoints(w.points);
+        n++;
+      }
+      // Enden wieder auf die Pins rasten (begradigen kann Pins minimal verfehlen)
+      snapWiresToPins(d, 15);
+    });
+    get().log("ok", `${n} Leitung${n > 1 ? "en" : ""} begradigt – Stützpunkte auf dem Raster, rechte Winkel`);
+  },
+
+  repairWires: () => {
+    let moved = 0;
+    let count = 0;
+    get().commit((d) => {
+      const rep = snapWiresToPins(d, 15);
+      moved = rep.moved;
+      for (const w of d.wires) {
+        const before = JSON.stringify(w.points);
+        w.points = straightenWirePoints(w.points);
+        if (JSON.stringify(w.points) !== before) count++;
+      }
+      snapWiresToPins(d, 15);
+    });
+    get().log("ok", `Leitungen geprüft: ${moved} Ende${moved === 1 ? "" : "n"} auf Pins gerastet, ${count} Leitung${count === 1 ? "" : "en"} begradigt`);
   },
 
   // Runde 17 (W32c): Messleitung auf eine Leitung/einen Pin legen. Die alte

@@ -15,7 +15,7 @@
  */
 
 import { PART_MAP } from "../library/catalog";
-import { emptyDoc, pinPosition, type Instance, type NetLabel, type SchematicDoc, type Wire } from "./model";
+import { emptyDoc, pinPosition, snapWiresToPins, type Instance, type NetLabel, type SchematicDoc, type Wire } from "./model";
 
 let seq = 0;
 const uid = (p: string) => `${p}_${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -164,6 +164,8 @@ export function fromSpiceNetlist(text: string): SchematicDoc {
       size: 9,
     });
   }
+  // W49: importierte Leitungsenden auf die tatsächlichen Pins rasten.
+  snapWiresToPins(doc);
   return doc;
 }
 
@@ -308,5 +310,7 @@ export function fromLtspiceAsc(text: string): SchematicDoc {
       size: 9,
     });
   }
+  // W49: LTspice zeichnet Leitungen auf sein eigenes Raster – Enden rasten.
+  snapWiresToPins(doc);
   return doc;
 }
