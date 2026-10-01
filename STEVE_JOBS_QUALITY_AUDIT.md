@@ -2134,7 +2134,7 @@ dateileiste ersetzt werden. diese funktioniert auch noch nicht (das + macht nich
 ### 26.4 · Verifikation
 
 `tsc --noEmit` ✓ · `eslint src scripts` ✓ · `npm test` ✓ (150 Prüfungen, 0 Fehler) ·
-`next build` ✓ · Vorschau `/` HTTP 200; im gerenderten HTML sind die neuen Werkzeugknöpfe
+`next build` ✓ · Commit `b445f43` gepusht, PR #4-Kommentar `issuecomment-5930492955` · Vorschau `/` HTTP 200; im gerenderten HTML sind die neuen Werkzeugknöpfe
 (Auswahl/Stift/Knotenpunkt/Netzname/Notiz/Löschen), die Bauteil-Symbole ohne Beschriftung und die
 Dateileiste („Neues Schaltblatt", Reiter mit Schließen-Knopf) vorhanden.
 
