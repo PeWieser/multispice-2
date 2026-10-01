@@ -21,9 +21,20 @@ import {
 } from "../src/lib/schematic/model";
 import { PART_MAP } from "../src/lib/library/catalog";
 import { PRESETS, routeOrthogonal } from "../src/lib/schematic/tools";
-import { collectPins, reattachWiresToPins, sheets, useEditor, wireJunctionCandidates } from "../src/state/editor";
+import { collectPins, reattachWiresToPins, sheets, useEditor, useHud, wireJunctionCandidates } from "../src/state/editor";
 import { isValidProjectDoc, normalizeProjectDoc } from "../src/lib/storage";
-import { buildNetPath, findNetTarget, needsJunction, netClick, normalizeDocGeometry } from "../src/lib/schematic/netdraw";
+import {
+  buildNetPath,
+  cleanOrphanJunctions,
+  dragWireCornerOrtho,
+  dragWireSegmentOrtho,
+  findNetTarget,
+  finishNetDraft,
+  insertComponentIntoWires,
+  needsJunction,
+  netClick,
+  normalizeDocGeometry,
+} from "../src/lib/schematic/netdraw";
 
 let failed = 0;
 function check(name: string, ok: boolean, info = "") {
@@ -516,6 +527,213 @@ const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointN
   const res = useEditor.getState().netResult;
   check("W72 Netzprüfung läuft nach dem Wechsel (Netze vorhanden)", res.nets.length > 0, `${res.nets.length} Netze`);
   check("W72 Undo-Verlauf startet beim Blatt neu", useEditor.getState().past.length === 0);
+}
+
+/* ---------------- Runde 27 (W73–W81) · Multisim-Perfektion ---------------- */
+{
+  // W73: HUD netDrawing-Synchronisation & Abbruch über setTool / cancelNetDrawing
+  useHud.setState({ netDrawing: true });
+  const seq0 = useHud.getState().netCancelSeq;
+  useEditor.getState().setTool("select");
+  check("W73 setTool('select') bricht laufendes Netzzeichnen im HUD ab", !useHud.getState().netDrawing && useHud.getState().netCancelSeq === seq0 + 1);
+}
+
+{
+  // W75: Bauteil-Vorschau vor dem Absetzen drehen & spiegeln (ohne Hintergrund-Auswahl zu verdrehen)
+  const st = useEditor.getState();
+  st.setDoc({
+    id: "w75",
+    name: "w75",
+    instances: [{ id: "r_bg", partId: "resistor", x: 100, y: 100, rot: 0, label: "R1", params: { r: 1000 } }],
+    wires: [],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+  }, false);
+  st.setSelection(["r_bg"]);
+  st.setPlacing("resistor");
+  st.rotateSelection(1);
+  st.mirrorSelection();
+  check("W75 R/M im Platzier-Modus dreht/spiegelt die Vorschau", useEditor.getState().placingRot === 90 && useEditor.getState().placingMirror === true);
+  check("W75 Hintergrund-Bauteil bleibt unberührt", useEditor.getState().doc.instances[0].rot === 0 && !useEditor.getState().doc.instances[0].mirror);
+  const newId = st.addInstance("resistor", 240, 200);
+  const placed = useEditor.getState().doc.instances.find((i) => i.id === newId)!;
+  check("W75 platziertes Bauteil übernimmt Drehung & Spiegelung der Vorschau", placed.rot === 90 && placed.mirror === true);
+  st.setPlacing(null);
+}
+
+{
+  // W76: Bauteil in eine durchgehende Leitung einsetzen trennt das Segment auf (In-Line-Split)
+  const docSplit: SchematicDoc = {
+    id: "w76",
+    name: "w76",
+    instances: [
+      { id: "v1", partId: "vdc", x: 100, y: 200, rot: 0, label: "V1", params: { v: 5 } },
+      { id: "r_inline", partId: "resistor", x: 240, y: 200, rot: 0, label: "R1", params: { r: 1000 } },
+    ],
+    // Durchgehende Leitung von x=140 bis x=360 auf Höhe y=200 (überbrückt R1 mit Pins bei 210 und 270)
+    wires: [{ id: "w_main", points: [{ x: 140, y: 200 }, { x: 360, y: 200 }] }],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+  };
+  const stats = insertComponentIntoWires(docSplit, "r_inline");
+  check("W76 In-Line-Split trennt die überbrückte Leitung", stats.split === 1 && docSplit.wires.length === 2, JSON.stringify(docSplit.wires));
+  const netRes = buildNets(docSplit);
+  check(
+    "W76 R1 liegt danach in Reihe (Pin 0 und Pin 1 in getrennten Netzen, kein Kurzschluss)",
+    Boolean(netRes.pinNets["r_inline:0"]) &&
+      Boolean(netRes.pinNets["r_inline:1"]) &&
+      netRes.pinNets["r_inline:0"] !== netRes.pinNets["r_inline:1"],
+    `${netRes.pinNets["r_inline:0"]} vs ${netRes.pinNets["r_inline:1"]}`,
+  );
+}
+
+{
+  // W77: Hindernis-Ausweichen beim Netzzeichnen, Knick-Wenden (flipBend) & Abschluss im freien Raum
+  const obstacleBox = [{ x: 180, y: 80, w: 60, h: 40 }]; // blockiert horizontalen Weg von (100,100) nach (200,100)
+  const pathAvoid = buildNetPath({ x: 100, y: 100 }, [], { x: 200, y: 200 }, { obstacles: obstacleBox });
+  check(
+    "W77 buildNetPath weicht einem Bauteil auf dem ersten Schenkel automatisch aus",
+    orth(pathAvoid) && pathAvoid[1].x === 100 && pathAvoid[1].y === 200,
+    JSON.stringify(pathAvoid),
+  );
+  const pathNormal = buildNetPath({ x: 100, y: 100 }, [], { x: 220, y: 160 });
+  const pathFlipped = buildNetPath({ x: 100, y: 100 }, [], { x: 220, y: 160 }, { flipBend: true });
+  check(
+    "W77 flipBend (Leertaste) kehrt die Knick-Orientierung H↔V um",
+    orth(pathNormal) && orth(pathFlipped) && (pathNormal[1].x !== pathFlipped[1].x || pathNormal[1].y !== pathFlipped[1].y),
+    `${JSON.stringify(pathNormal)} vs ${JSON.stringify(pathFlipped)}`,
+  );
+  const finished = finishNetDraft({ anchor: { x: 100, y: 100 }, corners: [{ x: 180, y: 100 }] }, { x: 180, y: 220 });
+  check(
+    "W77 finishNetDraft schließt offene Leitung im freien Raum rechtwinklig ab",
+    finished !== null && orth(finished) && finished[finished.length - 1].y === 220,
+    JSON.stringify(finished),
+  );
+}
+
+{
+  // W78: Streng orthogonales Ziehen an Segmenten (ohne Pin-Abriss!) und Ecken
+  const pinnedSegOrig = [{ x: 100, y: 200 }, { x: 300, y: 200 }];
+  const isPinned = (p: { x: number; y: number }) =>
+    (p.x === 100 && p.y === 200) || (p.x === 300 && p.y === 200);
+  const draggedSeg = dragWireSegmentOrtho(pinnedSegOrig, 0, 0, 40, isPinned);
+  check(
+    "W78 Segment-Ziehen hält angepinnte Leitungsenden fest am Pin (90°-Stufe statt Abriss)",
+    orth(draggedSeg) &&
+      draggedSeg.length === 4 &&
+      draggedSeg[0].x === 100 &&
+      draggedSeg[0].y === 200 &&
+      draggedSeg[draggedSeg.length - 1].x === 300 &&
+      draggedSeg[draggedSeg.length - 1].y === 200 &&
+      draggedSeg[1].y === 240 &&
+      draggedSeg[2].y === 240,
+    JSON.stringify(draggedSeg),
+  );
+
+  const lWire = [{ x: 100, y: 100 }, { x: 240, y: 100 }, { x: 240, y: 260 }];
+  const draggedCorner = dragWireCornerOrtho(lWire, 1, { x: 280, y: 140 }, (p) => p.x === 100 && p.y === 100);
+  check(
+    "W78 Eckpunkt-Ziehen hält alle Segmente streng im 90°-Winkel und schützt angepinnten Startpunkt",
+    orth(draggedCorner) && draggedCorner[0].x === 100 && draggedCorner[0].y === 100,
+    JSON.stringify(draggedCorner),
+  );
+}
+
+{
+  // W79: Eine Zieh-Geste (beginGesture .. endGesture) erzeugt genau 1 Undo-Eintrag
+  const st = useEditor.getState();
+  st.setDoc({
+    id: "w79",
+    name: "w79",
+    instances: [{ id: "r1", partId: "resistor", x: 100, y: 100, rot: 0, label: "R1", params: { r: 1000 } }],
+    wires: [],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+  }, false);
+  const pastBefore = useEditor.getState().past.length;
+  st.setSelection(["r1"]);
+  st.beginGesture();
+  for (let step = 0; step < 15; step++) {
+    st.moveSelection(20, 0);
+  }
+  st.endGesture();
+  const pastAfter = useEditor.getState().past.length;
+  check("W79 15 Zieh-Schritte in einer Geste erzeugen genau 1 Undo-Eintrag", pastAfter === pastBefore + 1, `${pastBefore} → ${pastAfter}`);
+  st.undo();
+  check("W79 Ein einziges Undo stellt die Ausgangsposition vor dem Ziehen wieder her", useEditor.getState().doc.instances[0].x === 100);
+}
+
+{
+  // W80: T-Abzweig wandert beim Verschieben der Hauptleitung mit & verwaiste Junctions verschwinden
+  const st = useEditor.getState();
+  st.setDoc({
+    id: "w80",
+    name: "w80",
+    instances: [],
+    wires: [
+      { id: "w_host", points: [{ x: 100, y: 200 }, { x: 300, y: 200 }] },
+      { id: "w_branch", points: [{ x: 200, y: 200 }, { x: 200, y: 320 }] },
+    ],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [{ id: "j1", x: 200, y: 200 }],
+  }, false);
+  st.setSelection(["w_host"]);
+  st.moveSelection(0, 40);
+  const branchAfter = useEditor.getState().doc.wires.find((w) => w.id === "w_branch")!;
+  const jncAfter = useEditor.getState().doc.junctions?.[0];
+  check(
+    "W80 T-Abzweig und Verbindungspunkt wandern beim Verschieben der Hauptleitung mit",
+    branchAfter.points[0].y === 240 && jncAfter?.y === 240 && orth(branchAfter.points),
+    JSON.stringify({ branch: branchAfter.points, jnc: jncAfter }),
+  );
+  // Löscht man den Abzweig, wird der verwaiste Verbindungspunkt automatisch entfernt
+  st.setSelection(["w_branch"]);
+  st.deleteSelection();
+  check(
+    "W80 Verwaiste Junction wird beim Löschen des Abzweigs automatisch aufgeräumt",
+    (useEditor.getState().doc.junctions?.length ?? 0) === 0,
+    JSON.stringify(useEditor.getState().doc.junctions),
+  );
+}
+
+{
+  // W81: Labels & Notizen editieren + Probe mitten auf einem langen Leitungssegment platzieren
+  const st = useEditor.getState();
+  st.setDoc({
+    id: "w81",
+    name: "w81",
+    instances: [
+      { id: "v1", partId: "vdc", x: 100, y: 200, rot: 0, label: "V1", params: { v: 5 } },
+      { id: "g1", partId: "gnd", x: 100, y: 260, rot: 0, label: "GND1", params: {} },
+    ],
+    wires: [{ id: "w_long", points: [{ x: 100, y: 170 }, { x: 400, y: 170 }] }],
+    labels: [{ id: "lbl1", x: 200, y: 170, name: "VCC" }],
+    notes: [{ id: "note1", x: 120, y: 80, text: "Test" }],
+    probes: [],
+    junctions: [],
+  }, false);
+  st.updateLabel("lbl1", "VDD_5V");
+  st.updateNote("note1", "Versorgung 5V");
+  check(
+    "W81 updateLabel & updateNote aktualisieren Netzname und Notiz",
+    useEditor.getState().doc.labels[0].name === "VDD_5V" && useEditor.getState().doc.notes[0].text === "Versorgung 5V",
+  );
+  // Probe mitten auf dem langen Segment bei x=260, y=172 platzieren (weit weg von den Endpunkten 100 und 400!)
+  const prId = st.addMeasurementProbe("voltage", 260, 172);
+  const pr = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
+  check(
+    "W81 Probe mitten auf langem Leitungssegment findet das Netz und rastet den Anker auf die Leitung",
+    pr.net === "VDD_5V" && pr.anchorY === 170 && pr.anchorX === 260,
+    JSON.stringify({ net: pr.net, anchorX: pr.anchorX, anchorY: pr.anchorY }),
+  );
 }
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);

@@ -396,10 +396,10 @@ export default function LibraryPalette() {
   }, [open, toggle]);
 
   const onPick = (id: string) => {
-    const current = useEditor.getState().placingPartId;
     const part = PART_MAP[id];
     if (part) setSelected(part);
-    setPlacing(current === id ? null : id);
+    setPlacing(id);
+    useEditor.setState({ libraryOpen: false });
   };
 
   // Keyboard navigation – arrow keys + enter to place, like Multisim
@@ -410,18 +410,27 @@ export default function LibraryPalette() {
       if (tag === "INPUT" && e.key !== "Escape" && e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIdx((i: number) => i + 1);
+        setSelectedIdx((i: number) => {
+          const next = Math.min(visibleList.length - 1, i + 1);
+          if (visibleList[next]) setSelected(visibleList[next]);
+          return Math.max(0, next);
+        });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedIdx((i: number) => Math.max(0, i - 1));
+        setSelectedIdx((i: number) => {
+          const next = Math.max(0, i - 1);
+          if (visibleList[next]) setSelected(visibleList[next]);
+          return next;
+        });
       } else if (e.key === "Enter") {
         e.preventDefault();
-        // Place selected
+        // Place selected & auto-close library
         const list = visibleList;
         const part = list[selectedIdx] ?? list[0];
         if (part) {
           useEditor.getState().setPlacing(part.id);
-          useEditor.getState().log("info", `${part.name} zum Platzieren gewählt – Klick auf Canvas`);
+          useEditor.setState({ libraryOpen: false });
+          useEditor.getState().log("info", `${part.name} zum Platzieren gewählt – Klick auf Canvas (R = drehen, M = spiegeln)`);
         }
       }
     };

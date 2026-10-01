@@ -167,7 +167,7 @@ function MobileBottomToolbar() {
             title={t.label}
             style={
               active
-                ? { background: "var(--accent)", color: "var(--accent-contrast)", borderColor: "var(--accent)" }
+                ? { background: "var(--tool-active-bg)", color: "var(--tool-active-text)", borderColor: "var(--tool-active-border)" }
                 : { background: "var(--panel-2)", color: "var(--text-dim)", borderColor: "var(--border)" }
             }
             onClick={() => {

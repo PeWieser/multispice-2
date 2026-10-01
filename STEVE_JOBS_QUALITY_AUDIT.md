@@ -2190,3 +2190,91 @@ Der Merge-Commit `d518ffa` bringt `main` in den Zweig; der PR ist danach inhaltl
 die Checks laufen grün. Gemerged wird als **Merge-Commit** (wie PR #3), der Zweig bleibt erhalten,
 damit diese Arena-Session weiterarbeiten kann.
 
+---
+
+## §28 — Runde 27: Toolleiste (Amber), Zoom-Bedienfeld, Netz-Zeichnen, orthogonales Leitungs-Editing & Leinwand-Handling wie in Multisim
+
+**Auftrag:** Prüfung und Überarbeitung der Menüleiste/Werkzeugleiste (Bauteile, Library, Probes) sowie
+des gesamten Leinwand-Handlings (Netze zeichnen und bearbeiten wie in Multisim), inkl. der
+Nutzer-Vorgaben aus der Rückfrage.
+
+### 28.0 · Verbindliche Nutzer-Entscheidungen (Ask-User & Direktvorgaben)
+
+| Thema | Entscheidung |
+|---|---|
+| Farbgebung der oberen Toolleiste | **Warmer Bernstein-/Amber-Akzent (`warm_amber`)** statt kaltem Blau – passend zur Auswahlfarbe auf dem Plan |
+| Zoom-Menü rechts unten | **Vertikal getrennt (`split_vertical`)**: oben `[+]` und `[−]` mit exakt zentrierten Icons und Trennlinie, darunter mit Abstand ein optisch abgesetzter `[FIT]`-Knopf |
+| Bibliothek beim Bauteil-Wählen | **Automatisch schließen (`auto_close`)**, sobald man ein Bauteil zum Platzieren auswählt, damit die Leinwand frei ist |
+| Leitung im freien Raum beenden | **Doppelklick beendet die Leitung im Leeren (`dblclick_ends`)**; `Esc` und Rechtsklick verwerfen weiterhin die angefangene Leitung |
+
+### 28.1 · Arbeitspakete (W73–W81)
+
+- **W73 · Toolleiste, Schnellbauteile, Bibliothek & Menüleiste (M1–M6):**
+  - Aktive Werkzeuge und Schnellbauteile in `ComponentStrip.tsx` und `DrawingTools.tsx` nutzen den
+    warmen Amber-Ton (`var(--wire-sel)`) statt des bisherigen Blaus (`var(--accent)` mit fehlendem
+    `--accent-contrast`).
+  - Probe-Knöpfe bleiben auch auf mittleren Fensterbreiten erreichbar (kein hartes Ausblenden unter
+    `1024 px`).
+  - `ResistorGlyph` in `PartGlyphs.tsx` folgt der eingestellten Symbolnorm (IEC-Rechteck vs.
+    ANSI-Zickzack); Schnellbauteile um NPN-Transistor und OPV ergänzt.
+  - Werkzeug-Anzeige synchronisiert: sobald auf der Leinwand ein Netz gezogen wird (`netDraft`),
+    leuchtet „Stift" aktiv; Klick auf „Auswahl" bricht ein laufendes Netz zuverlässig ab.
+  - `LibraryPalette` schließt sich automatisch, sobald ein Bauteil zum Platzieren gewählt wird.
+  - `MenuBar`: `Geräte → Funktionsgenerator` startet wie das Oszi die Bauteil-Platzierung
+    (`setPlacing("funcgen")`); `Wizards …` sowie `Drehen`/`Spiegeln` und alle Ausrichten-/Verteilen-
+    Richtungen im Desktop-Menü ergänzt.
+- **W74 · Zoom-Bedienfeld rechts unten (`ZoomButtons` in `Canvas.tsx`):**
+  - Zwei getrennte Blöcke übereinander: oben `[+]` und `[−]` als quadratische `32×32`-Buttons mit
+    exakt mittigen SVG-Icons (`Plus`/`Minus`) und feiner Trennlinie; darunter abgesetzt der
+    `[FIT]`-Knopf mit eigenem Rahmen und abgesetzter Fläche.
+- **W75 · Bauteil-Ghost vor dem Absetzen drehen/spiegeln & Drag-and-Drop Auto-Connect (M2/M3):**
+  - `placingRot` und `placingMirror` im Store: während ein Bauteil zum Platzieren am Zeiger hängt,
+    drehen `R`/`⇧R`/`⌘R` und spiegelt `M` die Vorschau am Zeiger (statt zufällig ausgewählte
+    Bauteile im Hintergrund zu drehen); `addInstance` übernimmt Orientierung und Spiegelung.
+  - Drag & Drop aus der Bibliothek nutzt dieselbe Auto-Connect-/In-Line-Logik wie das Klick-Platzieren.
+- **W76 · Bauteil in Leitung einsetzen trennt die Leitung auf (In-Line-Split wie in Multisim, E4):**
+  - Wird ein Bauteil so auf eine durchgehende Leitung gesetzt, dass zwei seiner Pins auf demselben
+    Leitungssegment liegen, wird das Segment zwischen den beiden Pins aufgetrennt (Reihenschaltung
+    statt Kurzschluss).
+- **W77 · Netz zeichnen wie in Multisim (W1–W4):**
+  - Doppelklick auf eine Leitung startet zuverlässig einen Abzweig (W67), ohne dass der erste Klick
+    ein `+`-Mittel-Handle auslöst oder der zweite Klick einen Stützpunkt löscht.
+  - `buildNetPath` / `previewNetPath` berücksichtigt die Pin-Auswärtsrichtung und umgeht
+    Bauteil-Hindernisse; die einmal eingeschlagene Knick-Orientierung bleibt stabil (und lässt sich
+    per `Leertaste` beim Zeichnen wenden).
+  - Doppelklick auf freie Fläche (oder Klick auf den letzten Eckpunkt) beendet das Netz als offenen
+    Leitungszug; `Esc` und Rechtsklick verwerfen es.
+- **W78 · Streng orthogonale Leitungs-Bearbeitung ohne Pin-Abriss (E1/E2):**
+  - Beim parallelen Ziehen eines Leitungssegments (`setWireSegmentOffset`) bleiben Endpunkte, die auf
+    einem Bauteil-Pin (oder T-Kontakt) sitzen, fest verankert und bilden automatisch eine orthogonale
+    90°-Stufe.
+  - Beim Ziehen an Eckpunkten oder am mittleren `+`-Griff wandern die anliegenden Segmente streng
+    orthogonal (90°) mit – es entstehen keine schrägen/diagonalen Linien mehr und kein Pin reißt ab.
+- **W79 · Ein Undo-Schritt pro Zug statt History-Flutung (E3):**
+  - Ziehen von Bauteilen, Leitungssegmenten, Leitungspunkten und Probe-Ankern legt genau **einen**
+    Undo-Snapshot zu Beginn des Zugs an (`Strg+Z` macht den gesamten Zug auf einmal rückgängig).
+- **W80 · T-Abzweige wandern mit & Junction-Hygiene (E5):**
+  - Endet eine Leitung per T-Kontakt / Junction auf einer mitbewegten Leitung, wandert der
+    Anschlusspunkt samt Junction orthogonal mit.
+  - Beim Löschen oder Umbauen von Leitungen werden verwaiste `junctions` (ohne Leitungskontakt)
+    automatisch bereinigt.
+- **W81 · Labels & Notizen greifbar, Probes auf langen Segmenten & Direkt-Wertedit (E6–E8):**
+  - Hit-Test, Auswahl, Verschieben, Doppelklick-Umbenennen, Kontextmenü und Löschen für `doc.labels`
+    und `doc.notes`.
+  - Probes rasten per Fußpunkt-Projektion auf jedem Leitungssegment ein (auch mitten auf langen
+    Leitungen) und aktualisieren beim Verschieben ihrer Pfeilspitze (`probeAnchorDrag`) sofort das
+    zugeordnete Netz.
+  - Doppelklick auf den Bauteilwert/-namen unter dem Symbol öffnet direkt das Inline-Wertfeld;
+    Doppelklick auf das Symbol öffnet den Inspector. Der „Faults"-Block im Kontextmenü wandert von
+    der Leitung zum Bauteil.
+
+## §28.2 — Umsetzung Runde 27 (W73–W81, alles verifiziert)
+
+- **Verifikation:**
+  - `./node_modules/.bin/tsc --noEmit`: 0 Fehler
+  - `npx --no-install eslint src scripts`: 0 Fehler / 0 Warnungen
+  - `npm test`: alle 7 Suiten grün (`importtest`, `simtest`, `check-pin-congruence`, `windowtest`, `wiretest` inkl. neuer W73–W81-Prüfungen, `ozsitest`, `presettest`)
+  - `npx --no-install next build`: Produktions-Build erfolgreich
+
+
+

@@ -119,8 +119,12 @@
   --text-dim: var(--mw-text-dim);
   --text-mute: var(--mw-text-mute);
   --accent: var(--mw-accent);
+  --accent-contrast: #ffffff;
   --accent-soft: var(--mw-accent-soft);
   --accent-mid: var(--mw-accent-mid);
+  --tool-active-bg: color-mix(in srgb, var(--mw-wire-sel) 20%, var(--mw-panel-2));
+  --tool-active-border: var(--mw-wire-sel);
+  --tool-active-text: color-mix(in srgb, var(--mw-wire-sel) 78%, var(--mw-text));
   --accent-2: #2c7a7b;
   --accent-3: #7a4fa3;
   --ok: var(--mw-ok);
@@ -151,8 +155,12 @@
   --text-dim: var(--mw-text-dim);
   --text-mute: var(--mw-text-mute);
   --accent: var(--mw-accent);
+  --accent-contrast: #181b1e;
   --accent-soft: var(--mw-accent-soft);
   --accent-mid: var(--mw-accent-mid);
+  --tool-active-bg: color-mix(in srgb, var(--mw-wire-sel) 22%, var(--mw-panel-2));
+  --tool-active-border: var(--mw-wire-sel);
+  --tool-active-text: var(--mw-wire-sel);
   --accent-2: #59b3b4;
   --accent-3: #a982d4;
   --ok: var(--mw-ok);

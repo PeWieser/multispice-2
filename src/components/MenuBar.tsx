@@ -155,7 +155,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <div className="space-y-1">
           <div className="text-[10px] uppercase tracking-wide text-mute px-2">Geräte</div>
           {INSTRUMENT_ITEMS.map(([kind, title]) => (
-            <button key={kind} className="btn w-full justify-start text-[11px]" onClick={() => (kind === "scope" ? st().setPlacing("oscilloscope") : st().openInstrument(kind))}>{title}</button>
+            <button key={kind} className="btn w-full justify-start text-[11px]" onClick={() => (kind === "scope" ? st().setPlacing("oscilloscope") : kind === "funcgen" ? st().setPlacing("funcgen") : st().openInstrument(kind))}>{title}</button>
           ))}
           <div className="space-y-1">
             <div className="text-[10px] uppercase tracking-wide text-mute px-2">Wizards</div>
@@ -193,6 +193,10 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <MenuItem hint="⌘Z" disabled={!canUndo} onClick={() => st().undo()}>Rückgängig</MenuItem>
         <MenuItem hint="⇧⌘Z" disabled={!canRedo} onClick={() => st().redo()}>Wiederholen</MenuItem>
         <MenuSeparator />
+        <MenuItem hint="R" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().rotateSelection(1)}>Drehen (+90°)</MenuItem>
+        <MenuItem hint="⇧R" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().rotateSelection(-1)}>Gegen Uhrzeigersinn drehen (−90°)</MenuItem>
+        <MenuItem hint="M" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().mirrorSelection()}>Spiegeln</MenuItem>
+        <MenuSeparator />
         <MenuItem hint="⌘C" disabled={!hasSelection} onClick={() => st().copySelection()}>Kopieren</MenuItem>
         <MenuItem hint="⌘V" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</MenuItem>
         <MenuItem hint="⌘D" disabled={!hasSelection} onClick={() => st().duplicateSelection()}>Duplizieren</MenuItem>
@@ -200,9 +204,13 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <MenuSeparator />
         <div className="px-2 py-0.5 text-[10px] uppercase tracking-wide text-mute">Anordnen (W55)</div>
         <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("left")}>Ausrichten: links</MenuItem>
-        <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("top")}>Ausrichten: oben</MenuItem>
         <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("centerH")}>Ausrichten: waagerecht mittig</MenuItem>
-        <MenuItem disabled={selInstances < 3} disabledReason="Mindestens drei Bauteile auswählen" onClick={() => st().distributeSelection("h")}>Verteilen: gleicher Abstand</MenuItem>
+        <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("right")}>Ausrichten: rechts</MenuItem>
+        <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("top")}>Ausrichten: oben</MenuItem>
+        <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("centerV")}>Ausrichten: senkrecht mittig</MenuItem>
+        <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("bottom")}>Ausrichten: unten</MenuItem>
+        <MenuItem disabled={selInstances < 3} disabledReason="Mindestens drei Bauteile auswählen" onClick={() => st().distributeSelection("h")}>Verteilen: waagerecht</MenuItem>
+        <MenuItem disabled={selInstances < 3} disabledReason="Mindestens drei Bauteile auswählen" onClick={() => st().distributeSelection("v")}>Verteilen: senkrecht</MenuItem>
         <MenuSeparator />
         <MenuItem hint="⇧L" disabled={!hasWireSelection} disabledReason="Leitung(en) auswählen" onClick={() => st().straightenSelection()}>Leitungen begradigen</MenuItem>
         <MenuItem onClick={() => st().repairWires()}>Leitungen prüfen &amp; reparieren</MenuItem>
@@ -235,6 +243,12 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         {PRESETS.map((p) => (
           <MenuItem key={p.id} onClick={() => st().loadPreset(p.id)}>{p.name}</MenuItem>
         ))}
+        {onWizards && (
+          <>
+            <MenuSeparator />
+            <MenuItem onClick={() => onWizards()}>Schaltungs-Assistenten (Filter, 555, OpAmp) …</MenuItem>
+          </>
+        )}
       </Menu>
 
       <Menu label="Analysen" {...menuProps("analysen")}>
@@ -247,7 +261,13 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
 
       <Menu label="Geräte" {...menuProps("geraete")}>
         {INSTRUMENT_ITEMS.map(([kind, title]) => (
-          <MenuItem key={kind} onClick={() => (kind === "scope" ? st().setPlacing("oscilloscope") : st().openInstrument(kind))}>{title}</MenuItem>
+          <MenuItem
+            key={kind}
+            hint={kind === "scope" || kind === "funcgen" ? "Bauteil" : undefined}
+            onClick={() => (kind === "scope" ? st().setPlacing("oscilloscope") : kind === "funcgen" ? st().setPlacing("funcgen") : st().openInstrument(kind))}
+          >
+            {title}
+          </MenuItem>
         ))}
       </Menu>
 
