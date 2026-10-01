@@ -731,8 +731,94 @@ const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointN
   const pr = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
   check(
     "W81 Probe mitten auf langem Leitungssegment findet das Netz und rastet den Anker auf die Leitung",
-    pr.net === "VDD_5V" && pr.anchorY === 170 && pr.anchorX === 260,
-    JSON.stringify({ net: pr.net, anchorX: pr.anchorX, anchorY: pr.anchorY }),
+    pr.net === "VDD_5V" && pr.anchorY === 170 && pr.anchorX === 260 && pr.x === 290 && pr.y === 140,
+    JSON.stringify({ net: pr.net, anchorX: pr.anchorX, anchorY: pr.anchorY, x: pr.x, y: pr.y }),
+  );
+
+  // W87: Zieht man das Anzeigekästchen der Probe selbst, bleibt die Messspitze (anchorX/Y) fest auf der Leitung
+  st.setSelection([prId!]);
+  st.moveSelection(20, -10);
+  const prMovedBox = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
+  check(
+    "W87 Ziehen des Probe-Anzeigekästchens bewegt nur (x, y) und hält die Messspitze (anchorX, anchorY) fest auf der Leitung",
+    prMovedBox.x === 310 && prMovedBox.y === 130 && prMovedBox.anchorX === 260 && prMovedBox.anchorY === 170,
+    JSON.stringify(prMovedBox),
+  );
+
+  // W87: Wird die Leitung verschoben, auf der die Messspitze sitzt, wandert die gesamte Probe mit
+  st.setSelection(["w_long"]);
+  st.moveSelection(0, 20);
+  const prMovedWithWire = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
+  check(
+    "W87 Verschieben der Leitung unter der Messspitze nimmt die gesamte Probe (Spitze + Kästchen) mit",
+    prMovedWithWire.anchorX === 260 && prMovedWithWire.anchorY === 190 && prMovedWithWire.x === 310 && prMovedWithWire.y === 150,
+    JSON.stringify(prMovedWithWire),
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 19) W82–W84: OUT-Widerstand in astable555 & striktes 10er-Raster   */
+/* ------------------------------------------------------------------ */
+console.log("\n=== 19) W82–W84: OUT-Widerstand (astable555) & Raster-Konsistenz ===");
+{
+  const st = useEditor.getState();
+  st.setDoc(PRESETS[2].build(), false);
+  const doc0 = useEditor.getState().doc;
+  const r3 = doc0.instances.find((i) => i.label === "R3")!;
+  const wOut = doc0.wires.find((w) => w.points[0].x === 460 && w.points[0].y === 270)!;
+  const wLed = doc0.wires.find((w) => w.points[0].x === 650 && w.points[0].y === 270)!;
+  st.setSelection([r3.id]);
+  st.moveSelection(0, 10);
+  st.moveSelection(0, 20);
+  const docMoved = useEditor.getState().doc;
+  const wOutAfter = docMoved.wires.find((w) => w.id === wOut.id)!;
+  const wLedAfter = docMoved.wires.find((w) => w.id === wLed.id)!;
+  const netsAfter = buildNets(docMoved);
+  check(
+    "W82 Verschieben von R3 an OUT hält das Leitungsende an U1.OUT (460,270) und an R3.1 (590,300) streng orthogonal verbunden",
+    wOutAfter.points[0].x === 460 &&
+      wOutAfter.points[0].y === 270 &&
+      wOutAfter.points[wOutAfter.points.length - 1].x === 590 &&
+      wOutAfter.points[wOutAfter.points.length - 1].y === 300 &&
+      wLedAfter.points[0].x === 650 &&
+      wLedAfter.points[0].y === 300 &&
+      wLedAfter.points[wLedAfter.points.length - 1].x === 690 &&
+      wLedAfter.points[wLedAfter.points.length - 1].y === 270 &&
+      netsAfter.openEnds.length === 0,
+    JSON.stringify({ wOut: wOutAfter.points, wLed: wLedAfter.points, openEnds: netsAfter.openEnds }),
+  );
+  // Zurückschieben auf y=270 stellt wieder eine glatte 2-Punkt-Gerade her
+  st.moveSelection(0, -30);
+  const wOutBack = useEditor.getState().doc.wires.find((w) => w.id === wOut.id)!;
+  check(
+    "W82 Zurückschieben von R3 auf gleiche Höhe glättet die Leitung wieder zu 2 Punkten",
+    wOutBack.points.length === 2 && wOutBack.points[0].y === 270 && wOutBack.points[1].y === 270,
+    JSON.stringify(wOutBack.points),
+  );
+
+  // W83/W84: Alle Presets liegen mit Bauteilen, Pins, Leitungen und Labels auf dem GRID=10-Raster
+  let offGridCount = 0;
+  for (const p of PRESETS) {
+    const d = p.build();
+    for (const i of d.instances) if (i.x % GRID !== 0 || i.y % GRID !== 0) offGridCount++;
+    for (const w of d.wires) for (const pt of w.points) if (pt.x % GRID !== 0 || pt.y % GRID !== 0) offGridCount++;
+    for (const l of d.labels) if (l.x % GRID !== 0 || l.y % GRID !== 0) offGridCount++;
+  }
+  check("W84 Alle Presets (Bauteile, Leitungen, Labels) liegen exakt auf dem GRID=10-Raster", offGridCount === 0, `offGridCount=${offGridCount}`);
+
+  // W83: alignSelection zwischen Widerstand und LED hält beide exakt auf derselben Rasterlinie
+  const r3Id = useEditor.getState().doc.instances.find((i) => i.label === "R3")!.id;
+  const d1Id = useEditor.getState().doc.instances.find((i) => i.label === "D1")!.id;
+  st.setSelection([r3Id]);
+  st.moveSelection(0, 20);
+  st.setSelection([r3Id, d1Id]);
+  st.alignSelection("top");
+  const r3Aligned = useEditor.getState().doc.instances.find((i) => i.id === r3Id)!;
+  const d1Aligned = useEditor.getState().doc.instances.find((i) => i.id === d1Id)!;
+  check(
+    "W83 alignSelection richtet Widerstand und LED exakt auf derselben GRID=10-Rasterlinie aus",
+    r3Aligned.y === d1Aligned.y && r3Aligned.y % GRID === 0,
+    JSON.stringify({ r3Y: r3Aligned.y, d1Y: d1Aligned.y }),
   );
 }
 

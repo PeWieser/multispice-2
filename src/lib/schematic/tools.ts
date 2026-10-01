@@ -242,8 +242,8 @@ const PRESET_DEFS: Preset[] = [
       const r1 = inst("resistor", "R1", 300, 170, { r: 10000 }, 90);
       const r2 = inst("resistor", "R2", 300, 290, { r: 47000 }, 90);
       const c1 = inst("capacitor_elko", "C1", 300, 400, { c: 1e-5 }, 90);
-      const r3 = inst("resistor", "R3", 620, 268, { r: 470 });
-      const led = inst("led", "D1", 720, 268, { vf: 2, color: "red" });
+      const r3 = inst("resistor", "R3", 620, 270, { r: 470 });
+      const led = inst("led", "D1", 720, 270, { vf: 2, color: "red" });
       const g1 = inst("gnd", "GND1", 140, 420);
       const g2 = inst("gnd", "GND2", 300, 470);
       const g3 = inst("gnd", "GND3", 380, 420);
@@ -254,22 +254,22 @@ const PRESET_DEFS: Preset[] = [
         // W51: Die VCC-Schiene endete bei x=700 im Nichts (kein Pin, keine Leitung)
         // – neue Prüfung meldet das, jetzt sauber bis zum letzten Abzweig geführt.
         wire(140, 120, 500, 120),
-        wire(140, 330, 140, 406),
+        wire(140, 330, 140, 400),
         wire(300, 140, 300, 120),
         wire(300, 200, 300, 260),
-        wire(300, 230, 380, 230, 380, 244),
+        wire(300, 230, 380, 230, 380, 250),
         wire(300, 320, 300, 370),
-        wire(300, 370, 240, 370, 240, 292, 380, 292),
-        wire(300, 370, 540, 370, 540, 292, 460, 292),
-        wire(300, 430, 300, 456),
-        wire(380, 268, 340, 268, 340, 120),
-        wire(460, 244, 500, 244, 500, 120),
-        wire(380, 316, 380, 406),
-        wire(460, 268, 590, 268),
-        wire(650, 268, 690, 268),
-        wire(750, 268, 750, 326),
+        wire(300, 370, 240, 370, 240, 290, 380, 290),
+        wire(300, 370, 540, 370, 540, 290, 460, 290),
+        wire(300, 430, 300, 450),
+        wire(380, 270, 340, 270, 340, 120),
+        wire(460, 250, 500, 250, 500, 120),
+        wire(380, 310, 380, 400),
+        wire(460, 270, 590, 270),
+        wire(650, 270, 690, 270),
+        wire(750, 270, 750, 320),
       );
-      doc.labels.push({ id: nid("l"), x: 460, y: 268, name: "OUT" }, { id: nid("l"), x: 300, y: 370, name: "CAP" });
+      doc.labels.push({ id: nid("l"), x: 460, y: 270, name: "OUT" }, { id: nid("l"), x: 300, y: 370, name: "CAP" });
       return doc;
     },
   },
@@ -339,18 +339,18 @@ const PRESET_DEFS: Preset[] = [
       const g4 = inst("gnd", "GND4", 660, 500);
       doc.instances.push(u, src, rf, rg, vp, vn, g1, g2, g3, g4);
       doc.wires.push(
-        wire(200, 270, 200, 245, 380, 245),
-        wire(200, 330, 200, 386),
-        wire(380, 275, 320, 275, 320, 350),
-        wire(320, 410, 320, 436),
-        wire(320, 275, 320, 150, 410, 150),
+        wire(200, 270, 200, 250, 380, 250),
+        wire(200, 330, 200, 380),
+        wire(380, 270, 320, 270, 320, 350),
+        wire(320, 410, 320, 430),
+        wire(320, 270, 320, 150, 410, 150),
         wire(470, 150, 540, 150, 540, 260, 460, 260),
         wire(420, 230, 420, 100, 660, 100),
-        wire(660, 160, 660, 186),
+        wire(660, 160, 660, 180),
         wire(420, 290, 420, 400, 660, 400),
-        wire(660, 460, 660, 486),
+        wire(660, 460, 660, 480),
       );
-      doc.labels.push({ id: nid("l"), x: 540, y: 260, name: "OUT" }, { id: nid("l"), x: 200, y: 245, name: "IN" });
+      doc.labels.push({ id: nid("l"), x: 540, y: 260, name: "OUT" }, { id: nid("l"), x: 200, y: 250, name: "IN" });
       return doc;
     },
   },

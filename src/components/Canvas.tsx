@@ -16,6 +16,7 @@ import {
 import {
   findNetTarget,
   finishNetDraft,
+  nearestWireFoot,
   netClick,
   previewNetPath,
   type NetDraft,
@@ -203,15 +204,44 @@ export default function Canvas() {
 
   const hitTestProbe = useCallback((doc: SchematicDoc, p: Pt, radius?: number): MeasurementProbe | null => {
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    const r = radius ?? (isMobile ? 26 : 16);
-    const radiusFinal = r;
-    let best: MeasurementProbe | null = null;
-    let bestD = radiusFinal * radiusFinal;
-    for (const pr of doc.probes) {
-      const d = (pr.x - p.x) ** 2 + (pr.y - p.y) ** 2;
-      if (d < bestD) { bestD = d; best = pr; }
+    const zoom = useEditor.getState().view.zoom;
+    const iz = 1 / Math.max(zoom, 0.25);
+    const r = (radius ?? (isMobile ? 24 : 14)) * iz;
+    for (let i = doc.probes.length - 1; i >= 0; i--) {
+      const pr = doc.probes[i];
+      // W87: Trifft das gesamte Multisim-Anzeigekästchen (ab pr.x nach rechts,
+      // vertikal zentriert um pr.y) sowie den Bereich direkt um (pr.x, pr.y).
+      const boxW = 112 * iz;
+      const boxH = 38 * iz;
+      if (
+        p.x >= pr.x - 8 * iz &&
+        p.x <= pr.x + boxW + 6 * iz &&
+        p.y >= pr.y - boxH / 2 - 6 * iz &&
+        p.y <= pr.y + boxH / 2 + 6 * iz
+      ) {
+        return pr;
+      }
+      if ((pr.x - p.x) ** 2 + (pr.y - p.y) ** 2 <= r * r) {
+        return pr;
+      }
     }
-    return best;
+    return null;
+  }, []);
+
+  const hitTestProbeAnchor = useCallback((doc: SchematicDoc, p: Pt): MeasurementProbe | null => {
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    const zoom = useEditor.getState().view.zoom;
+    const iz = 1 / Math.max(zoom, 0.25);
+    const hitR = (isMobile ? 18 : 11) * iz;
+    for (let i = doc.probes.length - 1; i >= 0; i--) {
+      const pr = doc.probes[i];
+      const ax = pr.anchorX ?? pr.x;
+      const ay = pr.anchorY ?? pr.y;
+      if (Math.hypot(ax - p.x, ay - p.y) <= hitR) {
+        return pr;
+      }
+    }
+    return null;
   }, []);
 
   // ---- drawing ----
@@ -249,14 +279,17 @@ export default function Canvas() {
     const x1 = view.x + w / view.zoom, y1 = view.y + h / view.zoom;
 
     if (showGrid) {
-      const step = view.zoom < 0.45 ? GRID * 10 : view.zoom < 1.1 ? GRID * 5 : GRID;
+      // W84: Ab normaler Ansicht (zoom >= 0.45) immer das echte GRID=10-Raster
+      // zeichnen, damit 1 sichtbares Kästchen exakt 1 Bewegungsschritt (10 px)
+      // entspricht; jede 5. Linie (50 px) als Hauptlinie.
+      const step = view.zoom < 0.45 ? GRID * 5 : GRID;
       ctx.lineWidth = 1 / view.zoom;
       ctx.strokeStyle = css("--grid", "rgba(255,255,255,.05)");
       ctx.beginPath();
       for (let x = Math.floor(x0 / step) * step; x < x1; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
       for (let y = Math.floor(y0 / step) * step; y < y1; y += step) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
       ctx.stroke();
-      const big = step * 10;
+      const big = step * 5;
       ctx.strokeStyle = css("--grid-strong", "rgba(255,255,255,.1)");
       ctx.beginPath();
       for (let x = Math.floor(x0 / big) * big; x < x1; x += big) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
@@ -553,8 +586,8 @@ export default function Canvas() {
         for (let s = 0; s < wire.points.length - 1; s++) {
           const a = wire.points[s];
           const b = wire.points[s+1];
-          const mx = (a.x + b.x) / 2;
-          const my = (a.y + b.y) / 2;
+          const mx = Math.round(((a.x + b.x) / 2) / GRID) * GRID;
+          const my = Math.round(((a.y + b.y) / 2) / GRID) * GRID;
           const isHoveredMid = hoveredHandle && hoveredHandle.wireId === wire.id && hoveredHandle.isMid && hoveredHandle.segIdx === s;
           // Only show mid handle when hovered wire or always when selected but subtle
           if (!isHovered && !isHoveredMid) continue; // show only on hover to reduce clutter, but always if hovered mid
@@ -918,7 +951,12 @@ export default function Canvas() {
       drawProbe(ctx, probe, isSel, view.zoom, live, netResult, netCurrentMap);
     }
 
+    // W85: Legacy-Netzmarker (st.probes) nur dann zeichnen, wenn auf diesem Netz
+    // nicht bereits eine echte MeasurementProbe (doc.probes) sitzt – verhindert
+    // den doppelten lila Geisterkreis am anderen Ende des Netzes.
+    const measuredNets = new Set(doc.probes.map((pr) => pr.net).filter(Boolean));
     for (const probeName of st.probes) {
+      if (measuredNets.has(probeName)) continue;
       const net = netResult.nets.find((n) => n.name === probeName);
       if (!net || !net.points.length) continue;
       const p = net.points[0];
@@ -1028,18 +1066,46 @@ export default function Canvas() {
       }
     }
     if (st.tool.startsWith("probe") && st.placingProbeKind) {
+      // W86: Vorschau-Ghost rastet wie beim Klick per Magnet auf der nächsten
+      // Leitung / dem nächsten Pin ein und zeigt die Messspitze (anchorX/anchorY)
+      // plus das Kästchen im Rasterabstand (+30, -30).
+      const target = findNetTarget(doc, cursor, 24 / Math.max(view.zoom, 0.25));
+      const ax = target ? Math.round(target.x / GRID) * GRID : cursor.x;
+      const ay = target ? Math.round(target.y / GRID) * GRID : cursor.y;
+      const gNet = nearestNetName({ x: ax, y: ay }, 24);
+      const nextNum = doc.probes.filter((p) => p.kind === st.placingProbeKind).length + 1;
+      const ghostName = `${st.placingProbeKind.charAt(0).toUpperCase()}${nextNum}`;
       ctx.save();
-      ctx.globalAlpha = 0.7;
-      drawProbe(ctx, { id: "ghost", kind: st.placingProbeKind, x: cursor.x, y: cursor.y } as MeasurementProbe, false, view.zoom, live, netResult, netCurrentMap);
+      ctx.globalAlpha = 0.82;
+      drawProbe(
+        ctx,
+        {
+          id: "ghost",
+          kind: st.placingProbeKind,
+          name: ghostName,
+          x: ax + 30,
+          y: ay - 30,
+          anchorX: ax,
+          anchorY: ay,
+          offsetX: 30,
+          offsetY: -30,
+          leader: "arrow",
+          net: gNet ?? undefined,
+          show: { vdc: true, idc: true, power: true },
+        } as MeasurementProbe,
+        false,
+        view.zoom,
+        live,
+        netResult,
+        netCurrentMap,
+      );
       ctx.restore();
-      // Live-Vorschau: Ring zeigt das Netz, dessen Wert der Ghost bereits anzeigt
-      const gNet = nearestNetName(cursor, 18);
       if (gNet) {
         ctx.save();
         ctx.strokeStyle = css("--accent-2", "#22d3ee");
-        ctx.lineWidth = 1.5 / Math.max(view.zoom, 0.3);
+        ctx.lineWidth = 1.6 / Math.max(view.zoom, 0.3);
         ctx.beginPath();
-        ctx.arc(cursor.x, cursor.y, 7 / Math.max(view.zoom, 0.3), 0, Math.PI * 2);
+        ctx.arc(ax, ay, 7 / Math.max(view.zoom, 0.3), 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
@@ -1231,12 +1297,30 @@ export default function Canvas() {
 
     if (ctxMenu) { setCtxMenu(null); return; }
 
-    // W63/W64/W77: Netzmodus wie in Multisim – hat Vorrang, solange gezeichnet
-    // wird (nur Linksklick; Rechtsklick bricht in onContextMenu ab).
-    // Bei Doppelklick im freien Raum wird die angefangene Leitung in onDoubleClick
-    // dort abgeschlossen (W77).
+    // W63/W64/W77/W87: Netzmodus wie in Multisim – hat Vorrang, solange aktiv
+    // gezeichnet wird (`sr.netDraft`) oder das Stift-Werkzeug (`wire`) aktiv ist.
+    // Im `select`-Modus (`sr.netDraft === null`) darf ein Klick auf eine bestehende
+    // Probe (Kästchen oder Messspitze) oder auf einen ausgewählten Leitungsgriff
+    // jedoch NICHT versehentlich ein neues Netz starten!
     const magnet = 14 / Math.max(st.view.zoom, 0.25);
-    if (e.button === 0 && st.tool !== "junction" && st.tool !== "erase" && st.tool !== "label" && st.tool !== "text" && st.tool !== "place" && !st.tool.startsWith("probe")) {
+    const blockingSelectHit =
+      st.tool === "select" &&
+      !sr.netDraft &&
+      Boolean(
+        hitTestProbeAnchor(st.doc, world) ||
+          hitTestProbe(st.doc, world) ||
+          hitWireHandle(st.doc, world, st.view.zoom, true),
+      );
+    if (
+      e.button === 0 &&
+      !blockingSelectHit &&
+      st.tool !== "junction" &&
+      st.tool !== "erase" &&
+      st.tool !== "label" &&
+      st.tool !== "text" &&
+      st.tool !== "place" &&
+      !st.tool.startsWith("probe")
+    ) {
       // Beim 2. Klick eines Doppelklicks auf eine Leitung nicht schon hier einen
       // Punkt setzen, sondern onDoubleClick den Abzweig/Abschluss behandeln lassen.
       if (e.detail >= 2 && sr.netDraft) return;
@@ -1276,10 +1360,17 @@ export default function Canvas() {
       }
     }
 
-    // W77/W78: Leitungs-Griffe im Auswahlmodus (beim 2. Klick eines Doppelklicks
-    // nicht abfangen, damit onDoubleClick einen Abzweig starten oder einen
-    // Stützpunkt löschen kann).
+    // W77/W78/W87: Leitungs-Griffe und Probe-Messspitze im Auswahlmodus
     if (st.tool === "select" && e.button === 0 && e.detail < 2) {
+      // W87: Messspitze (Anker) einer Probe direkt greifbar – auch ohne dass
+      // die Probe vorher ausgewählt sein musste!
+      const anchorProbe = hitTestProbeAnchor(st.doc, world);
+      if (anchorProbe) {
+        if (!st.selection.includes(anchorProbe.id)) st.setSelection([anchorProbe.id]);
+        st.beginGesture();
+        (sr as any).probeAnchorDrag = { probeId: anchorProbe.id };
+        return;
+      }
       const handle = hitWireHandle(st.doc, world, st.view.zoom, true);
       if (handle) {
         const segWire = st.doc.wires.find((x) => x.id === handle.wireId);
@@ -1301,18 +1392,6 @@ export default function Canvas() {
             pointIdx: handle.pointIdx,
             orig: segWire.points.map((p) => ({ x: p.x, y: p.y })),
           };
-          return;
-        }
-      }
-      // Probe anchor drag
-      const hitRadius = isMobile ? 18 : 10;
-      for (const prId of st.selection) {
-        const pr = st.doc.probes.find((p) => p.id === prId);
-        if (!pr || pr.anchorX === undefined || pr.anchorY === undefined) continue;
-        const d2a = (pr.anchorX - world.x) ** 2 + (pr.anchorY - world.y) ** 2;
-        if (d2a < hitRadius * hitRadius) {
-          st.beginGesture();
-          (sr as any).probeAnchorDrag = { probeId: prId };
           return;
         }
       }
@@ -1370,9 +1449,12 @@ export default function Canvas() {
 
     if (st.tool.startsWith("probe") && st.placingProbeKind) {
       if (e.button === 0) {
-        const net = nearestNetName(world);
-        const id = st.addMeasurementProbe(st.placingProbeKind, sp.x, sp.y);
-        if (id && net) st.updateMeasurementProbe(id, { net });
+        // W86: Exakt dieselbe Magnet-Fang-Logik wie in der Ghost-Vorschau nutzen;
+        // addMeasurementProbe löst das Netz (inkl. Segment-Fußpunkt) bereits selbst auf.
+        const target = findNetTarget(st.doc, world, 24 / Math.max(st.view.zoom, 0.25));
+        const tx = target ? Math.round(target.x / GRID) * GRID : sp.x;
+        const ty = target ? Math.round(target.y / GRID) * GRID : sp.y;
+        st.addMeasurementProbe(st.placingProbeKind, tx, ty);
         if (!e.shiftKey) st.setPlacingProbe(null);
       } else {
         st.setPlacingProbe(null);
@@ -1583,7 +1665,8 @@ export default function Canvas() {
     }
     sr.lastMouse = { x: e.clientX, y: e.clientY };
 
-    // W54: Segment verschieben – senkrecht zur Segmentrichtung, Raster-Snap.
+    // W54/W83: Segment verschieben – senkrecht zur Segmentrichtung, die neue
+    // Segmentposition rastet direkt auf die Rasterlinie sp.y / sp.x (GRID=10) ein.
     if ((sr as any).wireSegDrag) {
       const seg = (sr as any).wireSegDrag as { wireId: string; segIdx: number; orig: Array<{ x: number; y: number }>; applied: { dx: number; dy: number } };
       const sa = seg.orig[seg.segIdx];
@@ -1591,10 +1674,8 @@ export default function Canvas() {
       const horizontal = Math.abs(sb.x - sa.x) >= Math.abs(sb.y - sa.y);
       let dx = 0;
       let dy = 0;
-      if (horizontal) dy = Math.round((sp.y - sr.dragStart.y) / GRID) * GRID;
-      else dx = Math.round((sp.x - sr.dragStart.x) / GRID) * GRID;
-      if (Math.abs(dx) < GRID / 2) dx = 0;
-      if (Math.abs(dy) < GRID / 2) dy = 0;
+      if (horizontal) dy = sp.y - sa.y;
+      else dx = sp.x - sa.x;
       if (dx !== seg.applied.dx || dy !== seg.applied.dy) {
         st.setWireSegmentOffset(seg.wireId, seg.segIdx, seg.orig, dx, dy);
         seg.applied = { dx, dy };
@@ -1610,7 +1691,7 @@ export default function Canvas() {
         pointIdx: number;
         orig: Array<{ x: number; y: number }>;
       };
-      // Alignment guides: find nearby pins or other wire points aligned horizontally/vertically within 12px
+      // Alignment guides: find nearby pins or other wire points aligned horizontally/vertically
       let guideX: number | null = null;
       let guideY: number | null = null;
       const threshold = 10;
@@ -1621,15 +1702,15 @@ export default function Canvas() {
           if (!part) continue;
           for (let idx = 0; idx < part.pins.length; idx++) {
             const p = pinPosition(inst, idx);
-            if (Math.abs(p.x - sp.x) < threshold) guideX = p.x;
-            if (Math.abs(p.y - sp.y) < threshold) guideY = p.y;
+            if (Math.abs(p.x - sp.x) < threshold) guideX = Math.round(p.x / GRID) * GRID;
+            if (Math.abs(p.y - sp.y) < threshold) guideY = Math.round(p.y / GRID) * GRID;
           }
         }
         for (const w of doc.wires) {
           if (w.id === wireId) continue;
           for (const pt of w.points) {
-            if (Math.abs(pt.x - sp.x) < threshold) guideX = pt.x;
-            if (Math.abs(pt.y - sp.y) < threshold) guideY = pt.y;
+            if (Math.abs(pt.x - sp.x) < threshold) guideX = Math.round(pt.x / GRID) * GRID;
+            if (Math.abs(pt.y - sp.y) < threshold) guideY = Math.round(pt.y / GRID) * GRID;
           }
         }
       } catch {}
@@ -1661,7 +1742,12 @@ export default function Canvas() {
     }
     if ((sr as any).probeAnchorDrag) {
       const { probeId } = (sr as any).probeAnchorDrag;
-      st.updateMeasurementProbe(probeId, { anchorX: sp.x, anchorY: sp.y });
+      // W87: Messspitze (Anker) rastet beim Ziehen per Magnet auf nahen Pins,
+      // Verbindungspunkten oder Leitungssegmenten ein (sonst auf dem Raster sp).
+      const target = findNetTarget(st.doc, world, 16 / Math.max(st.view.zoom, 0.25));
+      const ax = target ? Math.round(target.x / GRID) * GRID : sp.x;
+      const ay = target ? Math.round(target.y / GRID) * GRID : sp.y;
+      st.updateMeasurementProbe(probeId, { anchorX: ax, anchorY: ay });
       sr.moved = true;
       return;
     }
@@ -1671,57 +1757,42 @@ export default function Canvas() {
         st.duplicateSelection();
         sr.duplicated = true;
       }
-      // Alignment guides for instances – like Figma/Multisim, show when aligned
+      const selIds = new Set(st.selection);
+      let dx = sp.x - Math.round(sr.dragStart.x / GRID) * GRID;
+      let dy = sp.y - Math.round(sr.dragStart.y / GRID) * GRID;
+
+      // W83: Falls ein gezogenes Bauteil (oder eine gezogene Probe) aus einem
+      // Altstand noch auf einer krummen Koordinate saß, rastet es beim Ziehen
+      // sofort exakt auf ein Vielfaches von GRID = 10 ein!
+      const anchorInst = st.doc.instances.find((i) => selIds.has(i.id));
+      const anchorProbe = !anchorInst ? st.doc.probes.find((p) => selIds.has(p.id)) : undefined;
+      if (anchorInst && (dx !== 0 || dy !== 0)) {
+        dx = Math.round((anchorInst.x + dx) / GRID) * GRID - anchorInst.x;
+        dy = Math.round((anchorInst.y + dy) / GRID) * GRID - anchorInst.y;
+      } else if (anchorProbe && (dx !== 0 || dy !== 0)) {
+        dx = Math.round((anchorProbe.x + dx) / GRID) * GRID - anchorProbe.x;
+        dy = Math.round((anchorProbe.y + dy) / GRID) * GRID - anchorProbe.y;
+      }
+
+      // W83: Visuelle Ausrichtungslinien (_alignGuides) prüfen nur echte
+      // Raster-Ursprünge (other.x / other.y) und Pin-Positionen, NIEMALS krumme
+      // Grafik-Bounding-Box-Kanten, und verbiegen dx/dy niemals vom Raster weg!
       let guideX: number | null = null;
       let guideY: number | null = null;
-      const threshold = 8;
-      const selIds = new Set(st.selection);
-      // Find bounds of selection
-      let selMinX = Infinity, selMaxX = -Infinity, selMinY = Infinity, selMaxY = -Infinity;
-      for (const id of st.selection) {
-        const inst = st.doc.instances.find(i=>i.id===id);
-        if (!inst) continue;
-        const b = instanceBounds(inst);
-        selMinX = Math.min(selMinX, b.x);
-        selMaxX = Math.max(selMaxX, b.x + b.w);
-        selMinY = Math.min(selMinY, b.y);
-        selMaxY = Math.max(selMaxY, b.y + b.h);
-      }
-      // Check against other instances
-      for (const other of st.doc.instances) {
-        if (selIds.has(other.id)) continue;
-        const b = instanceBounds(other);
-        const candidatesX = [b.x, b.x + b.w/2, b.x + b.w];
-        const candidatesY = [b.y, b.y + b.h/2, b.y + b.h];
-        for (const cx of candidatesX) {
-          if (Math.abs((selMinX + (sp.x - sr.dragStart.x)) - cx) < threshold) guideX = cx;
-          if (Math.abs((selMaxX + (sp.x - sr.dragStart.x)) - cx) < threshold) guideX = cx;
-          if (Math.abs(((selMinX+selMaxX)/2 + (sp.x - sr.dragStart.x)) - cx) < threshold) guideX = cx;
-        }
-        for (const cy of candidatesY) {
-          if (Math.abs((selMinY + (sp.y - sr.dragStart.y)) - cy) < threshold) guideY = cy;
-          if (Math.abs((selMaxY + (sp.y - sr.dragStart.y)) - cy) < threshold) guideY = cy;
-          if (Math.abs(((selMinY+selMaxY)/2 + (sp.y - sr.dragStart.y)) - cy) < threshold) guideY = cy;
+      if (anchorInst) {
+        const nextX = anchorInst.x + dx;
+        const nextY = anchorInst.y + dy;
+        for (const other of st.doc.instances) {
+          if (selIds.has(other.id)) continue;
+          if (Math.abs(other.x - nextX) < 0.5) guideX = other.x;
+          if (Math.abs(other.y - nextY) < 0.5) guideY = other.y;
         }
       }
       (sr as any)._alignGuides = { x: guideX, y: guideY };
-      let dx = sp.x - Math.round(sr.dragStart.x / GRID) * GRID;
-      let dy = sp.y - Math.round(sr.dragStart.y / GRID) * GRID;
-      // Snap to guides if present
-      if (guideX !== null) {
-        const curMinX = selMinX + dx;
-        const snapDx = guideX - curMinX;
-        // Only snap if close
-        if (Math.abs(snapDx) < threshold*2) dx += snapDx;
-      }
-      if (guideY !== null) {
-        const curMinY = selMinY + dy;
-        const snapDy = guideY - curMinY;
-        if (Math.abs(snapDy) < threshold*2) dy += snapDy;
-      }
+
       if (dx || dy) {
         st.moveSelection(dx, dy);
-        sr.dragStart = { x: sr.dragStart.x + dx, y: sr.dragStart.y + dy };
+        sr.dragStart = { x: Math.round(sr.dragStart.x / GRID) * GRID + dx, y: Math.round(sr.dragStart.y / GRID) * GRID + dy };
         sr.moved = true;
       }
     }
@@ -2866,8 +2937,8 @@ function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = tr
     for (let s=0; s<wire.points.length-1; s++) {
       const a = wire.points[s];
       const b = wire.points[s+1];
-      const mx = (a.x + b.x)/2;
-      const my = (a.y + b.y)/2;
+      const mx = Math.round(((a.x + b.x)/2) / GRID) * GRID;
+      const my = Math.round(((a.y + b.y)/2) / GRID) * GRID;
       const d = Math.hypot(mx - p.x, my - p.y);
       const midRadius = 10 / Math.max(zoom, 0.3);
       if (d < midRadius && d < bestDist) {
@@ -2882,8 +2953,8 @@ function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = tr
       for (let s=0; s<wire.points.length-1; s++) {
         const a = wire.points[s];
         const b = wire.points[s+1];
-        const mx = (a.x + b.x)/2;
-        const my = (a.y + b.y)/2;
+        const mx = Math.round(((a.x + b.x)/2) / GRID) * GRID;
+        const my = Math.round(((a.y + b.y)/2) / GRID) * GRID;
         const d = Math.hypot(mx - p.x, my - p.y);
         const midRadius = 10 / Math.max(zoom, 0.3);
         if (d < midRadius && d < bestDist) {
@@ -2900,6 +2971,15 @@ function nearestNetName(p: Pt, radius=14): string | null {
   for (const net of st.netResult.nets) for (const pt of net.points) {
     const d=(pt.x-p.x)**2+(pt.y-p.y)**2; if (d<bestD){ bestD=d; best=net.name; }
   }
+  const foot = nearestWireFoot(st.doc, p, radius);
+  if (foot && foot.dist * foot.dist <= bestD) {
+    const w = st.doc.wires.find((x) => x.id === foot.wireId);
+    const a = w?.points[foot.segIdx];
+    if (a) {
+      const segNet = st.netResult.pointNets[`${Math.round(a.x)},${Math.round(a.y)}`];
+      if (segNet) return segNet;
+    }
+  }
   if (best) return best;
   const wireId=hitWire(st.doc,p);
   if (wireId) {
@@ -2909,244 +2989,317 @@ function nearestNetName(p: Pt, radius=14): string | null {
   return null;
 }
 function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selected:boolean, zoom:number, live:any, netResult:any, netCurrentMap:Map<string,number>) {
-  // Runde 12: ruhige Token-Palette; Legacy-Neon in Altdokumenten gilt als „Auto"
+  // W85: NI-Multisim-Stil für Messpunkte (Probes).
+  // Jede Sonde besitzt:
+  //  1. Messspitze / Kontaktpunkt (ax, ay) auf der Leitung oder am Bauteil-Pin
+  //     (bei Strom-/Leistungssonde zusätzlich einen Richtungspfeil entlang der Leitung).
+  //  2. Ein permanent sichtbares Anzeigekästchen bei (bx, by) mit farbigem
+  //     Header (Typ-Badge + Name + Netz) und den Messwerten (im Live-Betrieb
+  //     echte Messwerte, vor Simulationsstart ruhige Bereitschaftsanzeige).
+  //  3. Eine durchgehende Führungs-Linie (Leader) vom nächstgelegenen Randpunkt
+  //     des Anzeigekästchens exakt zur Messspitze (ax, ay).
   const col = (probe.color && !LEGACY_PROBE_COLORS.has(probe.color as string))
     ? (probe.color as string)
     : css(PROBE_CSSVAR[probe.kind] ?? "--warn", PROBE_HEX[probe.kind] ?? "#a87a12");
-  const rot = (probe.rotation ?? 0) * Math.PI/180;
+  const rot = ((probe.rotation ?? 0) * Math.PI) / 180;
   const dir = probe.direction ?? 0;
 
-  // V2: anchor (on wire) and body (offset) – like Multisim magnifier/arrow pointing to wire
   const ax = probe.anchorX ?? probe.x;
   const ay = probe.anchorY ?? probe.y;
   const bx = probe.x;
   const by = probe.y;
-  const hasLeader = (probe.anchorX !== undefined && probe.anchorY !== undefined) || probe.leader;
-  const iz = 1 / Math.max(zoom, 0.15); // inverse zoom for constant screen size
+  const iz = 1 / Math.max(zoom, 0.2);
 
-  ctx.save();
-  ctx.translate(bx, by);
-  ctx.rotate(rot);
-
-  // ---- leader line from body to anchor (arrow pointing to wire) – world coords, constant screen thickness ----
-  if (hasLeader) {
-    const dx = ax - bx;
-    const dy = ay - by;
-    const angle = Math.atan2(dy, dx);
-    ctx.save();
-    ctx.rotate(-rot); // leader in world coords (unrotate)
-    ctx.strokeStyle = col+"AA";
-    ctx.lineWidth = 1 * iz;
-    ctx.setLineDash(probe.leader==="magnifier" ? [3*iz,3*iz] : []);
-    ctx.beginPath();
-    ctx.moveTo(0,0);
-    ctx.lineTo(dx, dy);
-    ctx.stroke();
-    // arrow head at anchor – constant screen size
-    ctx.save();
-    ctx.translate(dx, dy);
-    ctx.rotate(angle);
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    // arrow size constant screen: 6px screen -> world 6*iz
-    const as = 4.5 * iz;
-    ctx.moveTo(0,0);
-    ctx.lineTo(-as, -as*0.5);
-    ctx.lineTo(-as, as*0.5);
-    ctx.closePath();
-    ctx.fill();
-    // small dot at anchor – constant screen
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.arc(0,0,1.8*iz,0,Math.PI*2);
-    ctx.fill();
-    ctx.restore();
-    ctx.setLineDash([]);
-    ctx.restore();
+  const st = useEditor.getState();
+  const netName = probe.net ?? nearestNetName({ x: ax, y: ay }, 20);
+  let refNetName: string | null = null;
+  if (probe.ref) {
+    if (probe.ref.startsWith("pr_")) {
+      const rp = st.doc.probes.find((p) => p.id === probe.ref);
+      refNetName = rp?.net ?? rp?.ref ?? null;
+    } else {
+      refNetName = probe.ref;
+    }
   }
 
-  // ---- reference line for diff/ref (dashed to REF) – world, constant thickness ----
-  if (probe.kind==="diff" || (probe.kind==="voltage" && probe.ref && probe.ref!=="0")) {
+  const v = live && netName ? (live.nets[netName] ?? 0) : 0;
+  const refV = live && refNetName ? (live.nets[refNetName] ?? 0) : 0;
+  let i = live && netName ? (netCurrentMap.get(netName) ?? 0) : 0;
+  if (dir) i = -i;
+
+  let vrms = 0, vpp = 0, vavg = 0, irms = 0, ipp = 0, freq = 0;
+  if (live && probe.periodic && netName) {
+    try {
+      const ch = engine.channel(netName, 2048);
+      if (ch.v.length > 8) {
+        vavg = mean(ch.v);
+        vrms = rms(ch.v);
+        vpp = peakToPeak(ch.v);
+        freq = estimateFrequency(ch.t, ch.v);
+        irms = Math.abs(i) * 0.707;
+        ipp = Math.abs(i) * 2;
+      }
+    } catch {}
+  }
+
+  const show = probe.show ?? { vdc: true, idc: true, power: true };
+  const glyphMap: Record<string, string> = {
+    voltage: "V",
+    current: "I",
+    voltage_current: "V/I",
+    power: "W",
+    diff: "ΔV",
+    ref: "REF",
+    digital: "D",
+  };
+  const glyph = glyphMap[probe.kind] ?? "V";
+  const titleName = probe.name || glyph;
+  const headerText = `${titleName}  ${netName ? `(${netName})` : "(—)"}`;
+
+  const valueLines: string[] = [];
+  let digCol: string | null = null;
+  if (!netName) {
+    valueLines.push("Nicht verbunden");
+  } else if (!live) {
+    if (probe.kind === "voltage") valueLines.push("V(dc): — V");
+    else if (probe.kind === "current") valueLines.push("I(dc): — A");
+    else if (probe.kind === "voltage_current") valueLines.push("V: — V · I: — A");
+    else if (probe.kind === "power") valueLines.push("P: — W");
+    else if (probe.kind === "diff") valueLines.push("ΔV: — V");
+    else if (probe.kind === "ref") valueLines.push(`Bezug: ${netName}`);
+    else if (probe.kind === "digital") valueLines.push("Logik: —");
+  } else {
+    if (probe.kind === "voltage") {
+      const dv = refNetName ? v - refV : v;
+      if (show.vdc !== false) valueLines.push(`V(dc): ${formatValue(dv, "V")}`);
+      if (probe.periodic) {
+        if (show.vrms) valueLines.push(`V(rms): ${formatValue(vrms, "V")}`);
+        if (show.vpp) valueLines.push(`V(p-p): ${formatValue(vpp, "V")}`);
+        if (show.vavg) valueLines.push(`V(avg): ${formatValue(vavg, "V")}`);
+        if (show.freq) valueLines.push(`f: ${freq.toFixed(1)} Hz`);
+      }
+      if (refNetName && refNetName !== "0") valueLines.push(`Ref ${refNetName}: ${formatValue(refV, "V")}`);
+    } else if (probe.kind === "current") {
+      if (show.idc !== false) valueLines.push(`I(dc): ${formatValue(i, "A")}`);
+      if (probe.periodic) {
+        if (show.irms) valueLines.push(`I(rms): ${formatValue(irms, "A")}`);
+        if (show.ipp) valueLines.push(`I(p-p): ${formatValue(ipp, "A")}`);
+      }
+    } else if (probe.kind === "voltage_current") {
+      const dv = refNetName ? v - refV : v;
+      valueLines.push(`V: ${formatValue(dv, "V")}`);
+      valueLines.push(`I: ${formatValue(i, "A")}`);
+      if (probe.periodic && show.vrms) valueLines.push(`Vrms ${formatValue(vrms, "V")} · Irms ${formatValue(irms, "A")}`);
+    } else if (probe.kind === "power") {
+      const dv = refNetName ? v - refV : v;
+      const pwr = dv * i;
+      valueLines.push(`P: ${formatValue(pwr, "W")}`);
+      if (show.vdc !== false) valueLines.push(`${formatValue(dv, "V")} · ${formatValue(i, "A")}`);
+    } else if (probe.kind === "diff") {
+      const dv = v - refV;
+      valueLines.push(`ΔV: ${formatValue(dv, "V")}`);
+      if (probe.periodic) valueLines.push(`${formatValue(v, "V")} − ${formatValue(refV, "V")}`);
+    } else if (probe.kind === "ref") {
+      valueLines.push(`REF: ${formatValue(v, "V")}`);
+    } else if (probe.kind === "digital") {
+      const low = probe.thresholds?.low ?? 0.8;
+      const high = probe.thresholds?.high ?? 2.0;
+      const lvl = v > high ? "HIGH (1)" : v < low ? "LOW (0)" : "UNDEF (X)";
+      digCol = v > high ? css("--ok", "#2e7a4f") : v < low ? css("--err", "#b3372c") : css("--warn", "#a87a12");
+      valueLines.push(`${lvl} · ${formatValue(v, "V")}`);
+    }
+  }
+  if (!valueLines.length) valueLines.push(formatValue(v, "V"));
+
+  ctx.save();
+
+  // ---- 1. Kästchen-Maße in Screen-Einheiten (* iz in Welt-Einheiten) berechnen ----
+  ctx.font = `600 9.5px ui-monospace, monospace`;
+  const headerW = ctx.measureText(headerText).width + 24;
+  ctx.font = `500 9.5px ui-monospace, monospace`;
+  const maxValW = Math.max(...valueLines.map((l) => ctx.measureText(l).width));
+  const padX = 7;
+  const headerH = 15;
+  const lineH = 12;
+  const boxScreenW = Math.max(84, Math.ceil(Math.max(headerW, maxValW + padX * 2)));
+  const boxScreenH = headerH + valueLines.length * lineH + 5;
+
+  const boxW = boxScreenW * iz;
+  const boxH = boxScreenH * iz;
+  const boxX0 = bx;
+  const boxY0 = by - boxH / 2;
+
+  // ---- 2. Gestrichelte Referenzlinie für Diff-/Ref-Sonden ----
+  if (probe.kind === "diff" || (probe.kind === "voltage" && probe.ref && probe.ref !== "0")) {
     let refX = 0, refY = 0, hasRef = false;
     if (probe.ref && probe.ref.startsWith("pr_")) {
-      const st = useEditor.getState();
-      const refProbe = st.doc.probes.find(p=>p.id===probe.ref);
-      if (refProbe) { refX = refProbe.x - bx; refY = refProbe.y - by; hasRef = true; }
-    } else if (probe.ref && probe.ref!=="0") {
-      const st = useEditor.getState();
-      const refNet = st.netResult.nets.find(n=>n.name===probe.ref);
+      const refProbe = st.doc.probes.find((p) => p.id === probe.ref);
+      if (refProbe) {
+        refX = refProbe.anchorX ?? refProbe.x;
+        refY = refProbe.anchorY ?? refProbe.y;
+        hasRef = true;
+      }
+    } else if (probe.ref && probe.ref !== "0") {
+      const refNet = st.netResult.nets.find((n) => n.name === probe.ref);
       if (refNet && refNet.points.length) {
-        const pt = refNet.points[0];
-        refX = pt.x - bx; refY = pt.y - by; hasRef = true;
+        refX = refNet.points[0].x;
+        refY = refNet.points[0].y;
+        hasRef = true;
       }
     }
     if (hasRef) {
       ctx.save();
-      ctx.rotate(-rot);
-      ctx.strokeStyle = col+"66";
-      ctx.setLineDash([4*iz,3*iz]);
-      ctx.lineWidth = 1 * iz;
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(refX, refY); ctx.stroke();
+      ctx.strokeStyle = col + "88";
+      ctx.setLineDash([4 * iz, 3 * iz]);
+      ctx.lineWidth = 1.1 * iz;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(refX, refY);
+      ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
     }
   }
 
-  // ---- probe body – kleines Fähnchen statt Neon-Badge (Ref-2-Stil, Runde 12) ----
-  ctx.save();
-  ctx.scale(iz, iz); // Screen-Pixel relativ zum Körper
-  ctx.strokeStyle = selected ? css("--wire-sel", "#c77a16") : col;
-  ctx.lineWidth = selected ? 1.6 : 1;
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
+  // ---- 3. Durchgehende Leader-Linie vom nächsten Rand des Kästchens zur Messspitze (ax, ay) ----
+  const attachX = Math.max(boxX0, Math.min(boxX0 + boxW, ax));
+  const attachY = Math.max(boxY0, Math.min(boxY0 + boxH, ay));
+  const distToAnchor = Math.hypot(ax - attachX, ay - attachY);
 
-  if (probe.kind === "current" || probe.kind === "power") {
-    // Richtungspfeil entlang der Leitung
-    const ang = dir ? Math.PI : 0;
+  if (distToAnchor > 2 * iz) {
+    const angle = Math.atan2(ay - attachY, ax - attachX);
+    ctx.save();
+    ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+    ctx.lineWidth = (selected ? 1.5 : 1.15) * iz;
+    if (!netName || probe.leader === "magnifier") {
+      ctx.setLineDash([3.5 * iz, 2.5 * iz]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(attachX, attachY);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Pfeilspitze am Messpunkt (ax, ay)
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(angle);
+    ctx.fillStyle = selected ? css("--wire-sel", "#d97706") : col;
+    const as = 5.5 * iz;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-as, -as * 0.52);
+    ctx.lineTo(-as, as * 0.52);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  // ---- 4. Messspitze / Kontaktpunkt auf der Leitung (ax, ay) + ggf. Strompfeil ----
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.scale(iz, iz);
+  // Kontaktpunkt auf der Leitung
+  ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+  ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.lineWidth = selected ? 1.8 : 1.4;
+  ctx.beginPath();
+  ctx.arc(0, 0, selected ? 4.2 : 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.beginPath();
+  ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Strom-/Leistungspfeil direkt am Messpunkt entlang der Leitung
+  if (probe.kind === "current" || probe.kind === "power" || probe.kind === "voltage_current") {
+    const ang = rot + (dir ? Math.PI : 0);
     ctx.save();
     ctx.rotate(ang);
-    ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(4, 0); ctx.stroke();
+    ctx.strokeStyle = col;
     ctx.fillStyle = col;
-    ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(3, -2.5); ctx.lineTo(3, 2.5); ctx.closePath(); ctx.fill();
-    ctx.restore();
-    if (probe.kind === "power") {
-      ctx.fillStyle = col;
-      ctx.font = `600 7px ui-monospace, monospace`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("W", 0, -9);
-    }
-  } else {
-    // Fähnchen am Draht (Ref-2-Pfad), dünne Kontur, 18 % Füllung
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(4, -6); ctx.lineTo(12, -6); ctx.lineTo(12, -14); ctx.lineTo(4, -14); ctx.lineTo(4, -6);
-    ctx.closePath();
-    ctx.fillStyle = col + "2E";
-    ctx.fill();
+    ctx.moveTo(-10, -7);
+    ctx.lineTo(7, -7);
     ctx.stroke();
-    const glyph: Record<string, string> = { voltage: "V", voltage_current: "V", diff: "Δ", ref: "R", digital: "D" };
-    ctx.fillStyle = col;
-    ctx.font = `600 6.5px ui-monospace, monospace`;
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(glyph[probe.kind] ?? "V", 8, -10);
+    ctx.beginPath();
+    ctx.moveTo(10, -7);
+    ctx.lineTo(5, -10);
+    ctx.lineTo(5, -4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // ---- 5. Permanentes Multisim-Anzeigekästchen bei (boxX0, boxY0) ----
+  ctx.save();
+  ctx.translate(boxX0, boxY0);
+  ctx.scale(iz, iz);
+
+  // Kästchen-Hintergrund & Rahmen
+  ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 5);
+  ctx.fill();
+
+  // Farbige Kopfzeile im Kästchen
+  ctx.save();
+  roundRect(ctx, 0, 0, boxScreenW, headerH, 5);
+  ctx.clip();
+  ctx.fillStyle = col + "24";
+  ctx.fillRect(0, 0, boxScreenW, headerH);
+  ctx.restore();
+
+  // Trennlinie unter dem Header
+  ctx.strokeStyle = col + "44";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, headerH);
+  ctx.lineTo(boxScreenW, headerH);
+  ctx.stroke();
+
+  // Außenrahmen (hervorgehoben bei Auswahl)
+  ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.lineWidth = selected ? 1.8 : 1.15;
+  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 5);
+  ctx.stroke();
+
+  // Typ-Badge + Header-Text
+  ctx.fillStyle = col;
+  roundRect(ctx, 4, 2.5, 14, 10, 2.5);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `700 7.5px ui-monospace, monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(glyph.slice(0, 2), 11, 7.8);
+
+  ctx.fillStyle = css("--text", "#e2e8f0");
+  ctx.font = `600 9px ui-monospace, monospace`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(headerText, 22, 8);
+
+  if (digCol) {
+    ctx.fillStyle = digCol;
+    ctx.beginPath();
+    ctx.arc(boxScreenW - 8, 7.5, 3.2, 0, Math.PI * 2);
+    ctx.fill();
   }
 
-  if (selected) {
-    ctx.strokeStyle = css("--accent", "#1f5fd0");
-    ctx.setLineDash([3, 2]);
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(4, -7, 12, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
-  }
-  ctx.restore(); // end constant screen body
+  // Messwert-Zeilen
+  ctx.font = `500 9.5px ui-monospace, monospace`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = !netName || !live ? css("--text-mute", "#94a3b8") : css("--text", "#e2e8f0");
+  valueLines.forEach((ln, idx) => {
+    ctx.fillText(ln, padX, headerH + 3 + idx * lineH);
+  });
 
-  ctx.rotate(-rot);
-
-  // ---- live values - permanent box like Multisim – constant screen size ----
-  if (live) {
-    const netName=probe.net ?? nearestNetName({x:ax,y:ay},24);
-    const st = useEditor.getState();
-    let refNetName: string | null = null;
-    if (probe.ref) {
-      if (probe.ref.startsWith("pr_")) {
-        const rp = st.doc.probes.find(p=>p.id===probe.ref);
-        refNetName = rp?.net ?? rp?.ref ?? null;
-      } else {
-        refNetName = probe.ref;
-      }
-    }
-
-    let v = netName ? (live.nets[netName] ?? 0) : 0;
-    let refV = refNetName ? (live.nets[refNetName] ?? 0) : 0;
-    let i = netName ? (netCurrentMap.get(netName) ?? 0) : 0;
-    if (dir) i = -i;
-
-    let lines: string[] = [];
-    const show = probe.show ?? { vdc: true };
-    const namePrefix = probe.name ? `${probe.name} ` : "";
-
-    let vrms=0, vpp=0, vavg=0, irms=0, ipp=0, freq=0;
-    if (probe.periodic && netName) {
-      try {
-        const ch = engine.channel(netName, 2048);
-        if (ch.v.length>8) {
-          vavg = mean(ch.v);
-          vrms = rms(ch.v);
-          vpp = peakToPeak(ch.v);
-          freq = estimateFrequency(ch.t, ch.v);
-          irms = Math.abs(i)*0.707;
-          ipp = Math.abs(i)*2;
-        }
-      } catch {}
-    }
-
-    if (probe.kind==="voltage") {
-      if (show.vdc) {
-        const dv = refNetName ? v - refV : v;
-        lines.push(`${namePrefix}${formatValue(dv,"V")}`);
-      }
-      if (probe.periodic) {
-        if (show.vrms) lines.push(`Vrms ${formatValue(vrms,"V")}`);
-        if (show.vpp) lines.push(`Vpp ${formatValue(vpp,"V")}`);
-        if (show.vavg) lines.push(`Vavg ${formatValue(vavg,"V")}`);
-        if (show.freq) lines.push(`${freq.toFixed(1)} Hz`);
-      }
-      if (refNetName && refNetName!=="0") lines.push(`ref ${refNetName}: ${formatValue(refV,"V")}`);
-    } else if (probe.kind==="current") {
-      if (show.idc) lines.push(`${namePrefix}${formatValue(i,"A")}`);
-      if (probe.periodic) {
-        if (show.irms) lines.push(`Irms ${formatValue(irms,"A")}`);
-        if (show.ipp) lines.push(`Ipp ${formatValue(ipp,"A")}`);
-      }
-    } else if (probe.kind==="voltage_current") {
-      const dv = refNetName ? v - refV : v;
-      lines.push(`${namePrefix}${formatValue(dv,"V")} · ${formatValue(i,"A")}`);
-      if (probe.periodic && show.vrms) lines.push(`Vrms ${formatValue(vrms,"V")} Irms ${formatValue(irms,"A")}`);
-    } else if (probe.kind==="power") {
-      const pwr = (refNetName ? (v - refV) : v) * i;
-      lines.push(`${namePrefix}${formatValue(pwr,"W")}`);
-      if (show.vdc) lines.push(`${formatValue(refNetName ? v - refV : v,"V")} · ${formatValue(i,"A")}`);
-    } else if (probe.kind==="diff") {
-      const dv = v - refV;
-      lines.push(`${namePrefix}Δ ${formatValue(dv,"V")}`);
-      if (probe.periodic) lines.push(`${formatValue(v,"V")} - ${formatValue(refV,"V")}`);
-    } else if (probe.kind==="ref") {
-      lines.push(`${namePrefix}REF ${formatValue(v,"V")}`);
-    } else if (probe.kind==="digital") {
-      const low = probe.thresholds?.low ?? 0.8;
-      const high = probe.thresholds?.high ?? 2.0;
-      const lvl = v > high ? "H" : v < low ? "L" : "X";
-      const colLvl = v > high ? css("--ok", "#2e7a4f") : v < low ? css("--err", "#b3372c") : css("--warn", "#a87a12");
-      lines.push(`${namePrefix}${lvl} ${formatValue(v,"V")}`);
-      // colored dot – constant screen
-      ctx.save();
-      ctx.scale(iz, iz);
-      ctx.fillStyle=colLvl; ctx.beginPath(); ctx.arc(16, -12, 4, 0, Math.PI*2); ctx.fill();
-      ctx.restore();
-    }
-
-    if (lines.length) {
-      // draw box in constant screen coords
-      ctx.save();
-      ctx.scale(iz, iz);
-      ctx.font=`500 9.5px ui-monospace, monospace`;
-      ctx.textAlign="left"; ctx.textBaseline="top";
-      const maxW = Math.max(...lines.map(l=> ctx.measureText(l).width));
-      const lineH = 12;
-      const padX = 6, padY=3;
-      const boxW = maxW + padX*2;
-      const boxH = lines.length*lineH + padY*2;
-      const bxOff = 16, byOff = -boxH/2;
-      ctx.fillStyle=css("--panel-solid","#1a1f2e");
-      roundRect(ctx,bxOff,byOff,boxW,boxH,5); ctx.fill();
-      ctx.strokeStyle=col+"55"; ctx.lineWidth=1; ctx.stroke();
-      ctx.fillStyle=css("--text","#e2e8f0");
-      lines.forEach((ln, idx)=> {
-        ctx.fillText(ln, bxOff+padX, byOff+padY+idx*lineH);
-      });
-      ctx.restore();
-    }
-  }
-
+  ctx.restore();
   ctx.restore();
 }
 

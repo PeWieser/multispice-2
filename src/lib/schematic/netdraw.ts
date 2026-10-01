@@ -65,7 +65,27 @@ export function normalizeDocGeometry(
       instances++;
     }
   }
-  const snap = snapWiresToPins(doc, pinTol);
+  if (Array.isArray(doc.labels)) {
+    for (const l of doc.labels) {
+      l.x = Math.round(l.x / grid) * grid;
+      l.y = Math.round(l.y / grid) * grid;
+    }
+  }
+  if (Array.isArray(doc.junctions)) {
+    for (const j of doc.junctions) {
+      j.x = Math.round(j.x / grid) * grid;
+      j.y = Math.round(j.y / grid) * grid;
+    }
+  }
+  if (Array.isArray(doc.probes)) {
+    for (const pr of doc.probes) {
+      pr.x = Math.round(pr.x / grid) * grid;
+      pr.y = Math.round(pr.y / grid) * grid;
+      if (typeof pr.anchorX === "number") pr.anchorX = Math.round(pr.anchorX / grid) * grid;
+      if (typeof pr.anchorY === "number") pr.anchorY = Math.round(pr.anchorY / grid) * grid;
+    }
+  }
+  const snap1 = snapWiresToPins(doc, pinTol);
   let wires = 0;
   for (const w of doc.wires) {
     const before = w.points;
@@ -76,7 +96,8 @@ export function normalizeDocGeometry(
     if (changed) wires++;
     w.points = after;
   }
-  return { instances, ends: snap.moved, wires };
+  const snap2 = snapWiresToPins(doc, pinTol);
+  return { instances, ends: snap1.moved + snap2.moved, wires };
 }
 
 /**

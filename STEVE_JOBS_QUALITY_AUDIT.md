@@ -2276,5 +2276,60 @@ Nutzer-Vorgaben aus der Rückfrage.
   - `npm test`: alle 7 Suiten grün (`importtest`, `simtest`, `check-pin-congruence`, `windowtest`, `wiretest` inkl. neuer W73–W81-Prüfungen, `ozsitest`, `presettest`)
   - `npx --no-install next build`: Produktions-Build erfolgreich
 
+---
+
+## §29 — Runde 28: Raster-Konsistenz, `orthoFollow` am Ausgang (`OUT`) & Multisim-Probes (W82–W87)
+
+### §29.1 — Ursachenanalyse & Plan (W82–W87)
+
+- **W82 · Leitung löst sich beim Verschieben des Widerstands an `OUT` (`orthoFollow` in `src/lib/schematic/ortho.ts`):**
+  - *Ursache 1:* Bei einer geraden 2-Punkt-Leitung (`pts.length === 2`, wie die Leitung `(460, 270) → (590, 270)` zwischen `U1.OUT` und `R3` in `astable555`) ergab `const inner = idx === 0 ? 1 : pts.length - 2` für `idx === 1` (das bewegte Ende an `R3`) den Wert **`inner = 0`**. Dadurch fügte `pts.splice(inner, 0, bend)` den Knickpunkt **vor Index 0** (also vor dem festen Pin `U1.OUT`) ein statt zwischen Index 0 und Index 1 (`pts.splice(1, 0, ...)`). Index 0 wanderte auf `(460, 280)` (abgerissen vom Ausgangs-Pin `(460, 270)`) und zwischen `(460, 270)` und `(590, 280)` entstand ein schräges Segment.
+  - *Ursache 2:* Wenn zwei horizontal/vertikal verbundene Pins gegeneinander verschoben werden, legte `pickBend` den einzelnen L-Knick direkt auf die Koordinate des festen Pins (`{ x: a.x, y: end.y }`), sodass die Leitung quer durch das Bauteilgehäuse (`U1`) lief; beim Zurückschieben auf gleiche Höhe blieben zudem kollineare Zwischenpunkte stehen.
+  - *Lösung:* In `orthoFollow` bleibt das nicht bewegte Ende (`fixedIdx`) unantastbar auf seiner Koordinate; bei `pts.length === 2` wird bei ausreichendem Achsenabstand (`>= 2 * GRID`) eine saubere orthogonale Z-Stufe in der Mitte (`midX`/`midY` auf `GRID = 10` gerundet) bzw. ein hindernisfreier L-Knick an Index `1` eingefügt, und abschließend bereinigt ` orthoFollow` kollineare/doppelte Zwischenpunkte in-place, sodass beim Zurückschieben wieder eine glatte 2-Punkt-Gerade entsteht.
+- **W83 · Bauteil- und Leitungs-Raster (`GRID = 10`) ohne „halbe Rasterfelder" (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache 1 (Bauteile nicht gleichauf):* Beim Ziehen von Bauteilen in `Canvas.tsx` (`sr.dragging`) suchte `_alignGuides` nach den **Grafik-Bounding-Box-Kanten** (`instanceBounds`: `b.x`, `b.y`, `b.x + b.w/2`, `b.y + b.h/2`). Da Schaltsymbole (Widerstand `h = 14 → y - 7`, LED `y - 22 .. y + 10 → Mitte y - 6`, NE555 `y - 48`) asymmetrische bzw. Nicht-10er-Kanten haben, verschob `dx += guideX - (selMinX + dx)` gezogene Bauteile **vom 10-px-Raster herunter** auf krumme Koordinaten (`...3`, `...5`, `...7`).
+  - *Ursache 2 (Leitungen um ein halbes Rasterfeld verschoben):* Durch die vom Raster gezogenen Bauteile landeten auch deren Pins und Leitungen auf halben Rasterfeldern (`...5`), und `wireSegDrag` addierte nur ein relatives `dy = Math.round((sp.y - sr.dragStart.y) / GRID) * GRID` auf `orig`, statt das gezogene Segment selbst auf die Rasterlinie `sp.y` (`...0`) einzurasten. Ebenso richteten `alignSelection` und `distributeSelection` nach Grafik-Bounding-Boxen ohne Raster-Snap aus.
+  - *Lösung:*
+    1. Beim Ziehen von Bauteilen (`sr.dragging`) rastet der Bauteil-Ursprung `(inst.x, inst.y)` immer exakt auf Vielfache von `GRID = 10` ein; `_alignGuides` vergleicht ausschließlich Raster-Ursprünge (`other.x`, `other.y`) und Pin-Positionen (`pinPosition`), niemals krumme Grafik-Bounding-Box-Ränder, und verbiegt `dx`/`dy` niemals auf Nicht-Vielfache von `GRID`.
+    2. Beim Ziehen eines Leitungssegments (`wireSegDrag`) rastet die neue Segmentposition direkt auf die Rasterlinie `sp.y` (horizontal) bzw. `sp.x` (vertikal) ein (`dy = sp.y - sa.y` bzw. `dx = sp.x - sa.x`, jeweils auf `GRID` gerundet).
+    3. `alignSelection` und `distributeSelection` in `editor.ts` richten Bauteil-Ursprünge streng auf Vielfachen von `GRID = 10` aus und führen angeschlossene Leitungen über `orthoFollow` sauber mit.
+- **W84 · Sichtbares Gitter (`showGrid`), `normalizeDocGeometry` & `PRESETS` (`Canvas.tsx`, `netdraw.ts`, `tools.ts`, `editor.ts`):**
+  - *Ursache:* `Canvas.tsx` schaltete das sichtbare Gitter bereits bei `view.zoom < 1.1` (also auch beim Standard-Zoom `1.0`!) auf `step = GRID * 5 = 50 px` um, während alle Snaps auf `GRID = 10 px` liefen. Zudem führte `normalizeDocGeometry` erst `snapWiresToPins` und danach `straightenWirePoints` aus und ließ `doc.labels` (z. B. `OUT` bei `(460, 268)` in `astable555`, `IN` bei `(200, 245)` in `noninv-opamp`) sowie `restoreLocalProject()` unnormalisiert.
+  - *Lösung:* Ab `view.zoom >= 0.45` zeichnet `Canvas.tsx` durchgängig das `GRID = 10`-Raster als feines Gitter und jede 5. Linie (`50 px`) als Hauptlinie (`--grid-strong`), sodass jedes sichtbare kleine Kästchen exakt 1 Bewegungsschritt (`10 px`) ist. `normalizeDocGeometry` rundet auch `doc.labels`, `doc.junctions` und `doc.probes` aufs Raster und rastet Leitungsenden abschließend noch einmal per `snapWiresToPins` ein; `restoreLocalProject()` normalisiert geladene Altstände automatisch.
+- **W85 · Multisim-Probes: Permanentes Anzeigefeld & einheitliche Darstellung (`drawProbe` in `Canvas.tsx`):**
+  - *Ursache:* Bisher zeigte `drawProbe` bei gestoppter Simulation (`live === null`) überhaupt keine Messwert-Box, sondern nur ein winziges schräges Fähnchen am Ende eines Strichs; bei laufender Simulation schwebte rechts neben dem Fähnchen zusätzlich eine unverbundene Box. Außerdem trug `addMeasurementProbe` das Netz gleichzeitig in das alte `st.probes`-Array ein, wodurch `Canvas.tsx` an `net.points[0]` einen zweiten lila Geisterkreis zeichnete.
+  - *Lösung:* Echte NI-Multisim-Darstellung:
+    1. Am Ankerpunkt `(anchorX, anchorY)` auf der Leitung sitzt der farbige Messkontakt mit Pfeilspitze (bzw. bei Strom-/Leistungssonde zusätzlich ein klarer Strom-Richtungspfeil entlang der Leitung).
+    2. Eine saubere Leader-Linie verbindet den Messpunkt `(anchorX, anchorY)` direkt mit dem **immer sichtbaren** Sonden-Anzeigekästchen bei `(probe.x, probe.y)` (Standard-Offset `(+30, -30)` exakt auf dem `GRID = 10`-Raster).
+    3. Das Anzeigekästchen zeigt oben/links den farbigen Sonden-Header (`V1`, `I1`, `P1` … + Netzname wie `OUT` oder `unverbunden`) und darunter die Messwerte (`V(dc)`, `V(rms)`, `V(p-p)`, `f`, `I`, `P` im Live-Betrieb bzw. `Bereit` vor Simulationsstart).
+    4. Keine doppelten lila Geisterkreise (`st.probes`) mehr für Netze, die bereits eine `MeasurementProbe` besitzen.
+- **W86 · Multisim-Probes: Live-Ghost beim Platzieren (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache:* Der Platzier-Ghost zeichnete die Probe ohne `anchorX/anchorY` direkt am Cursor, sprang beim Klick aber plötzlich um `(+32, -28)` weg; zudem überschrieb `Canvas.tsx` nach `addMeasurementProbe` das Netz noch einmal mit `nearestNetName(world)`.
+  - *Lösung:* Schon in der Platzier-Vorschau (`st.tool.startsWith("probe")`) rastet die Messspitze (`anchorX, anchorY`) per `resolveNearestNetPoint` live auf der nächsten Leitung oder dem nächsten Pin ein, zeigt den Leuchtring auf der Leitung und das Sonden-Kästchen im Rasterabstand `(+30, -30)` samt Live-Messwert – exakt deckungsgleich mit der platzierten Sonde.
+- **W87 · Multisim-Probes: Hit-Testing, freies Verschieben des Anzeigekästchens & Umstecken der Messspitze (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache:* `hitTestProbe` prüfte nur einen 16-px-Kreis um `(pr.x, pr.y)` und verfehlte das Anzeigekästchen; `moveSelection` verschob beim Ziehen einer ausgewählten Probe auch `anchorX/anchorY` mit (sodass die Messspitze von der Leitung abriss!), während beim Verschieben eines Bauteils `onMovedPin(pr)` fälschlich `(pr.x, pr.y)` statt `(pr.anchorX, pr.anchorY)` prüfte.
+  - *Lösung:*
+    1. `hitTestProbe` trifft das gesamte Anzeigekästchen der Probe in Welt-/Screen-Koordinaten, und `hitTestProbeAnchor` erkennt gezielt Klicks auf die Messspitze `(anchorX, anchorY)` (auch ohne vorherige Auswahl).
+    2. Zieht man das **Anzeigekästchen** einer Probe, wandert nur das Kästchen `(pr.x, pr.y)` auf dem `GRID = 10`-Raster, während die Messspitze `(anchorX, anchorY)` fest auf ihrer Leitung bleibt!
+    3. Zieht man die **Messspitze** `(anchorX, anchorY)` (`probeAnchorDrag`), rastet sie mit Magnet-Fang auf jedem Pin oder Leitungssegment ein und aktualisiert sofort `probe.net`.
+    4. Wird hingegen das **Bauteil oder die Leitung** verschoben, auf der `(anchorX, anchorY)` sitzt, wandert die gesamte Probe (`anchorX/Y` + `x/y`) automatisch mit.
+
+### §29.2 — Umsetzung Runde 28 (W82–W87, alles verifiziert)
+
+- **Geänderte Dateien:**
+  - `src/lib/schematic/ortho.ts`: W82 – `orthoFollow` fügt Knickpunkte bei 2-Punkt-Leitungen immer an Index `1` (statt Index `0`) ein, schützt das feste Leitungsende unverrückbar am Ziel-Pin, ignoriert in `segHitsBox` das Padding des eigenen Start-/End-Bauteils (außer beim Entlangschrammen an der Gehäusekante) und entfernt am Ende doppelte/kollineare Zwischenpunkte in-place (`cleanInPlace`).
+  - `src/lib/schematic/netdraw.ts`: W84 – `normalizeDocGeometry` rundet auch `doc.labels`, `doc.junctions` und `doc.probes` aufs `GRID = 10`-Raster und rastet nach `straightenWirePoints` alle Leitungsenden erneut per `snapWiresToPins` auf Bauteil-Pins ein.
+  - `src/lib/schematic/tools.ts`: W84 – Rohkoordinaten in `astable555` und `noninv-opamp` (`268`, `244`, `292`, `316`, `245`, `275`) direkt auf Vielfache von `GRID = 10` gesetzt.
+  - `src/state/editor.ts`: W83–W87 – `moveSelection` hält Probe-Messspitzen beim Verschieben des Anzeigekästchens fest auf ihrer Leitung und führt Probes mit, wenn die Leitung/das Bauteil unter der Messspitze bewegt wird; `alignSelection` und `distributeSelection` richten Bauteile streng auf dem `GRID = 10`-Raster aus; `addMeasurementProbe` legt Sonden im Rasterabstand `(+30, -30)` ab; `removeMeasurementProbe` und `deleteSelection` räumen auch `st.probes` auf; `restoreLocalProject` normalisiert geladene Altstände.
+  - `src/components/Canvas.tsx`: W83–W87 – Sichtgitter ab `zoom >= 0.45` immer im echten `GRID = 10`-Schritt (mit 50-px-Hauptlinien); kein krummer Grafik-Bounding-Box-Snap mehr beim Ziehen von Bauteilen; `wireSegDrag` rastet Segmente direkt auf die Rasterlinie `sp.y`/`sp.x` ein; `drawProbe`, `hitTestProbe`, `hitTestProbeAnchor` und Probe-Ghost im echten NI-Multisim-Stil (permanentes Anzeigekästchen mit Header + Messwerten auch vor Simulationsstart, durchgehende Leader-Linie vom Kästchenrand zur Messspitze, kein doppelter lila Geisterkreis).
+  - `scripts/wiretest.ts`: Automatisierte Regressionstests für `W82–W87`.
+- **Verifikation:**
+  - `./node_modules/.bin/tsc --noEmit`: 0 Fehler
+  - `npx --no-install eslint src scripts`: 0 Fehler / 0 Warnungen
+  - `npm test`: alle 7 Suiten grün
+  - `npx --no-install next build`: Produktions-Build erfolgreich
+
+
+
 
 
