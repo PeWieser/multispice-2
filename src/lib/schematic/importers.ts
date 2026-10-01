@@ -16,6 +16,7 @@
 
 import { PART_MAP } from "../library/catalog";
 import { emptyDoc, pinPosition, type Instance, type NetLabel, type SchematicDoc, type Wire } from "./model";
+import { normalizeDocGeometry } from "./netdraw";
 
 let seq = 0;
 const uid = (p: string) => `${p}_${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -164,6 +165,9 @@ export function fromSpiceNetlist(text: string): SchematicDoc {
       size: 9,
     });
   }
+  // W49/W62: importierte Leitungsenden auf die tatsächlichen Pins rasten und
+  // die Geometrie rechtwinklig/rasterkonform aufräumen.
+  normalizeDocGeometry(doc);
   return doc;
 }
 
@@ -308,5 +312,8 @@ export function fromLtspiceAsc(text: string): SchematicDoc {
       size: 9,
     });
   }
+  // W49/W62: LTspice zeichnet auf sein eigenes Raster – Enden rasten, Segmente
+  // werden rechtwinklig.
+  normalizeDocGeometry(doc);
   return doc;
 }

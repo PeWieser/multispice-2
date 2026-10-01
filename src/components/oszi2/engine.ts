@@ -208,6 +208,8 @@ export class Engine {
   pendingTT: number | null = null;
   pendingTriggered = true;
   lastAcqTime = -1;
+  /** W60: Im Stop vorgemerkte Einstellungsänderung (greift beim nächsten Run). */
+  pendingKeyChange = false;
   status: AcqStatus = 'run';
   forceTrig = false;
   acMean = [0, 0, 0, 0];
@@ -215,6 +217,18 @@ export class Engine {
   stats = new Map<string, StatEntry>();
   acqCount = 0;
 
+  /**
+   * Runde 24 (W60): wieder doku-konform (PORTIERUNG.md §10.1) – `env.probes`
+   * (Verdrahtung/Skalierung der Messleitungen) gehört in den Schlüssel, eine
+   * umgesteckte Leitung löst im Run eine neue Aufnahme aus (und verwirft die
+   * Mittelung).
+   *
+   * Ausnahme wie am echten Gerät: Steht das Bild (Stop, oder Single nach der
+   * Aufnahme), wird **nicht** neu gemessen – die Änderung wird gemerkt und
+   * greift beim nächsten Run. Runde 22 (W46) hatte `env.probes` deshalb ganz
+   * aus dem Schlüssel genommen; damit war die Doku-Absicht aber auch im Run
+   * verloren. Beides ist jetzt getrennt: Doku im Run, Standbild im Stop.
+   */
   settingsKey(s: Settings, env: Env): string {
     return JSON.stringify([s.ch, s.tdiv, s.hDelay, s.acq.mode, env.probes]);
   }
@@ -244,18 +258,30 @@ export class Engine {
     const key = this.settingsKey(s, env);
     const keyChanged = key !== this.key;
     this.key = key;
-    if (keyChanged) { this.avg = null; this.avgN = 0; }
+    const holding = s.run === 'stop';
+    // W60: Im Run/Single wirkt eine Änderung sofort (Mittelung verwerfen).
+    // Im Stop bleibt der Datensatz stehen und die Änderung wird vorgemerkt.
+    if (keyChanged && !holding) { this.avg = null; this.avgN = 0; }
+    if (keyChanged && holding) this.pendingKeyChange = true;
     const tdiv = s.tdiv;
     const postT = (HDIV / 2) * tdiv + s.hDelay;
 
     if (s.run === 'stop') {
       this.status = 'stop';
-      if (keyChanged && this.display) {
-        const a = acquire(this.lastTT, s.hDelay, tdiv, s, env, this.acMean, this.display.triggered);
-        this.display = a;
-        return { newAcq: true, singleDone: false };
-      }
+      // Runde 22 (W46) + Runde 24 (W60): Im Stop wird **nicht** neu gemessen.
+      // V/div & Position wirken nur als Darstellung auf den gespeicherten
+      // Datensatz (wie am echten Gerät); eine geänderte Einstellung oder eine
+      // umgesteckte Messleitung greift erst beim nächsten Run (pendingKeyChange
+      // wird unten beim Wiederanlauf eingelöst).
       return { newAcq: false, singleDone: false };
+    }
+
+    // W60: Wiederanlauf aus dem Stop – die vorgemerkte Änderung wird jetzt
+    // wirksam (frische Aufnahme, Mittelung beginnt neu).
+    if (this.pendingKeyChange) {
+      this.pendingKeyChange = false;
+      this.avg = null;
+      this.avgN = 0;
     }
 
     const roll = s.acq.roll && tdiv >= 0.1 && s.trig.mode === 'auto' && s.run === 'run' && !s.acq.xy;

@@ -5,35 +5,8 @@ import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor, useHud } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
-function hintFor(tool: string, placing: boolean, running: boolean): string {
-  if (placing) return "Klick platziert das Bauteil · Shift für Serie · Esc bricht ab";
-  if (tool.startsWith("probe")) {
-    const kind = tool.split("_")[1] || "probe";
-    return `Messpunkt ${kind} – Klick auf Leitung platzieren · Rechtsklick für Menü · Esc bricht ab`;
-  }
-  switch (tool) {
-    case "wire":
-      return "Klick setzt Punkte · Doppelklick beendet · Esc bricht ab";
-    case "label":
-      return "Klick auf eine Leitung setzt den Netznamen";
-    case "probe":
-      return "Klick auf ein Netz setzt eine Live-Sonde";
-    case "text":
-      return "Klick setzt eine Notiz";
-    case "erase":
-      return "Klick löscht Bauteil oder Leitung";
-    case "pan":
-      return "Ziehen verschiebt die Ansicht · Rad zoomt";
-    default:
-      if (running) return "Live: Schalter klicken · Poti mit Klick / Shift+Klick · Rechtsklick für Messpunkt";
-      return "Ziehen wählt aus · Rad zoomt · Leertaste startet Simulation · Rechtsklick Messpunkt · ⌘K Bibliothek";
-  }
-}
-
 export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) {
   const apple = useIsApple();
-  const tool = useEditor((s) => s.tool);
-  const placing = useEditor((s) => s.placingPartId);
   const running = useEditor((s) => s.sim.running);
   const selection = useEditor((s) => s.selection);
   const timeScale = useEditor((s) => s.sim.timeScale);
@@ -47,6 +20,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
   const lastSavedAt = useEditor((s) => s.lastSavedAt);
   const savePending = useEditor((s) => s.savePending);
   const tick = useEditor((s) => s.sim.tick);
+  const leadArmed = useEditor((s) => s.leadArmed);
   void tick;
   const simTime = running ? engine.lastState.time : 0;
 
@@ -57,7 +31,13 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
         style={{ background: "var(--panel-solid)", borderTop: "1px solid var(--border)" }}
       >
         <span className="mono">{Math.round(zoom * 100)} %</span>
-        <span className="flex-1 truncate text-[10px]">{hintFor(tool, !!placing, running)}</span>
+        {/* W72: Der Hinweistext ist der Dateileiste gewichen (SheetTabs).
+            Nur noch Hinweise, die vor einem Fehler warnen, bleiben stehen. */}
+        {leadArmed && (
+          <span className="min-w-0 flex-1 truncate text-[10px]" style={{ color: "var(--accent)" }}>
+            Messleitung {leadArmed.name ?? ""} in der Hand – Leitung oder Pin antippen (Esc legt sie zurück)
+          </span>
+        )}
         <span className="mono text-[10px]">{running ? formatValue(simTime, "s") : "bereit"}</span>
         <span title={savePending ? "Auto-Save schreibt in ≤ 2 s" : "Gespeichert (Auto-Save)"} style={{ color: savePending ? "var(--warn)" : lastSavedAt ? "var(--ok)" : "var(--text-mute)" }}>
           {savePending ? "●" : lastSavedAt ? "✓" : "○"}
@@ -73,10 +53,18 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
     >
       {selection.length > 0 && (
         <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "var(--accent-soft)", color: "var(--accent)", border: "1px solid var(--accent-mid)" }}>
-          {adaptShortcut(`${selection.length} ausgewählt • R drehen • Entf löschen • ⌘D duplizieren`, apple)}
+          {adaptShortcut(`${selection.length} ausgewählt`, apple)}
         </span>
       )}
-      <span className="min-w-0 flex-1 truncate">{adaptShortcut(hintFor(tool, !!placing, running), apple)}</span>
+      {/* W72: Die untere Leiste trug den langen Bedienhinweis („Tooltips") – der
+          ist der Dateileiste gewichen. Was bleibt, sind die Elemente rechts
+          (Prüfung, Zeitskalierung, Koordinaten, Zoom, Zeit, Auto-Save) und der
+          dringende Hinweis zur Messleitung. */}
+      <span className="min-w-0 flex-1 truncate" style={leadArmed ? { color: "var(--accent)" } : undefined}>
+        {leadArmed
+          ? adaptShortcut(`Messleitung ${leadArmed.name ?? ""} in der Hand – klicke im Schaltplan auf eine Leitung oder einen Pin · Esc legt sie zurück`, apple)
+          : ""}
+      </span>
 
       <button
         className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]"

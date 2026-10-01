@@ -36,6 +36,9 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
   const canUndo = useEditor((s) => s.past.length > 0);
   const canRedo = useEditor((s) => s.future.length > 0);
   const hasSelection = useEditor((s) => s.selection.length > 0);
+  // W55: Anordnen-Befehle brauchen Bauteile (nicht nur Leitungen) in der Auswahl.
+  const selInstances = useEditor((s) => s.selection.filter((id) => s.doc.instances.some((i) => i.id === id)).length);
+  const hasWireSelection = useEditor((s) => s.selection.some((id) => s.doc.wires.some((w) => w.id === id)));
   const hasClipboard = useEditor((s) => !!s.clipboard);
   const running = useEditor((s) => s.sim.running);
   const theme = useEditor((s) => s.theme);
@@ -133,6 +136,9 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
           <button className="btn w-full justify-start" disabled={!canRedo} onClick={() => st().redo()}>Wiederholen</button>
           <button className="btn w-full justify-start" disabled={!hasSelection} onClick={() => st().copySelection()}>Kopieren</button>
           <button className="btn w-full justify-start" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</button>
+          <button className="btn w-full justify-start" disabled={selInstances < 2} onClick={() => st().alignSelection("left")}>Ausrichten: links</button>
+          <button className="btn w-full justify-start" disabled={selInstances < 3} onClick={() => st().distributeSelection("h")}>Verteilen</button>
+          <button className="btn w-full justify-start" disabled={!hasWireSelection} onClick={() => st().straightenSelection()}>Leitungen begradigen</button>
         </div>
         <div className="space-y-1">
           <div className="text-[10px] uppercase tracking-wide text-mute px-2">Ansicht</div>
@@ -191,6 +197,15 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <MenuItem hint="⌘V" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</MenuItem>
         <MenuItem hint="⌘D" disabled={!hasSelection} onClick={() => st().duplicateSelection()}>Duplizieren</MenuItem>
         <MenuItem hint="⌘A" onClick={() => st().selectAll()}>Alles auswählen</MenuItem>
+        <MenuSeparator />
+        <div className="px-2 py-0.5 text-[10px] uppercase tracking-wide text-mute">Anordnen (W55)</div>
+        <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("left")}>Ausrichten: links</MenuItem>
+        <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("top")}>Ausrichten: oben</MenuItem>
+        <MenuItem disabled={selInstances < 2} disabledReason="Mindestens zwei Bauteile auswählen" onClick={() => st().alignSelection("centerH")}>Ausrichten: waagerecht mittig</MenuItem>
+        <MenuItem disabled={selInstances < 3} disabledReason="Mindestens drei Bauteile auswählen" onClick={() => st().distributeSelection("h")}>Verteilen: gleicher Abstand</MenuItem>
+        <MenuSeparator />
+        <MenuItem hint="⇧L" disabled={!hasWireSelection} disabledReason="Leitung(en) auswählen" onClick={() => st().straightenSelection()}>Leitungen begradigen</MenuItem>
+        <MenuItem onClick={() => st().repairWires()}>Leitungen prüfen &amp; reparieren</MenuItem>
         <MenuSeparator />
         <MenuItem hint="⌫" danger disabled={!hasSelection} onClick={() => st().deleteSelection()}>Löschen</MenuItem>
       </Menu>

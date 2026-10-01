@@ -8,6 +8,8 @@ import Canvas from "./Canvas";
 import MenuBar from "./MenuBar";
 import StatusBar from "./StatusBar";
 import ComponentStrip from "./ComponentStrip";
+import DrawingTools from "./DrawingTools";
+import SheetTabs from "./SheetTabs";
 import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
 import { engine, useEditor, ThemePref } from "@/state/editor";
@@ -100,19 +102,6 @@ function resolveTheme(pref: ThemePref, systemDark: boolean): "dark" | "light" {
   return pref;
 }
 
-/** Runde 11 (Ref-2): Blatt-Reiter – heute ein Blatt, Leiste ist vorbereitet. */
-function SheetTabs() {
-  const doc = useEditor((s) => s.doc);
-  return (
-    <div className="flex h-6 shrink-0 items-center gap-1 border-b px-2 text-[11.5px]" style={{ background: "var(--panel-solid)", borderColor: "var(--border)" }}>
-      <button className="rounded-[4px] px-2 py-[1px] font-semibold" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
-        {doc.name || "Schaltblatt 1"}
-      </button>
-      <span className="px-1 text-[10px]" style={{ color: "var(--text-mute)" }} title="Mehrere Schaltblätter: geplant">+</span>
-    </div>
-  );
-}
-
 function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: () => void }) {
   const simRunning = useEditor((s) => s.sim.running);
   const startSim = useEditor((s) => s.startSim);
@@ -154,7 +143,8 @@ function MobileBottomToolbar() {
 
   const tools = [
     { id: "select", label: "Auswahl", icon: "↖" },
-    { id: "wire", label: "Leitung", icon: "∿" },
+    { id: "wire", label: "Stift – Netz zeichnen (W)", icon: "✎" },
+    { id: "junction", label: "Knotenpunkt setzen/entfernen", icon: "◉" },
     { id: "probe_voltage", label: "Spannungs-Probe", icon: "V" },
     { id: "probe_current", label: "Strom-Probe", icon: "A" },
     { id: "erase", label: "Löschen", icon: "⌫" },
@@ -342,6 +332,7 @@ export default function Workbench() {
           )}
         </div>
         <MobileBottomToolbar />
+        <SheetTabs />
         <StatusBar isMobile />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
@@ -358,8 +349,7 @@ export default function Workbench() {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
           <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
-        <ComponentStrip />
-        <SheetTabs />
+        <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -371,6 +361,7 @@ export default function Workbench() {
             <BottomPanel />
           </div>
         </div>
+        <SheetTabs />
         <StatusBar />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
@@ -386,8 +377,7 @@ export default function Workbench() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
-      <ComponentStrip />
-      <SheetTabs />
+      <ComponentStrip tools={<DrawingTools />} />
       <div className="relative flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -399,6 +389,8 @@ export default function Workbench() {
           <BottomPanel />
         </div>
       </div>
+      {/* W72: Dateileiste unten – Reiter der geöffneten Blätter, + legt eines an. */}
+      <SheetTabs />
       <StatusBar />
       {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}

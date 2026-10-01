@@ -8,7 +8,6 @@ import type { Acq } from './engine';
 import { H, W, SLOT_H, GY, drawBoot, drawGraticule, drawOverlay, drawWaves, MAIN, OVERVIEW, ZOOMR, searchMarks, srcData, srcName, srcScale } from './render';
 import { MENU_TITLES, applyKnob, buildMenu, cursorSels, defaultKnob } from './menus';
 import type { MenuItem } from './menus';
-import { sourceLabel } from './signals';
 import { click } from './sound';
 import { engine as simEngine, useEditor } from '@/state/editor';
 
@@ -627,14 +626,23 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
                         {/* probe plug */}
                         <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
                           <div className="h-[40px] w-[40px] rounded-full" style={{ background: 'radial-gradient(circle at 40% 35%, #555, #151515 70%)', boxShadow: `0 0 0 3px ${CH_COLORS[k]}, 0 4px 8px rgba(0,0,0,.6)` }} />
+                          {/* W45: Dämpfungs-Etikett sitzt auf dem Stecker (Aufdruck des Tastkopf-Körpers) */}
+                          <span
+                            className="absolute left-1/2 top-full mt-[-2px] -translate-x-1/2 rounded-sm px-[3px] text-[7px] font-bold leading-[9px] text-white"
+                            style={{ background: CH_COLORS[k] }}
+                          >
+                            {p.atten}X
+                          </span>
                         </div>
                         <div className="absolute left-1/2 top-[40px] z-0 -translate-x-1/2" style={{ width: 12, height: 110, background: 'linear-gradient(90deg,#111,#3a3a3a 45%,#111)', borderRadius: 6 }} />
                       </>
                     )}
                   </div>
-                  <div className="mt-1 text-[8px] text-[#555]">
-                    {held ? 'in der Hand' : sourceLabel(p.target)} · {p.atten}X
-                  </div>
+                  {/* W45: Aufdruck der Frontplatte ist fest – hier steht immer CH1…CH4.
+                      Die Dämpfung (1X/10X) sitzt wie am echten Tastkopf auf dem Stecker,
+                      das gemessene Netz nur im Tooltip. Vorher stand hier der Netname
+                      („N001 · 10X"), also änderte sich der Aufdruck mit der Verdrahtung. */}
+                  <div className="mt-1 text-[8px] text-[#555]">CH{k + 1}</div>
                   {held && <div className="absolute -top-4 text-[9px] font-bold" style={{ color: '#1e3f8f' }}>in der Hand</div>}
                 </div>
               );

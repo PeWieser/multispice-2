@@ -7,7 +7,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/importtest.ts && tsx scripts/simtest.ts && tsx scripts/check-pin-congruence.ts"
+    "test": "tsx scripts/importtest.ts && tsx scripts/simtest.ts && tsx scripts/check-pin-congruence.ts && tsx scripts/windowtest.ts && tsx scripts/wiretest.ts && tsx scripts/ozsitest.ts && tsx scripts/presettest.ts"
   },
   "dependencies": {
     "lucide-react": "^1.48.0",

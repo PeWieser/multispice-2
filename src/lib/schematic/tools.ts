@@ -1,6 +1,7 @@
 /** Smart orthogonal auto-routing (A*) and ready-to-run example circuits. */
 
 import { GRID, Instance, SchematicDoc, emptyDoc, instanceBounds } from "./model";
+import { normalizeDocGeometry } from "./netdraw";
 
 export interface Rect {
   x: number;
@@ -14,15 +15,80 @@ export interface Pt {
   y: number;
 }
 
+/** Aufeinanderfolgende Doppelpunkte und Zwischenpunkte in gerader Linie entfernen. */
+function cleanRoute(pts: Pt[]): Pt[] {
+  const out: Pt[] = [];
+  for (const p of pts) {
+    const last = out[out.length - 1];
+    if (!last || Math.abs(last.x - p.x) > 0.01 || Math.abs(last.y - p.y) > 0.01) out.push({ x: p.x, y: p.y });
+  }
+  for (let i = out.length - 2; i >= 1; i--) {
+    const a = out[i - 1];
+    const b = out[i];
+    const c = out[i + 1];
+    if ((a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y)) out.splice(i, 1);
+  }
+  return out.length >= 2 ? out : pts;
+}
+
+/** Punkt-in-Rechteck-Test für die kurze Reststrecke bis zum Pin. */
+function segHits(a: Pt, b: Pt, boxes: Rect[]): boolean {
+  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+  const steps = Math.max(2, Math.ceil(dist / 4));
+  for (let i = 0; i <= steps; i++) {
+    const x = a.x + ((b.x - a.x) * i) / steps;
+    const y = a.y + ((b.y - a.y) * i) / steps;
+    for (const r of boxes) if (x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h) return true;
+  }
+  return false;
+}
+
+/**
+ * W50: Die letzten Paar Pixel bis zum Pin exakt anschließen. Das A*-Gitter
+ * liegt auf dem Startpunkt (Offset-Gitter), das Ende kann also bis zu eine
+ * halbe Rasterweite daneben liegen – hier wird die kurze Reststrecke in der
+ * Richtung fortgeführt, aus der die Leitung kommt.
+ */
+function attachExactEnd(path: Pt[], end: Pt, obstacles: Rect[]): Pt[] {
+  const last = path[path.length - 1];
+  if (Math.abs(last.x - end.x) < 0.01 && Math.abs(last.y - end.y) < 0.01) return path;
+  const prev = path[path.length - 2] ?? last;
+  const cameHorizontal = Math.abs(prev.x - last.x) >= Math.abs(prev.y - last.y);
+  const first = cameHorizontal ? { x: end.x, y: last.y } : { x: last.x, y: end.y };
+  const other = cameHorizontal ? { x: last.x, y: end.y } : { x: end.x, y: last.y };
+  const legs = (bend: Pt) => [segHits(last, bend, obstacles), segHits(bend, end, obstacles)];
+  const [h1a, h1b] = legs(first);
+  const [h2a, h2b] = legs(other);
+  const hit1 = h1a || h1b;
+  const hit2 = h2a || h2b;
+  const bend = hit1 && !hit2 ? other : first;
+  const tail: Pt[] = [];
+  const same = (a: Pt, b: Pt) => Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+  if (!same(bend, last) && !same(bend, end)) tail.push(bend);
+  if (!same(last, end)) tail.push({ x: end.x, y: end.y });
+  return cleanRoute([...path, ...tail]);
+}
+
 /**
  * Orthogonal A* pathfinding on the schematic grid with bend penalties and
  * component obstacle avoidance. Falls back to an L-shaped route.
+ *
+ * W50: Das Gitter wird vom Startpunkt aufgespannt (nicht absolut) und das Ende
+ * wird exakt angeschlossen – Leitungen beginnen und enden dadurch punktgenau
+ * am Pin, auch wenn der Pin nicht auf dem 10-px-Raster liegt.
  */
 export function routeOrthogonal(start: Pt, end: Pt, obstacles: Rect[], grid = GRID): Pt[] {
-  const snap = (v: number) => Math.round(v / grid) * grid;
-  const s = { x: snap(start.x), y: snap(start.y) };
-  const e = { x: snap(end.x), y: snap(end.y) };
-  if (s.x === e.x && s.y === e.y) return [s, e];
+  // Gitterpunkt in Startrichtung wählen (nicht der nächstgelegene): sonst schießt
+  // die Leitung am Ende ein Stück über den Pin hinaus und kommt zurück.
+  const toward = (v: number, from: number) => {
+    if (Math.abs(v - from) < 0.01) return from;
+    const lo = from + Math.floor((v - from) / grid) * grid;
+    const hi = from + Math.ceil((v - from) / grid) * grid;
+    return v > from ? lo : hi;
+  };
+  const s = { x: start.x, y: start.y };
+  const e = { x: toward(end.x, start.x), y: toward(end.y, start.y) };
+  if (s.x === e.x && s.y === e.y) return attachExactEnd([s], end, obstacles);
 
   const pad = grid;
   const minX = Math.min(s.x, e.x) - 12 * grid;
@@ -71,17 +137,7 @@ export function routeOrthogonal(start: Pt, end: Pt, obstacles: Rect[], grid = GR
         pts.unshift({ x: n.x, y: n.y });
         n = n.parent;
       }
-      // simplify collinear points
-      const out: Pt[] = [pts[0]];
-      for (let i = 1; i < pts.length - 1; i++) {
-        const a = out[out.length - 1];
-        const b = pts[i];
-        const c = pts[i + 1];
-        if ((a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y)) continue;
-        out.push(b);
-      }
-      out.push(pts[pts.length - 1]);
-      return out;
+      return attachExactEnd(cleanRoute(pts), end, obstacles);
     }
     for (let d = 0; d < 4; d++) {
       const nx = cur.x + dirs[d][0] * grid;
@@ -97,7 +153,7 @@ export function routeOrthogonal(start: Pt, end: Pt, obstacles: Rect[], grid = GR
     }
   }
   // fallback: L shape
-  return [s, { x: e.x, y: s.y }, e];
+  return attachExactEnd(cleanRoute([s, { x: e.x, y: s.y }, e]), end, obstacles);
 }
 
 export function obstaclesFor(doc: SchematicDoc, ignoreIds: string[] = []): Rect[] {
@@ -126,7 +182,7 @@ export interface Preset {
   build: () => SchematicDoc;
 }
 
-export const PRESETS: Preset[] = [
+const PRESET_DEFS: Preset[] = [
   {
     id: "rc-lowpass",
     name: "RC-Tiefpass",
@@ -195,7 +251,9 @@ export const PRESETS: Preset[] = [
       doc.instances.push(vcc, u, r1, r2, c1, r3, led, g1, g2, g3, g4);
       doc.wires.push(
         wire(140, 270, 140, 120),
-        wire(140, 120, 700, 120),
+        // W51: Die VCC-Schiene endete bei x=700 im Nichts (kein Pin, keine Leitung)
+        // – neue Prüfung meldet das, jetzt sauber bis zum letzten Abzweig geführt.
+        wire(140, 120, 500, 120),
         wire(140, 330, 140, 406),
         wire(300, 140, 300, 120),
         wire(300, 200, 300, 260),
@@ -400,3 +458,22 @@ export const PRESETS: Preset[] = [
 export function presetById(id: string): Preset | undefined {
   return PRESETS.find((p) => p.id === id);
 }
+
+/**
+ * W49: Beispiele werden beim Laden an die echten Pin-Positionen gerastet –
+ * die handgeschriebenen Koordinaten lagen teils 2–9 px neben dem Pin, dadurch
+ * waren ganze Beispielnetze elektrisch getrennt (astable555: 8 von 17 Netzen,
+ * logic-counter: 6 Netze ohne Pin).
+ */
+export const PRESETS: Preset[] = PRESET_DEFS.map((p) => ({
+  ...p,
+  build: () => {
+    const doc = p.build();
+    // W62: Beispiele kommen sauber auf die Leinwand – Bauteile aufs Raster,
+    // Leitungsenden exakt auf die Pins, keine schrägen Segmente. Vorher waren
+    // einzelne Bauteile „leicht verschoben", dadurch liefen Leitungen schräg
+    // und Pins hingen am Anfang in der Luft.
+    normalizeDocGeometry(doc);
+    return doc;
+  },
+}));

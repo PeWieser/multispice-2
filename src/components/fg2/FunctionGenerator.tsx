@@ -7,6 +7,7 @@ import { Bnc } from './Bnc';
 import { Lcd } from './Lcd';
 import { PowerIcon, WaveIcon } from './Icons';
 import { uiClick, uiTick, type KeyKind } from './audio';
+import { CablePlug } from './CablePlug';
 import './fg-panel.css';
 
 /* W18: Frontpanel des SimTech FG-2500 (1:1 aus function generator/).
@@ -21,6 +22,10 @@ const WAVE_TITLES: Record<WaveId, string> = {
   sine: 'Sinus', square: 'Rechteck', ramp: 'Dreieck / Rampe', pulse: 'Puls', noise: 'Rauschen', arb: 'Arbiträr',
 };
 
+/** W47: Mindestabstand zweier Rastgeräusche (ms) – schnelles Drehen klingt
+ *  dadurch wie ein sauberes Ratscheln statt wie überlagerte Klicks. */
+const SOUND_GAP = 28;
+
 const KIND_OF: Partial<Record<Action['type'], KeyKind>> = {
   digit: 'num', sign: 'num', fkey: 'soft', wave: 'wave', power: 'power',
   output: 'toggle', chSel: 'toggle', knobPress: 'toggle', arrow: 'arrow', both: 'toggle', mod: 'toggle',
@@ -32,13 +37,32 @@ const seedOf = (a: Action): number =>
   : a.type === 'output' ? a.ch + 3
   : 1;
 
-export function FunctionGenerator({ core }: { core: GeneratorCore }) {
+/** Runde 19 (W36): die beiden Ausgangsbuchsen – Klick nimmt das Kabel auf,
+ *  danach legt ein Klick im Schaltplan die Messleitung (wie am Oszi). */
+export interface JackState {
+  held: 'out1' | 'out2' | null;
+  nets: { out1: string; out2: string };
+  onPick: (jack: 'out1' | 'out2') => void;
+}
+
+export function FunctionGenerator({
+  core,
+  jacks,
+  autoScale = true,
+}: {
+  core: GeneratorCore;
+  jacks?: JackState;
+  /** false = das Gerät wird von außen (DeviceFit) skaliert und bleibt 1:1. */
+  autoScale?: boolean;
+}) {
   const state = useSyncExternalStore(core.subscribe, core.getState);
   const wrapRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   // W18: Einschalt-Splash – 1 beim ersten Bild, +1 pro Netzschalter.
   const [bootTick, setBootTick] = useState(1);
+  // W47: Zeitstempel des letzten Rastgeräuschs (Batchung beim schnellen Drehen).
+  const lastTickAt = useRef(0);
 
   /** Geräusche an/aus (Utility → Beep) */
   const soundOn = () => core.getState().sys.beep;
@@ -52,14 +76,17 @@ export function FunctionGenerator({ core }: { core: GeneratorCore }) {
   }, [core]);
 
   // Panel skaliert nur herunter (1:1-Regel wie am Oszi), nie weich hoch.
+  // Runde 19 (W35): Im Gerätefenster übernimmt das DeviceFit (Breite UND Höhe);
+  // dann bleibt das Panel unverändert 1:1 und die Messung stimmt.
   useEffect(() => {
+    if (!autoScale) return;
     const el = wrapRef.current!;
     const fit = () => setScale(Math.min(1, el.clientWidth / STAGE_W));
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     fit();
     return () => ro.disconnect();
-  }, []);
+  }, [autoScale]);
 
   // Tastatur: Ziffern, Punkt, Minus, Backspace, Pfeile, Enter, F1–F5.
   // Capture-Phase + stopImmediatePropagation: die App-Shortcuts (Canvas) dürfen
@@ -164,12 +191,20 @@ export function FunctionGenerator({ core }: { core: GeneratorCore }) {
             })}
 
             {/* Knopf + Pfeiltasten */}
+            {/* W47: Rastgeräusche gebündelt – beim schnellen Drehen schlugen vorher
+                bis zu 6 uiTick() gleichzeitig an (Phasing, „klingt komisch"), und
+                jeder Mausrad-Schritt löste ein eigenes React-Update aus (Ruckeln).
+                Jetzt: max. 1 Rastgeräusch pro SOUND_GAP, Drehung gebündelt pro Frame. */}
             <Knob
               x={913}
               y={116}
               size={104}
               onTurn={(steps) => {
-                if (soundOn()) for (let i = 0; i < Math.min(Math.abs(steps), 6); i++) uiTick();
+                const now = performance.now();
+                if (soundOn() && steps !== 0 && now - lastTickAt.current >= SOUND_GAP) {
+                  lastTickAt.current = now;
+                  uiTick();
+                }
                 press({ type: 'knob', steps });
               }}
               onPress={() => press({ type: 'knobPress' })}
@@ -199,8 +234,56 @@ export function FunctionGenerator({ core }: { core: GeneratorCore }) {
                 <div className="fg-label" style={{ left: 143, top: 62, fontSize: 12 }}>50 Ω</div>
                 <div style={{ position: 'absolute', left: 90, top: 60, width: 148, height: 40, borderTop: '1px solid #fff', borderLeft: '1px solid #fff', borderRight: '1px solid #fff', opacity: 0.0 }} />
                 <div className="fg-label" style={{ left: 134, top: 118, fontSize: 10 }}>▽ 42Vpk max</div>
-                <Bnc x={75} y={100} live={power && state.ch[0].output} title="OUT1 (CH1) – Verdrahtung im Schaltplan" jackId="out1" />
-                <Bnc x={251} y={100} live={power && state.ch[1].output} title="OUT2 (CH2) – Verdrahtung im Schaltplan" jackId="out2" />
+                {(['out1', 'out2'] as const).map((jack, i) => {
+                  const held = jacks?.held === jack;
+                  const net = jacks?.nets[jack] ?? '';
+                  // W48: Nur echte Verbindungen zeigen einen Stecker. „0" ist die
+                  // Masse (COM) – dort hängt kein Stecker am Ausgang, das wäre im
+                  // Schaltplan eine direkte Masserverdrahtung.
+                  const plugged = !held && net !== '' && net !== '0';
+                  const title = held
+                    ? `${jack.toUpperCase()}: Kabel in der Hand – Klick im Schaltplan auf eine Leitung oder einen Pin legt die Messleitung, Klick auf die Buchse steckt sie zurück`
+                    : net
+                      ? `${jack.toUpperCase()}: verbunden mit Netz „${net}“ – Klick nimmt das Kabel auf (Umstecken ersetzt die Leitung)`
+                      : `${jack.toUpperCase()}: offen – Klick nimmt das Kabel auf, danach im Schaltplan eine Leitung oder einen Pin anklicken`;
+                  return (
+                    <div key={jack}>
+                      <Bnc
+                        x={i === 0 ? 75 : 251}
+                        y={100}
+                        live={power && state.ch[i].output}
+                        title={title}
+                        jackId={jack}
+                        held={held}
+                        onClick={jacks ? () => jacks.onPick(jack) : undefined}
+                      />
+                      {/* W48: Der Aufdruck der Frontplatte bleibt fest – hier stand
+                          vorher das gemessene Netz („→ N001"). Verbindungen zeigt der
+                          Stecker, der Netname steht nur im Tooltip (Nutzerregel R22:
+                          nur der Bildschirminhalt darf sich ändern, nicht der Aufdruck).
+                          „in der Hand" ist dagegen Bedien-Rückmeldung wie das
+                          aufleuchtende Lämpchen am Steckplatz. */}
+                      {held && (
+                        <div
+                          className="fg-label"
+                          style={{ left: i === 0 ? 22 : 198, top: 149, width: 106, textAlign: 'center', fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}
+                        >
+                          in der Hand
+                        </div>
+                      )}
+                      {/* W48: gesteckte Messleitung sichtbar machen (nur Anzeige) */}
+                      {plugged && (
+                        <CablePlug
+                          x={i === 0 ? 75 : 251}
+                          y={100}
+                          size={78}
+                          tint={i === 0 ? '#d24450' : '#3a86d8'}
+                          idPrefix={`fg-plug-${jack}`}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

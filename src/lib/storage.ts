@@ -8,7 +8,7 @@
  * still Daten zu verlieren.
  */
 
-import { SchematicDoc } from "./schematic/model";
+import { SchematicDoc, Junction, pointOnSegment } from "./schematic/model";
 
 const PROJECT_KEY = "multispice.project.v1";
 const LIBRARY_KEY = "multispice.library.v1";
@@ -39,12 +39,55 @@ function isDoc(value: unknown): value is SchematicDoc {
     Array.isArray(doc.wires) &&
     Array.isArray(doc.labels) &&
     Array.isArray(doc.notes) &&
-    (doc.probes === undefined || Array.isArray(doc.probes))
+    (doc.probes === undefined || Array.isArray(doc.probes)) &&
+    ((doc as Record<string, unknown>).junctions === undefined ||
+      Array.isArray((doc as Record<string, unknown>).junctions))
   );
 }
 
+/**
+ * Runde 24 (W61): Altbestand übernehmen, ohne Verbindungen zu verlieren.
+ *
+ * Vorher galt: ein Leitungs-*Stützpunkt* (Knick oder Ende), der auf einer
+ * fremden Leitung liegt, war leitend – ohne dass man das im Bild sehen konnte.
+ * Dafür wird beim Laden genau an diesen Stellen ein Verbindungspunkt
+ * nachgetragen, damit sich gespeicherte Schaltungen nicht ändern: sie sehen
+ * jetzt wie in Multisim aus (Punkt an jeder Verbindung). Eine reine Kreuzung
+ * mitten auf zwei Leitungen war auch vorher nicht leitend und bekommt deshalb
+ * auch keinen Punkt.
+ */
 function migrateDoc(doc: SchematicDoc): SchematicDoc {
   if (!Array.isArray((doc as any).probes)) (doc as any).probes = [];
+  if (!Array.isArray(doc.junctions)) {
+    const existing: Junction[] = [];
+    // Segmente je Leitung, damit „fremde" Leitung erkannt werden kann.
+    const byWire: Array<{ id: string; segs: Array<[number, number, number, number]> }> = [];
+    for (const w of doc.wires ?? []) {
+      const segs: Array<[number, number, number, number]> = [];
+      for (let i = 0; i + 1 < w.points.length; i++) {
+        const a = w.points[i];
+        const b = w.points[i + 1];
+        if (Math.hypot(b.x - a.x, b.y - a.y) > 0.01) segs.push([a.x, a.y, b.x, b.y]);
+      }
+      byWire.push({ id: w.id, segs });
+    }
+    for (const w of byWire) {
+      for (const p of doc.wires.find((x) => x.id === w.id)?.points ?? []) {
+        let foreign = false;
+        for (const other of byWire) {
+          if (other.id === w.id) continue;
+          for (const [ax, ay, bx, by] of other.segs) {
+            if (pointOnSegment(p.x, p.y, ax, ay, bx, by)) { foreign = true; break; }
+          }
+          if (foreign) break;
+        }
+        if (!foreign) continue;
+        if (existing.some((j) => Math.hypot(j.x - p.x, j.y - p.y) < 0.5)) continue;
+        existing.push({ id: "jnc_" + Math.random().toString(36).slice(2, 9), x: p.x, y: p.y });
+      }
+    }
+    doc.junctions = existing;
+  }
   // Migrate each probe to new professional format
   for (const pr of (doc as any).probes as any[]) {
     if (pr.direction === undefined) pr.direction = 0;

@@ -6,17 +6,41 @@ interface BncProps {
   title?: string;
   /** Kennung für das Patchfeld (Kabel-Ebene misst darüber die Position) */
   jackId?: string;
+  /** Runde 19 (W36): Kabel an dieser Buchse aufgenommen (Multispice). */
+  held?: boolean;
+  /** Runde 19 (W36): Klick nimmt das Kabel auf / steckt es zurück. */
+  onClick?: () => void;
 }
 
 /** BNC-Buchse (SVG), Mittelpunkt bei (x, y) */
-export function Bnc({ x, y, size = 78, live = false, title, jackId }: BncProps) {
+export function Bnc({ x, y, size = 78, live = false, title, jackId, held = false, onClick }: BncProps) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 100 100"
       data-jack={jackId}
-      style={{ position: 'absolute', left: x - size / 2, top: y - size / 2, overflow: 'visible' }}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      style={{
+        position: 'absolute',
+        left: x - size / 2,
+        top: y - size / 2,
+        overflow: 'visible',
+        cursor: onClick ? 'pointer' : undefined,
+        filter: held ? 'drop-shadow(0 0 6px rgba(255,238,150,.95))' : undefined,
+      }}
     >
       <title>{title}</title>
       <defs>
@@ -49,6 +73,7 @@ export function Bnc({ x, y, size = 78, live = false, title, jackId }: BncProps) 
       <circle cx="50" cy="50" r="7" fill="url(#bnc-pin)" stroke="#5a3d08" strokeWidth="1" />
       <circle cx="48" cy="48" r="2" fill="rgba(255,255,255,.75)" />
       {live && <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(120,255,160,.55)" strokeWidth="2" />}
+      {held && <circle cx="50" cy="50" r="48" fill="none" stroke="rgba(255,238,150,.95)" strokeWidth="3" strokeDasharray="6 5" />}
     </svg>
   );
 }

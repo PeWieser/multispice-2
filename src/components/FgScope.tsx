@@ -1,17 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GeneratorCore, type StorageLike } from "@/lib/fg/core";
 import type { GenState } from "@/lib/fg/types";
 import { useEditor, type InstrumentWindow } from "@/state/editor";
-import FunctionGenerator from "./fg2/FunctionGenerator";
+import { click } from "./oszi2/sound";
+import { uiPlug, uiUnplug } from "./fg2/audio";
+import { DeviceFit, useReportNatural } from "./DeviceFit";
+import { BENCH_PAD } from "@/lib/windows/geometry";
+import { LeadBanner } from "./LeadBanner";
+import FunctionGenerator, { type JackState } from "./fg2/FunctionGenerator";
 
 /* W18: Multispice-Adapter für den FG-2500 (aufgebaut wie OsziScope).
  * - GeneratorCore pro Fenster (Speicherplätze M1–M4 im localStorage)
  * - GenState wird debounced nach params.fgstate gespiegelt (Projekt-Persistenz
  *   + Signal für die Simulation via toDevices → SourceKind "fg")
- * - Fenster-Auto-Size am Gerät (1160×545 + Chrome); das Panel skaliert nur
- *   herunter (1:1-Regel wie am Oszi) */
+ * - Fenster-Auto-Size am Gerät (Bühne 1160×545 + Chrome); das Panel skaliert nur
+ *   herunter (1:1-Regel wie am Oszi)
+ * - Runde 19 (W35/W36): Fenster misst sich über DeviceFit exakt am Gerät, und die
+ *   Ausgangsbuchsen OUT1/OUT2 nehmen per Klick eine Messleitung auf – genau wie
+ *   die Kanäle am Oszi (Kabel in der Hand → Klick auf Leitung/Pin im Schaltplan). */
+
+/** Runde 20 (W38): Bühnenmaße des FG-2500 als Startwert für den Fenster-Fit. */
+const FG_STAGE_SIZE = { w: 1160, h: 545 };
+
+/** Pin-Indizes des FG-Symbols: OUT1, OUT2, COM, SYNC (catalog.ts). */
+const JACK_PIN: Record<"out1" | "out2", number> = { out1: 0, out2: 1 };
+const JACK_COLOR: Record<"out1" | "out2", string> = { out1: "#e35b64", out2: "#4b90da" };
 
 function parseFgState(raw: unknown): GenState | null {
   if (typeof raw !== "string" || !raw) return null;
@@ -45,6 +60,66 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
     return c;
   });
 
+  // ---- Runde 19/20 (W35/W38/W40): Fenster klebt beim Öffnen exakt am Gerät ----
+  const reportNatural = useReportNatural();
+
+  // ---- Runde 19 (W36): Messleitung an OUT1/OUT2 (wie Oszi CH1–CH4) ----
+  const instId = win.instanceId;
+  const netResult = useEditor((s) => s.netResult);
+  const lead = useEditor((s) => s.leadArmed);
+  const jackNets = useMemo(() => {
+    const netOf = (pin: number) => {
+      if (!instId) return "";
+      const n = netResult.pinNets[`${instId}:${pin}`] ?? "";
+      return n === `${instId}_nc${pin}` ? "" : n;
+    };
+    return { out1: netOf(JACK_PIN.out1), out2: netOf(JACK_PIN.out2) };
+  }, [instId, netResult.pinNets]);
+  const heldJack: "out1" | "out2" | null =
+    lead && lead.instanceId === instId && (lead.pinIndex === 0 || lead.pinIndex === 1)
+      ? lead.pinIndex === 0
+        ? "out1"
+        : "out2"
+      : null;
+
+  const jackNetsRef = useRef(jackNets);
+  useEffect(() => {
+    jackNetsRef.current = jackNets;
+  }, [jackNets]);
+
+  const onPickJack = useCallback(
+    (jack: "out1" | "out2") => {
+      const st = useEditor.getState();
+      if (!win.instanceId) return;
+      const cur = st.leadArmed;
+      const beep = core.getState().sys.beep;
+      const plugged = (jackNetsRef.current[jack] ?? "") !== "";
+      if (cur && cur.instanceId === win.instanceId && cur.pinIndex === JACK_PIN[jack]) {
+        st.setLeadArmed(null); // Kabel zurück auf die Buchse
+        if (beep) click("plug");
+        return;
+      }
+      // W48: Original-Steckgeräusche des FG-2500 – abziehen (Buchse belegt)
+      // bzw. aufstecken (Buchse frei).
+      if (beep) {
+        if (plugged) uiUnplug();
+        else uiPlug();
+      }
+      st.setLeadArmed({
+        instanceId: win.instanceId,
+        pinIndex: JACK_PIN[jack],
+        name: jack.toUpperCase(),
+        color: JACK_COLOR[jack],
+      });
+    },
+    [core, win.instanceId],
+  );
+
+  const jacks: JackState = useMemo(
+    () => ({ held: heldJack, nets: jackNets, onPick: onPickJack }),
+    [heldJack, jackNets, onPickJack],
+  );
+
   // ---- Persistenz: GenState → params.fgstate (debounced, undo-fähig) ----
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -67,28 +142,28 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
     };
   }, [core, win.instanceId]);
 
-  // ---- Auto-Size (W32b-Muster): Fenster klebt beim Öffnen am Gerät ----
-  useEffect(() => {
-    const st = useEditor.getState();
-    const w = st.instruments.find((x) => x.id === win.id);
-    if (!w || win.minimized) return;
-    if (w.config.fgSized) return;
-    const availW = typeof window !== "undefined" ? window.innerWidth : 1600;
-    const availH = typeof window !== "undefined" ? window.innerHeight : 1000;
-    st.updateInstrument(win.id, {
-      w: Math.min(1160 + 30, availW - 40),
-      h: Math.min(545 + 48, availH - 110),
-      config: { ...w.config, fgSized: true },
-    });
-  }, [win.id, win.minimized]);
-
   return (
     <div
-      className="flex h-full w-full items-start justify-center overflow-auto"
+      className="relative flex h-full w-full flex-col overflow-hidden"
+      // Runde 21 (W44): eigener Labor-Untergrund wie vor Runde 20 – sichtbar nur
+      // dort, wo neben dem heruntergerechneten Gerät Platz bleibt (die FG-Bühne
+      // hat konstruktiv ~30 px Gummischutz-Rand).
       style={{ background: "linear-gradient(180deg, #3a3f46 0%, #24282d 60%, #181b1f 100%)" }}
     >
-      <div style={{ width: "100%", maxWidth: 1160 }}>
-        <FunctionGenerator core={core} />
+      {heldJack && (
+        <LeadBanner
+          color={JACK_COLOR[heldJack]}
+          title={`Kabel an ${heldJack.toUpperCase()} in der Hand –`}
+          hint="klicke im Schaltplan auf eine Leitung oder einen Pin (die Messleitung wird hingelegt) oder zurück auf die Buchse."
+          onCancel={() => useEditor.getState().setLeadArmed(null)}
+        />
+      )}
+      <div className="flex min-h-0 flex-1 flex-col" style={{ padding: BENCH_PAD }}>
+        <DeviceFit natural={FG_STAGE_SIZE} onMeasure={reportNatural}>
+          <div data-no-drag>
+            <FunctionGenerator core={core} jacks={jacks} autoScale={false} />
+          </div>
+        </DeviceFit>
       </div>
     </div>
   );

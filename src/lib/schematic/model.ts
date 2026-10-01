@@ -40,6 +40,20 @@ export interface NetLabel {
   name: string;
 }
 
+/**
+ * Runde 24 (W61): Verbindungspunkt (Multisim-Verhalten).
+ * Zwei Leitungen, die sich nur kreuzen, sind elektrisch NICHT verbunden; eine
+ * Verbindung entsteht nur an echten Anschlussstellen (Leitungsende auf einer
+ * Leitung, Pin, Netzlabel) oder an einem ausdrücklich gesetzten
+ * Verbindungspunkt. Genau so verhält sich Multisim, und genau das ist der
+ * Unterschied zwischen „sieht aus wie verbunden" und „ist verbunden".
+ */
+export interface Junction {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export interface TextNote {
   id: string;
   x: number;
@@ -98,10 +112,12 @@ export interface SchematicDoc {
   labels: NetLabel[];
   notes: TextNote[];
   probes: MeasurementProbe[];
+  /** W61: ausdrücklich gesetzte Verbindungspunkte (Kreuzungen verbinden). */
+  junctions?: Junction[];
 }
 
 export function emptyDoc(name = "Neue Schaltung"): SchematicDoc {
-  return { id: "sch_" + Math.random().toString(36).slice(2, 9), name, instances: [], wires: [], labels: [], notes: [], probes: [] };
+  return { id: "sch_" + Math.random().toString(36).slice(2, 9), name, instances: [], wires: [], labels: [], notes: [], probes: [], junctions: [] };
 }
 
 /* ----------------------------- geometry ----------------------------- */
@@ -126,6 +142,166 @@ export function pinPosition(inst: Instance, pinIndex: number): { x: number; y: n
   if (!pin) return { x: inst.x, y: inst.y };
   const r = rotatePoint(pin.x, pin.y, inst.rot, inst.mirror);
   return { x: inst.x + r.x, y: inst.y + r.y };
+}
+
+/* --------------------- Leitungshygiene (Runde 23) --------------------- */
+
+type WPt = { x: number; y: number };
+const samePt = (a: WPt, b: WPt) => Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+
+/** Punkte entdoppeln und Zwischenpunkte in gerader Linie entfernen. */
+export function cleanWirePoints(pts: WPt[]): WPt[] {
+  const out: WPt[] = [];
+  for (const p of pts) if (!out.length || !samePt(out[out.length - 1], p)) out.push({ x: p.x, y: p.y });
+  for (let i = out.length - 2; i >= 1; i--) {
+    const a = out[i - 1];
+    const b = out[i];
+    const c = out[i + 1];
+    if ((a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y)) out.splice(i, 1);
+  }
+  return out;
+}
+
+/**
+ * W49: Ein Leitungsende exakt auf einen Zielpunkt (Pin) setzen und die
+ * Verbindung dabei orthogonal halten – vorhandener Nachbarpunkt wird
+ * mitgezogen, sonst wird ein Knick eingefügt.
+ */
+export function attachWireEnd(pts: WPt[], idx: number, target: WPt): void {
+  if (pts.length < 2) return;
+  pts[idx] = { x: target.x, y: target.y };
+  const inner = idx === 0 ? 1 : pts.length - 2;
+  const a = pts[inner];
+  if (a.x === target.x || a.y === target.y) return; // schon achsenparallel
+  if (pts.length === 2) {
+    // Knick zwischen beide Punkte (Position 1, egal welches Ende bewegt wurde)
+    pts.splice(1, 0, Math.abs(a.x - target.x) <= Math.abs(a.y - target.y) ? { x: target.x, y: a.y } : { x: a.x, y: target.y });
+    return;
+  }
+  const other = idx === 0 ? pts[2] : pts[pts.length - 3];
+  const moveX = { x: target.x, y: a.y };
+  const moveY = { x: a.x, y: target.y };
+  const okX = other ? moveX.x === other.x || moveX.y === other.y : false;
+  const okY = other ? moveY.x === other.x || moveY.y === other.y : false;
+  if (okX && !okY) { pts[inner] = moveX; return; }
+  if (okY && !okX) { pts[inner] = moveY; return; }
+  if (okX && okY) {
+    pts[inner] = Math.abs(target.x - a.x) <= Math.abs(target.y - a.y) ? moveX : moveY;
+    return;
+  }
+  // Nachbar kann nicht mitwandern → Knick direkt am bewegten Ende einfügen
+  pts.splice(idx === 0 ? 1 : pts.length - 1, 0, Math.abs(a.x - target.x) <= Math.abs(a.y - target.y) ? { x: target.x, y: a.y } : { x: a.x, y: target.y });
+}
+
+/**
+ * W55: Leitung begradigen – Stützpunkte aufs Raster, diagonale Segmente in
+ * rechte Winkel auflösen, Zwischenpunkte entfernen. Anschließend rastet
+ * `snapWiresToPins` die Enden wieder auf die Pins.
+ */
+/**
+ * W55/W70: Leitung begradigen – Stützpunkte aufs Raster und rechte Winkel.
+ *
+ * W70: Ein zusätzlich gesetzter Eckpunkt („aus einer geraden Leitung eine mit
+ * Ecke machen") verschwindet beim Begradigen wieder, wenn es die Geometrie
+ * zulässt: liegen Anfang und Ende auf einer Achse, wird die Leitung **eine
+ * Gerade**; sonst bleibt genau **ein** Knick. Vorher blieb jeder Stützpunkt als
+ * Zacke stehen.
+ */
+export function straightenWirePoints(pts: WPt[], grid = GRID, keepPoint?: (p: WPt) => boolean): WPt[] {
+  const snap = (v: number) => Math.round(v / grid) * grid;
+  let out = cleanProtected(pts.map((p) => ({ x: snap(p.x), y: snap(p.y) })), keepPoint);
+  if (out.length < 2) return out;
+  // Bei mehr als zwei Punkten reduzieren: gleiche Achse → eine Gerade, sonst ein
+  // einziger Knick (längere Achse zuerst). Punkte, an denen eine andere Leitung,
+  // ein Pin oder ein Verbindungspunkt hängt, bleiben erhalten (`keepPoint`) –
+  // sonst würde das Begradigen einen T-Kontakt unterbrechen.
+  if (out.length > 2) {
+    const a = out[0];
+    const b = out[out.length - 1];
+    const inner = out.slice(1, -1).filter((p) => keepPoint?.(p));
+    if (!inner.length) {
+      if (a.x === b.x || a.y === b.y) out = [{ ...a }, { ...b }];
+      else {
+        const bend = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y) ? { x: b.x, y: a.y } : { x: a.x, y: b.y };
+        out = [{ ...a }, bend, { ...b }];
+      }
+    } else {
+      out = cleanProtected([{ ...a }, ...inner, { ...b }], keepPoint);
+    }
+  }
+  for (let i = 0; i + 1 < out.length; i++) {
+    const a = out[i];
+    const b = out[i + 1];
+    if (a.x === b.x || a.y === b.y) continue;
+    const prev = out[i - 1];
+    const bend = prev && prev.x === a.x ? { x: b.x, y: a.y } : { x: a.x, y: b.y };
+    out.splice(i + 1, 0, bend);
+    out = cleanProtected(out, keepPoint);
+  }
+  return out;
+}
+
+/** W70: wie `cleanWirePoints`, aber geschützte Punkte (T-Kontakte) bleiben. */
+function cleanProtected(pts: WPt[], keepPoint?: (p: WPt) => boolean): WPt[] {
+  if (!keepPoint) return cleanWirePoints(pts);
+  const out: WPt[] = [];
+  for (const p of pts) if (!out.length || !samePt(out[out.length - 1], p)) out.push({ x: p.x, y: p.y });
+  for (let i = out.length - 2; i >= 1; i--) {
+    const a = out[i - 1];
+    const b = out[i];
+    const c = out[i + 1];
+    const collinear = (a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y);
+    if (collinear && !keepPoint(b)) out.splice(i, 1);
+  }
+  return out;
+}
+
+export interface SnapReport {
+  /** Anzahl der Enden, die auf einen Pin gerastet wurden. */
+  moved: number;
+  /** Leitungen, die dadurch geometrisch verändert wurden. */
+  wires: number;
+}
+
+/**
+ * W49: Alle Leitungsenden, die ≤ tol neben einem Pin liegen, exakt auf den
+ * Pin setzen (Importe und Beispiele kamen mit gerundeten Koordinaten an und
+ * waren dadurch elektrisch getrennt). Danach bleiben nur echte offene Enden.
+ */
+export function snapWiresToPins(doc: SchematicDoc, tol = 15): SnapReport {
+  const pinPts: Array<{ x: number; y: number }> = [];
+  for (const inst of doc.instances) {
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    for (let i = 0; i < part.pins.length; i++) pinPts.push(pinPosition(inst, i));
+  }
+  const nearestPin = (p: WPt) => {
+    let best: WPt | null = null;
+    let bestD = tol;
+    for (const q of pinPts) {
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d < bestD) { bestD = d; best = q; }
+    }
+    return best;
+  };
+  const onPin = (p: WPt) => pinPts.some((q) => Math.abs(q.x - p.x) < 0.01 && Math.abs(q.y - p.y) < 0.01);
+
+  let moved = 0;
+  const changedWires = new Set<string>();
+  for (const w of doc.wires) {
+    if (w.points.length < 2) continue;
+    for (const idx of [0, w.points.length - 1]) {
+      const end = w.points[idx];
+      if (onPin(end)) continue;
+      const pin = nearestPin(end);
+      if (!pin) continue;
+      attachWireEnd(w.points, idx, pin);
+      moved++;
+      changedWires.add(w.id);
+    }
+    if (changedWires.has(w.id)) w.points = cleanWirePoints(w.points);
+  }
+  return { moved, wires: changedWires.size };
 }
 
 export function instanceBounds(inst: Instance): { x: number; y: number; w: number; h: number } {
@@ -179,7 +355,7 @@ class UnionFind {
 
 const key = (x: number, y: number) => `${Math.round(x)},${Math.round(y)}`;
 
-function pointOnSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): boolean {
+export function pointOnSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): boolean {
   if (ax === bx && ay === by) return px === ax && py === ay;
   const cross = (px - ax) * (by - ay) - (py - ay) * (bx - ax);
   if (Math.abs(cross) > 1) return false;
@@ -204,6 +380,10 @@ export interface NetlistBuildResult {
   pointNets: Record<string, string>;
   errors: string[];
   warnings: string[];
+  /** W51: Leitungsenden ohne Anschluss (Pin, Label, anderes Ende, Segment). */
+  openEnds: Array<{ x: number; y: number }>;
+  /** W53: Punkte, an denen ≥ 3 Anschlüsse zusammenkommen (Verbindungspunkte). */
+  junctions: Array<{ x: number; y: number }>;
 }
 
 export function buildNets(doc: SchematicDoc): NetlistBuildResult {
@@ -213,11 +393,13 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
 
   // wire segments
   const segments: Array<[number, number, number, number]> = [];
+  const segOwner: string[] = [];
   for (const w of doc.wires) {
     for (let i = 0; i + 1 < w.points.length; i++) {
       const a = w.points[i];
       const b = w.points[i + 1];
       segments.push([a.x, a.y, b.x, b.y]);
+      segOwner.push(w.id);
       uf.union(key(a.x, a.y), key(b.x, b.y));
     }
   }
@@ -261,10 +443,22 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     });
   }
 
-  const allPoints = new Set<string>();
-  for (const s of segments) {
-    allPoints.add(key(s[0], s[1]));
-    allPoints.add(key(s[2], s[3]));
+  /* W61: Multisim-Regel – nur echte Anschlussstellen verbinden.
+   * Kandidaten sind Leitungsenden, Pins, Netzlabels und gesetzte
+   * Verbindungspunkte. Ein Knick mitten in einer Leitung ist KEINE
+   * Anschlussstelle: kreuzen sich zwei Leitungen dort, bleiben die Netze
+   * getrennt (im Bild auch kein Punkt), bis der Nutzer einen Verbindungspunkt
+   * setzt. Vorher zählte jeder Leitungs-Stützpunkt, dadurch waren Kreuzungen an
+   * Knicks unbemerkt leitend. */
+  const docJunctions = doc.junctions ?? [];
+  const junctionKeys = new Set(docJunctions.map((j) => key(j.x, j.y)));
+  const allPoints = new Set<string>(junctionKeys);
+  for (const w of doc.wires) {
+    if (w.points.length < 2) continue;
+    const a = w.points[0];
+    const b = w.points[w.points.length - 1];
+    allPoints.add(key(a.x, a.y));
+    allPoints.add(key(b.x, b.y));
   }
   for (const p of pinPoints) allPoints.add(key(p.x, p.y));
   for (const l of doc.labels) allPoints.add(key(l.x, l.y));
@@ -409,7 +603,138 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   if (!devices.length) warnings.push("Keine simulierbaren Bauteile platziert.");
   if (!doc.instances.some((i) => i.partId === "gnd")) warnings.push("Kein Massebezug (GND) im Schaltplan — Simulation kann singulär werden.");
 
-  return { netlist: { devices, title: doc.name }, nets, pinNets, pointNets, errors, warnings };
+  /* ---------------- W51 · Leitungs-Hygiene / W53 · Verbindungspunkte ----------------
+   * Rein informativ: die Netzbildung oben bleibt unverändert. Gemeldet wird nur,
+   * was optisch nicht auffällt, aber elektrisch entscheidet. */
+  const MAX_WIRE_WARNINGS = 12;
+  const wireWarn: string[] = [];
+  let hiddenWireWarnings = 0;
+  const warnWire = (msg: string) => {
+    if (wireWarn.length < MAX_WIRE_WARNINGS) wireWarn.push(msg);
+    else hiddenWireWarnings++;
+  };
+
+  // alle Pin-Punkte (auch Fault-Bauteile) – ein Ende darauf ist angeschlossen
+  const pinKeys = new Set<string>();
+  for (const inst of doc.instances) {
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    for (let i = 0; i < part.pins.length; i++) {
+      const pos = pinPosition(inst, i);
+      pinKeys.add(key(pos.x, pos.y));
+    }
+  }
+  const labelKeys = new Set(doc.labels.map((l) => key(l.x, l.y)));
+
+  const endCount = new Map<string, number>();
+  const wireEnds: Array<{ x: number; y: number }> = [];
+  for (const w of doc.wires) {
+    if (w.points.length < 2) continue;
+    for (const p of [w.points[0], w.points[w.points.length - 1]]) {
+      wireEnds.push({ x: p.x, y: p.y });
+      endCount.set(key(p.x, p.y), (endCount.get(key(p.x, p.y)) ?? 0) + 1);
+    }
+  }
+
+  const openEnds: Array<{ x: number; y: number }> = [];
+  for (const w of doc.wires) {
+    if (w.points.length < 2) {
+      warnWire(`Leitung ohne Länge (kein Punkt) – löschen oder verlegen`);
+      continue;
+    }
+    const allSame = w.points.every((p) => Math.abs(p.x - w.points[0].x) < 0.01 && Math.abs(p.y - w.points[0].y) < 0.01);
+    if (allSame) {
+      warnWire(`Leitung ohne Länge bei (${Math.round(w.points[0].x)}, ${Math.round(w.points[0].y)}) – doppelter Stützpunkt`);
+      continue;
+    }
+    for (const idx of [0, w.points.length - 1]) {
+      const p = w.points[idx];
+      const k = key(p.x, p.y);
+      if (pinKeys.has(k) || labelKeys.has(k)) continue;
+      if ((endCount.get(k) ?? 0) > 1) continue; // anderes Leitungsende liegt hier
+      let onForeignSegment = false;
+      for (let si = 0; si < segments.length; si++) {
+        if (segOwner[si] === w.id) continue;
+        const [ax, ay, bx, by] = segments[si];
+        if (pointOnSegment(p.x, p.y, ax, ay, bx, by)) { onForeignSegment = true; break; }
+      }
+      if (onForeignSegment) continue;
+      openEnds.push({ x: p.x, y: p.y });
+      warnWire(`Leitungsende ohne Anschluss bei (${Math.round(p.x)}, ${Math.round(p.y)}) – hängt in der Luft`);
+    }
+  }
+
+  // doppelt verlegte Leitungen (gleiche Geometrie, auch rückwärts)
+  const geomSeen = new Map<string, number>();
+  for (const w of doc.wires) {
+    if (w.points.length < 2) continue;
+    const fwd = w.points.map((p) => key(p.x, p.y)).join(">");
+    const rev = [...w.points].reverse().map((p) => key(p.x, p.y)).join(">");
+    const geom = fwd < rev ? fwd : rev;
+    const n = geomSeen.get(geom) ?? 0;
+    geomSeen.set(geom, n + 1);
+    if (n === 1) {
+      const a = w.points[0];
+      const b = w.points[w.points.length - 1];
+      warnWire(`Leitung doppelt vorhanden: (${Math.round(a.x)}, ${Math.round(a.y)}) → (${Math.round(b.x)}, ${Math.round(b.y)}) – eine davon löschen`);
+    }
+  }
+
+  // W56: Bauteile, die praktisch deckungsgleich übereinander liegen, sieht man
+  // im Plan nicht – hier einmal pro Paar melden.
+  const instBoxes = doc.instances.map((i) => ({ i, b: instanceBounds(i) }));
+  let overlapWarned = 0;
+  for (let a = 0; a < instBoxes.length && overlapWarned < 4; a++) {
+    for (let b = a + 1; b < instBoxes.length && overlapWarned < 4; b++) {
+      const x = instBoxes[a].b;
+      const y = instBoxes[b].b;
+      const ox = Math.min(x.x + x.w, y.x + y.w) - Math.max(x.x, y.x);
+      const oy = Math.min(x.y + x.h, y.y + y.h) - Math.max(x.y, y.y);
+      if (ox <= 0 || oy <= 0) continue;
+      const smaller = Math.min(x.w * x.h, y.w * y.h) || 1;
+      // Schwelle 90 %: angrenzende Symbole (Masse an der Quelle) sind normal,
+      // wirklich deckungsgleiche Bauteile sind unsichtbar und damit gefährlich.
+      if ((ox * oy) / smaller >= 0.9) {
+        warnWire(`${instBoxes[a].i.label} und ${instBoxes[b].i.label} überlagern sich fast vollständig – eines verschieben`);
+        overlapWarned++;
+      }
+    }
+  }
+
+  if (hiddenWireWarnings > 0) wireWarn.push(`… und ${hiddenWireWarnings} weitere Leitungs-Warnungen`);
+  warnings.push(...wireWarn);
+
+  // Verbindungspunkte: automatische T-Kontakte (≥ 3 Anschlüsse) plus alle
+  // ausdrücklich gesetzten Punkte.
+  const autoCandidates = new Set<string>([...pinKeys, ...labelKeys, ...wireEnds.map((p) => key(p.x, p.y))]);
+  const junctions: Array<{ x: number; y: number }> = [];
+  const junctionDegree = (c: string) => {
+    const [jx, jy] = c.split(",").map(Number);
+    let degree = (endCount.get(c) ?? 0) + (pinKeys.has(c) ? 1 : 0) + (labelKeys.has(c) ? 1 : 0);
+    for (let si = 0; si < segments.length; si++) {
+      const [ax, ay, bx, by] = segments[si];
+      if (Math.abs(ax - bx) < 0.01 && Math.abs(ay - by) < 0.01) continue;
+      // Endpunkte sind schon über endCount/Pins gezählt
+      if (jx === ax && jy === ay) continue;
+      if (jx === bx && jy === by) continue;
+      if (pointOnSegment(jx, jy, ax, ay, bx, by)) degree += 2;
+    }
+    return degree;
+  };
+  for (const c of autoCandidates) {
+    if (junctionDegree(c) >= 3) {
+      const [jx, jy] = c.split(",").map(Number);
+      junctions.push({ x: jx, y: jy });
+    }
+  }
+  for (const j of docJunctions) {
+    const k = key(j.x, j.y);
+    // Ein gesetzter Punkt ohne Leitung verbindet nichts – sagen statt schweigen.
+    if (junctionDegree(k) < 2) warnWire(`Verbindungspunkt ohne Leitung bei (${Math.round(j.x)}, ${Math.round(j.y)}) – sitzt auf keiner Leitung`);
+    if (!junctions.some((q) => Math.abs(q.x - j.x) < 0.01 && Math.abs(q.y - j.y) < 0.01)) junctions.push({ x: j.x, y: j.y });
+  }
+
+  return { netlist: { devices, title: doc.name }, nets, pinNets, pointNets, errors, warnings, openEnds, junctions };
 }
 
 /* ----------------------------- SPICE I/O ----------------------------- */

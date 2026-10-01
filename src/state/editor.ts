@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { PART_MAP, PartDef, defaultParams } from "@/lib/library/catalog";
 import { SymbolStylePref } from "@/lib/settings";
 import {
+  GRID,
   Instance,
   NetLabel,
   NetlistBuildResult,
@@ -11,17 +12,23 @@ import {
   SchematicDoc,
   TextNote,
   Wire,
+  attachWireEnd,
   buildNets,
+  cleanWirePoints,
   emptyDoc,
   instanceBounds,
   pinPosition,
+  pointOnSegment,
+  straightenWirePoints,
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
+import { contactKeep, normalizeDocGeometry } from "@/lib/schematic/netdraw";
 import { orthoFollow } from "@/lib/schematic/ortho";
 import { RealtimeEngine } from "@/lib/sim/realtime";
 import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
 import { loadLibraryLocal, loadProjectLocal, saveLibraryLocal, saveProjectLocal } from "@/lib/storage";
 import { IntegrationMethod } from "@/lib/sim/engine";
+import { BENCH_PAD } from "@/lib/windows/geometry";
 import { DEFAULT_MCU_SKETCH } from "@/lib/sim/digital";
 
 /* Auto-Save: 2 s nach der letzten Schaltplan-Änderung in den localStorage.
@@ -43,7 +50,7 @@ function scheduleAutosave() {
 
 export const engine = new RealtimeEngine();
 
-export type Tool = "select" | "wire" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
+export type Tool = "select" | "wire" | "junction" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
 
 export type InstrumentKind =
   | "dmm"
@@ -78,10 +85,16 @@ export interface InstrumentWindow {
   config: Record<string, unknown>;
 }
 
-/** Runde 17 (W32c): eine herausgenommene Messleitung (BNC-Klick). */
-export interface ProbeArm {
+/** Runde 17 (W32c): eine herausgenommene Messleitung (BNC-Klick).
+ *  Runde 19 (W36): generisch für alle Geräte – das Oszi nimmt damit einen
+ *  Tastkopf auf (CH1–CH4), der FG-2500 ein Kabel (OUT1/OUT2). */
+export interface ArmedLead {
   instanceId: string;
   pinIndex: number;
+  /** Anzeigename des Anschlusses („CH3“, „OUT1“) – Banner + Log. */
+  name?: string;
+  /** Farbe des Anschlusses (Oszi-Kanalfarbe; FG = Buchsenfarbe). */
+  color?: string;
 }
 
 export interface LogEntry {
@@ -107,6 +120,8 @@ export interface ClipboardData {
   labels: NetLabel[];
   notes: TextNote[];
   probes: import("@/lib/schematic/model").MeasurementProbe[];
+  /** W61: Verbindungspunkte mitkopieren, damit Kreuzungsverbindungen erhalten bleiben. */
+  junctions?: import("@/lib/schematic/model").Junction[];
 }
 
 export type ThemePref = "system" | "dark" | "light";
@@ -188,11 +203,23 @@ export interface EditorState {
   setParam: (instanceId: string, key: string, value: number | string | boolean) => void;
   setInstanceText: (instanceId: string, text: string) => void;
   addWire: (w: Wire) => void;
+  /** W54: ein Segment einer Leitung senkrecht verschieben (Basis = Ursprungsform). */
+  setWireSegmentOffset: (wireId: string, segIdx: number, orig: Array<{ x: number; y: number }>, dx: number, dy: number) => void;
+  /** W55: ausgewählte Bauteile ausrichten (links/rechts/oben/unten/mitte). */
+  alignSelection: (mode: "left" | "right" | "top" | "bottom" | "centerH" | "centerV") => void;
+  /** W55: ausgewählte Bauteile mit gleichem Abstand verteilen. */
+  distributeSelection: (axis: "h" | "v") => void;
+  /** W55: ausgewählte Leitungen begradigen (Raster, rechte Winkel, Pins). */
+  straightenSelection: () => void;
+  /** W55: alle Leitungen prüfen und reparieren (Importe, alte Pläne). */
+  repairWires: () => void;
+  /** W61: Verbindungspunkt setzen/entfernen (Multisim-Kreuzung). */
+  toggleJunction: (x: number, y: number) => void;
   /** W32c: Messleitung an Leitung/Pin legen – ersetzt die Leitung des Kanals. */
   connectProbeWire: (instanceId: string, pinIndex: number, target: { x: number; y: number }) => void;
   /** W32c: Welcher Kanal hält gerade eine Messleitung in der Hand? */
-  probeArmed: ProbeArm | null;
-  setProbeArmed: (a: ProbeArm | null) => void;
+  leadArmed: ArmedLead | null;
+  setLeadArmed: (a: ArmedLead | null) => void;
   /** W32a/Sicherheitsnetz: Geräte-Konfiguration überlebt Schließen/Wiederöffnen. */
   configArchive: Record<string, Record<string, unknown>>;
   addMeasurementProbe: (kind: import("@/lib/schematic/model").ProbeKind, x: number, y: number) => string | null;
@@ -236,6 +263,10 @@ export interface EditorState {
   bumpTick: (fps: number) => void;
   loadPreset: (id: string) => void;
   newDocument: () => void;
+  /** W72: Blatt aus der Dateileiste öffnen. */
+  openSheet: (id: string) => void;
+  /** W72: Blattname in der Dateileiste nachführen (Umbenennen im Inspector). */
+  renameSheet: (id: string, name: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
   saveProject: (name?: string) => void;
@@ -247,6 +278,31 @@ export interface EditorState {
 let logId = 1;
 const now = () => new Date().toLocaleTimeString("de-DE", { hour12: false });
 
+/**
+ * W72: Die Dateileiste zeigt die geöffneten Blätter als Reiter. Bis daraus
+ * echte Projekte werden, steht hier die Liste der geöffneten Blätter; die
+ * Verweise auf die Simulations-Objekte (`engine.doc`, Geräte, Netzprüfung)
+ * werden beim Wechsel über `applyDoc` aktualisiert – sonst würde eine
+ * umgestellte `useEditor.getState().doc` nicht neu vernetzt.
+ */
+export interface SheetEntry {
+  id: string;
+  name: string;
+  doc: SchematicDoc;
+}
+export const sheets: SheetEntry[] = [];
+
+/** W72: ein Blatt in den Bearbeitungszustand bringen (inkl. Netzprüfung, Simulation, Geräte). */
+export function applyDoc(doc: SchematicDoc, opts: { pushHistory?: boolean } = {}): void {
+  const st = useEditor.getState();
+  const wasRunning = st.sim.running;
+  st.setDoc(doc, opts.pushHistory ?? true);
+  engine.running = wasRunning;
+  if (wasRunning) engine.rebuild(doc);
+  useEditor.setState({ instruments: [] });
+  useEditor.getState().refreshNets();
+}
+
 function nextLabel(doc: SchematicDoc, part: PartDef): string {
   let n = 1;
   const used = new Set(doc.instances.map((i) => i.label));
@@ -256,39 +312,203 @@ function nextLabel(doc: SchematicDoc, part: PartDef): string {
 
 const clone = (doc: SchematicDoc): SchematicDoc => JSON.parse(JSON.stringify(doc)) as SchematicDoc;
 
+/** W55: Zähler für die Einfüge-Kaskade (mehrfaches Einfügen staffelt sich). */
+let pasteCascade = 0;
+
 const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 /** Runde 17 (W32a): Rückholhilfe – zieht ein Fenster wieder in den sichtbaren
  *  Bereich, wenn es (fast) vollständig außerhalb liegt. Fenster-Koordinaten sind
  *  Layer-relativ (Canvas-Ebene ≈ Viewport minus Menü-/Werkzeugleisten). */
+/* Runde 19 (W33): Die Gerätefenster liegen jetzt in einer Ebene über der ganzen
+ * App (Portal) – Positionen sind damit Viewport-Koordinaten, nicht mehr relativ
+ * zum Canvas. */
 function recallPos(w: { x: number; y: number; w: number; h: number }): { x: number; y: number } {
-  const layerW = (typeof window !== "undefined" ? window.innerWidth : 1280) - 44;
-  const layerH = (typeof window !== "undefined" ? window.innerHeight : 800) - 150;
-  const visX = Math.min(w.x + w.w, layerW) - Math.max(w.x, 0);
-  const visY = Math.min(w.y + w.h, layerH) - Math.max(w.y, 0);
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
+  const grab = Math.min(220, Math.max(80, w.w));
+  const visX = Math.min(w.x + w.w, vw) - Math.max(w.x, 0);
+  const visY = Math.min(w.y + w.h, vh) - Math.max(w.y, 0);
   if (visX >= 120 && visY >= 80) return { x: w.x, y: w.y }; // noch griffig
   return {
-    x: Math.max(8, Math.min(w.x, layerW - 200)),
-    y: Math.max(8, Math.min(w.y, layerH - 120)),
+    x: Math.max(grab - w.w, Math.min(w.x, vw - grab)),
+    y: Math.max(0, Math.min(w.y, vh - 40)),
   };
 }
 
-/** W18: FG-2500 – Bühne 1160×545 + Chrome, viewport-geclampt. */
+/* Runde 20 (W38): Fenster-Chrome = 2 px Rahmen (1 px je Seite) + 36 px
+ * Titelzeile. Nur noch der Startwert fürs erste Bild – danach misst
+ * `useWindowFit` das echte Chrome und setzt die Größe exakt auf Gerät + Chrome
+ * (kein Leerraum, kein brauner Rand). */
+const CHROME_W = 2;
+const CHROME_H = 38;
+const SCOPE_CHASSIS = { w: 1420, h: 688 };
+const FG_STAGE = { w: 1160, h: 545 };
+
+/** W18/R19: FG-2500 – Bühne 1160×545 + Chrome, viewport-geclampt. */
 function fgDefaultSize(): { w: number; h: number } {
-  const availW = (typeof window !== "undefined" ? window.innerWidth : 1600) - 40;
-  const availH = (typeof window !== "undefined" ? window.innerHeight : 1000) - 110;
-  return { w: Math.min(1190, Math.max(640, availW)), h: Math.min(593, Math.max(480, availH)) };
+  const vw = (typeof window !== "undefined" ? window.innerWidth : 1600) - 8;
+  const vh = (typeof window !== "undefined" ? window.innerHeight : 1000) - 8;
+  // Runde 21 (W44): + Werkbank-Rahmen (2× BENCH_PAD), wie im Fenster-Fit.
+  return {
+    w: Math.max(320, Math.min(FG_STAGE.w + 2 * BENCH_PAD + CHROME_W, vw)),
+    h: Math.max(240, Math.min(FG_STAGE.h + 2 * BENCH_PAD + CHROME_H, vh)),
+  };
 }
+
+/** Runde 21 (W43): Untergrenzen des Fenster-Griffs. Runde 20 hatte 640×480 –
+ *  auf knappen Bildschirmen war das bereits die Startgröße, sodass sich Geräte
+ *  überhaupt nicht mehr verkleinern ließen („bleiben riesig"). Jetzt darf ein
+ *  Gerät maßstäblich bis 320×240 herunter (Skalierung bis ≈ 0,23), Panels bis
+ *  240×180 – die Obergrenze bleibt jeweils die Startgröße am Inhalt. */
+const DEVICE_MIN = { w: 320, h: 240 };
+const PANEL_MIN = { w: 240, h: 180 };
+
+/** Runde 20 (W40): Ein Fenstermanager für alle Instrumente. Je Art stehen hier
+ *  die Entwurfsbreite (Panel-Layout) und die Mindesthöhe bzw. das natürliche
+ *  Maß der Geräte-Fenster – der Fenster-Fit misst beim Öffnen nach und setzt
+ *  die Größe exakt (`useWindowFit`, `DeviceFit`/`PanelProbe`). */
+export interface WindowSpec {
+  /** Entwurfsbreite des Inhalts (Layout-Bezug für die Messung). */
+  w: number;
+  /** Natürliche Höhe (Geräte) bzw. Höhen-Untergrenze (Panels). */
+  h: number;
+}
+
+export const WINDOW_SPECS: Record<InstrumentKind, WindowSpec> = {
+  scope: SCOPE_CHASSIS,
+  funcgen: FG_STAGE,
+  bode: { w: 560, h: 320 },
+  logic: { w: 600, h: 300 },
+  logicconv: { w: 460, h: 420 },
+  iv: { w: 560, h: 320 },
+  spectrum: { w: 560, h: 300 },
+  dmm: { w: 320, h: 280 },
+  watt: { w: 360, h: 300 },
+  pattern: { w: 400, h: 260 },
+  distortion: { w: 360, h: 250 },
+  network: { w: 560, h: 300 },
+  counter: { w: 300, h: 250 },
+  inspector: { w: 320, h: 480 },
+};
 
 const newId = (prefix: string) => `${prefix}_` + Math.random().toString(36).slice(2, 10);
 
-/** Runde 16 (W31a): Standard-Gerätefenster für das OTX2074 (1420 px Chassis +
- *  Luft), nie größer als der Viewport (Mindestmaß 640×480) – Fit skaliert das
- *  Gerät ohnehin komplett hinein. */
+/** Runde 16/19/21 (W31a/W35/W44): Startgröße des Oszi-Fensters – Chassis
+ *  (1420×688) + Werkbank-Rahmen + Chrome, nie größer als der Viewport; bei
+ *  Platzmangel skaliert DeviceFit das Gerät herunter und der Fenster-Fit zieht
+ *  die Breite nach. */
 function scopeDefaultSize(): { w: number; h: number } {
-  const vw = typeof window !== "undefined" ? window.innerWidth : 1500;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 980;
-  return { w: Math.min(1500, Math.max(640, vw - 160)), h: Math.min(980, Math.max(480, vh - 180)) };
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
+  return {
+    w: Math.max(320, Math.min(SCOPE_CHASSIS.w + 2 * BENCH_PAD + CHROME_W, vw - 8)),
+    h: Math.max(240, Math.min(SCOPE_CHASSIS.h + 2 * BENCH_PAD + CHROME_H, vh - 8)),
+  };
+}
+
+
+/* --------------------------------------------------------------------------
+ * W52 (Runde 23): Drehen/Spiegeln darf keine Verdrahtung abreißen.
+ * Vor der Transformation werden die Pin-Positionen der betroffenen Bauteile
+ * festgehalten; Leitungsenden, die auf einem dieser Pins saßen, wandern exakt
+ * auf die neue Pin-Position (orthogonal nachgezogen, wie beim Verschieben).
+ * ------------------------------------------------------------------------ */
+export interface PinRef {
+  instId: string;
+  pinIndex: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * W61: Punkte, an denen zwei verschiedene Leitungen sich treffen – echte
+ * Kreuzungen (nicht nur ein Knick der eigenen Leitung) und T-Kontakte. Nur an
+ * solchen Stellen ist ein Verbindungspunkt sinnvoll; der Editor bietet ihn dort
+ * an und setzt ihn automatisch, wenn eine Leitung auf einer anderen endet.
+ */
+export function wireJunctionCandidates(doc: SchematicDoc): Array<{ x: number; y: number }> {
+  const out: Array<{ x: number; y: number }> = [];
+  for (const j of doc.junctions ?? []) out.push({ x: j.x, y: j.y });
+  const segs: Array<[number, number, number, number, string]> = [];
+  const key = (x: number, y: number) => `${Math.round(x * 100)},${Math.round(y * 100)}`;
+  const seen = new Set<string>();
+  for (const w of doc.wires) {
+    for (let i = 0; i + 1 < w.points.length; i++) {
+      const a = w.points[i];
+      const b = w.points[i + 1];
+      if (Math.hypot(b.x - a.x, b.y - a.y) > 0.01) segs.push([a.x, a.y, b.x, b.y, w.id]);
+    }
+  }
+  for (let i = 0; i < segs.length; i++) {
+    for (let k = i + 1; k < segs.length; k++) {
+      const [ax, ay, bx, by, wa] = segs[i];
+      const [cx, cy, dx, dy, wb] = segs[k];
+      if (wa === wb) continue;
+      const r = segmentHit(ax, ay, bx, by, cx, cy, dx, dy);
+      if (!r) continue;
+      const kk = key(r.x, r.y);
+      if (seen.has(kk)) continue;
+      seen.add(kk);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+/** Schnittpunkt zweier Strecken (auch Endpunkt-Treffer); null bei parallel/verfehlt. */
+function segmentHit(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): { x: number; y: number } | null {
+  const r1 = bx - ax;
+  const r2 = by - ay;
+  const s1 = dx - cx;
+  const s2 = dy - cy;
+  const den = r1 * s2 - r2 * s1;
+  if (Math.abs(den) < 1e-9) return null; // parallel oder kollinear
+  const t = ((cx - ax) * s2 - (cy - ay) * s1) / den;
+  const u = ((cx - ax) * r2 - (cy - ay) * r1) / den;
+  if (t < -1e-9 || t > 1 + 1e-9 || u < -1e-9 || u > 1 + 1e-9) return null;
+  return { x: ax + t * r1, y: ay + t * r2 };
+}
+
+export function collectPins(doc: SchematicDoc, ids: Set<string>): PinRef[] {
+  const out: PinRef[] = [];
+  for (const inst of doc.instances) {
+    if (!ids.has(inst.id)) continue;
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    for (let idx = 0; idx < part.pins.length; idx++) {
+      const p = pinPosition(inst, idx);
+      out.push({ instId: inst.id, pinIndex: idx, x: p.x, y: p.y });
+    }
+  }
+  return out;
+}
+
+/** Leitungsenden auf die neuen Pin-Positionen setzen; liefert die Anzahl. */
+export function reattachWiresToPins(doc: SchematicDoc, before: PinRef[], skipWires: Set<string>): number {
+  if (!before.length) return 0;
+  const find = (p: { x: number; y: number }) =>
+    before.find((b) => Math.abs(b.x - p.x) <= 2 && Math.abs(b.y - p.y) <= 2);
+  let moved = 0;
+  for (const w of doc.wires) {
+    if (skipWires.has(w.id) || w.points.length < 2) continue;
+    let touched = false;
+    const attach = (idx: number) => {
+      const b = find(w.points[idx]);
+      if (!b) return;
+      const inst = doc.instances.find((i) => i.id === b.instId);
+      if (!inst) return;
+      const np = pinPosition(inst, b.pinIndex);
+      if (Math.abs(np.x - w.points[idx].x) < 0.01 && Math.abs(np.y - w.points[idx].y) < 0.01) return;
+      attachWireEnd(w.points, idx, np);
+      moved++;
+      touched = true;
+    };
+    attach(0);
+    attach(w.points.length - 1);
+    if (touched) w.points = cleanWirePoints(w.points);
+  }
+  return moved;
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
@@ -311,7 +531,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   showPageFrame: false,
   showErcMarkers: true,
   showRated: true,
-  netResult: { netlist: { devices: [] }, nets: [], pinNets: {}, pointNets: {}, errors: [], warnings: [] },
+  netResult: { netlist: { devices: [] }, nets: [], pinNets: {}, pointNets: {}, errors: [], warnings: [], openEnds: [], junctions: [] },
   past: [],
   future: [],
   logs: [
@@ -381,11 +601,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     const part = PART_MAP[partId];
     if (!part) return null;
     const id = "i_" + Math.random().toString(36).slice(2, 10);
+    // W49/B5: auch programmatische Platzierung rastet aufs Raster – krumme
+    // Koordinaten waren die Ursache für Leitungen, die neben dem Pin enden.
+    const gx = Math.round(x / GRID) * GRID;
+    const gy = Math.round(y / GRID) * GRID;
     const inst: Instance = {
       id,
       partId,
-      x,
-      y,
+      x: gx,
+      y: gy,
       rot: 0,
       label: nextLabel(get().doc, part),
       params: defaultParams(part),
@@ -410,27 +634,44 @@ export const useEditor = create<EditorState>((set, get) => ({
       d.notes = d.notes.filter((n) => !sel.has(n.id));
       d.probes = d.probes.filter((pr) => !sel.has(pr.id));
     });
-    // W29: an gelöschte Instanzen gebundene Gerätefenster (Oszi) schließen.
+    // W29: an gelöschte Instanzen gebundene Gerätefenster (Oszi/FG) schließen.
     set((s) => ({
       selection: [],
       instruments: s.instruments.filter((w) => !(w.instanceId && sel.has(w.instanceId))),
+      // Runde 19: hängt eine Messleitung an der gelöschten Instanz, fällt sie mit weg.
+      leadArmed: s.leadArmed && sel.has(s.leadArmed.instanceId) ? null : s.leadArmed,
     }));
   },
 
   rotateSelection: (dir = 1) => {
-    const sel = new Set(get().selection);
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    if (!sel.size) return;
+    // W52: Pin-Positionen vor dem Drehen festhalten (siehe reattachWiresToPins).
+    const before = collectPins(st0.doc, sel);
+    const skipWires = new Set(st0.doc.wires.filter((w) => sel.has(w.id)).map((w) => w.id));
+    let moved = 0;
     get().commit((d) => {
       for (const i of d.instances) {
         if (sel.has(i.id)) i.rot = (((i.rot + dir * 90) % 360) + 360) % 360 as Rotation;
       }
+      moved = reattachWiresToPins(d, before, skipWires);
     });
+    if (moved) get().log("info", `${moved} Leitungsende${moved > 1 ? "n" : ""} beim Drehen mitgeführt`);
   },
 
   mirrorSelection: () => {
-    const sel = new Set(get().selection);
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    if (!sel.size) return;
+    const before = collectPins(st0.doc, sel);
+    const skipWires = new Set(st0.doc.wires.filter((w) => sel.has(w.id)).map((w) => w.id));
+    let moved = 0;
     get().commit((d) => {
       for (const i of d.instances) if (sel.has(i.id)) i.mirror = !i.mirror;
+      moved = reattachWiresToPins(d, before, skipWires);
     });
+    if (moved) get().log("info", `${moved} Leitungsende${moved > 1 ? "n" : ""} beim Spiegeln mitgeführt`);
   },
 
   moveSelection: (dx, dy) => {
@@ -522,6 +763,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   copySelection: () => {
     const { doc, selection } = get();
+    pasteCascade = 0;
     const sel = new Set(selection);
     set({
       clipboard: {
@@ -530,6 +772,18 @@ export const useEditor = create<EditorState>((set, get) => ({
         labels: doc.labels.filter((l) => sel.has(l.id)).map(cloneJson),
         notes: doc.notes.filter((n) => sel.has(n.id)).map(cloneJson),
         probes: doc.probes.filter((pr) => sel.has(pr.id)).map(cloneJson),
+        // W61: Verbindungspunkte, die auf einer mitkopierten Leitung sitzen
+        junctions: (doc.junctions ?? []).filter((j) =>
+          doc.wires.some((w) => {
+            if (!sel.has(w.id)) return false;
+            for (let i = 0; i + 1 < w.points.length; i++) {
+              const a = w.points[i];
+              const b = w.points[i + 1];
+              if (pointOnSegment(j.x, j.y, a.x, a.y, b.x, b.y)) return true;
+            }
+            return false;
+          }),
+        ).map(cloneJson),
       },
     });
     if (sel.size) get().log("info", `${sel.size} Element${sel.size > 1 ? "e" : ""} kopiert`);
@@ -540,8 +794,22 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!cb) return;
     const total = cb.instances.length + cb.wires.length + cb.labels.length + cb.notes.length + cb.probes.length;
     if (!total) return;
-    const DX = 20;
-    const DY = 20;
+    // W55: Einfüge-Kaskade – jede weitere Einfügung rückt weiter, und wenn die
+    // Kopie auf einem fremden Bauteil landen würde, wird weiter gerückt.
+    pasteCascade++;
+    const base = 20 * pasteCascade;
+    const others = get().doc.instances.filter((i) => !cb.instances.some((c) => c.id === i.id)).map((i) => instanceBounds(i));
+    const hits = (ox: number, oy: number) =>
+      cb.instances.some((src) => {
+        const b = instanceBounds({ ...src, x: src.x + ox, y: src.y + oy });
+        return others.some((o) => b.x < o.x + o.w + 4 && b.x + b.w > o.x - 4 && b.y < o.y + o.h + 4 && b.y + b.h > o.y - 4);
+      });
+    let DX = base;
+    let DY = base;
+    for (let k = 0; k < 12 && hits(DX, DY); k++) {
+      DX += 20;
+      DY += 20;
+    }
     const used = new Set(get().doc.instances.map((i) => i.label));
     const freshInstances: Instance[] = cb.instances.map((src) => {
       const part = PART_MAP[src.partId];
@@ -562,12 +830,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     const freshLabels: NetLabel[] = cb.labels.map((src) => ({ ...cloneJson(src), id: newId("l"), x: src.x + DX, y: src.y + DY }));
     const freshNotes: TextNote[] = cb.notes.map((src) => ({ ...cloneJson(src), id: newId("n"), x: src.x + DX, y: src.y + DY }));
     const freshProbes = cb.probes.map((src) => ({ ...cloneJson(src), id: newId("pr"), x: src.x + DX, y: src.y + DY }));
+    const freshJunctions = (cb.junctions ?? []).map((src) => ({ ...cloneJson(src), id: newId("jnc"), x: src.x + DX, y: src.y + DY }));
     get().commit((d) => {
       d.instances.push(...freshInstances);
       d.wires.push(...freshWires);
       d.labels.push(...freshLabels);
       d.notes.push(...freshNotes);
       d.probes.push(...freshProbes);
+      if (freshJunctions.length) {
+        if (!Array.isArray(d.junctions)) d.junctions = [];
+        d.junctions.push(...freshJunctions);
+      }
     });
     set({ selection: [...freshInstances.map((i) => i.id), ...freshWires.map((w) => w.id), ...freshProbes.map((pr) => pr.id)] });
     get().log("ok", `${total} Element${total > 1 ? "e" : ""} eingefügt`);
@@ -602,7 +875,173 @@ export const useEditor = create<EditorState>((set, get) => ({
   addWire: (w) => {
     get().commit((d) => {
       d.wires.push(w);
+      // W61: Multisim-Regel. Ein Leitungsende, das auf einer anderen Leitung
+      // landet, ist eine echte Verbindung und bekommt einen Punkt. Kreuzen sich
+      // zwei Leitungen nur, entsteht kein Punkt – und damit auch keine
+      // Verbindung (buildNets verbindet nur noch an Anschlussstellen/Markern).
+      if (!Array.isArray(d.junctions)) d.junctions = [];
+      const segs: Array<[number, number, number, number]> = [];
+      for (const other of d.wires) {
+        if (other.id === w.id) continue;
+        for (let i = 0; i + 1 < other.points.length; i++) {
+          const a = other.points[i];
+          const b = other.points[i + 1];
+          if (Math.hypot(b.x - a.x, b.y - a.y) > 0.01) segs.push([a.x, a.y, b.x, b.y]);
+        }
+      }
+      const add = (x: number, y: number) => {
+        if (d.junctions!.some((j) => Math.hypot(j.x - x, j.y - y) < 0.5)) return;
+        d.junctions!.push({ id: "jnc_" + Math.random().toString(36).slice(2, 9), x, y });
+      };
+      for (const e of [w.points[0], w.points[w.points.length - 1]]) {
+        for (const [ax, ay, bx, by] of segs) if (pointOnSegment(e.x, e.y, ax, ay, bx, by)) { add(e.x, e.y); break; }
+      }
+      for (const other of d.wires) {
+        if (other.id === w.id) continue;
+        for (const e of [other.points[0], other.points[other.points.length - 1]]) {
+          for (let i = 0; i + 1 < w.points.length; i++) {
+            const a = w.points[i];
+            const b = w.points[i + 1];
+            if (pointOnSegment(e.x, e.y, a.x, a.y, b.x, b.y)) { add(e.x, e.y); break; }
+          }
+        }
+      }
     });
+  },
+
+  toggleJunction: (x, y) => {
+    const doc = get().doc;
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (const c of wireJunctionCandidates(doc)) {
+      const dd = Math.hypot(c.x - x, c.y - y);
+      if (dd < bestD) { bestD = dd; best = c; }
+    }
+    if (!best || bestD > 14) {
+      get().log("warn", "Kein Treffpunkt zweier Leitungen in der Nähe – Leitungen übereinander legen oder auf die Kreuzung klicken");
+      return;
+    }
+    const point = best;
+    const hatte = (doc.junctions ?? []).some((j) => Math.hypot(j.x - point.x, j.y - point.y) < 0.5);
+    get().commit((d) => {
+      if (!Array.isArray(d.junctions)) d.junctions = [];
+      if (hatte) d.junctions = d.junctions.filter((j) => Math.hypot(j.x - point.x, j.y - point.y) >= 0.5);
+      else d.junctions.push({ id: "jnc_" + Math.random().toString(36).slice(2, 9), x: point.x, y: point.y });
+    });
+    get().log("info", hatte ? "Verbindungspunkt entfernt – die Leitungen sind jetzt getrennt" : "Verbindungspunkt gesetzt – die Leitungen sind jetzt verbunden");
+  },
+
+  setWireSegmentOffset: (wireId, segIdx, orig, dx, dy) => {
+    if (dx === 0 && dy === 0) return;
+    get().commit((d) => {
+      const w = d.wires.find((x) => x.id === wireId);
+      if (!w || segIdx < 0 || segIdx + 1 >= orig.length) return;
+      const pts = orig.map((p, i) => (i === segIdx || i === segIdx + 1 ? { x: p.x + dx, y: p.y + dy } : { x: p.x, y: p.y }));
+      w.points = cleanWirePoints(pts);
+    });
+  },
+
+  alignSelection: (mode) => {
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    const insts = st0.doc.instances.filter((i) => sel.has(i.id));
+    if (insts.length < 2) {
+      get().log("warn", "Ausrichten braucht mindestens zwei ausgewählte Bauteile");
+      return;
+    }
+    const boxes = insts.map((i) => ({ i, b: instanceBounds(i) }));
+    const left = Math.min(...boxes.map((x) => x.b.x));
+    const right = Math.max(...boxes.map((x) => x.b.x + x.b.w));
+    const top = Math.min(...boxes.map((x) => x.b.y));
+    const bottom = Math.max(...boxes.map((x) => x.b.y + x.b.h));
+    const move = (x: (inst: Instance, b: { x: number; y: number; w: number; h: number }) => number,
+                  y: (inst: Instance, b: { x: number; y: number; w: number; h: number }) => number) => {
+      get().commit((d) => {
+        for (const { i, b } of boxes) {
+          const inst = d.instances.find((k) => k.id === i.id);
+          if (!inst) continue;
+          inst.x += x(inst, b);
+          inst.y += y(inst, b);
+        }
+      });
+    };
+    const label: Record<typeof mode, string> = {
+      left: "links", right: "rechts", top: "oben", bottom: "unten",
+      centerH: "waagerecht mittig", centerV: "senkrecht mittig",
+    };
+    move(
+      (inst, b) => (mode === "left" ? left - b.x : mode === "right" ? right - (b.x + b.w) : mode === "centerH" ? (left + right) / 2 - (b.x + b.w / 2) : 0),
+      (inst, b) => (mode === "top" ? top - b.y : mode === "bottom" ? bottom - (b.y + b.h) : mode === "centerV" ? (top + bottom) / 2 - (b.y + b.h / 2) : 0),
+    );
+    get().log("ok", `${insts.length} Bauteile ${label[mode]} ausgerichtet`);
+  },
+
+  distributeSelection: (axis) => {
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    const insts = st0.doc.instances.filter((i) => sel.has(i.id));
+    if (insts.length < 3) {
+      get().log("warn", "Verteilen braucht mindestens drei ausgewählte Bauteile");
+      return;
+    }
+    const boxes = insts.map((i) => ({ i, b: instanceBounds(i), c: axis === "h" ? instanceBounds(i).x + instanceBounds(i).w / 2 : instanceBounds(i).y + instanceBounds(i).h / 2 }));
+    boxes.sort((a, b) => a.c - b.c);
+    const first = boxes[0];
+    const last = boxes[boxes.length - 1];
+    const step = (last.c - first.c) / (boxes.length - 1);
+    let n = 0;
+    get().commit((d) => {
+      boxes.forEach(({ i }, k) => {
+        if (k === 0 || k === boxes.length - 1) return;
+        const inst = d.instances.find((x) => x.id === i.id);
+        if (!inst) return;
+        const target = first.c + step * k;
+        if (axis === "h") inst.x += target - (instanceBounds(inst).x + instanceBounds(inst).w / 2);
+        else inst.y += target - (instanceBounds(inst).y + instanceBounds(inst).h / 2);
+        n++;
+      });
+    });
+    get().log("ok", `${n} Bauteile gleichmäßig verteilt (${axis === "h" ? "waagerecht" : "senkrecht"})`);
+  },
+
+  straightenSelection: () => {
+    const st0 = get();
+    const sel = new Set(st0.selection);
+    const wires = st0.doc.wires.filter((w) => sel.has(w.id));
+    if (!wires.length) {
+      get().log("warn", "Keine Leitung ausgewählt – Leitungen zum Begradigen markieren");
+      return;
+    }
+    let n = 0;
+    get().commit((d) => {
+      for (const w of d.wires) {
+        if (!sel.has(w.id)) continue;
+        // W70: Eckpunkte fallen weg, Kontaktpunkte (T-Stellen, Pins) bleiben.
+        w.points = straightenWirePoints(w.points, GRID, contactKeep(d, w.id));
+        n++;
+      }
+      // Enden wieder auf die Pins rasten (begradigen kann Pins minimal verfehlen);
+      // W62: dabei auch die ausgewählten Bauteile aufs Raster holen.
+      for (const inst of d.instances) {
+        if (!sel.has(inst.id)) continue;
+        inst.x = Math.round(inst.x / GRID) * GRID;
+        inst.y = Math.round(inst.y / GRID) * GRID;
+      }
+      normalizeDocGeometry(d);
+    });
+    get().log("ok", `${n} Leitung${n > 1 ? "en" : ""} begradigt – Stützpunkte auf dem Raster, rechte Winkel`);
+  },
+
+  repairWires: () => {
+    // W62: „Leitungen prüfen & reparieren" bringt auch gewachsene Pläne in Form:
+    // Bauteile aufs Raster, Enden auf Pins, Segmente rechtwinklig. Genau die
+    // Fälle „leicht verschobenes Bauteil", „schräge Leiterbahn", „Pin am Anfang
+    // nicht verbunden" verschwinden damit.
+    let rep = { instances: 0, ends: 0, wires: 0 };
+    get().commit((d) => {
+      rep = normalizeDocGeometry(d);
+    });
+    get().log("ok", `Leitungen geprüft: ${rep.instances} Bauteil${rep.instances === 1 ? "" : "e"} aufs Raster gerückt, ${rep.ends} Ende${rep.ends === 1 ? "" : "n"} auf Pins gerastet, ${rep.wires} Leitung${rep.wires === 1 ? "" : "en"} begradigt`);
   },
 
   // Runde 17 (W32c): Messleitung auf eine Leitung/einen Pin legen. Die alte
@@ -610,6 +1049,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   // folgt einer Z-Route: erst aus dem Symbol heraus, dann auf Höhe des Ziels.
   // Die Messung folgt automatisch – sie hängt an der Verdrahtung (nets[k]).
   connectProbeWire: (instanceId, pinIndex, target) => {
+    const leadName = get().leadArmed?.instanceId === instanceId && get().leadArmed?.pinIndex === pinIndex ? get().leadArmed?.name : undefined;
     get().commit((d) => {
       const inst = d.instances.find((i) => i.id === instanceId);
       if (!inst) return;
@@ -624,20 +1064,42 @@ export const useEditor = create<EditorState>((set, get) => ({
           ? { x: dx || -1, y: 0 }
           : { x: 0, y: dy || 1 };
       const out = { x: pinPt.x + dir.x * 20, y: pinPt.y + dir.y * 20 };
+      // Runde 19 (W36): Die Leitung darf das Gerätesymbol nicht überqueren –
+      // wenn der direkte Weg durch das Symbol liefe, führt sie außen herum.
+      const box = instanceBounds(inst);
+      const crossesBody = (a: { x: number; y: number }, c: { x: number; y: number }) => {
+        const x1 = Math.min(a.x, c.x);
+        const x2 = Math.max(a.x, c.x);
+        const y1 = Math.min(a.y, c.y);
+        const y2 = Math.max(a.y, c.y);
+        return x2 > box.x && x1 < box.x + box.w && y2 > box.y && y1 < box.y + box.h;
+      };
       const mid = dir.x !== 0 ? { x: out.x, y: target.y } : { x: target.x, y: out.y };
+      const detour =
+        crossesBody(out, mid) || crossesBody(mid, target)
+          ? dir.x !== 0
+            ? [
+                { x: out.x, y: out.y <= box.y + box.h / 2 ? box.y - 20 : box.y + box.h + 20 },
+                { x: target.x, y: out.y <= box.y + box.h / 2 ? box.y - 20 : box.y + box.h + 20 },
+              ]
+            : [
+                { x: out.x <= box.x + box.w / 2 ? box.x - 20 : box.x + box.w + 20, y: out.y },
+                { x: out.x <= box.x + box.w / 2 ? box.x - 20 : box.x + box.w + 20, y: target.y },
+              ]
+          : [mid];
       const pts: Array<{ x: number; y: number }> = [];
-      for (const p of [pinPt, out, mid, target]) {
+      for (const p of [pinPt, out, ...detour, target]) {
         const last = pts[pts.length - 1];
         if (!last || Math.abs(last.x - p.x) > 0.5 || Math.abs(last.y - p.y) > 0.5) pts.push(p);
       }
       if (pts.length >= 2) d.wires.push({ id: newId("w"), points: pts });
     });
     if (get().sim.running) engine.rebuild(get().doc);
-    get().log("info", `Messleitung CH${pinIndex + 1} verbunden`);
+    get().log("info", `Messleitung ${leadName ?? `CH${pinIndex + 1}`} verbunden`);
   },
 
-  probeArmed: null,
-  setProbeArmed: (a) => set({ probeArmed: a }),
+  leadArmed: null,
+  setLeadArmed: (a) => set({ leadArmed: a }),
   configArchive: {},
 
   addMeasurementProbe: (kind, x, y) => {
@@ -797,7 +1259,16 @@ export const useEditor = create<EditorState>((set, get) => ({
             h: defH,
             z: 10 + count,
             minimized: false,
-            config: s.configArchive["w_" + opts.instanceId] ?? {},
+            // Runde 19/20 (W35/W38): Jedes Öffnen klebt wieder exakt am Gerät
+            // (deviceFit: 0 = noch anpassen; der Adapter setzt danach 1).
+            // W39: Skalieren bis 640×480 herunter (Gerät wird maßstäblich
+            // kleiner, nie kleiner als bedienbar); Obergrenze bleibt das Bild.
+            config: {
+              ...(s.configArchive["w_" + opts.instanceId] ?? {}),
+              deviceFit: 0,
+              minW: DEVICE_MIN.w,
+              minH: DEVICE_MIN.h,
+            },
             instanceId: opts.instanceId,
           },
         ],
@@ -831,25 +1302,15 @@ export const useEditor = create<EditorState>((set, get) => ({
       }));
       return;
     }
-    const sizes: Partial<Record<InstrumentKind, { w: number; h: number }>> = {
-      scope: { w: 1500, h: 980 }, // W30: OTX2074-Chassis (1420 px breit) braucht Platz
-      bode: { w: 600, h: 430 },
-      logic: { w: 640, h: 420 },
-      logicconv: { w: 480, h: 500 },
-      iv: { w: 580, h: 420 },
-      spectrum: { w: 600, h: 400 },
-      dmm: { w: 330, h: 300 },
-      funcgen: { w: 360, h: 430 },
-      watt: { w: 360, h: 300 },
-      pattern: { w: 420, h: 340 },
-      distortion: { w: 360, h: 260 },
-      network: { w: 600, h: 400 },
-      counter: { w: 300, h: 250 },
-      inspector: { w: 320, h: 480 },
-    };
-    const size = sizes[kind] ?? { w: 420, h: 340 };
+    // Runde 20 (W40): Alle Fenster laufen durch denselben Manager. Startgröße
+    // kommt aus WINDOW_SPECS (Entwurfsbreite, Untergrenze der Höhe); der
+    // Fenster-Fit misst direkt nach dem ersten Bild den echten Inhalt und setzt
+    // die Größe exakt (config.deviceFit = 0 erzwingt die Messung).
+    const spec = WINDOW_SPECS[kind];
     const count = get().instruments.length;
     const id = "w_" + Math.random().toString(36).slice(2, 8);
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
     set((s) => ({
       instruments: [
         ...s.instruments,
@@ -859,10 +1320,13 @@ export const useEditor = create<EditorState>((set, get) => ({
           title: titles[kind],
           x: 180 + count * 34,
           y: 110 + count * 28,
-          ...size,
+          w: Math.max(320, Math.min(spec.w + CHROME_W, vw - 8)),
+          h: Math.max(220, Math.min(spec.h + CHROME_H, vh - 8)),
           z: 10 + count,
           minimized: false,
-          config: s.configArchive[id] ?? {},
+          // Panels: Mindestmaß 320×220 (Layout bricht sonst um); die
+          // Inhaltsmessung setzt die Startgröße darüber.
+          config: { ...(s.configArchive[id] ?? {}), deviceFit: 0, minW: PANEL_MIN.w, minH: PANEL_MIN.h },
         },
       ],
     }));
@@ -879,6 +1343,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       const w = s.instruments.find((i) => i.id === id);
       return {
         instruments: s.instruments.filter((i) => i.id !== id),
+        // Runde 19: eine im Gerät aufgenommene Messleitung fällt mit dem Fenster weg.
+        leadArmed: w?.instanceId && s.leadArmed?.instanceId === w.instanceId ? null : s.leadArmed,
         // Runde 17: Konfiguration merken – Wiederöffnen bringt die Einstellungen
         // des Geräts zurück (Sicherheitsnetz, „kein Fenster geht verloren").
         configArchive: w ? { ...s.configArchive, [id]: w.config } : s.configArchive,
@@ -948,9 +1414,38 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   newDocument: () => {
+    // W72: „+" legt ein neues leeres Schaltblatt an und öffnet es als Reiter.
     engine.running = false;
-    set((s) => ({ doc: emptyDoc(), past: [...s.past, s.doc], future: [], selection: [], sim: { ...s.sim, running: false } }));
-    get().refreshNets();
+    // Das offene Blatt bleibt als Reiter erhalten (auch wenn es noch nicht in
+    // der Liste steht) – „+" öffnet ein zusätzliches Blatt, keine Ersetzung.
+    const aktuell = get().doc;
+    if (!sheets.some((s2) => s2.id === aktuell.id)) sheets.push({ id: aktuell.id, name: aktuell.name, doc: aktuell });
+    const doc = emptyDoc();
+    const entry: SheetEntry = { id: doc.id, name: doc.name, doc };
+    sheets.push(entry);
+    applyDoc(doc, { pushHistory: true });
+    set({ sim: { ...get().sim, running: false } });
+    get().log("ok", `Neues Schaltblatt „${doc.name}“ angelegt`);
+  },
+
+  openSheet: (id) => {
+    const entry = sheets.find((s2) => s2.id === id);
+    if (!entry) return;
+    // Das aktuelle Blatt behält seinen Stand (inkl. Namen) in der Liste.
+    const aktiv = sheets.find((s2) => s2.id === get().doc.id);
+    if (aktiv) {
+      aktiv.doc = get().doc;
+      aktiv.name = get().doc.name || aktiv.name;
+    }
+    applyDoc(entry.doc, { pushHistory: false });
+    // Undo gehört zum Blatt: Verlauf nicht über Blattgrenzen tragen.
+    set({ past: [], future: [] });
+    get().log("info", `Blatt „${entry.name}“ geöffnet`);
+  },
+
+  renameSheet: (id, name) => {
+    const entry = sheets.find((s2) => s2.id === id);
+    if (entry) entry.name = name;
   },
 
   setAnalysis: (a) => set((s) => ({ analysis: { ...s.analysis, ...a } })),
@@ -988,10 +1483,17 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   restoreLocalProject: () => {
+    // W72: Das beim Start geladene Blatt ist der erste Reiter.
+    const first = get().doc;
+    if (!sheets.length) sheets.push({ id: first.id, name: first.name, doc: first });
     const stored = loadProjectLocal();
     if (stored) {
       const doc = stored.doc as any;
       if (!Array.isArray(doc.probes)) doc.probes = [];
+      // W72: Der wiederhergestellte Stand ist das erste Blatt in der Dateileiste.
+      const restored = stored.doc as SchematicDoc;
+      if (sheets.length) sheets[0] = { id: restored.id, name: restored.name, doc: restored };
+      else sheets.push({ id: restored.id, name: restored.name, doc: restored });
       set({
         doc: stored.doc,
         selection: [],
@@ -1003,12 +1505,22 @@ export const useEditor = create<EditorState>((set, get) => ({
         instruments: Array.isArray(stored.instruments)
           ? (stored.instruments as InstrumentWindow[])
               .filter((w) => !(w.kind === "scope" && !w.instanceId))
-              .map((w) =>
-                // Runde 16 (W31a): alter buggy Default (920×640) → neue Standardgröße.
-                w.kind === "scope" && w.instanceId && w.w === 920 && w.h === 640
-                  ? { ...w, ...scopeDefaultSize() }
-                  : w,
-              )
+              .map((w) => {
+                // Runde 21 (W42): Geräte-Fenster nach dem Laden neu am Gerät
+                // ausrichten (deviceFit: 0) – die Fenstergröße hängt am
+                // sichtbaren Gerät inkl. Werkbank-Rahmen, alte Werte passen nicht.
+                const device = w.kind === "scope" || w.kind === "funcgen";
+                const stretched =
+                  w.kind === "scope" && w.instanceId && w.w === 920 && w.h === 640
+                    ? scopeDefaultSize()
+                    : null;
+                if (!device && !stretched) return w;
+                return {
+                  ...w,
+                  ...(stretched ?? {}),
+                  config: device ? { ...w.config, deviceFit: 0 } : w.config,
+                };
+              })
           : [],
         lastSavedAt: stored.savedAt ? new Date(stored.savedAt).getTime() : null,
       });

@@ -1155,3 +1155,1038 @@ Drag ist zäh und bleibt außerhalb des Screens hängen → mitfixieren.
 - **Lint-RC-Regeln:** keine `eslint-disable`; Demo-Copys wurden für refs-during-render/set-state-in-effect auf `bootTick`/`msgHidden`-State umgebaut.
 
 **Verifikationsnotiz:** Der E2E-Scratch förderte einen Geometrie-Fallstrich zutage (schmale Bauteil-Pins liegen auf Leitungssegmenten — der SYNC-Pin berührte eine Diagonalleitung des RC-Tests); für die App irrelevant, da dort pin-genau verdrahtet wird.
+
+---
+
+## §19 — Runde 19: Fenstermanager & Geräte-Integration (Oszi + FG-2500)
+
+**User-Auftrag (wörtlich):** „prüfe bitte einmal den Fenstermanager (verschieben ist
+scheiße und fenster sind unter menüband von der hierarchie, was auch scheiße ist.
+Ausserdem ist die oszi und funktionsgenerator integrations scheiße. also z.b. ist beim
+oszi das fenster nicht an das oszi angepasst, genauso wie beim generator. ausserdem
+funktioniert das mit dem anschließen vom funktionsgenerator nicht. Das soll so sein,
+wie beim oszi, wo ich im oszi einen ch auswähle und dann im schaltplan eine leitung
+oder pin."
+
+**Befund (Code, vor der Umsetzung):**
+1. **Hierarchie:** `InstrumentLayer` hing im Canvas-Container
+   (`relative min-h-0 flex-1 overflow-hidden`, Workbench) → Fenster wurden an den
+   Leisten abgeschnitten; ein Zug über das Menüband war unmöglich (W32a-Zusage
+   „frei über Leisten ziehen" damit nicht eingehalten).
+2. **Verschieben:** Magnet-Dock (Loslassen in den unteren ~56 px des Canvas = Docken),
+   Drag nur an der 36-px-Titelzeile, Titel-Knöpfe starteten den Drag mit, Fenster
+   konnte komplett aus dem Bild rutschen (Recall nur über Symbol-Doppelklick).
+3. **Fenstergröße:** Oszi-Fenster startete mit 1500×980, das Chassis ist aber
+   1420×688 (20/24/26-padding, Screen 800×480, Bezel 508, BNC-Zeile 110) → ~290 px
+   toter Bench-Rand; FG-Fenster 1190×593 bei Bühne 1160×545, Panel skalierte nur
+   über die Breite (Höhe nie) → bei flachen Fenstern Scrollbalken/Überstand.
+4. **FG-Anschluss:** `fg2/Bnc.tsx` zeichnet die Buchsen OUT1/OUT2 (`data-jack`), es
+   gab aber **keinen** Klick-Pfad in den Editor; Anschluss nur per manuellem
+   Verdrahten am Symbol. Elektrisch ist der FG in Ordnung (Scratch-Test: OUT1→1 kΩ→GND
+   gegen COM, 1 kHz, Vpp 1,905 V = Theorie) — es fehlte die Bedienung.
+
+**Ask-User-Antworten (bindend, Runde 19):**
+1. **Verschieben:** alles — ruckelfrei, Titelzeile bleibt immer greifbar, Magnet-Dock
+   weg, Fenster auch am Rahmen/Hintergrund ziehbar.
+2. **Hierarchie:** Fenster-Layer über der ganzen App (über Menüband/Leisten);
+   Menü-Dropdowns, Dialoge, Toasts bleiben darüber.
+3. **Fenstergröße:** Fenster = Gerät + Chrome (kein Leerraum); bei Platzmangel wird
+   das Gerät maßstäblich heruntergerechnet (nie hochskaliert).
+4. **FG-Anschluss:** wie Oszi — Klick auf die BNC-Buchse OUT1/OUT2, dann im Schaltplan
+   Leitung/Pin anklicken; Messleitung wird von OUT1/OUT2 hingelegt (ersetzt die alte),
+   Zielnetz steht danach an der Buchse. COM/SYNC bleiben manuell verdrahtet.
+
+**W33 — Fenster-Layer (Portal):** `InstrumentLayer` rendert per `createPortal` auf
+`document.body` (position: fixed, inset 0, z-index 40, pointer-events: none; Fenster
+wieder auto). Menü-Dropdowns/Dialoge (z-50) und Toasts (z-100) bleiben darüber.
+Dock-Zeile über der Statusleiste (bottom 26 px) statt im Canvas.
+
+**W34 — Fenster-Zug:** Drag an Titelzeile **und** an leeren Flächen des Fenster-
+Hintergrunds (Ziel-Check: Event-Target ist der Hintergrund, nicht das Gerät);
+Titel-Knöpfe stoppen den Drag-Start. Kein Magnet-Dock mehr (nur Dock-Knopf); nach dem
+Loslassen wird geklemmt, dass Titelzeile + ≥140 px Breite sichtbar bleiben (Rückholhilfe
+`recallPos` zieht analog auf die neue Layer-Geometrie). Ruckelfrei bleibt der
+Transform-Ansatz aus W32a; Ziehen an einem gedockten Fenster löst es und zieht es.
+
+**W35 — Fenster am Gerät:** gemeinsames `DeviceFit` (aus OsziScope-Fit extrahiert,
+contain, scale ≤ 1) misst Gerät und Platz; die Adapter setzen beim (ersten) Öffnen die
+Fenstergröße exakt auf Gerät + Chrome (`w = Gerät + 8 + Fenster-Rahmen`,
+`h = Gerät + 8 + Titelzeile+Rahmen`), geklemmt auf den Viewport. Oszi: Chassis
+1420×688 → Fenster 1430×734 (statt 1500×980); FG: Bühne 1160×545 → Fenster 1170×591;
+Panel skaliert jetzt auch über die Höhe (kein Scrollbalken). Nutzer-Resizes bleiben
+(Flag `deviceFit` in der Fenster-Config).
+
+**W36 — FG-Anschluss per Klick (wie Oszi):** `probeArmed` → generisches `leadArmed`
+(`{instanceId, pinIndex, name?, color?}`, Oszi nutzt es unverändert); `connectProbeWire`
+loggt den Gerätenamen; `FgScope` liest die Pin-Netze (`instId:0/1` = OUT1/OUT2),
+Buchsen-Klick nimmt das Kabel auf (Banner `LeadBanner` wie am Oszi, Escape/„Zurück-
+stecken" bricht ab), Canvas-Klick auf Leitung/Pin legt die Leitung, Zielnetz erscheint
+an der Buchse („offen"/Netzname), Quelle-Pin wird auf dem Symbol markiert. Fenster
+schließen/Bauteil löschen räumt `leadArmed` ab.
+
+**Verifikation (Pflicht):** `./node_modules/.bin/tsc --noEmit` · `npx --no-install
+eslint src` · `npm test` · `npx --no-install next build` + Dev-Server-Sichtprüfung +
+Scratch-E2E für den Anschluss-Pfad (Store-Aktion → Leitung → Engine).
+
+### §19.1 — Umsetzungsstand Runde 19 (2026-09-29) ✅
+
+**W33 Fenster-Layer.** `InstrumentLayer` rendert per `createPortal(document.body)` in
+eine `fixed inset-0`-Ebene (z-40, `pointer-events: none`, Fenster wieder `auto`), sodass
+Gerätefenster nicht mehr im Canvas geclippt werden und Menüband/Leisten überdecken
+dürfen; Menü-Dropdowns/Dialoge (z-50) und Toasts (z-100) liegen weiterhin darüber.
+Die gedockten Fenster sitzen in einer Dock-Zeile über der Statusleiste
+(`bottom: STATUS_BAR_H = 26px`) statt im Canvas. `Workbench.tsx` blieb unverändert
+(Mountpunkt bleibt, nur ein Layout-Zweig rendert gleichzeitig → kein Doppel-Dock).
+
+**W34 Fenster-Zug.** Drag an Titelzeile und an leeren Hintergrundflächen
+(`isDragSurface` verschont Gerät/Bedienelemente via `data-no-drag`, Button, Input,
+Canvas, SVG). Ruckelfrei per `transform` + `requestAnimationFrame` (W32a-Ansatz), beim
+Loslassen wird die Endposition direkt ins DOM geschrieben und dann committet. Der
+Dock-Magnet am unteren Rand ist entfernt; `clampWindowPos` hält Titelzeile + Greifbreite
+im Bild. `recallPos` rechnet jetzt mit Viewport-Koordinaten der neuen Ebene. Der
+laufende Zug liegt in `activeDrag` (modulweit), damit ein Zug an einem **gedockten**
+Fenster auch nach dem Container-Wechsel weiter am Zeiger klebt.
+
+**W35 Fenster am Gerät.** Gemeinsames `DeviceFit` (contain, `scale ≤ 1`) misst Gerät und
+Platz; `useDeviceWindowFit` setzt beim ersten Öffnen die Fenstergröße auf
+`Gerät + FIT_MARGIN(8) + Fenster-Chrome`, geklemmt auf den Viewport
+(`SCOPE_CHASSIS 1420×688 + CHROME 10/46 = 10 px Breite, 46 px Titel+Rahmen`;
+`FG_STAGE 1160×545` analog). Jedes Öffnen erzwingt `config.deviceFit = 0`, danach bleiben
+Nutzer-Resizes unangetastet. Damit sitzt kein Leerraum mehr im Fenster und bei knappem
+Bildschirm wird nur noch heruntergerechnet.
+
+**W36 FG-Anschluss wie am Oszi.** `probeArmed` wurde generisch zu `leadArmed`
+(`{instanceId, pinIndex, name?, color?}`) – das Oszi nutzt es unverändert. Die
+FG-Buchsen OUT1/OUT2 (`JACK_PIN 0/1`) nehmen per Klick das Kabel auf (`held`-Ring,
+`LeadBanner` mit Farbe/Hinweis/„Zurückstecken", Escape legt zurück), der Canvas-Klick
+auf Leitung/Pin legt die Messleitung (ersetzt eine alte am selben Signalpin) und die
+Buchse zeigt danach das Zielnetz. Der aufgenommene Quell-Pin wird im Schaltplan mit
+pulsierendem Ring + Namenslabel markiert; die Statusleiste weist auf den nächsten Klick
+hin (mobil in Kurzform). Verbindungsleitungen weichen dem Gerätesymbol aus
+(`crossesBody` → Umwegpunkte über `instanceBounds`). Fenster schließen oder Bauteil
+löschen räumt `leadArmed` ab. COM/SYNC bleiben manuell verdrahtet.
+
+**Verifikation (Runde 19, alles grün):**
+- `./node_modules/.bin/tsc --noEmit` — clean
+- `npx --no-install eslint src` — clean (kein `eslint-disable`-Workaround)
+- `npm test` — alle PASS (divider/diode/RC/BJT/opamp/MOSFET/555 + Pin-Kongruenz
+  410 Teile / 2098 Pins)
+- `npx --no-install next build` — ✓ (7/7 statisch prärendert, FG-Kern unverändert 1:1)
+- Scratch-E2E (`tsx`, danach gelöscht): OUT1 → R1.1 ergibt Netz N001; Umstecken auf COM
+  ersetzt die Leitung (genau 1 Leitung, 0 Fehler); Routenpunkte weichen dem Symbol aus
+  (`[{160,180},{140,180},{140,150},{370,150},{370,200}]`); unverbundene Pins heißen
+  `XFG1_nc<i>` → Buchse bleibt „offen“.
+- DOM-Smoke (jsdom, danach gelöscht): Fenster liegt per Portal außerhalb des Canvas in
+  der z-40-Ebene; Buchsenklick armiert `leadArmed{instanceId:"XFG1",pinIndex:0,name:"OUT1"}`,
+  Banner sichtbar, zweiter Klick + Escape legen zurück; Zug über den Bildrand wird auf
+  `980,760` geklemmt (800×… sichtbar), Zug aus dem Dock löst das Fenster und zieht es mit
+  (+40 px Delta), Leitung liegt danach im Netz N001 am Symbolpin.
+
+**Offene Sichtprüfung:** echte Browsersichtbarkeit (Fenster sitzt exakt am Gerät,
+Dock-Zeile klickbar über der Statusleiste, Banner/Ring-Optik) ist hier nur im
+Dev-Server-Live-Vorschau möglich – Headless-Browser ist in dieser Umgebung nicht
+installierbar (Chromium ohne libnss3/libnspr4, Paketquellen gesperrt).
+
+## §20 — Runde 20: Fenstermanager global (Ziehen ohne Sprung, kein Rand, Skalieren)
+
+**Nutzer-Kritik (Runde 20):** „Verschieben ist immer noch scheiße – das Fenster springt
+nach dem Verschieben an die Stelle des Cursors" · „beim Oszi ist immer noch links und
+rechts etwas brauner Rand" · „man soll die Fenster leicht skalieren können" · „das soll
+für alle Fenster gelten, also einen globalen Fenstermanager, basierend auf dem dann
+gefixten von Oszi und Generator".
+
+**Ursachenanalyse (belegt):**
+1. *Sprung:* Die Fensterwurzel trägt `.rise` (`animation: rise 250ms both`), dessen
+   Endzustand `transform: none` ist. Eine laufende/gefillte CSS-Animation schlägt jede
+   Inline-Deklaration – der Zug-`transform` wurde also nie gezeichnet; das Fenster blieb
+   stehen und sprang erst beim Loslassen in die neue Position („an die Cursor-Stelle").
+2. *Brauner Rand:* Fensterbreite war mit Pauschal-Chrome (10 px) plus 8 px `FIT_MARGIN`
+   gerechnet, das Chassis ist aber 1420 px breit → ~4–5 px Werkbank-Hintergrund
+   (`BENCH_BG`, brauner Gradient) links und rechts; derselbe Rest oben/unten.
+3. *Skalieren:* nur ein 14 px kleines Eck-Dreieck ohne sichtbaren Griff und ohne
+   Seitenverhältnis-Sperre – Geräte dürfen nicht verzerren.
+
+**Ask-User-Antworten (bindend, Runde 20):**
+1. **Skalieren:** nur unten rechts, aber deutlich besserer Griff; **Geräte behalten die
+   Proportionen**.
+2. **Wachstum:** nur verkleinern – Maximum ist Gerät + Chrome (nie Leerraum); kleiner
+   gezogen skaliert das Gerät maßstäblich mit (1:1 bleibt Obergrenze).
+3. **Übrige Fenster:** global derselbe Manager; Größe beim Öffnen inhaltsbestimmt
+   (Geräte exakt gemessen), danach frei skalierbar.
+
+**W37 — Ziehen ohne Sprung.** Fenster bekommen eine eigene Einblendung ohne `transform`
+(`.win-in`, nur Opacity). `.rise` bleibt für Dialoge. Damit greift der rAF-/Transform-Zug
+ab dem ersten Pixel.
+
+**W38 — Fenster exakt am Gerät (kein Rand).** `DeviceFit` rechnet ohne künstlichen Rand
+(`avail = clientWidth/clientHeight`, `scale = min(1, …)`, 1-px-Epsilon gegen Subpixel-
+Zittern). Das Fenster-Chrome (Rahmen + Titelzeile) wird per
+`getBoundingClientRect`-Differenz gemessen (fraktional, kein Pauschalwert) und das
+Fenster einmalig auf `Gerät + Chrome` gesetzt (Viewport-geklemmt) → Oszi und FG sitzen
+kantenbündig.
+
+**W39 — Skalieren (global, ein Griff).** Griff unten rechts, 20×20 Fangfläche, sichtbar
+(drei Diagonalstriche, `cursor: nwse-resize`). Geräte-Fenster (Oszi, FG) skalieren
+**proportionsgesperrt** über die Diagonale (Projektion auf die Ecke), Skala
+`s ∈ [0,25 … 1]`, Maximum = Gerät + Chrome; Panel-Fenster frei, Minimum 300×220,
+Maximum = Viewport. Vorschau live per DOM/rAF, Commit beim Loslassen (wie beim Ziehen).
+
+**W40 — Ein Fenstermanager für alle Fenster.** `Window` behandelt Ziehen, Skalieren,
+Dock, Minimieren, Ebene und Klemme für **alle** Instrumente gleich. `useWindowFit`
+misst Chrome + Größe; Geräte nutzen `DeviceFit` (gemessen, aspect-locked, `scale ≤ 1`),
+Panels eine Inhalts-Probe (`PanelProbe`: Inhalt einmal offscreen mit Entwurfsbreite
+rendern → benötigte Höhe messen, Untergrenze je Art) und sind danach frei skalierbar.
+`WINDOW_SPECS` (in `editor.ts`) bündelt Entwurfsbreite, Höhen-Untergrenze und
+Mindestmaße je Instrument; `openInstrument` setzt für **jedes** Fenster
+`config.deviceFit = 0`, damit beim Öffnen neu gemessen wird.
+
+**W41 — Verifikation + Doku.** Pflicht-Checks plus DOM-Smoke: Fensterklasse ohne
+`transform`-Animation, Griff vorhanden (nicht im Dock), Zug ändert Größe
+(Seitenverhältnis erhalten, Obergrenze Gerät), Panel-Größe ≥ Inhaltsbedarf.
+
+### §20.1 — Umsetzungsstand Runde 20 (2026-09-30) ✅
+
+**W37 Sprung beim Verschieben behoben.** Ursache war die Eingangsanimation der
+Fenster: `.rise` animiert `transform` und endet mit `transform: none` – eine
+laufende/gefillte CSS-Animation gewinnt gegen den Inline-`transform` des Zugs, der
+Zug-Transform wurde also nie gezeichnet und das Fenster sprang erst beim Loslassen
+an die Cursor-Stelle. Fenster nutzen jetzt `.win-in` (nur Deckkraft, 150 ms);
+`.rise` bleibt für Dialoge. Belegt im DOM-Smoke: Während des Ziehens steht
+`transform: translate3d(120px, 100px, 0)`, nach dem Loslassen sitzt das Fenster
+mit `+120/+100` an der Zeigerstelle.
+
+**W38 Kein brauner Rand mehr.** Der „Werkbank"-Gradient aus oszi v2 (`BENCH_BG`,
+`#5b4a3a → #4a3b2e`) ist aus dem Oszi-Adapter entfernt (der FG hatte seinerseits
+einen selbst gebauten dunklen Verlauf – ebenfalls raus). Zusätzlich rechnet
+`DeviceFit` jetzt **ohne** künstlichen Rand (`avail = clientWidth/clientHeight`,
+`scale = min(1, …)`, 1-px-Epsilon), und `useWindowFit` misst das echte Fenster-
+Chrome per `getBoundingClientRect`-Differenz statt Pauschal 10/46 px. Ergebnis:
+Fenster = Gerät + 2 px Rahmen + Titelzeile, das Gehäuse füllt die Fläche bündig.
+
+**W39 Skalieren am Griff (nur unten rechts, deutlich besserer Griff).** 20 × 20 px
+Fangfläche mit sichtbaren Diagonalstrichen und `cursor: nwse-resize` (statt 14 px
+Dreieck). Geräte-Fenster (Oszi, FG-2500) skalieren **proportionsgesperrt**
+(Projektion des Zeigerdeltas auf die Diagonale, `fitAspect` = Fenstermaß im
+1:1-Zustand), Panels frei. Grenzen: **Maximum = Startgröße am Inhalt** (Entscheidung
+„nur verkleinern, max = Gerät" – kein Leerraum, Gerät bleibt ≤ 1:1), **Minimum**
+640 × 480 (Geräte, darunter nichts mehr bedienbar) bzw. 320 × 220 (Panels); ein
+teilweise außerhalb liegendes Fenster wird durch einen Zug nie ruckartig verkleinert.
+Wie beim Ziehen läuft die Vorschau per DOM/rAF, committet wird beim Loslassen.
+
+**W40 Globaler Fenstermanager für alle Fenster.** `Window` behandelt Ziehen,
+Skalieren, Docken, Minimieren, Fokus-Ebene, Klemme und den Fenster-Fit für **jedes**
+Instrument. `WINDOW_SPECS` (in `editor.ts`) bündelt je Art Entwurfsbreite + Höhen-
+Untergrenze; `openInstrument` setzt für **alle** Fenster `config.deviceFit = 0`,
+`minW`, `minH`, sodass beim Öffnen neu gemessen wird. Geräte melden ihr natürliches
+Maß über `DeviceFit` (Kontext `WindowFitContext`), Panels rendert der Manager einmal
+offscreen mit der Entwurfsbreite (`PanelProbe`, entfernt sich nach der Messung
+selbst) und nimmt das Maximum aus Messung und Untergrenze – danach ist jedes Fenster
+frei skalierbar. `restoreLocalProject` setzt Oszi-Fenster weiter auf das Gerätemaß
+(1422 × 726).
+
+**Verifikation (Runde 20, alles grün):**
+- `./node_modules/.bin/tsc --noEmit` clean · `npx --no-install eslint src` clean
+  (kein `eslint-disable`) · `npm test` alle PASS (410 Teile/2098 Pins) ·
+  `npx --no-install next build` ✓ (7/7 statisch)
+- DOM-Smoke (jsdom, danach gelöscht) – 8/8 PASS:
+  1. Fensterklasse `win-in` **ohne** `transform`-Animation (Sprung-Ursache weg),
+  2. Zug folgt live (`translate3d(120px, 100px, 0)`) und committet `+120/+100`,
+  3. Griff vorhanden (`cursor: nwse-resize`),
+  4. Zug nach außen gedeckelt auf exakt 1422 × 726 (Maximum = Gerät),
+  5. Verkleinern: 940 × 480 – Untergrenze 640 × 480, Seitenverhältnis exakt
+     1,9587 (Gerät),
+  6. Panel bis zur Startgröße gedeckelt (322 × 318),
+  7. Panel frei verkleinerbar bis 320 × 220,
+  8. kein Griff im Dock.
+- Dev-Server (Live-Vorschau) läuft auf Port 3000, `/` HTTP 200.
+
+**Hinweis:** In der Sandbox wurde `node_modules` zwischen zwei Runden geleert
+(Snapshot schließt `node_modules` aus); mit `npm ci` exakt aus `package-lock.json`
+wiederhergestellt – `package.json`/`package-lock.json` bleiben unverändert.
+
+## §21 — Runde 21: Fenstermanager nachgeschärft (Hintergrund, 4 Ecken, kein Aufblitzen)
+
+**Nutzer-Kritik (Runde 21):** „den Hintergrund jeweils möchte ich doch wieder haben,
+das sah schöner aus" · „doch eine 4 Ecken-Transformation" · „das Fenster blitzt nach
+dem Loslassen kurz an einer anderen Stelle auf" · „beim Skalieren bleiben die Geräte
+noch riesig, also eine minimale Größe scheint festgelegt zu sein" · „beim Oszi sind
+trotz weißem Hintergrund immer noch links und rechts zwei große Abstände".
+
+**Ursachenanalyse (belegt):**
+1. *Große Abstände am Oszi:* Der Fenster-Fit setzte die Größe aus dem **Naturmaß**
+   (1420×688). Ist der Bildschirm niedriger, begrenzt `DeviceFit` die Skalierung –
+   das Fenster blieb aber auf Naturmaß-Breite stehen, sodass das heruntergerechnete
+   Gehäuse zentriert in einer zu breiten Fläche saß (links/rechts Lücken).
+2. *„Minimale Größe festgelegt":* Die Untergrenze war 640×480. Auf knappen
+   Bildschirmen war das bereits die Startgröße; die Projektions-Untergrenze
+   `lo = max(minW/w, minH/h)` ergab dann genau 1 – das Fenster ließ sich **nicht**
+   mehr verkleinern.
+3. *Aufblitzen nach dem Loslassen:* Der Zug schrieb `transform` und stellte beim
+   Loslassen auf `left/top` um. In dem Moment, in dem `transform` geleert wurde,
+   bevor React mit der neuen Position gerendert hatte, zeigte die Ebene noch die
+   alte Position (klassisches Composited-Layer-Artefakt).
+4. *Hintergrund:* In Runde 20 wurden Werkbank-Gradient (Oszi) und FG-Verlauf
+   ersatzlos entfernt – Nutzerwunsch geht zurück auf „wieder haben".
+
+**Ask-User-Antworten (bindend, Runde 21, nachgefragt wo nötig):**
+1. Skalieren: **vier Ecken**.
+2. Geräte: Proportionen behalten (unverändert), nur verkleinern bis zum Gerät.
+3. Übrige Fenster: globale Behandlung, Startgröße am Inhalt, Panels frei skalierbar.
+
+**W42 Fensterbreite folgt der Skalierung.** `DeviceFit` meldet jetzt neben dem
+Naturmaß auch die **angezeigte** Größe (`dispW/dispH`); `fitWindowSize()` rechnet
+daraus Fenster = *angezeigtes* Gerät + Chrome. Auf knappen Bildschirmen geht die
+Breite mit, statt Lücken zu lassen. Sobald der Nutzer selbst an der Größe zieht
+(Größe ≠ gemerkte Fit-Größe), fasst der Fit nichts mehr an – nur noch die Grenzen
+werden gepflegt. Beim Laden eines Projekts werden Geräte-Fenster einmalig neu
+ausgerichtet (`deviceFit: 0`).
+
+**W43 Vier Eck-Griffe.** `resizeRect()` (neu: `src/lib/windows/geometry.ts`) rechnet
+Zug an NW/NE/SW/SE mit Anker in der **Gegen**ecke; Geräte-Fenster halten über die
+Diagonalprojektion exakt ihre Proportionen, Panels sind frei. Griffe 14 px (oben,
+damit die Titel-Knöpfe frei bleiben) bzw. 18 px (unten) mit passenden Cursorn
+(`nwse-resize`/`nesw-resize`). Untergrenze jetzt **320×240** (Geräte) bzw. 240×180
+(Panels) – auf knappen Bildschirmen bleibt Verkleinern dadurch tatsächlich möglich.
+Obergrenze bleibt die Startgröße am Inhalt („nur verkleinern, nie Leerraum").
+
+**W43b Kein Aufblitzen mehr.** Position und Größe laufen während Zug/Skalierung
+ausschließlich über `transform`/`width`/`height`; beim Loslassen werden **exakt
+dieselben Werte** ins DOM geschrieben und anschließend in den Store übernommen –
+es gibt keinen Frame mit abweichender Position mehr.
+
+**W44 Hintergrund zurück (Nutzerwunsch).** Oszi: `BENCH_BG` (Werkbank-Gradient aus
+oszi v2) wieder aktiv; FG: eigener dunkler Verlauf wieder aktiv. Damit der Look
+„schöner Rahmen" statt „Lücke" ist, sitzt das Gerät in einem schmalen, symmetrischen
+Werkbank-Rahmen (`BENCH_PAD = 12`, im Fit als `pad` enthalten, Innenabstand in den
+Adaptern) – Fenster = Gerät + 2×12 + Chrome.
+
+**Verifikation (Runde 21):**
+- `./node_modules/.bin/tsc --noEmit` clean · `npx --no-install eslint src scripts`
+  clean · `npm test` alle PASS (**neu: `scripts/windowtest.ts`** – 14 Prüfungen der
+  Fenster-Geometrie: Startgröße mit/ohne Werkbank-Rahmen, knapper Bildschirm
+  (Breite 1352 bei Höhe 692), Vier-Ecken-Anker, Proportionen, Deckel = Gerät,
+  Bildschirmklemme, Panel-Mindestmaß) · `npx --no-install next build` ✓ (7/7).
+- DOM-Smoke (jsdom, danach gelöscht), 6/6 PASS: vier Eck-Griffe mit korrekten
+  Cursorn, Position über `transform`, NW-Zug mit Anker in der Gegenecke und
+  Proportion, Deckel 1446×750 (Gerät + Rahmen), tiefes Verkleinern auf 463×240,
+  und – für das Aufblitzen entscheidend – nach dem Loslassen steht **derselbe**
+  Transform-Wert im DOM wie im Store.
+- Dev-Server (Live-Vorschau) auf Port 3000, `/` HTTP 200.
+
+## §22 — Runde 22: Geräte-Prüfung Oszi + FG-2500 (Aufdruck vs. Bildschirminhalt)
+
+**Nutzer-Befunde (Runde 22):** (1) FG: gesteckte Leitung wird am Gerät nicht angezeigt –
+„da wurde glaube ich nicht ganz portiert". (2) Oszi: die Beschriftung unter den BNC-Buchsen
+ändert sich je nach Netz/Kanal – soll sie nicht. **Regel des Nutzers: „bei den Geräten darf
+sich nur der Bildschirminhalt ändern und nicht das, was in echt nur aufgedruckt ist – die
+Hardware soll sich nicht ändern."** (3) FG-Drehknopf klingt beim schnellen Drehen „komisch
+und ruckelt". (4) Oszi Single/Stop: Skalierungsänderung erzeugt aus einem Signal eine
+0-V-Linie, „wie wenn die Simulation im Aus-Zustand beim Anpassen neu gemessen wird".
+
+**Ursachenanalyse (belegt im Code):**
+1. *Oszi-Aufdruck:* `src/components/oszi2/Oscilloscope.tsx` Z. 636 druckt
+   `sourceLabel(p.target) · {p.atten}X` unter jede Buchse. Mit der Multispice-Verdrahtung
+   wird `p.target` zum **Netznamen** (N001 …) – im Original stand dort ein fester
+   Prüfpunkt (TP1/GEN/COMP). Also: Portierungsfehler, nicht Originalverhalten.
+2. *Single/Stop-Neumessung:* `Engine.step()` hat einen `run === 'stop'`-Zweig, der bei
+   `keyChanged` (Änderung von `s.ch`, `s.tdiv`, `s.hDelay`, `acq.mode`, **`env.probes`**)
+   **neu akquiriert**. `settingsKey()` enthält u. a. `env.probes`; `connectProbeWire`
+   schreibt die Verdrahtung um → Key ändert sich → im Stop/Single wird neu gemessen –
+   bei pausierter Simulation also 0 V. Ein echtes Oszi nutzt im Stop den **Speicher**.
+3. *FG-Drehknopf:* `Knob.onTurn` erzeugt pro Raste einen eigenen WebAudio-`uiTick()`
+   (`for i < Math.min(|steps|, 6)`). Beim schnellen Drehen (Trackpad/Mausrad liefert
+   große Deltas) starten alle Rastgeräusche **gleichzeitig** → Phasing/Verzerrung, und
+   das Rendering läuft pro Mausrad-Event (kein rAF, keine Batchung) → Ruckeln.
+4. *FG-Kabel:* Der Port hat `CableLayer`/`cables.ts` bewusst weggelassen (Patchfeld der
+   Demo). Ersetzt werden soll das nur für die Anzeige „hier steckt eine Leitung" –
+   weiterhin Tooltip + jetzt sichtbarer Stecker.
+
+**Ask-User-Antworten (bindend, Runde 22):**
+1. Oszi-Buchsen: **fest „CH1…CH4"**; die Dämpfung (1X/10X) wandert als Etikett auf den
+   **Stecker**.
+2. Netzname: **nur im Tooltip** (Hardware unverändert), kein Text im Display.
+3. FG-Kabel: **Stecker + Kabelstummel + Original-Steckgeräusche** (`uiPlug`/`uiUnplug`).
+4. Oszi Stop/Single: **Datensatz halten** – V/div ändert nur den Maßstab des
+   gespeicherten Signals, t/div wird im Stop ignoriert, neu gemessen erst wieder mit Run.
+
+**W45 Oszi-Aufdruck fest.** Unter der BNC steht `CH1…CH4`; der Stecker (bzw. die freie
+Buchse) trägt das Dämpfungs-Etikett `1X`/`10X`. Netzverbindung weiterhin nur im Tooltip
+und im Bildschirminhalt (MATH/Cursor/Mess-Quellen dort wie gehabt).
+
+**W46 Stop/Single hält den Datensatz.** `settingsKey()` ohne `env.probes` und ohne
+`s.ch`; im Stop-Zweig wird **nicht** neu akquiriert (nur der gespeicherte Datensatz
+gerendert, V/div/Position als reine Darstellung). Neu messen erst bei Run/Single.
+
+**W47 FG-Drehknopf.** Rastgeräusche werden ge-batcht (max. 1 pro ~28 ms, harte Grenze),
+die Drehung wird pro Frame (rAF) verrechnet statt pro Event – kein gleichzeitiges
+Anschlagen vieler Ticks mehr, gleichmäßiger Klang und flüssige Bewegung.
+
+**W48 FG-Stecker sichtbar.** `FgScope` leitet aus der Netzliste ab, welche Buchse belegt
+ist (Netz = `netResult.pinNets[instId:pin]`, `*_nc*`/`0` = frei, wie beim Patchfeld);
+das Panel zeichnet Stecker + Kabelstummel (`Plug`) an belegten Buchsen, hält die
+Trefferfläche der Buchse frei (Klick bleibt am Panel) und spielt beim Stecken/Ziehen
+`uiPlug`/`uiUnplug`.
+
+**Verifikation:** Pflicht-Checks (tsc/eslint/npm test/build) + neue Scratch-Tests:
+Engine-Test (Stop + geänderte vdiv → gleicher Datensatz, Run → neue Akquise) und
+Panel-Test (Buchsen-Aufdruck fest, Stecker nur bei belegter Buchse).
+
+### §22.1 — Umsetzungsstand Runde 22 (2026-09-30) ✅
+
+**W45 Oszi-Aufdruck ist fest.** Unter den BNC-Buchsen steht jetzt immer `CH1…CH4`
+(vorher `sourceLabel(p.target) · {p.atten}X`, mit der Verdrahtung also der Netname
+wie „N001 · 10X" – ein Portierungsfehler). Das Dämpfungs-Etikett `1X`/`10X` wanderte
+wie am echten Tastkopf **auf den Stecker** (farbiger Aufdruck auf dem Steckergehäuse),
+der Netname steht nur noch im Tooltip. Im DOM-Smoke belegt: sichtbarer Text enthält
+„CH1…CH4" und kein „N001", der Tooltip schon.
+
+**W46 Stop/Single hält den Datensatz.** Ursache: `Engine.step()` akquirierte im
+`run === 'stop'`-Zweig bei jedem `keyChanged` neu, und `settingsKey()` enthielt
+`env.probes` (die Verdrahtung) – schon ein umgesteckter Tastkopf löste also eine
+Neumessung aus (bei pausierter Simulation: 0 V). Jetzt: `settingsKey` ohne
+`env.probes`, und der Stop-Zweig misst grundsätzlich **nicht** neu; V/div und
+Position wirken nur als Darstellung auf den gespeicherten Datensatz. Neu aufgenommen
+wird erst bei Run/Single. Test (`tsx`, danach gelöscht): im Stop ändern Skalierung
+und Umstecken nichts (Datensatz identisch, `newAcq = false`), Run nimmt wieder auf.
+
+**W47 FG-Drehknopf ruckelt/klingt nicht mehr komisch.** Zwei Ursachen: (a) pro Raste
+ein eigenes WebAudio-`uiTick()` – beim schnellen Drehen schlugen bis zu sechs Ticks
+gleichzeitig an (Phasing/Verzerrung); (b) pro Mausrad-Event ein React-Update und ein
+`turn()`-Aufruf. Jetzt: höchstens ein Rastgeräusch je 28 ms, Rasten werden gesammelt
+und **einmal pro Frame** verrechnet (Mausrad und Ziehen) – gleichmäßiges Ratscheln,
+flüssige Bewegung.
+
+**W48 FG-Stecker sichtbar (Portierungs-Nachtrag).** Der Port hatte `CableLayer`/
+`cables.ts` bewusst weggelassen (Patchfeld der Demo) – dadurch war an den Buchsen
+nicht zu sehen, ob eine Messleitung steckt. `FgScope` leitet die Belegung aus der
+Netzliste ab (`instId:0/1`, `*_nc*`/`0` = frei) und das Panel zeichnet an belegten
+Buchsen einen **BNC-Stecker mit Kabelstummel** in Aderfarbe (`fg2/CablePlug.tsx`,
+reine Anzeige, `pointer-events: none` – der Klick bleibt an der Buchse). Beim Abziehen
+(Aufnehmen) bzw. Aufstecken (Zurücklegen) spielen die **Original-Steckgeräusche**
+`uiUnplug`/`uiPlug`.
+
+**Nutzerregel umgesetzt:** „nur der Bildschirminhalt darf sich ändern, nicht der
+Aufdruck." Deshalb entfiel auch die in Runde 19 gebaute dynamische Beschriftung unter
+den FG-Buchsen („→ N001"/„offen"); Verbindung zeigt jetzt der Stecker, der Netname
+steht im Tooltip. „in der Hand" bleibt als Bedien-Rückmeldung (wie das aufleuchtende
+Lämpchen), ebenso die LEDs der Tasten.
+
+**Verifikation (Runde 22):**
+- `./node_modules/.bin/tsc --noEmit` clean · `npx --no-install eslint src scripts`
+  clean · `npm test` alle PASS (inkl. 14 Fenster-Geometrie-Prüfungen) ·
+  `npx --no-install next build` ✓ (7/7 statisch)
+- Scratch-Tests (danach gelöscht), 10/10 PASS: Engine hält im Stop den Datensatz
+  (Skalierung + Umstecken ohne Neuaufnahme, Run nimmt wieder auf); DOM-Smoke: Aufdruck
+  `CH1…CH4` fest, kein Netname im sichtbaren Text, Netname im Tooltip, Dämpfungs-Etikett
+  am Stecker, FG-Stecker nur bei echter Verbindung (nicht bei `0`/offen).
+- Portierungs-Notizen gelesen: `function generator/PORTING.md` (Abschnitt „Patchfeld/
+  Messleitungen" und „Frontpanel-Realismus" = Grundlage für W47/W48). Eine
+  Portierungs-MD zu `oszi v2/` liegt im Repo **nicht** vor (nur die FG-Datei) – die
+  Oszi-Regeln (Aufdruck fest, Stop = Speicher) sind aus dem 1:1-Code von `oszi v2`
+  abgeleitet und im Audit dokumentiert.
+
+## §23 — Bestandsaufnahme Runde 23 (nur Analyse, keine Änderung am Verhalten)
+
+**Auftrag:** „Leitungsverlegung und Bauteilanordnung — mach dir selber ein Bild, vielleicht
+findest du schon das, was ich meine (noch nichts ändern)." Untersucht wurden Code
+(`Canvas.tsx`, `state/editor.ts`, `lib/schematic/*`) und das Verhalten über einen
+Scratch-Lauf gegen die Store-/Modell-API (Zahlen unten sind gemessen, nicht geschätzt).
+
+### Leitungsverlegung
+
+**L1 · Raster-Falle im Auto-Router (schwer).** `routeOrthogonal()` (tools.ts) rastet
+Start **und** Ende immer auf das 10-px-Raster — unabhängig vom Schalter „Raster
+einrasten" (der nur den Mauszeiger betrifft). Liegt ein Pin nicht auf dem Raster
+(Bauteil mit ⇧+G frei gezogen, importiert, per JSON gesetzt), beginnt/endet die
+Leitung bis zu ~7 px daneben. Messung: Pins bei (273,197)/(473,203) → Leitung
+(270,200)…(470,200), Abstand je 4,2 px, Netze **beide `_nc`** – die Leitung hängt in
+der Luft, ohne Warnung. Mit `autoRoute = false` wird die L-Route aus den exakten
+Pins gebaut (dann verbunden, aber ggf. quer durchs Symbol).
+
+**L2 · Kein Verbindungspunkt (Junction) gezeichnet.** Verbindungen entstehen im
+Modell über gleiche Koordinaten **und** über Punkte, die auf einem Segment liegen
+(`pointOnSegment`, model.ts) — gezeichnet werden aber nur Polylinien. Messung:
+Leitung endet mitten auf einer anderen → Netz `N001` (elektrisch verbunden), aber kein
+Punkt im Bild. Damit ist optisch nicht unterscheidbar, ob ein T-Kontakt verbunden ist
+oder eine Kreuzung nur aussieht wie eine Verbindung. Kreuzt eine Leitung eine andere
+genau in einem Knickpunkt, sind sie sogar verbunden, ohne dass es sichtbar wäre.
+
+**L3 · Keine Leitungs-Hygiene.** Zweimal dieselben Pins verbinden → zwei Leitungen
+zwischen denselben Punkten (0 Fehler, 0 Warnungen); zweimal derselbe Pin → Leitung mit
+zwei identischen Punkten (Länge 0). Es gibt kein „Aufräumen"/„redundante Leitung
+entfernen", und `buildNets` prüft nur unbekannte Bauteile, Faults, fehlende Masse und
+„keine simulierbaren Teile".
+
+**L4 · Bearbeitung nur punktweise.** Es lassen sich nur einzelne Stützpunkte ziehen
+(mit Führungslinien/Snap); kein Segment-Verschieben, kein Punkt einfügen/entfernen per
+Doppelklick, kein Orthogonalisieren/Glätten, kein Warnen beim Abreißen einer
+Verbindung. Offene Pins sind im ERC nicht gemeldet; ERC-Marker werden per
+Textsuche an Bauteile geheftet (Fehlerobjekte sind Strings ohne Koordinaten).
+
+**L5 · Was funktioniert.** Der A*-Router umgeht Bauteile nachweislich (Test: Hindernis
+in der Mitte → Route läuft darunter durch, die einfache L-Route würde schneiden);
+Leitungen führen beim Verschieben eines Bauteils rechtwinklig nach (`orthoFollow`,
+W2/W26, Hindernis-Ausweichen für die Knickvariante); beim Ziehen eines Punktes
+erscheinen Ausrichtungs-Führungen.
+
+### Bauteilanordnung
+
+**B1 · Drehen/Spiegeln reißt die Verdrahtung ab (schwer).** `rotateSelection`/
+`mirrorSelection` ändern nur `rot`/`mirror`; Leitungen werden nicht nachgeführt.
+Messung: Pin (270,200) → nach 90° (300,170), Leitungsende bleibt bei (270,200) →
+42,4 px Abstand, Netz kippt von `N001` zu `r1_nc0`. Keine Warnung, kein Hinweis.
+
+**B2 · Keine Kollisions-/Überlappungsprüfung.** Zwei Bauteile exakt übereinander
+(identische BBoxen) → 0 Fehler, 0 Warnungen; Ziehen erlaubt das jederzeit.
+
+**B3 · Keine Ausricht-/Verteil-/Aufräum-Befehle.** Menü „Bearbeiten" bietet nur
+Undo/Redo, Kopieren/Einfügen/Duplizieren, Alles auswählen, Löschen. Es fehlen
+Ausrichten (links/oben/mitte), Verteilen/gleicher Abstand, Aufräumen/Auto-Layout,
+„Leitungen neu verlegen". Vorhanden ist immerhin das Figma-artige Führungslinien-
+Einrasten beim Ziehen (Kanten/Mitten, Schwelle 8 px).
+
+**B4 · Einfügen immer +20/+20 px.** `pasteClipboard`/`duplicateSelection` verschieben
+starr um 20 px (2 Raster), d. h. die Kopie kann auf einer Nachbar-BBox landen; bei
+mehrfachem Einfügen gibt es keine Kaskade.
+
+**B5 · Platzierung.** Über die Bibliothek rastet die Platzierung im Canvas ein; der
+Store (`addInstance`) rastet nicht → programmatische/importierte Platzierung kann
+krumme Koordinaten erzeugen (siehe L1).
+
+### Nebenbei aufgefallen (nicht angefasst)
+- `oszi v2/PORTIERUNG.md` lag im main-Branch (dort per „Add files via upload"
+  nachgereicht) und wurde in unseren Branch übernommen — damit ist die Doku im
+  Branch vorhanden und gelesen.
+- **Abweichung zur Doku (bewusst, Nutzerentscheidung R22):** §10.1/§10.2 der
+  PORTIERUNG.md sagt „`settingsKey` serialisiert `env.probes` … Beibehalten" und „im
+  Stop wird bei geänderten Settings neu erfasst". Runde 22 hat auf Nutzerwunsch das
+  Gegenteil umgesetzt (Stop hält den Datensatz, `env.probes` ist aus dem Key
+  entfernt). Eine doku-konforme Variante wäre: `probes` im Key lassen, aber im Stop
+  nur dann neu erfassen, wenn die Simulation läuft (dann gäbe es keine 0-V-Linie aus
+  pausierter Simulation und trotzdem die von der Doku gewünschte Neuaufnahme).
+  Entscheidung offen.
+
+## §23.1 — Fixplan Runde 23: Leitungsverlegung + Bauteilanordnung
+
+**Auftrag:** „Plane die Fixes und arbeite sie der Reihe nach ab, wichtigste zuerst."
+Reihenfolge deshalb nach Risiko: erst, was die Elektrik still falsch macht, dann
+Optik/Bedienung. Jeder Block wird einzeln verifiziert (tsc, eslint, `npm test`, build).
+
+### Neue Messung vorweg (verschärft L1 erheblich)
+Die **Beispielschaltungen sind teils elektrisch tot**: In den 8 `PRESETS` liegen 67 von
+220 Leitungsenden 2–9 px neben dem Pin (die Beispiele wurden mit gerundeten Koordinaten
+geschrieben, die Pins liegen aber nicht immer auf dem 10er-Raster). Folge laut `buildNets`:
+`astable555` = 8 von 17 Netzen ohne Verbindung, `logic-counter` = 6 Netze ganz ohne Pin.
+Prototyp „Enden auf Pins rasten" (Toleranz 15 px, Geometrie bleibt orthogonal, gemessen):
+**0 leere Netze in allen 8 Beispielen**, `astable555` nc 8→1, `logic-counter` nc 20→4 (Rest
+= echte unbeschaltete Bauteil-Pins).
+
+**Korrektur zur Bestandsaufnahme §23/L4:** „kein Punkt einfügen/entfernen" war falsch —
+Doppelklick auf ein Segment fügt einen Stützpunkt ein, Doppelklick auf einen Griff löscht
+ihn. Offen sind nur Segment-Verschieben und ein Aufräum-/Begradigungsbefehl.
+
+### Stufe A — elektrisch (unsichtbare Fehler zuerst)
+- **W49 · Leitungsenden an Pins rasten (L1).** Neues `snapWiresToPins(doc, tol)` in
+  `model.ts`: jedes Leitungsende, das ≤ 15 px neben einem Pin liegt, wandert exakt auf den
+  Pin, das Nachbarsegment wird orthogonal mitgezogen (Knick einfügen oder Nachbarpunkt
+  verschieben). Angewendet auf Beispiele (`PRESETS`) und Importe (SPICE/LTspice) mit
+  Logzeile „N Leitungsenden an Pins ausgerichtet". Gespeicherte Nutzerdokumente werden
+  **nicht** still verändert. Zusätzlich: `addInstance` rastet aufs Raster (B5).
+- **W50 · Auto-Router exakt am Pin (L1).** `routeOrthogonal` rastet nicht mehr absolut aufs
+  Raster, sondern legt das Gitter durch den Startpunkt (Offset-Gitter) und hängt am Ende
+  ein kurzes, exaktes L bis zum Pin an (Variante ohne Bauteilschnitt gewählt). Damit gibt
+  es keine 2–9-px-Lücken mehr, auch bei Off-Grid-Pins.
+- **W51 · Netzprüfung sichtbar (L1/L3).** `buildNets` meldet zusätzlich: „Leitungsende ohne
+  Anschluss", „Leitung ohne Länge" (2× derselbe Punkt), „Leitung doppelt vorhanden"
+  (gleiche Endpunkte/Geometrie) – gedeckelt, damit das Fehlerfenster lesbar bleibt. Offene
+  Enden bekommen zusätzlich eine kleine Markierung auf dem Canvas (offener Kreis), damit der
+  Fehler dort auffällt, wo er entsteht.
+- **W52 · Drehen/Spiegeln zieht Leitungen nach (B1).** `rotateSelection`/`mirrorSelection`
+  merken sich die Pin-Positionen vor der Transformation, setzen betroffene Leitungsenden auf
+  die neuen Pin-Positionen und führen die Knicke orthogonal nach (Hindernis-Ausweichen wie
+  W2/W26). Bleibt ein Ende ohne Pin, wird es als offen markiert (Warnung) statt still zu
+  brechen.
+
+### Stufe B — Optik/Bedienung
+- **W53 · Verbindungspunkte zeichnen (L2).** `buildNets` liefert die Punkte, an denen
+  elektrisch ≥ 3 Anschlüsse zusammenkommen (T-Kontakt, Kreuzung, Pin auf Segment); der
+  Canvas zeichnet dort gefüllte Punkte in Leitungsfarbe. Damit ist ein T sichtbar verbunden
+  und eine Kreuzung nicht mehr „unsichtbar verbunden".
+- **W54 · Segment verschieben (L4).** Ein Segment lässt sich (abseits der Griffe) greifen
+  und senkrecht zu seiner Richtung ziehen; die Nachbarsegmente strecken sich, Raster-Snap
+  und Undo inklusive.
+- **W55 · Anordnen/Aufräumen (B3/B4).** Menü „Bearbeiten": Ausrichten (links/rechts/oben/
+  unten/mitte waagerecht/mitte senkrecht), Verteilen (waagerecht/senkrecht), „Leitungen
+  begradigen" (Stützpunkte aufs Raster, Segmente exakt orthogonal). Einfügen bekommt eine
+  Kaskade: die Kopie landet nicht mehr auf der Vorlage.
+- **W56 · Rest (B2/B5).** Überlappungswarnung, wenn zwei Bauteile sich fast deckungsgleich
+  überlagern; `addInstance` rastet (siehe W49).
+
+## §23.2 — Umsetzung Runde 23 (W49–W56, alles verifiziert)
+
+**Reihenfolge wie geplant:** erst die elektrisch gefährlichen Sachen (A), dann Optik/Bedienung
+(B). Verifikation: `tsc --noEmit` ✓, `eslint src scripts` ✓ (0 Treffer), `npm test` ✓
+(neu dabei: `scripts/wiretest.ts`, 39 Prüfungen), `next build` ✓.
+
+### Stufe A — elektrisch
+- **W49 · `snapWiresToPins` (model.ts, Toleranz 15 px).** Enden ≤ 15 px neben einem Pin
+  wandern exakt auf den Pin, das Nachbarsegment wird orthogonal mitgezogen
+  (`attachWireEnd` + `cleanWirePoints`). Angewendet beim Erzeugen der Beispiele und nach
+  SPICE-/LTspice-Import; gespeicherte Nutzerdokumente bleiben unangetastet (dort repariert
+  auf Wunsch der Menüpunkt **„Leitungen prüfen & reparieren"**). `addInstance` rastet
+  jetzt ebenfalls aufs Raster (B5).
+  - Wirkung, gemessen: die 8 Beispiele hatten **67 von 220 Leitungsenden 2–9 px neben dem
+    Pin**; `astable555` 8 von 17 Netzen ohne Verbindung, `logic-counter` 6 Netze ganz ohne
+    Pin, `buck` hatte den **MOSFET-Drain nicht an der Versorgung**. Nach dem Rasten:
+    `openEnds = 0`, keine leeren Netze, alle Beispiele mit echten Netzen
+    (`logic-counter` 35 → 15 Netze = die vorher getrennten Teile sind jetzt verbunden).
+  - Datenfehler, die die neue Prüfung gefunden hat und die behoben sind: VCC-Schiene in
+    `astable555` endete bei x = 700 im Nichts (jetzt bis zum letzten Abzweig 500).
+- **W50 · Auto-Router endet exakt am Pin.** Das A*-Gitter wird vom Startpunkt aufgespannt
+  (Offset-Gitter statt absolutem Raster) und der Gitterpunkt am Ende wird **in
+  Startrichtung** gewählt; die kurzen Reststrecken (≤ halbe Rasterweite) werden als
+  exaktes L angeschlossen, Variante ohne Bauteilschnitt. Nachweis: Pins (273,197)/(473,203)
+  ⇒ Route beginnt/endet exakt dort, bleibt orthogonal, umgeht die BBox; auf dem Raster
+  unverändert gerade.
+- **W51 · Netzprüfung sichtbar.** `buildNets` meldet zusätzlich „Leitungsende ohne
+  Anschluss (x, y) – hängt in der Luft", „Leitung ohne Länge", „Leitung doppelt vorhanden"
+  (gedeckelt auf 12 + Sammelzeile) und liefert `openEnds` an den Canvas, der offene Enden
+  als kleinen roten Kreis markiert (nicht während des Ziehens). Testfall mit 6 Leitungen:
+  4 offene Enden, alle drei Warnungsarten erkannt.
+- **W52 · Drehen/Spiegeln reißt nicht mehr ab.** Vor der Transformation werden die
+  Pin-Positionen festgehalten (`collectPins`), Leitungsenden darauf exakt neu gesetzt
+  (`reattachWiresToPins`, orthogonal nachgezogen) und die Zahl der mitgeführten Enden
+  geloggt. Nachweis: nach 90° sitzen beide Enden exakt auf den neuen Pins, Netz bleibt
+  verbunden (vorher 42,4 px Lücke, Netz `r1_nc0`).
+
+### Stufe B — Optik/Bedienung
+- **W53 · Verbindungspunkte.** Die alte Punkte-Heuristik („derselbe Punkt in ≥ 2 Leitungen")
+  ist ersetzt: `buildNets` liefert echte Verbindungspunkte (Grad ≥ 3: T-Kontakt, Kreuzung,
+  Pin auf Leitung), Canvas zeichnet sie bildschirmkonstant. Eine Ecke aus zwei
+  Leitungsenden ist bewusst **kein** Punkt. Beispiele: 15 Verbindungspunkte, 0 Fehlpunkte.
+- **W54 · Segment verschieben.** Segment greifen und senkrecht ziehen (Raster-Snap,
+  Nachbarsegmente strecken sich, Undo-fähig, neuer Store-Befehl
+  `setWireSegmentOffset`). `Alt`-Ziehen behält das bisherige Mitziehen der ganzen Auswahl;
+  in einer Mehrfachauswahl mit Bauteilen bleibt es ebenfalls beim Verschieben der Auswahl.
+- **W55 · Anordnen/Aufräumen.** Neu im Menü „Bearbeiten": Ausrichten (links/oben/mittig),
+  Verteilen (gleicher Abstand), **Leitungen begradigen (⇧L)** und **Leitungen prüfen &
+  reparieren**. Das Kontextmenü von Bauteilen bietet den vollen Satz (⇤ ⇥ ⇧ ⇩ ↔ ↕ +
+  Verteilen waagerecht/senkrecht), das Kontextmenü einer Leitung jetzt echtes „Leitung
+  begradigen (Raster + rechte Winkel)" statt des alten Mittelpunkte-Wegwerfens. Einfügen
+  bekommt eine Kaskade: +20 px pro weiterer Einfügung und zusätzlich so lange weiter, bis
+  die Kopie auf keinem fremden Bauteil mehr liegt.
+- **W56 · Überlappungswarnung.** Bauteile, die sich zu ≥ 90 % überdecken, werden gemeldet
+  (Schwelle bewusst streng: angrenzende Symbole wie Masse an der Quelle sind normal und
+  lösen nicht aus – geprüft, alle 8 Beispiele warnungsfrei).
+
+### Neue Befunde (aus der Reparatur sichtbar geworden, nicht in dieser Runde gefixt)
+- **`buck`-Beispiel rechnet nicht durch.** Nach der Reparatur ist der Schaltregler
+  elektrisch korrekt verdrahtet (vorher hing der MOSFET-Drain in der Luft, deshalb
+  „konvergierte" die Analyse über getrennte Teilnetze). Jetzt bricht die Transientenanalyse
+  mit „Keine Konvergenz (Newton-Raphson Grenze erreicht)" ab – geprüft mit Schrittweiten
+  von 2e-5 bis 5e-7 s, mit 2 kHz/5 kHz PWM, mit langsameren Gate-Flanken und mit
+  stärkerem FET: immer derselbe Abbruch. Das ist ein **Simulationskern-Thema** (steifes
+  Schalten von MOSFET + Schottky-Diode im Fest-Schritt-MNA), kein Verdrahtungsfehler →
+  offener Punkt für eine eigene Runde; `scripts/presettest.ts` (nicht Teil von `npm test`)
+  zeigt es.
+- `emitterschaltung`: Masse-Symbol grenzt direkt an die Quelle (84 % Überdeckung) – bewusst
+  unter der Meldeschwelle, optisch unauffällig.
+
+---
+
+## §24 — Runde 24: Kreuzungen wie in Multisim, Oszi-Doku mit Standbild, buck-Konvergenz
+
+**Auftrag (wörtlich):** „das mit den kreuzungen soll so wie in multisim sein" · „die doku soll
+eingehalten werden mit ausnahme wenn das bild steht, also bei stop oder single. wie bei einem
+echten oszi halt." · „Bitte finde danach die Ursache für deinen Befund den du genannt hast. Und fixe
+ggf." · „Bitte beachte, dass du alles, was du machst dokumentiert werden soll."
+
+**Reihenfolge:** erst die Ursache des buck-Befunds (blockiert das Vertrauen in den Simulator), dann
+das Kreuzungsmodell (ändert die Netze), dann die Oszi-Akquise. Verifikation: `tsc --noEmit` ✓,
+`eslint src scripts` ✓, `npm test` ✓ (jetzt inkl. `scripts/ozsitest.ts` + `scripts/presettest.ts`),
+`next build` ✓.
+
+### 24.1 · buck-Konvergenz — Ursachen und Fixes (W57–W59, `src/lib/sim/engine.ts`)
+
+Der in §23.2 als offener Punkt notierte Abbruch („Keine Konvergenz (Newton-Raphson Grenze
+erreicht)", FAIL t = 2,51e-4 s) hatte **drei** Ursachen; alle drei sind behoben.
+
+- **W57 · Dioden-Stamp mit Bahnwiderstand `rs` war zahlenmäßig kaputt.**
+  Vorher: `geff = 1/(1/gd + rs)` und `ieqEff = (id − gd·vd)·(geff/gd)`. Bei großen Strömen ist
+  `id − gd·vd` die Differenz zweier riesiger Zahlen → die Kennlinie wurde grob falsch.
+  Nachweis (`scripts/_tmp_bucktrace2.ts`, dt 1 µs): bei gate = 0 (t = 221 µs) sprang der
+  Schaltknoten auf **SW = −5,401 V** und `extra.id` stand still auf **0,272 A**, obwohl 6,05 A
+  durch die Spule flossen — die 1N5819 fiel also mit 5,4 V ab statt ≈ 1 V.
+  Fix: die innere Sperrschichtspannung `vj` wird so bestimmt, dass `vd = vj + I(vj)·rs` gilt
+  (Newton auf eine Unbekannte, ≤ 50 Schritte, danach das übliche `pnjlim`); gestempelt wird
+  `geff = 1/(1/gd + rs)`, `ieqEff = id − geff·vd`, Zustand `extra.vj`. Nachher an derselben
+  Stelle: **SW = −1,038 V bei 6,426 A** = vj (≈ 0,4 V) + 6,43 A · 0,1 Ω — physikalisch richtig.
+- **W58 · fehlende Drain-Source-Klemmung im MOSFET.** Ohne sie machte der Newton-Schritt zwischen
+  den Iterationen Sprünge von 24 V auf −257 V (Oszillation FET ↔ Diode). Fix: `limvds(vnew, vold)`
+  nach SPICE3 direkt vor `fetlim`; im M-Fall wird `vds` geklemmt und als `limited` gemeldet.
+- **W59 · Divergenz wurde als Konvergenz akzeptiert.** `converged()` prüfte nur *relative*
+  Toleranzen — je größer der Wert, desto leichter „konvergiert". Dadurch konnte ein entgleister
+  Schritt mit 1e17 V als gültig durchgehen (der Buck „lief" bei 2e-6 s bis ±1e18 V). Zwei Fixes:
+  1. **SANE_LIMIT = 1e9:** Knotenspannungen/Ströme über 1e9 gelten als Nicht-Konvergenz → der
+     Schritt wird verworfen und kleiner wiederholt.
+  2. **Zustands-Rollback (`savePoint`/`restorePoint`):** ein verworfener Schritt startet wieder
+     exakt beim letzten akzeptierten Zustand (`x`, `vprev`, `extra`, `outputs`), vorher lief er aus
+     dem entgleisten Iterationsstand weiter.
+
+**Messung (`scripts/_tmp_buckcheck.ts`, `runTransient`, stopTime 20 ms, VOUT/SW/N002):**
+
+| stepTime | vor W57–W59 | nach den Fixes |
+|---|---|---|
+| 2e-5 s | FAIL (5 steps/11 rej, Endwert 4,81 V) | OK · 1003 steps/2 rej · Endwert **9,92 V** |
+| 1e-5 s | FAIL | OK · 2008/5 · **9,81 V** |
+| 2e-6 s | „OK", aber VOUT ±1e18 (Endwert −3,6e17) | OK · 10034/25 · **11,09 V** |
+| 1e-6 s | FAIL | OK · 20007/6 · **10,81 V** |
+
+Dazu die beiden Dauerläufe: adaptiver Schritt bis 20 ms **ohne Boom**, fester Schritt 2e-6
+über 40 000 Schritte **ohne Boom** (vorher Ausreißer auf SW = −3,58e17 bei t = 2,3 ms).
+`scripts/presettest.ts` ist jetzt grün: `PASS buck … tran=true | N001:23.99..24.00 N002:0.00..34.00
+SW:-1.35..24.00 VOUT:0.23..16.08`. Beide Prüfskripte sind in `npm test` aufgenommen; die
+Temporärskripte (`_tmp_buck*.ts`) werden vor dem Commit gelöscht.
+
+### 24.2 · Kreuzungen wie in Multisim (W61)
+
+Bisher galt: **jeder** Leitungs-Stützpunkt, der auf einer fremden Leitung lag, war leitend —
+ohne Punkt im Bild, also unsichtbar verbunden. Jetzt gilt die Multisim-Regel: **nur mit Punkt
+ist die Kreuzung leitend.**
+
+- **Modell** (`src/lib/schematic/model.ts`): neues `SchematicDoc.junctions` (Liste ausdrücklicher
+  Verbindungspunkte). `buildNets` verbindet nur noch an **Anschlussstellen**: Leitungsenden, Pins,
+  Netzlabels und gesetzten Verbindungspunkten. Ein Knick mitten in einer Leitung ist keine
+  Anschlussstelle — kreuzen sich dort zwei Leitungen, bleiben die Netze getrennt. Die Ausgabe
+  `junctions` liefert die Punkte fürs Zeichnen (T-Kontakte automatisch, ausdrückliche Punkte immer;
+  ein Punkt ohne Leitung wird gemeldet).
+- **Zeichnen** (`src/state/editor.ts`): `addWire` setzt automatisch einen Punkt, wenn ein
+  Leitungsende auf einer anderen Leitung landet (T-Kontakt). Eine Überkreuzung erzeugt keinen
+  Punkt. Dieselbe Automatik greift, wenn ein Bauteil beim Setzen automatisch an eine bestehende
+  Leitung angeschlossen wird.
+- **Kontextmenü** (Canvas, Leitung): an einem Treffpunkt zweier Leitungen erscheint
+  **„Verbindungspunkt setzen (Kreuzung verbinden)"** bzw. **„…entfernen"**; der Store-Befehl
+  `toggleJunction` schnappt auf den exakten Treffpunkt (`wireJunctionCandidates`).
+- **Kopieren/Einfügen** nimmt die Punkte auf den kopierten Leitungen mit.
+- **Altbestand** (`src/lib/storage.ts`): `isDoc` akzeptiert das neue Feld; `migrateDoc` trägt beim
+  Laden an allen Stellen einen Punkt nach, die vorher tatsächlich leitend waren (Stützpunkt auf
+  fremder Leitung). Eine reine Kreuzung mitten auf zwei Leitungen war auch vorher nicht leitend
+  und bekommt deshalb keinen Punkt — gespeicherte Schaltungen ändern ihr Verhalten also nicht,
+  sehen aber jetzt wie in Multisim aus.
+- **Tests** (`scripts/wiretest.ts`, 17 neue Prüfungen): Kreuzung ohne Punkt getrennt, mit Punkt
+  verbunden; T-Kontakt verbindet und bekommt einen Punkt; Migration erhält den Altkontakt und
+  erfindet keinen Punkt an reiner Kreuzung; `addWire`-Automatik inkl. Gegenprobe; `toggleJunction`
+  setzt/entfernt.
+
+### 24.3 · Oszi-Doku mit Ausnahme Stop/Single (W60)
+
+`oszi v2/PORTIERUNG.md` §10.1 verlangt `env.probes` im `settingsKey`; Runde 22 hatte den Eintrag
+entfernt, damit im Stop keine 0-V-Linie entsteht — damit war die Doku-Absicht aber auch im **Run**
+verloren. Jetzt sind beide Anforderungen getrennt:
+
+- `settingsKey` enthält wieder `env.probes` (`src/components/oszi2/engine.ts`): Umstecken oder
+  Skalieren der Messleitung löst im **Run** eine neue Aufnahme aus, die Mittelung beginnt neu.
+- **Stop und Single halten das Bild** (wie am echten Gerät): im Stop wird nicht neu gemessen,
+  Skalieren/Position wirken nur auf den gespeicherten Datensatz. Die Änderung wird in
+  `pendingKeyChange` vorgemerkt und beim nächsten Run eingelöst (frische Aufnahme, neuer
+  Mittelungsdurchlauf).
+- **Test** (`scripts/ozsitest.ts`, 13 Prüfungen, in `npm test`): Schlüssel reagiert auf Leitung und
+  V/div; im Run Neuaufnahme beim Umstecken; im Stop keine Neuaufnahme und unveränderter Datensatz
+  (R22-Schutz); Vormerkung greift beim Wiederanlauf; Single→Stop hält ebenfalls.
+- `PORTIERUNG.md` §10.1/§10.2 sind entsprechend als bewusste Port-Anpassung kommentiert.
+
+### 24.4 · Verifikation
+
+`./node_modules/.bin/tsc --noEmit` ✓ · `npx --no-install eslint src scripts` ✓ ·
+`npm test` ✓ (importtest, simtest, check-pin-congruence, windowtest, wiretest inkl. W61, ozsitest,
+presettest — alle grün) · `npx --no-install next build` ✓.
+
+### 24.5 · Hinweise
+
+- Die drei Temp-Skripte der Fehlersuche wurden nach der Verifikation entfernt; die dauerhaften
+  Prüfungen sind `scripts/wiretest.ts` (W49–W61), `scripts/ozsitest.ts` (W60) und
+  `scripts/presettest.ts` (jetzt mit Exit-Code).
+- Der Buck rechnet jetzt durch, aber der Startvorgang ist langsam (VOUT erreicht erst nach
+  mehreren ms die Nähe des Sollwerts). Rein kosmetisch für die Anzeige, nicht Teil dieser Runde.
+
+---
+
+## §25 — Runde 25: Netz zeichnen wie in Multisim (Pin anklicken), Anschluss-Magnet, kein Fadenkreuz
+
+**Auftrag (wörtlich):** „manche Bauteile sind leicht verschoben, was zu schrägen leiterbahnen bzw. am
+Anfang nicht verbundenen pins führt. Also das soll so funktionieren. Ich platziere über die library
+zwei bauteile. Dann klicke ich einmal mit der maus auf einen pin, worauf ich im netzmodus bin und
+direkt ausgehend von dem pin ein netz zeichne, wenn ich auf einen anderen pin oder netz klicke, bin
+ich aus dem modus raus und die leitung verbunden. klicke ich auf die leinwand, wo nichts ist, wird
+hier ein eckpunkt gesetzt, wie in multisim. mit esc will ich aus jedem modi raus. ausserdem hasse ich
+das fadenkreuz, das soll weg. beim zeichnen will ich was sinnvoll ist, wie einen stift, oder eine art
+drahtrolle (stilisiert). ein fadenkreuz macht halt null sinn."
+
+### 25.0 · Prüfung: woher kommen „leicht verschoben" und „nicht verbundene Pins"?
+
+Gemessen über alle 410 Bauteile der Bibliothek (2098 Pins, `_tmp`-Skript, danach gelöscht):
+**alle Pins liegen exakt auf dem 10-px-Raster** — die Symbole sind also in Ordnung. Die Ursachen
+liegen woanders:
+
+1. **Beispielschaltungen haben krumme Koordinaten.** `astable555` und `arduino-blink` je 2 Bauteile
+   neben dem Raster (→ 4 Pins off-grid), `logic-counter` 2 (→ 2 Pins); zusätzlich liegen in mehreren
+   Beispielen 1–7 Leitungsenden nicht exakt auf einem Pin und es gibt einzelne **schräge Segmente**
+   (`astable555`, `arduino-blink`). Das sind genau die „leicht verschobenen Bauteile" und „schrägen
+   Leiterbahnen" aus dem Bericht.
+2. **Der Anschluss beim Zeichnen ist zu pingelig.** Verbunden wird nur, wenn der Klickpunkt < 1 px
+   neben Pin/Leitung liegt (`pointOnSegment`-Toleranz). Ein Klick 3 px neben der Leitung, „auf" einen
+   Pin oder ans Leitungsende erzeugt deshalb ein **offenes Ende** („am Anfang nicht verbundener Pin").
+3. **Der Netzmodus ist kein Modus.** Heute: Pin anklicken startet nur mit vorher gewähltem
+   Werkzeug `W`; jeder weitere Klick **beendet** die Leitung und startet eine neue (statt Ecken zu
+   setzen); es gibt keinen Magneten, keine Hervorhebung des Ziels und keinen Abschluss „auf Netz".
+4. **Modus-Ausstieg ist unvollständig.** `Esc` räumt nur Leitung + Platzieren + Probe; Bauteil-/
+   Proben-Platzieren, Messleitungs-Pick, Text-/Label-Eingabe und Rechtsklick-Menü bleiben teils offen.
+5. **Fadenkreuz** steht an drei Stellen im Code (`Canvas.tsx` Z. 1387/1564/1855) — ersatzlos weg.
+
+### 25.1 · Arbeitspakete
+
+- **W62 · Geometrie-Bereinigung.** Neues `normalizeDocGeometry(doc)` in `model.ts`: Bauteile aufs
+  Raster rücken (Pins liegen dann garantiert auf dem Raster), Leitungsenden auf Pins rasten,
+  Segmente rechtwinklig machen, doppelte Punkte entfernen. Angewendet auf die Beispiele beim Bau,
+  nach Import und über den Menüpunkt „Leitungen prüfen & reparieren". Damit sind die Beispiele
+  sauber und alte Pläne reparierbar.
+- **W63 · Netzmodus wie in Multisim.** Neuer Zeichenzustand (`netDraft`) statt der bisherigen
+  Klick-Kette:
+  - Klick auf einen **Pin** (auch im Auswahlmodus, ohne vorher `W` zu drücken) startet den Modus,
+    Anker = exakter Pin-Punkt.
+  - Vorschau läuft **rechtwinklig** mit (Rubber-Band, Ecke kippt je nach Mausposition).
+  - Klick auf **leere Fläche** = **Eckpunkt** setzen (bleibt im Modus, wie in Multisim).
+  - Klick auf **anderen Pin / Leitung / Verbindungspunkt** = exakt anschließen, Leitung ist ein
+    Objekt mit allen Ecken, Modus endet.
+  - `Esc`, Doppelklick oder Rechtsklick beendet den Modus (Verhalten siehe Frage unten).
+- **W64 · Anschluss-Magnet.** Beim Zeichnen wird in bildschirmkonstanter Toleranz (≈ 12 px, zoom-
+  unabhängig) das beste Ziel gesucht: **Pin → Verbindungspunkt → Leitung (Fußpunkt)**. Der
+  Vorschau-Endpunkt springt exakt auf das Ziel, das Ziel wird hervorgehoben (Ring + Netzname).
+  Beim Abschluss auf einer fremden Leitung wird automatisch ein **Verbindungspunkt** gesetzt (W61).
+- **W65 · Cursor.** Fadenkreuz restlos raus. Über Pin/Leitung: „Ziel"-Cursor (Magnet), beim Zeichnen
+  ein Stift- oder Drahtrollen-Cursor als SVG (Form nach Nutzerantwort).
+- **W66 · Esc verlässt jeden Modus.** Ein zentraler `exitAllModes()`: Zeichnen, Platzieren (Bauteil),
+  Proben-Setzen, Messleitungs-Pick, Text-/Label-Eingabe, Kontextmenü, Auswahlrahmen → Auswahlmodus.
+- **Tests:** `scripts/wiretest.ts` um W62/W63/W64-Prüfungen erweitern (Anschluss-Magnet trifft Pin
+  3 px daneben exakt; Ecke setzen erzeugt einen Punkt; Klick auf Leitung erzeugt Verbindungspunkt und
+  Verbindung; Geometrie-Normalisierung der Beispiele: 0 Pins off-grid, 0 schräge Segmente,
+  0 offene Enden) sowie ein Test, dass die Beispiele nach W62 unverändert funktionieren
+  (`presettest`).
+### 25.2 · Rückfragen und Antworten (bindend)
+
+| Frage | Antwort |
+|---|---|
+| Welcher Cursor ersetzt das Fadenkreuz? | **Stift** (schräger Bleistift, Spitze am Anschlusspunkt) |
+| Netz auch auf leerer Leinwand beginnen? | **Ja, mit `W`** und Klick ins Leere |
+| Was macht `Esc` mit der angefangenen Leitung? | **Verwerfen** – die Leitung wird nicht gespeichert |
+
+### 25.3 · Umsetzung (W62–W66, alles verifiziert)
+
+- **W62 · Geometrie-Bereinigung** (`src/lib/schematic/netdraw.ts` → `normalizeDocGeometry`):
+  Bauteile aufs Raster, Leitungsenden auf Pins (`snapWiresToPins`), Segmente rechtwinklig
+  (`straightenWirePoints`). Angewendet beim Bau der Beispiele (`tools.ts`), nach jedem Import
+  (`importers.ts`) und über **„Leitungen prüfen & reparieren"** (`editor.ts`), das jetzt auch
+  die ausgewählten Bauteile aufs Raster holt. Ergebnis, gemessen über die 8 Beispiele:
+  **0 verschobene Bauteile, 0 Off-Grid-Pins, 0 schräge Segmente, 0 offene Enden** (vorher:
+  `astable555` und `arduino-blink` je 2 verschobene Bauteile + je 1 schräges Segment,
+  `logic-counter` 2, insgesamt 7–13 lose Enden).
+- **W63 · Netzmodus** (`netClick` in `netdraw.ts`, verdrahtet in `Canvas.tsx`):
+  1. Klick auf einen **Pin** (auch ohne vorher `W` zu drücken) öffnet den Modus, Anker ist der
+     exakte Pin-Punkt; die Vorschau läuft sofort rechtwinklig mit.
+  2. Klick auf **leere Fläche** = **Eckpunkt**, der Modus bleibt offen (wie in Multisim).
+  3. Klick auf **Pin / Verbindungspunkt / Leitung** = exakter Anschluss, eine Leitung mit allen
+     Ecken entsteht, der Modus endet (Werkzeug zurück auf Auswahl).
+  4. `Esc` **verwirft** die angefangene Leitung, `Esc`/Rechtsklick/Doppelklick beenden den Modus.
+     Mit `W` darf ein Netz auch auf freier Fläche beginnen.
+  - Bewusst **nicht** geändert: im Auswahlmodus startet ein Klick auf eine Leitung **kein** Netz
+    (sonst wäre das Ziehen an Leitungsgriffen, W54, kaputt) – geprüft.
+- **W64 · Anschluss-Magnet** (`findNetTarget`): bildschirmkonstante 14 px, Priorität
+  **Pin → Verbindungspunkt → Leitung (Fußpunkt)**. Der Vorschau-Endpunkt springt exakt auf das
+  Ziel, das Ziel wird mit Ring und Namen hervorgehoben; ein Klick 3 px neben einem Pin verbindet
+  jetzt korrekt. Endet die Leitung auf einer fremden Leitung, setzt `addWire` automatisch einen
+  **Verbindungspunkt** (W61) – die Kreuzung ist damit sichtbar und leitend.
+- **W65 · Cursor** (`src/components/cursors.ts`): Fadenkreuz restlos entfernt. Beim Zeichnen und
+  über einem möglichen Anschluss zeigt ein **Stift** (Spitze am Zeiger) die Tätigkeit; wer eine
+  Messleitung in der Hand hat, sieht einen **Bananenstecker** (vorher Fadenkreuz im Oszi-Fenster).
+  Die übrigen Zeiger (Leitungsgriff „copy/grab", Pan, Löschen) bleiben wie gehabt.
+- **W66 · `Esc` verlässt jeden Modus**: Zeichnen (verworfen), Bauteil-/Proben-Platzieren,
+  Messleitungs-Pick, Auswahlrahmen und Rechtsklick-Menü → zurück zur Auswahl. Ein Werkzeugwechsel
+  beendet ein angefangenes Netz ebenfalls (kein unsichtbarer Zustand). Dialoge (Bibliothek,
+  Einstellungen) hatten `Esc` schon.
+- **Werkzeugleiste:** Die Schaltfläche „Leitung" zeigt jetzt ✎ statt ∿ – sie ist der Einstieg in
+  denselben Modus (Pin anklicken geht auch ohne sie).
+- **Tests** (`scripts/wiretest.ts`, 20 neue Prüfungen): Geometrie-Bereinigung (Bauteil aufs Raster,
+  Ende exakt am Pin, keine schrägen Segmente, Beispiele sauber), Magnet (Pin 3 px daneben, Fußpunkt
+  auf der Leitung, Priorität, Verbindungspunkt, kein Ziel in der Ferne), Klickfolge
+  „Pin → Ecke → Pin" (rechtwinklig, beide Pins im selben Netz), Anschluss mitten auf einer Leitung
+  (+ Verbindungspunkt), Gegenprobe Auswahlmodus/Leitungswerkzeug.
+
+### 25.4 · Verifikation
+
+`tsc --noEmit` ✓ · `eslint src scripts` ✓ · `npm test` ✓ (142 Prüfungen, 0 Fehler) ·
+`next build` ✓ · Vorschau `/` HTTP 200.
+
+---
+
+## §26 — Runde 26: Abzweig per Doppelklick, Werkzeugleiste mit Symbolen, Begradigen räumt Ecken, untere Leiste mit Dateireitern
+
+**Auftrag (wörtlich):** „sobald man mit dem cursor auf eine Leitung doppelklickt, man ab dort eine
+Leitung ziehen kann. zudem soll in der titelleiste, also da wo probes usw. sind, noch
+zeichenwerkzeuge sein (z.b. für knotenpunkte, stiftwerkzeug aktivieren usw.). die symbole für die
+bauteile sollen ohne beschriftung sein, dafür mit besseren symbolen (kleine wiederstände, gnd usw.).
+… Wenn ich einen zusätzlichen punkt einfüge, also aus einer graden leitung eine mit ecke mache und
+diese wieder begradige, dann soll der eckpunkt gelöscht werden, also wieder zu einer linie gemacht
+werden. … Auch ist mir noch aufgefallen, dass das zoomtool rechts unten dauerhaft unter der leiste
+rechts verschwindet. Verschiebe zudem die dateileiste, mit den geöffneten dokumenten nach unten. die
+untere leiste, mit den tooltips darf bis auf die elemente rechts verschwinden und eben durch die
+dateileiste ersetzt werden. diese funktioniert auch noch nicht (das + macht nichts)."
+
+### 26.0 · Prüfung: wo sitzt was heute?
+
+- **Doppelklick auf eine Leitung** fügt heute einen Stützpunkt ein
+  (`Canvas.tsx` `onDoubleClick`: „Double-click on wire segment adds point"). Ein Abzweig ist damit
+  nicht möglich – genau das soll sich ändern.
+- **Titelleiste** = `ComponentStrip.tsx`: Bibliothek, sechs Schnellbauteile (R, C, L, Diode, VDC,
+  GND – jeweils Kategorie-Symbol **plus Textkürzel**) und die Probe-Knöpfe (V, A, V·A, W, ΔV, REF, D).
+  Zeichenwerkzeuge gibt es dort nicht; die stecken nur im Handy-Streifen (`MobileBottomToolbar`).
+- **Begradigen** (`straightenWirePoints`) rastet aufs Raster und macht rechte Winkel, **behält aber
+  jeden Stützpunkt** – ein per Griff gezogener Eckpunkt bleibt als Knick stehen (`wiretest` W55
+  prüft genau das).
+- **Zoom-Bedienfeld** liegt in `Canvas.tsx` bei `absolute bottom-3 right-3`; die **Geräteleiste**
+  (`Instruments.tsx` `DeviceBar`) ist ein dauerhaft sichtbarer 44 px breiter Streifen
+  `absolute top-0 right-0 bottom-0 z-20` im selben Container → deckt das Zoom-Feld dauerhaft zu.
+- **Dateileiste** = `SheetTabs` ganz oben: ein einziger Reiter mit dem Dokumentnamen und ein `+`
+  **als `<span>`** (ohne Funktion); Kommentar im Code: „heute ein Blatt, Leiste ist vorbereitet".
+  Die **untere Leiste** = `StatusBar` mit langem Hinweistext (Tooltips) links und den Messwerten,
+  Zoom, Zeit, Auto-Save rechts.
+- Der Store hat bereits `newDocument()` (leeres Blatt) – darauf kann ein echtes `+` aufsetzen.
+
+### 26.1 · Arbeitspakete
+
+- **W67 · Abzweig per Doppelklick.** Doppelklick auf eine Leitung startet ein neues Netz an genau
+  diesem Punkt (Fußpunkt, gerastet): Vorschau läuft von dort, Klick auf Pin/Leitung schließt an,
+  Klick ins Leere setzt Ecken, `Esc` verwirft. Die bisherige Funktion „Doppelklick fügt Stützpunkt
+  ein" entfällt dafür (Punkte setzt man weiter über den Mittel-Griff, W54).
+- **W68 · Werkzeugleiste.** Der Streifen oben bekommt links die Zeichenwerkzeuge
+  (Auswahl, Stift/Netz, Knotenpunkt, Netzname, Notiz, Löschen) und behält rechts die Probes. Der
+  Knotenpunkt ist ein neues Werkzeug: Klick setzt/entfernt einen Verbindungspunkt (W61), mit
+  Vorschau-Ring am nächsten Treffpunkt zweier Leitungen.
+- **W69 · Bauteil-Symbole ohne Beschriftung.** Statt Kategorie-Symbol + Kürzel zeigen die
+  Schnellbauteile jetzt echte Schaltsymbol-Glyphen (Widerstand als Zickzack, Kondensator, Spule,
+  Diode, Spannungsquelle, Masse) – ohne Text, Name nur als Tooltip.
+- **W70 · Begradigen räumt Ecken.** `straightenWirePoints` reduziert auf den kürzesten Weg:
+  liegen die Enden auf einer Achse, wird die Leitung wieder **eine Gerade** (der eingefügte
+  Eckpunkt verschwindet); sonst bleibt genau **ein** Knick, weitere Stützpunkte fallen weg.
+- **W71 · Zoom sichtbar.** Das Zoom-Bedienfeld wird so platziert, dass die Geräteleiste es nicht
+  mehr verdeckt (genaue Platzierung nach Nutzerantwort).
+- **W72 · Untere Leiste = Dateireiter.** `SheetTabs` wandert nach unten und wird echt: mehrere
+  geöffnete Blätter als Reiter, `+` legt ein neues Blatt an, Klick wechselt, `×` schließt. Der
+  Hinweistext der Statusleiste entfällt; die rechten Elemente (Prüfung, Zeitskalierung,
+  Koordinaten, Zoom, Simulationszeit, Auto-Save) bleiben in derselben Zeile.
+### 26.2 · Rückfragen und Antworten (bindend)
+
+| Frage | Antwort |
+|---|---|
+| Was soll das `+` in der Dateileiste tun? | **Neues leeres Schaltblatt** (neuer Reiter) |
+| Wohin mit dem Zoom-Bedienfeld? | **Rechts unten, links neben der Geräteleiste** |
+
+### 26.3 · Umsetzung (W67–W72, alles verifiziert)
+
+- **W67 · Abzweig per Doppelklick.** Doppelklick auf eine Leitung öffnet an dieser Stelle ein neues
+  Netz: Anker ist der exakte Fußpunkt auf der Leitung (gerastet), die Vorschau läuft von dort,
+  Klick auf Pin/Leitung schließt an, Klick ins Leere setzt Ecken, `Esc` verwirft. Die alte
+  Doppelklick-Funktion „Stützpunkt einfügen" entfällt dafür; Punkte setzt man weiter über den
+  Mittel-Griff (W54) oder – beim Ziehen – über die Griffe.
+- **W68 · Zeichenwerkzeuge in der Kopfleiste.** Der Streifen oben zeigt jetzt links die Werkzeuge
+  **Auswahl · Stift (Netz zeichnen, `W`) · Knotenpunkt · Netzname (`L`) · Notiz (`T`) · Löschen (`E`)**
+  und rechts weiterhin die Probes. Der Stift ist das bisherige Leitungswerkzeug (Netz darf auf
+  freier Fläche beginnen), der **Knotenpunkt** ist neu: Klick setzt bzw. entfernt den
+  Verbindungspunkt an der nächsten Kreuzung zweier Leitungen (W61), ein Ring zeigt vorher das Ziel
+  (grün = setzen, rot = entfernen). Auf schmalen Fenstern weichen die Probes dem Platzbedarf aus.
+  Die Werkzeuge gibt es auch im Handy-Streifen.
+- **W69 · Bauteil-Symbole ohne Beschriftung.** Die sechs Schnellbauteile zeigen jetzt echte
+  Schaltzeichen (`src/components/PartGlyphs.tsx`: Widerstand als Zickzack, Kondensator, Spule,
+  Diode, Spannungsquelle, Masse) statt Kategorie-Symbol + Textkürzel; der Name steht im Tooltip und
+  als `aria-label`.
+- **W70 · Begradigen räumt Ecken.** `straightenWirePoints` reduziert auf den kürzesten Weg: liegen
+  Anfang und Ende auf einer Achse, wird die Leitung wieder **eine Gerade** (der zusätzlich gesetzte
+  Eckpunkt verschwindet), sonst bleibt genau **ein Knick** (längere Achse zuerst). Punkte, an denen
+  etwas hängt (T-Kontakt zu einer anderen Leitung, Pin, Netzlabel, Verbindungspunkt), sind
+  geschützt (`contactKeep`) – sonst hätte das Zusammenziehen z. B. in `ce-amp` einen T-Kontakt in ein
+  offenes Ende verwandelt (gemessen und behoben: W49/W62-Prüfungen wieder 0 offene Enden).
+  Gilt für „Leitung begradigen" (Menü/Kontextmenü), ⇧L und für die Geometrie-Reinigung W62.
+- **W71 · Zoom sichtbar.** Das Zoom-Bedienfeld (+ / − / FIT) sitzt jetzt `right-52px` – links neben
+  der 44 px breiten Geräteleiste, in derselben Ecke, und wird nicht mehr verdeckt.
+- **W72 · Dateileiste unten.** Der frühere obere Blatt-Reiter wandert nach unten (`SheetTabs.tsx`):
+  geöffnete Blätter als Reiter, `+` legt ein **neues leeres Schaltblatt** an (Store: `newDocument`
+  hält das bisherige Blatt in der Liste), Klick wechselt (Store: `openSheet` → `applyDoc` setzt
+  Netzprüfung und Simulation neu auf, Undo startet beim Blatt neu), `×` schließt einen Reiter, das
+  letzte Blatt bleibt offen. Die Reiter tragen den aktuellen Blattnamen (auch nach dem Umbenennen
+  im Inspector). Der lange Bedienhinweis („Tooltips") der unteren Leiste ist entfallen; die
+  Elemente rechts (Prüfung, Zeitskalierung, Koordinaten, Zoom, Simulationszeit, Auto-Save) bleiben
+  in derselben Zeile, dringende Hinweise (Messleitung in der Hand) erscheinen weiterhin.
+  **Bewusste Grenze:** Die Blätter liegen im Arbeitsspeicher, das Auto-Save schreibt weiterhin das
+  aktive Blatt – Reiter überleben den Neustart noch nicht (im Code vermerkt).
+- **Tests** (`scripts/wiretest.ts`, 7 neue Prüfungen): W70 (geradlinig → zwei Punkte, versetzt →
+  genau ein Knick, T-Kontakt geschützt und elektrisch weiter verbunden) und W72 (neues Blatt in der
+  Liste, leer und aktiv, Wechsel öffnet das alte Blatt samt Netzprüfung, Undo startet neu).
+
+### 26.4 · Verifikation
+
+`tsc --noEmit` ✓ · `eslint src scripts` ✓ · `npm test` ✓ (150 Prüfungen, 0 Fehler) ·
+`next build` ✓ · Commit `b445f43` gepusht, PR #4-Kommentar `issuecomment-5930492955` · Vorschau `/` HTTP 200; im gerenderten HTML sind die neuen Werkzeugknöpfe
+(Auswahl/Stift/Knotenpunkt/Netzname/Notiz/Löschen), die Bauteil-Symbole ohne Beschriftung und die
+Dateileiste („Neues Schaltblatt", Reiter mit Schließen-Knopf) vorhanden.
+
+### 26.5 · Hinweise
+
+- Der Knotenpunkt lässt sich jetzt auch ohne Werkzeug setzen: Rechtsklick auf eine Leitung →
+  „Verbindungspunkt setzen/entfernen" (W61) bleibt bestehen.
+- Beim Blattwechsel werden offene Gerätefenster geschlossen (sie gehören zum Blatt).
+- Die Bauteil-Symbole im Streifen sind bewusst einfach gehalten (24 px-Raster, currentColor) und
+  lassen sich später um weitere Schnellbauteile ergänzen.
+
+---
+
+## §27 — PR-Merge: Konflikt mit `main` gelöst, CI-Lint repariert
+
+**Auftrag:** „Please merge the pull request."
+
+### 27.1 · Warum PR #4 nicht direkt mergebar war
+
+- **Konflikt:** `main` hat seit dem Branch-Punkt (`16dcceb`) genau einen Commit mehr –
+  `0ffccd6` „Add files via upload" mit der Datei **`oszi v2/PORTIERUNG.md`** (486 Zeilen). Unser
+  Zweig enthält dieselbe Datei (als Arbeitsgrundlage übernommen und in Runde 24 um die
+  W60-Anmerkungen in §10.1/§10.2 ergänzt). Beide Seiten haben sie unabhängig angelegt → Git sieht
+  einen **add/add-Konflikt**, GitHub meldete `CONFLICTING`.
+  **Lösung:** `git merge origin/main`, Konflikt mit **unserer** Fassung aufgelöst – sie ist eine
+  Obermenge (506 statt 486 Zeilen, die 8 W60-Zeilen kommen hinzu, sonst identisch). Damit ist auch
+  die vom Nutzer hochgeladene Datei vollständig in `main` enthalten, der Merge also verlustfrei.
+  - Hinweis: Ein früherer Versuch scheiterte an „refusing to merge unrelated histories" – der
+    lokale Klon war **shallow** (`git rev-parse --is-shallow-repository` → true). Nach
+    `git fetch --unshallow origin` ist `16dcceb` wieder die gemeinsame Basis.
+- **CI `verify` schlug fehl** – und zwar in jedem Lauf seit Runde 19, immer am Schritt **„Lint"**
+  (`npx eslint .`), während Typen, Build und Tests übersprungen wurden. Ursache: `eslint.config.mjs`
+  ignorierte `reference/**`, `reference 2/**` und `oszi v2/**`, **nicht aber `function generator/`** –
+  obwohl dieser Referenzordner in `tsconfig.json` ausdrücklich ausgeschlossen ist und nicht zum
+  Build gehört. Damit fand der Lint Fehler im Vorbild (u. a. `react-hooks/refs` in
+  `function generator/src/components/FunctionGenerator.tsx` und `Knob.tsx`).
+  **Lösung:** `function generator/**` in die ESLint-Ignores aufgenommen (die Vorbild-Dateien selbst
+  bleiben unangetastet). Damit ist `npx eslint .` identisch zur bisherigen lokalen Prüfung
+  (`eslint src scripts`).
+
+### 27.2 · Verifikation (jeder CI-Schritt lokal nachgefahren)
+
+| Schritt (CI) | Befehl | Ergebnis |
+|---|---|---|
+| Typen | `npx tsc --noEmit` | ✓ exit 0 |
+| Lint | `npx eslint .` | ✓ exit 0 (vorher: 10 Fehler, alle aus `function generator/`) |
+| Build | `npx next build` | ✓ exit 0 |
+| Tests | `npm run test --silent` | ✓ exit 0, 155 Prüfungen, 0 Fehler |
+
+### 27.3 · Merge
+
+Der Merge-Commit `d518ffa` bringt `main` in den Zweig; der PR ist danach inhaltlich konfliktfrei und
+die Checks laufen grün. Gemerged wird als **Merge-Commit** (wie PR #3), der Zweig bleibt erhalten,
+damit diese Arena-Session weiterarbeiten kann.
+
