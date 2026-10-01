@@ -32,7 +32,7 @@ import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
-import { PEN_CURSOR } from "@/components/cursors";
+import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
 
 interface Pt { x: number; y: number; }
 
@@ -123,21 +123,42 @@ function hitTestNote(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").
 
 function hitTestInstanceValueLabel(inst: Instance, p: Pt): boolean {
   const b = instanceBounds(inst);
-  const cx = b.x + b.w / 2;
-  const labelY = b.y + b.h + 12;
-  return Math.abs(p.x - cx) <= Math.max(28, b.w * 0.6) && p.y >= b.y + b.h - 4 && p.y <= labelY + 14;
+  const cx = inst.x;
+  const topY = b.y + b.h - 2;
+  const botY = b.y + b.h + 34;
+  return Math.abs(p.x - cx) <= Math.max(32, b.w * 0.65) && p.y >= topY && p.y <= botY;
+}
+
+function findInstanceByValueLabel(doc: SchematicDoc, p: Pt): Instance | null {
+  for (let i = doc.instances.length - 1; i >= 0; i--) {
+    const inst = doc.instances[i];
+    if (hitTestInstanceValueLabel(inst, p)) return inst;
+  }
+  return null;
 }
 
 export default function Canvas() {
   const apple = useIsApple();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const editInputRef = useRef<HTMLInputElement | null>(null);
+  const editingOpenedAt = useRef<number>(0);
   const [cursor, setCursor] = useState<Pt>({ x: 0, y: 0 });
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[]; spark?: number[] | null } | null>(null);
   const [editing, setEditing] = useState<{ kind: "label" | "text" | "value"; x: number; y: number; sx: number; sy: number; instId?: string; itemId?: string; initial?: string } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; wx: number; wy: number; target: CtxTarget } | null>(null);
   const editingDone = useRef(false);
   const spaceDown = useRef(false);
+
+  useEffect(() => {
+    if (!editing) return;
+    editingOpenedAt.current = performance.now();
+    const t = setTimeout(() => {
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }, 16);
+    return () => clearTimeout(t);
+  }, [editing]);
   const stateRef = useRef({
     dragging: false,
     panning: false,
@@ -209,10 +230,10 @@ export default function Canvas() {
     const r = (radius ?? (isMobile ? 24 : 14)) * iz;
     for (let i = doc.probes.length - 1; i >= 0; i--) {
       const pr = doc.probes[i];
-      // W87: Trifft das gesamte Multisim-Anzeigekästchen (ab pr.x nach rechts,
+      // W87/W93: Trifft das gesamte vergrößerte Multisim-Anzeigekästchen (ab pr.x nach rechts,
       // vertikal zentriert um pr.y) sowie den Bereich direkt um (pr.x, pr.y).
-      const boxW = 112 * iz;
-      const boxH = 38 * iz;
+      const boxW = 158 * iz;
+      const boxH = 58 * iz;
       if (
         p.x >= pr.x - 8 * iz &&
         p.x <= pr.x + boxW + 6 * iz &&
@@ -913,8 +934,8 @@ export default function Canvas() {
 
     ctx.font = "600 11px ui-sans-serif, system-ui";
     for (const label of doc.labels) {
-      const name = netResult.pointNets[`${Math.round(label.x)},${Math.round(label.y)}`] ?? label.name;
-      const txt = name || label.name;
+      // W91: Der vom Nutzer vergebene Name hat immer Vorrang vor einem generischen Netznamen
+      const txt = label.name || netResult.pointNets[`${Math.round(label.x)},${Math.round(label.y)}`] || "NET";
       const tw = ctx.measureText(txt).width;
       const isSel = selection.includes(label.id);
       ctx.fillStyle = css("--panel-2", "#151a25");
@@ -1066,9 +1087,9 @@ export default function Canvas() {
       }
     }
     if (st.tool.startsWith("probe") && st.placingProbeKind) {
-      // W86: Vorschau-Ghost rastet wie beim Klick per Magnet auf der nächsten
+      // W86/W93: Vorschau-Ghost rastet wie beim Klick per Magnet auf der nächsten
       // Leitung / dem nächsten Pin ein und zeigt die Messspitze (anchorX/anchorY)
-      // plus das Kästchen im Rasterabstand (+30, -30).
+      // plus das Kästchen im Rasterabstand (+40, -40).
       const target = findNetTarget(doc, cursor, 24 / Math.max(view.zoom, 0.25));
       const ax = target ? Math.round(target.x / GRID) * GRID : cursor.x;
       const ay = target ? Math.round(target.y / GRID) * GRID : cursor.y;
@@ -1076,19 +1097,19 @@ export default function Canvas() {
       const nextNum = doc.probes.filter((p) => p.kind === st.placingProbeKind).length + 1;
       const ghostName = `${st.placingProbeKind.charAt(0).toUpperCase()}${nextNum}`;
       ctx.save();
-      ctx.globalAlpha = 0.82;
+      ctx.globalAlpha = 0.85;
       drawProbe(
         ctx,
         {
           id: "ghost",
           kind: st.placingProbeKind,
           name: ghostName,
-          x: ax + 30,
-          y: ay - 30,
+          x: ax + 40,
+          y: ay - 40,
           anchorX: ax,
           anchorY: ay,
-          offsetX: 30,
-          offsetY: -30,
+          offsetX: 40,
+          offsetY: -40,
           leader: "arrow",
           net: gNet ?? undefined,
           show: { vdc: true, idc: true, power: true },
@@ -1111,42 +1132,47 @@ export default function Canvas() {
       }
     }
 
+    // W91: Live-Vorschau beim Platzieren eines Netznamens (label) oder einer Notiz (text)
+    if ((st.tool === "label" || st.tool === "text") && !editing) {
+      ctx.save();
+      ctx.globalAlpha = 0.78;
+      if (st.tool === "label") {
+        const target = findNetTarget(doc, cursor, 24 / Math.max(view.zoom, 0.25));
+        const lx = target ? Math.round(target.x / GRID) * GRID : cursor.x;
+        const ly = target ? Math.round(target.y / GRID) * GRID : cursor.y;
+        const previewTxt = "NETZ…";
+        ctx.font = "600 11px ui-sans-serif, system-ui";
+        const tw = ctx.measureText(previewTxt).width;
+        ctx.fillStyle = css("--panel-2", "#151a25");
+        roundRect(ctx, lx + 8, ly - 20, tw + 12, 16, 4);
+        ctx.fill();
+        ctx.strokeStyle = css("--wire-sel", "#c77a16");
+        ctx.lineWidth = 1.4 / Math.max(view.zoom, 0.3);
+        ctx.stroke();
+        ctx.fillStyle = css("--wire-sel", "#c77a16");
+        ctx.textAlign = "left";
+        ctx.fillText(previewTxt, lx + 14, ly - 8);
+        ctx.beginPath();
+        ctx.arc(lx, ly, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.font = "11px ui-sans-serif, system-ui";
+        ctx.fillStyle = css("--wire-sel", "#c77a16");
+        ctx.textAlign = "left";
+        ctx.fillText("📝 Notiz hier klicken…", cursor.x, cursor.y);
+      }
+      ctx.restore();
+    }
+
     if (sr.marquee) {
       const m = sr.marquee;
-      ctx.fillStyle = "color-mix(in srgb, " + css("--accent", "#5b8cff") + " 14%, transparent)";
-      ctx.strokeStyle = css("--accent", "#5b8cff"); ctx.lineWidth = 1.2 / view.zoom;
-      ctx.setLineDash([6,4]);
+      ctx.fillStyle = "color-mix(in srgb, " + css("--wire-sel", "#fbbf24") + " 12%, transparent)";
+      ctx.strokeStyle = css("--wire-sel", "#fbbf24");
+      ctx.lineWidth = 1.2 / view.zoom;
+      ctx.setLineDash([6 / view.zoom, 4 / view.zoom]);
       ctx.fillRect(m.x0, m.y0, m.x1 - m.x0, m.y1 - m.y0);
       ctx.strokeRect(m.x0, m.y0, m.x1 - m.x0, m.y1 - m.y0);
       ctx.setLineDash([]);
-      // Count badge – delightful
-      const w = Math.abs(m.x1 - m.x0);
-      const h = Math.abs(m.y1 - m.y0);
-      const cx = (m.x0 + m.x1)/2;
-      const cy = (m.y0 + m.y1)/2;
-      if (w > 20 && h > 20) {
-        ctx.save();
-        ctx.scale(1/view.zoom, 1/view.zoom);
-        const sx = cx * view.zoom;
-        const sy = cy * view.zoom;
-        ctx.fillStyle = "var(--panel-solid)";
-        ctx.strokeStyle = "var(--border-strong)";
-        ctx.lineWidth = 1;
-        const txt = `${Math.round(w)}×${Math.round(h)}`;
-        ctx.font = "11px ui-sans-serif";
-        const tw = ctx.measureText(txt).width;
-        const pad = 8;
-        ctx.beginPath();
-        // @ts-ignore
-        if (ctx.roundRect) ctx.roundRect(sx - tw/2 - pad, sy - 10, tw + pad*2, 18, 6);
-        else ctx.rect(sx - tw/2 - pad, sy - 10, tw + pad*2, 18);
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = "var(--text)";
-        ctx.textAlign = "center";
-        ctx.fillText(txt, sx, sy+2);
-        ctx.restore();
-      }
     }
 
     ctx.restore();
@@ -1193,7 +1219,7 @@ export default function Canvas() {
       ctx.strokeStyle = css("--border", "#cfccc5");
       ctx.strokeRect(0.5, 0.5, R - 1, R - 1);
     }
-  }, [cursor, snap]);
+  }, [cursor, snap, editing]);
 
   useEffect(() => {
     let raf = 0, last = performance.now(), frames = 0, fpsTime = last;
@@ -1257,7 +1283,7 @@ export default function Canvas() {
     if (note) {
       return { kind: "note", id: note.id, net: null };
     }
-    const inst = hitTestInstance(st.doc, world.x, world.y);
+    const inst = hitTestInstance(st.doc, world.x, world.y) ?? findInstanceByValueLabel(st.doc, world);
     if (inst) {
       const net = nearestNetName(world);
       return { kind: "instance", id: inst.id, net };
@@ -1292,10 +1318,75 @@ export default function Canvas() {
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
     sr.dragStart = world; sr.moved = false; sr.duplicated = false;
 
     if (ctxMenu) { setCtxMenu(null); return; }
+
+    // W91: Bei aktivem Label-/Notiz-Werkzeug sofort das Eingabefeld öffnen,
+    // OHNE setPointerCapture auf dem Canvas (damit das Loslassen der Maustaste
+    // dem neuen <input> nicht sofort wieder den Fokus per onBlur entzieht!).
+    if (e.button === 0 && (st.tool === "label" || st.tool === "text")) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = canvasRef.current?.getBoundingClientRect();
+      editingDone.current = false;
+      editingOpenedAt.current = performance.now();
+      if (st.tool === "label") {
+        const existingLbl = hitTestLabel(st.doc, world);
+        if (existingLbl) {
+          setEditing({
+            kind: "label",
+            itemId: existingLbl.id,
+            x: existingLbl.x,
+            y: existingLbl.y,
+            sx: e.clientX - (rect?.left ?? 0),
+            sy: e.clientY - (rect?.top ?? 0),
+            initial: existingLbl.name,
+          });
+          return;
+        }
+        const target = findNetTarget(st.doc, world, 24 / Math.max(st.view.zoom, 0.25));
+        const lx = target ? Math.round(target.x / GRID) * GRID : sp.x;
+        const ly = target ? Math.round(target.y / GRID) * GRID : sp.y;
+        setEditing({
+          kind: "label",
+          x: lx,
+          y: ly,
+          sx: e.clientX - (rect?.left ?? 0),
+          sy: e.clientY - (rect?.top ?? 0),
+          initial: "",
+        });
+      } else {
+        const existingNote = hitTestNote(st.doc, world);
+        if (existingNote) {
+          setEditing({
+            kind: "text",
+            itemId: existingNote.id,
+            x: existingNote.x,
+            y: existingNote.y,
+            sx: e.clientX - (rect?.left ?? 0),
+            sy: e.clientY - (rect?.top ?? 0),
+            initial: existingNote.text,
+          });
+          return;
+        }
+        setEditing({
+          kind: "text",
+          x: sp.x,
+          y: sp.y,
+          sx: e.clientX - (rect?.left ?? 0),
+          sy: e.clientY - (rect?.top ?? 0),
+          initial: "",
+        });
+      }
+      return;
+    }
+
+    if (e.detail < 2) {
+      try {
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {}
+    }
 
     // W63/W64/W77/W87: Netzmodus wie in Multisim – hat Vorrang, solange aktiv
     // gezeichnet wird (`sr.netDraft`) oder das Stift-Werkzeug (`wire`) aktiv ist.
@@ -1467,17 +1558,11 @@ export default function Canvas() {
       return;
     }
 
-    if (st.tool === "label" || st.tool === "text") {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      editingDone.current = false;
-      setEditing({ kind: st.tool, x: sp.x, y: sp.y, sx: e.clientX - (rect?.left ?? 0), sy: e.clientY - (rect?.top ?? 0) });
-      return;
-    }
-
     const probeHit = hitTestProbe(st.doc, world);
     if (probeHit && st.tool !== "erase") {
       if (e.shiftKey || e.metaKey || e.ctrlKey) st.setSelection([...new Set([...st.selection, probeHit.id])]);
       else if (!st.selection.includes(probeHit.id)) st.setSelection([probeHit.id]);
+      if (e.detail >= 2) return;
       st.beginGesture();
       sr.dragging = true;
       return;
@@ -1485,7 +1570,7 @@ export default function Canvas() {
 
     const labelHit = hitTestLabel(st.doc, world);
     const noteHit = !labelHit ? hitTestNote(st.doc, world) : null;
-    const hit = hitTestInstance(st.doc, world.x, world.y);
+    const hit = hitTestInstance(st.doc, world.x, world.y) ?? findInstanceByValueLabel(st.doc, world);
 
     if (st.tool === "erase") {
       if (hit) { st.setSelection([hit.id]); st.deleteSelection(); }
@@ -1514,6 +1599,7 @@ export default function Canvas() {
       } else if (!st.selection.includes(itemId)) {
         st.setSelection([itemId]);
       }
+      if (e.detail >= 2) return;
       st.beginGesture();
       sr.dragging = true;
       return;
@@ -1542,6 +1628,7 @@ export default function Canvas() {
       } else if (!st.selection.includes(hit.id)) {
         st.setSelection([hit.id]);
       }
+      if (e.detail >= 2) return;
       st.beginGesture();
       sr.dragging = true;
     } else {
@@ -1630,10 +1717,7 @@ export default function Canvas() {
       const prev = (sr as any)._hoveredHandle;
       if ((hovered?.wireId !== prev?.wireId) || (hovered?.pointIdx !== prev?.pointIdx) || (hovered?.isMid !== prev?.isMid)) {
         (sr as any)._hoveredHandle = hovered;
-        // Trigger redraw by bumping cursor (no state change)
-        // We use hud cursor already updated
       }
-      // Cursor feedback
       const canvas = canvasRef.current;
       if (canvas) {
         if (hovered) {
@@ -1642,6 +1726,8 @@ export default function Canvas() {
           canvas.style.cursor = "grabbing";
         }
       }
+    } else if ((sr as any)._hoveredHandle) {
+      (sr as any)._hoveredHandle = null;
     }
 
     // Clear long press if moved >10px
@@ -1813,20 +1899,39 @@ export default function Canvas() {
       (sr as any).junctionHover = null;
     }
 
-    // W64: Anschluss-Magnet. Das beste Ziel (Pin → Verbindungspunkt → Leitung)
-    // wird gemerkt, die Vorschau springt exakt dorthin – Klicks müssen nicht
-    // mehr pixelgenau treffen, Anschlüsse gehen nicht mehr verloren.
+    // W64/W89: Anschluss-Magnet nur in Modi, in denen tatsächlich Leitungen
+    // gezeichnet oder Labels auf Leitungen gesetzt werden – niemals beim Radiergummi!
     const magnet = 14 / Math.max(st.view.zoom, 0.25);
-    sr.netHover = findNetTarget(st.doc, world, magnet);
+    if (st.tool === "wire" || st.tool === "select" || st.tool === "label" || Boolean(sr.netDraft)) {
+      sr.netHover = findNetTarget(st.doc, world, magnet);
+    } else {
+      sr.netHover = null;
+    }
 
-    // W65: kein Fadenkreuz mehr. Beim Zeichnen (und über einem möglichen
-    // Anschluss) zeigt der Stift, dass hier ein Netz entsteht. Andere Zeiger
-    // (Leitungsgriff „copy/grab", Pan, Löschen) bleiben unangetastet.
+    // W65/W89: Saubere Cursor-Steuerung pro Werkzeug. Der Radiergummi zeigt
+    // IMMER das Radiergummi-Icon (ERASER_CURSOR) und niemals den Stift!
     const canvasEl = canvasRef.current;
     if (canvasEl && !(sr as any)._hoveredHandle) {
-      const drawing = (Boolean(sr.netDraft) || st.tool === "wire" || sr.netHover !== null) && st.tool !== "junction";
-      if (drawing) canvasEl.style.cursor = PEN_CURSOR;
-      else if (!spaceDown.current && !sr.panning && !sr.dragging) canvasEl.style.cursor = st.tool === "erase" ? "not-allowed" : st.tool === "pan" ? "grab" : "default";
+      if (spaceDown.current || sr.panning) {
+        canvasEl.style.cursor = "grabbing";
+      } else if (st.tool === "erase") {
+        canvasEl.style.cursor = ERASER_CURSOR;
+      } else if (st.tool === "pan") {
+        canvasEl.style.cursor = "grab";
+      } else if (st.tool === "label" || st.tool === "text") {
+        canvasEl.style.cursor = "text";
+      } else if (
+        Boolean(sr.netDraft) ||
+        st.tool === "wire" ||
+        (st.tool === "select" &&
+          sr.netHover !== null &&
+          !hitTestProbe(st.doc, world) &&
+          !hitTestProbeAnchor(st.doc, world))
+      ) {
+        canvasEl.style.cursor = PEN_CURSOR;
+      } else if (!sr.dragging) {
+        canvasEl.style.cursor = "default";
+      }
     }
 
     // Human Design: Tooltips everywhere – explain how to edit, no flicker
@@ -2010,7 +2115,7 @@ export default function Canvas() {
         return;
       }
     }
-    const hit = hitTestInstance(st.doc, world.x, world.y);
+    const hit = hitTestInstance(st.doc, world.x, world.y) ?? findInstanceByValueLabel(st.doc, world);
     if (hit) {
       st.setSelection([hit.id]);
       const part = PART_MAP[hit.partId];
@@ -2022,14 +2127,25 @@ export default function Canvas() {
         useEditor.getState().openInstrument("funcgen", { instanceId: hit.id, title: `Funktionsgenerator ${hit.label}` });
         return;
       }
-      const key = part?.params[0]?.key;
-      // W81: Doppelklick auf den Werttext unter dem Bauteil (oder Alt+Doppelklick)
-      // öffnet die schnelle Inline-Werteingabe; Doppelklick auf das Symbol öffnet
-      // den Inspector.
-      if (key && (e.altKey || hitTestInstanceValueLabel(hit, world))) {
+      const main = part?.params[0];
+      // W81/W91: Doppelklick auf ein Bauteil mit numerischem Hauptwert (z. B. Widerstand,
+      // Kondensator, Spule, Quelle) oder auf dessen Bezeichnung/Wert öffnet sofort die
+      // schnelle Inline-Werteingabe direkt auf dem Canvas!
+      if (main && main.type === "number" && !e.shiftKey) {
         const scr = toScreen({ x: hit.x, y: hit.y });
+        const rawVal = Number(hit.params[main.key] ?? main.def);
+        const formatted = Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : String(hit.params[main.key] ?? "");
         editingDone.current = false;
-        setEditing({ kind: "value", instId: hit.id, x: hit.x, y: hit.y, sx: scr.x, sy: scr.y, initial: String(hit.params[key] ?? "") });
+        editingOpenedAt.current = performance.now();
+        setEditing({
+          kind: "value",
+          instId: hit.id,
+          x: hit.x,
+          y: hit.y,
+          sx: scr.x,
+          sy: scr.y + 18,
+          initial: formatted,
+        });
       } else {
         useEditor.getState().openInstrument("inspector");
       }
@@ -2090,10 +2206,14 @@ export default function Canvas() {
         useEditor.getState().setLeadArmed(null);
         st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null); setCtxMenu(null);
       } else if (e.key.toLowerCase() === "v") {
-        // V schaltet wie in DrawingTools auf Auswahl zurück (oder bei Shift+V auf Spannungs-Probe)
-        if (e.shiftKey) st.setPlacingProbe("voltage");
-        else { syncNetDraft(null); st.setTool("select"); }
-      } else if (e.key.toLowerCase() === "a") st.setPlacingProbe("current");
+        // W90: V schaltet konsistent zu A die Spannungs-Probe (Volt) ein/aus;
+        // für das Auswahl-Werkzeug dient Esc.
+        syncNetDraft(null);
+        st.setPlacingProbe(st.placingProbeKind === "voltage" ? null : "voltage");
+      } else if (e.key.toLowerCase() === "a") {
+        syncNetDraft(null);
+        st.setPlacingProbe(st.placingProbeKind === "current" ? null : "current");
+      }
       else if (e.key.toLowerCase() === "g") {
         if (e.shiftKey) useEditor.setState({ snap: !st.snap });
         else useEditor.setState({ showGrid: !st.showGrid });
@@ -2164,7 +2284,7 @@ export default function Canvas() {
         className="block h-full w-full touch-none"
         aria-label="Schaltplan Zeichenfläche"
         tabIndex={0}
-        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? "not-allowed" : "default" }}
+        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -2279,12 +2399,35 @@ export default function Canvas() {
         </div>
       )}
       {editing && (
-        <input autoFocus className="input mono absolute z-40 w-44" style={{ left: editing.sx + 8, top: editing.sy - 13, boxShadow: "var(--shadow)" }}
-          key={`${editing.kind}_${editing.instId ?? editing.itemId ?? ""}`}
+        <input
+          ref={editInputRef}
+          autoFocus
+          className="input mono absolute z-40 w-48"
+          style={{
+            left: Math.max(8, editing.sx + 8),
+            top: Math.max(8, editing.sy - 14),
+            boxShadow: "var(--shadow)",
+            borderColor: "var(--wire-sel)",
+          }}
+          key={`${editing.kind}_${editing.instId ?? editing.itemId ?? `${editing.x}_${editing.y}`}`}
           defaultValue={editing.initial}
-          placeholder={editing.kind === "label" ? "Netzname …" : editing.kind === "value" ? "Wert … z. B. 10k, 4u7" : "Notiz …"}
-          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") commitEditing((e.target as HTMLInputElement).value); else if (e.key === "Escape") commitEditing(null); }}
-          onBlur={(e) => commitEditing(e.target.value)} />
+          placeholder={editing.kind === "label" ? "Netzname (z. B. IN, VCC) …" : editing.kind === "value" ? "Wert (z. B. 10k, 4u7, 470) …" : "Notiz eingeben …"}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") commitEditing((e.target as HTMLInputElement).value);
+            else if (e.key === "Escape") commitEditing(null);
+          }}
+          onBlur={(e) => {
+            // W91: Schutz gegen sofortiges onBlur durch das Loslassen der Maustaste
+            // unmittelbar nach dem Öffnen des Eingabefelds.
+            if (performance.now() - editingOpenedAt.current < 280) {
+              e.target.focus();
+              return;
+            }
+            commitEditing(e.target.value);
+          }}
+        />
       )}
       {ctxMenu && (
         <ContextMenu
@@ -2292,6 +2435,7 @@ export default function Canvas() {
           onClose={() => setCtxMenu(null)}
           onEdit={(item) => {
             editingDone.current = false;
+            editingOpenedAt.current = performance.now();
             setEditing(item);
           }}
         />
@@ -3113,16 +3257,16 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
 
   ctx.save();
 
-  // ---- 1. Kästchen-Maße in Screen-Einheiten (* iz in Welt-Einheiten) berechnen ----
-  ctx.font = `600 9.5px ui-monospace, monospace`;
-  const headerW = ctx.measureText(headerText).width + 24;
-  ctx.font = `500 9.5px ui-monospace, monospace`;
+  // ---- 1. Kästchen-Maße in Screen-Einheiten (* iz in Welt-Einheiten) berechnen (W93: groß & klar lesbar!) ----
+  ctx.font = `700 12px ui-monospace, monospace`;
+  const headerW = ctx.measureText(headerText).width + 38;
+  ctx.font = `600 13px ui-monospace, monospace`;
   const maxValW = Math.max(...valueLines.map((l) => ctx.measureText(l).width));
-  const padX = 7;
-  const headerH = 15;
-  const lineH = 12;
-  const boxScreenW = Math.max(84, Math.ceil(Math.max(headerW, maxValW + padX * 2)));
-  const boxScreenH = headerH + valueLines.length * lineH + 5;
+  const padX = 11;
+  const headerH = 24;
+  const lineH = 18;
+  const boxScreenW = Math.max(132, Math.ceil(Math.max(headerW, maxValW + padX * 2)));
+  const boxScreenH = headerH + valueLines.length * lineH + 9;
 
   const boxW = boxScreenW * iz;
   const boxH = boxScreenH * iz;
@@ -3235,26 +3379,26 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   }
   ctx.restore();
 
-  // ---- 5. Permanentes Multisim-Anzeigekästchen bei (boxX0, boxY0) ----
+  // ---- 5. Permanentes Multisim-Anzeigekästchen bei (boxX0, boxY0) (W93: groß & kontrastreich) ----
   ctx.save();
   ctx.translate(boxX0, boxY0);
   ctx.scale(iz, iz);
 
   // Kästchen-Hintergrund & Rahmen
   ctx.fillStyle = css("--panel-solid", "#1a1f2e");
-  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 5);
+  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
   ctx.fill();
 
   // Farbige Kopfzeile im Kästchen
   ctx.save();
-  roundRect(ctx, 0, 0, boxScreenW, headerH, 5);
+  roundRect(ctx, 0, 0, boxScreenW, headerH, 7);
   ctx.clip();
-  ctx.fillStyle = col + "24";
+  ctx.fillStyle = col + "28";
   ctx.fillRect(0, 0, boxScreenW, headerH);
   ctx.restore();
 
   // Trennlinie unter dem Header
-  ctx.strokeStyle = col + "44";
+  ctx.strokeStyle = col + "55";
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, headerH);
@@ -3263,40 +3407,40 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
 
   // Außenrahmen (hervorgehoben bei Auswahl)
   ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
-  ctx.lineWidth = selected ? 1.8 : 1.15;
-  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 5);
+  ctx.lineWidth = selected ? 2.2 : 1.4;
+  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
   ctx.stroke();
 
   // Typ-Badge + Header-Text
   ctx.fillStyle = col;
-  roundRect(ctx, 4, 2.5, 14, 10, 2.5);
+  roundRect(ctx, 6, 4, 22, 16, 4);
   ctx.fill();
   ctx.fillStyle = "#ffffff";
-  ctx.font = `700 7.5px ui-monospace, monospace`;
+  ctx.font = `700 10.5px ui-monospace, monospace`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(glyph.slice(0, 2), 11, 7.8);
+  ctx.fillText(glyph.slice(0, 2), 17, 12.2);
 
   ctx.fillStyle = css("--text", "#e2e8f0");
-  ctx.font = `600 9px ui-monospace, monospace`;
+  ctx.font = `700 12px ui-monospace, monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText(headerText, 22, 8);
+  ctx.fillText(headerText, 34, 12.2);
 
   if (digCol) {
     ctx.fillStyle = digCol;
     ctx.beginPath();
-    ctx.arc(boxScreenW - 8, 7.5, 3.2, 0, Math.PI * 2);
+    ctx.arc(boxScreenW - 11, 12, 4.2, 0, Math.PI * 2);
     ctx.fill();
   }
 
   // Messwert-Zeilen
-  ctx.font = `500 9.5px ui-monospace, monospace`;
+  ctx.font = `600 13px ui-monospace, monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillStyle = !netName || !live ? css("--text-mute", "#94a3b8") : css("--text", "#e2e8f0");
   valueLines.forEach((ln, idx) => {
-    ctx.fillText(ln, padX, headerH + 3 + idx * lineH);
+    ctx.fillText(ln, padX, headerH + 5 + idx * lineH);
   });
 
   ctx.restore();
@@ -3444,12 +3588,30 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     ctx.save(); ctx.translate(inst.x, inst.y);
     const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;
     ctx.font="600 10.5px ui-sans-serif, system-ui"; ctx.textAlign="center";
-    ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--text-dim","#9aa5bd"); ctx.fillText(inst.label,0,dy);
+    ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--text-dim","#9aa5bd");
+    ctx.fillText(inst.label,0,dy);
     const main=part.params[0];
-    if (main && main.type==="number"){ const val=Number(inst.params[main.key]??main.def); ctx.fillStyle=css("--text-mute","#64708c"); ctx.font="10px ui-monospace, monospace"; ctx.fillText(formatValue(val,main.unit??""),0,dy+12); }
+    if (main && main.type==="number"){
+      const val=Number(inst.params[main.key]??main.def);
+      // W92: Wenn das Bauteil ausgewählt ist, wird auch sein Wert darunter
+      // optisch in der Auswahlfarbe (--wire-sel) hervorgehoben!
+      ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--text-mute","#64708c");
+      ctx.font=selected?"600 10.5px ui-monospace, monospace":"10px ui-monospace, monospace";
+      ctx.fillText(formatValue(val,main.unit??""),0,dy+12);
+    }
     ctx.restore();
   }
-  if (selected){ const b=instanceBounds(inst); ctx.strokeStyle=css("--accent","#5b8cff"); ctx.setLineDash([4,3]); ctx.lineWidth=1; ctx.strokeRect(b.x-6,b.y-6,b.w+12,b.h+12); ctx.setLineDash([]); }
+  if (selected){
+    const b=instanceBounds(inst);
+    const hasValueLabel = zoom>0.42 && part.mount!=="virtual";
+    const main=part.params[0];
+    const extraBottom = hasValueLabel ? (main && main.type==="number" ? 30 : 18) : 6;
+    ctx.strokeStyle=css("--wire-sel","#fbbf24");
+    ctx.setLineDash([4,3]);
+    ctx.lineWidth=1.1;
+    ctx.strokeRect(b.x-6, b.y-6, b.w+12, b.h+6+extraBottom);
+    ctx.setLineDash([]);
+  }
 }
 function drawPrim(ctx: CanvasRenderingContext2D, prim: SymbolPrim) {
   switch(prim.t){

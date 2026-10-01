@@ -730,8 +730,8 @@ const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointN
   const prId = st.addMeasurementProbe("voltage", 260, 172);
   const pr = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
   check(
-    "W81 Probe mitten auf langem Leitungssegment findet das Netz und rastet den Anker auf die Leitung",
-    pr.net === "VDD_5V" && pr.anchorY === 170 && pr.anchorX === 260 && pr.x === 290 && pr.y === 140,
+    "W81/W93 Probe mitten auf langem Leitungssegment findet das Netz und rastet den Anker auf die Leitung (Offset +40/-40)",
+    pr.net === "VDD_5V" && pr.anchorY === 170 && pr.anchorX === 260 && pr.x === 300 && pr.y === 130,
     JSON.stringify({ net: pr.net, anchorX: pr.anchorX, anchorY: pr.anchorY, x: pr.x, y: pr.y }),
   );
 
@@ -741,7 +741,7 @@ const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointN
   const prMovedBox = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
   check(
     "W87 Ziehen des Probe-Anzeigekästchens bewegt nur (x, y) und hält die Messspitze (anchorX, anchorY) fest auf der Leitung",
-    prMovedBox.x === 310 && prMovedBox.y === 130 && prMovedBox.anchorX === 260 && prMovedBox.anchorY === 170,
+    prMovedBox.x === 320 && prMovedBox.y === 120 && prMovedBox.anchorX === 260 && prMovedBox.anchorY === 170,
     JSON.stringify(prMovedBox),
   );
 
@@ -751,7 +751,7 @@ const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointN
   const prMovedWithWire = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
   check(
     "W87 Verschieben der Leitung unter der Messspitze nimmt die gesamte Probe (Spitze + Kästchen) mit",
-    prMovedWithWire.anchorX === 260 && prMovedWithWire.anchorY === 190 && prMovedWithWire.x === 310 && prMovedWithWire.y === 150,
+    prMovedWithWire.anchorX === 260 && prMovedWithWire.anchorY === 190 && prMovedWithWire.x === 320 && prMovedWithWire.y === 140,
     JSON.stringify(prMovedWithWire),
   );
 }
@@ -819,6 +819,24 @@ console.log("\n=== 19) W82–W84: OUT-Widerstand (astable555) & Raster-Konsisten
     "W83 alignSelection richtet Widerstand und LED exakt auf derselben GRID=10-Rasterlinie aus",
     r3Aligned.y === d1Aligned.y && r3Aligned.y % GRID === 0,
     JSON.stringify({ r3Y: r3Aligned.y, d1Y: d1Aligned.y }),
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 20) W88–W93: Runde 29 – Werte-Parser (Ω/Komma/Infix) & Cursor      */
+/* ------------------------------------------------------------------ */
+console.log("\n=== 20) W88–W93: Runde 29 (Werte-Parser, Radiergummi-Cursor, Labels) ===");
+{
+  const { parseSpiceValue } = require("../src/lib/schematic/importers") as typeof import("../src/lib/schematic/importers");
+  const { ERASER_CURSOR, PEN_CURSOR } = require("../src/components/cursors") as typeof import("../src/components/cursors");
+  check("W89 ERASER_CURSOR ist als eigener SVG-Cursor definiert und unterscheidet sich von PEN_CURSOR", Boolean(ERASER_CURSOR) && ERASER_CURSOR !== PEN_CURSOR);
+  check("W91 parseSpiceValue akzeptiert 10k, 10kΩ, 4,7k, 4k7, 470R, 100µF",
+    Math.abs(parseSpiceValue("10k") - 10000) < 1e-9 &&
+    Math.abs(parseSpiceValue("10kΩ") - 10000) < 1e-9 &&
+    Math.abs(parseSpiceValue("4,7k") - 4700) < 1e-9 &&
+    Math.abs(parseSpiceValue("4k7") - 4700) < 1e-9 &&
+    Math.abs(parseSpiceValue("470R") - 470) < 1e-9 &&
+    Math.abs(parseSpiceValue("100µF") - 100e-6) < 1e-12,
   );
 }
 

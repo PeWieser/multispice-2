@@ -1357,9 +1357,9 @@ export const useEditor = create<EditorState>((set, get) => ({
         anchorY = snapG(hit.y);
       }
     } catch {}
-    // W85: Anzeigekästchen-Offset exakt auf dem GRID=10-Raster (+30, -30)
-    const offsetX = 30;
-    const offsetY = -30;
+    // W85/W93: Anzeigekästchen-Offset exakt auf dem GRID=10-Raster (+40, -40)
+    const offsetX = 40;
+    const offsetY = -40;
     const probe = {
       id,
       kind,

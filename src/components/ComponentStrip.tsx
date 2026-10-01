@@ -9,11 +9,11 @@ import { resolveSymbolStyle } from "@/lib/settings";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { Library as LibraryIcon } from "lucide-react";
 
-/* W7 / W69 / W73: Ein Streifen.
-   Bibliothek ganz links (eine Tür für alle 402 Teile), dann die wichtigsten
-   Grundbauteile mit Schaltzeichen (IEC/ANSI-normgerecht), dann die
-   Zeichenwerkzeuge und rechts die Probes. Warmer Bernstein-/Amber-Akzent für
-   aktive Elemente statt konkurrierender Blautöne. */
+/* W7 / W69 / W73 / W88: Klare optische Hierarchie in der Werkzeugleiste:
+   1. Bibliothek-Button links (Eingangstür zu allen 410 Bauteilen)
+   2. Schnell-Bauteile als Schaltzeichen-Kacheln
+   3. Zeichenwerkzeuge als zusammengefasste Segmented-Control-Kapseln
+   4. Messsonden (Probes) rechts als farbige Sonden-Pills mit Typ-Badge */
 
 const QUICK: Array<{ id: string; label: string }> = [
   { id: "resistor", label: "R" },
@@ -26,9 +26,9 @@ const QUICK: Array<{ id: string; label: string }> = [
   { id: "gnd", label: "GND" },
 ];
 
-const PROBES: Array<{ k: ProbeKind; l: string; t: string; c: string }> = [
-  { k: "voltage", l: "V", t: "Spannungs-Probe", c: "var(--warn)" },
-  { k: "current", l: "A", t: "Strom-Probe", c: "var(--accent-2)" },
+const PROBES: Array<{ k: ProbeKind; l: string; t: string; c: string; key?: string }> = [
+  { k: "voltage", l: "V", t: "Spannungs-Probe", c: "var(--warn)", key: "V" },
+  { k: "current", l: "A", t: "Strom-Probe", c: "var(--accent-2)", key: "A" },
   { k: "voltage_current", l: "V·A", t: "Spannung + Strom", c: "var(--warn)" },
   { k: "power", l: "W", t: "Leistungs-Probe", c: "var(--accent-3)" },
   { k: "diff", l: "ΔV", t: "Differenz-Probe", c: "var(--err)" },
@@ -51,11 +51,12 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
 
   return (
     <div
-      className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto no-scrollbar border-b px-2"
+      className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto no-scrollbar border-b px-2.5"
       style={{ borderColor: "var(--border)", background: "var(--panel)" }}
     >
       <button
-        className="btn h-8 shrink-0 gap-1.5 px-2.5 text-[11px]"
+        type="button"
+        className="btn h-8 shrink-0 gap-1.5 px-2.5 text-[11px] font-semibold"
         style={
           libraryOpen
             ? {
@@ -66,20 +67,22 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
             : undefined
         }
         onClick={toggleLibrary}
-        title={adaptShortcut("Bibliothek (⌘K)", apple)}
+        title={adaptShortcut("Bauteil-Bibliothek öffnen (⌘K)", apple)}
       >
         <LibraryIcon size={13} />
         <span className="hidden md:inline">Bibliothek</span>
       </button>
 
-      <div className="mx-1.5 h-4 w-px shrink-0" style={{ background: "var(--border)" }} />
+      <div className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--border-strong)" }} />
 
-      <div className="flex items-center gap-1 shrink-0">
+      {/* 1. Bauteile – quadratische Symbol-Kacheln */}
+      <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Schnell-Bauteile">
         {quickParts.map((p) => {
           const active = placing === p.id;
           return (
             <button
               key={p.id}
+              type="button"
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.setData("text/multispice-part", p.id);
@@ -87,12 +90,14 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
                 useHud.setState({ dragPart: p.id });
               }}
               onDragEnd={() => useHud.setState({ dragPart: null })}
-              className="grid h-8 w-9 shrink-0 place-items-center rounded-lg border transition-colors"
+              className="grid h-8 w-9 shrink-0 place-items-center rounded-md border transition-colors"
               style={{
                 background: active ? "var(--tool-active-bg)" : "var(--panel-2)",
                 color: active ? "var(--tool-active-text)" : "var(--text)",
                 borderColor: active ? "var(--tool-active-border)" : "var(--border)",
-                boxShadow: active ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)" : "none",
+                boxShadow: active
+                  ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"
+                  : "none",
               }}
               title={`${p.name} – platzieren (R = drehen, M = spiegeln)`}
               aria-label={p.name}
@@ -105,31 +110,45 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
         })}
       </div>
 
-      <div className="mx-1.5 h-4 w-px shrink-0" style={{ background: "var(--border)" }} />
+      <div className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--border-strong)" }} />
 
-      {/* W68: Zeichenwerkzeuge (Auswahl, Stift, Knotenpunkt, Netzname, Notiz, Löschen) */}
-      {tools ? <div className="flex shrink-0 items-center gap-1">{tools}</div> : null}
-      {tools ? <div className="mx-1.5 h-4 w-px shrink-0" style={{ background: "var(--border)" }} /> : null}
+      {/* 2. Zeichenwerkzeuge (Auswahl, [Stift | Radiergummi | Knotenpunkt], [Netzname | Notiz]) */}
+      {tools ? <div className="flex shrink-0 items-center">{tools}</div> : null}
+      {tools ? <div className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--border-strong)" }} /> : null}
 
-      <div className="flex shrink-0 items-center gap-1">
+      {/* 3. Messsonden (Probes) – abgerundete Sonden-Pills mit farbigem Typ-Badge */}
+      <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Messsonden">
         {PROBES.map((b) => {
           const active = placingProbe === b.k;
           return (
             <button
               key={b.k}
+              type="button"
               aria-pressed={active}
-              className="flex h-8 min-w-[34px] px-1.5 shrink-0 items-center justify-center gap-1 rounded-lg border text-[11px] font-bold leading-none transition-colors"
+              className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border pl-1.5 pr-2.5 text-[11px] font-semibold leading-none transition-colors"
               style={{
-                borderColor: active ? "var(--tool-active-border)" : "var(--border)",
-                background: active ? "var(--tool-active-bg)" : "var(--panel-2)",
+                borderColor: active
+                  ? "var(--tool-active-border)"
+                  : `color-mix(in srgb, ${b.c} 42%, var(--border))`,
+                background: active
+                  ? "var(--tool-active-bg)"
+                  : `color-mix(in srgb, ${b.c} 10%, var(--panel-2))`,
                 color: active ? "var(--tool-active-text)" : "var(--text)",
-                boxShadow: active ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)" : "none",
+                boxShadow: active
+                  ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"
+                  : "none",
               }}
-              title={b.t}
+              title={b.key ? `${b.t} (${b.key})` : b.t}
               onClick={() => setPlacingProbe(active ? null : b.k)}
             >
-              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: b.c }} />
-              <span>{b.l}</span>
+              <span
+                className="h-2.5 w-2.5 rounded-full shrink-0"
+                style={{
+                  background: b.c,
+                  boxShadow: `0 0 0 1px color-mix(in srgb, ${b.c} 55%, #000)`,
+                }}
+              />
+              <span className="mono">{b.l}</span>
             </button>
           );
         })}

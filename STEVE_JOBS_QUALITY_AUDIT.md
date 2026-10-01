@@ -2329,6 +2329,57 @@ Nutzer-Vorgaben aus der Rückfrage.
   - `npm test`: alle 7 Suiten grün
   - `npx --no-install next build`: Produktions-Build erfolgreich
 
+---
+
+## §30 — Runde 29: Werkzeugleiste, Radiergummi-Cursor, Netzname/Notiz/Wert-Edit, Bauteil-Auswahl & gut lesbare Probe-Kästen (W88–W93)
+
+### §30.1 — Ursachenanalyse & Plan (W88–W93)
+
+- **W88 · Werkzeugleiste optisch differenzieren & Radiergummi zum Stift gruppieren (`DrawingTools.tsx`, `ComponentStrip.tsx`):**
+  - *Ursache:* Bauteile, Zeichenwerkzeuge und Probes sahen in der Leiste alle wie identische graue Einzelkästchen (`h-8 w-9 rounded-lg`) aus; das Auswahlwerkzeug nutzte das Vierfach-Pfeil-Icon `Move` statt eines Auswahlzeigers, und der Radiergummi (`erase`) saß am Ende der Textgruppe statt beim Stift (`wire`).
+  - *Lösung:*
+    1. `Auswahl` erhält das klare Zeiger-Icon `MousePointer2`.
+    2. `Stift` (`Pencil`), `Radiergummi` (`Eraser`) und `Knotenpunkt` (`Network`) bilden gemeinsam eine verbundene **Leitungs-Werkzeugkapsel** (Segmented Control mit gemeinsamem Rahmen und Innentrennlinien).
+    3. `Netzname` (`Tag`) und `Notiz` (`StickyNote`) bilden eine eigene verbundene **Beschriftungs-Kapsel**.
+    4. Die **Probes** erhalten eine eigenständige Pill-/Badge-Optik (`rounded-full`) mit farbigem Typ-Badge in der jeweiligen Sondenfarbe, sodass Bauteile, Werkzeuge und Messsonden auf den ersten Blick unterscheidbar sind.
+- **W89 · Eigener Radiergummi-Cursor (`ERASER_CURSOR`) statt Stift-Cursor (`cursors.ts`, `Canvas.tsx`):**
+  - *Ursache:* In `Canvas.tsx` prüfte `const drawing = (Boolean(sr.netDraft) || st.tool === "wire" || sr.netHover !== null) && st.tool !== "junction"`. Sobald man mit dem Radiergummi (`st.tool === "erase"`) über eine Leitung oder einen Pin fuhr, war `sr.netHover !== null` und der Cursor wechselte auf `PEN_CURSOR` (Stiftsymbol).
+  - *Lösung:* Neuer `ERASER_CURSOR` in `src/components/cursors.ts`; `PEN_CURSOR` erscheint nur noch beim aktiven Netzzeichnen (`sr.netDraft`, `st.tool === "wire"` oder `st.tool === "select"` über einem freien Pin/Knotenpunkt), während `st.tool === "erase"` durchgängig den `ERASER_CURSOR` zeigt.
+- **W90 · Sinnvolle Tastenkürzel für `V`, `A` und `Esc` (`Canvas.tsx`, `DrawingTools.tsx`, `ComponentStrip.tsx`):**
+  - *Ursache:* `V` wechselte ins Auswahlwerkzeug (`select`), während `A` die Strom-Probe (`current`) auswählte – widersprüchlich zu den Probe-Buttons `V` und `A`.
+  - *Lösung:* `V` wählt die Spannungs-Probe (`voltage`), `A` die Strom-Probe (`current`) (erneutes Drücken schaltet sie wieder aus); `Esc` wechselt jederzeit ins Auswahlwerkzeug (`select`).
+- **W91 · Netzbenennung (`label`), Notizen (`text`) und Doppelklick-Wertänderung (`value`) reparieren (`Canvas.tsx`, `importers.ts`):**
+  - *Ursache 1 (`label` / `text` / `value` Input schloss sich sofort):* `onPointerDown` rief `setPointerCapture` auf dem `<canvas>` auf und mountete noch während `pointerdown` das `<input autoFocus onBlur={...} />`. Beim Loslassen der Maustaste (`pointerup` / Fokus-Rückgabe an Canvas) feuerte sofort `onBlur` mit leerem Text und schloss das Eingabefeld in derselben Millisekunde wieder.
+  - *Ursache 2 (Widerstandswert per Doppelklick):* `hitTestInstance` prüfte nur die Symbol-Box (`b.y .. b.y + b.h + 6`), während Name und Wert bei `b.y + b.h + 14 .. + 26` darunter stehen; ein Doppelklick auf das Symbol selbst öffnete zudem nur den Inspector statt des Wert-Editors.
+  - *Lösung:*
+    1. Schutzzeit (`editingOpenedAt`) + explizite Fokussierung per `editInputRef` verhindern, dass das losgelassene Maus-Event das soeben geöffnete `<input>` per `onBlur` sofort wieder schließt.
+    2. Im `label`- und `text`-Modus zeigt der Canvas schon beim Bewegen der Maus eine Live-Vorschau am Zeiger; im `label`-Modus rastet der Klickpunkt per Magnet auf die nächste Leitung ein.
+    3. Doppelklick auf ein Bauteil mit numerischem Hauptwert (z. B. Widerstand, Kondensator, Spule, Quelle) **oder** auf seinen Namen/Wert darunter öffnet direkt das Inline-Werteingabefeld (`10k`, `470`, `4u7` …); `parseSpiceValue` akzeptiert auch Einheiten (`Ω`, `Ohm`, `F`, `H`, `V`, `A`, `Hz`) und Kommas (`4,7k`).
+- **W92 · Bauteilwert optisch mitauswählen & störenden Kasten im Auswahlrahmen entfernen (`Canvas.tsx`):**
+  - *Ursache:* In `drawInstance` blieb der Bauteilwert (`10kΩ`) bei `selected === true` grau (`--text-mute`) und lag außerhalb des gestrichelten Auswahlrahmens. Zudem zeichnete `sr.marquee` in der Mitte des aufgezogenen Auswahlrahmens ein Rechteck mit ungültigem `ctx.fillStyle = "var(--panel-solid)"` (schwarzer eckiger Kasten).
+  - *Lösung:* Bei ausgewähltem Bauteil leuchtet auch der Werttext in `--wire-sel` mit und der gestrichelte Auswahlrahmen umschließt Symbol + Name + Wert gemeinsam. Der eckige Kasten in der Mitte von `sr.marquee` entfällt.
+- **W93 · Probe-Kästen deutlich größer und optimal lesbar (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache:* `drawProbe` nutzte `9px` / `9.5px` Schrift und `15px` Headerhöhe (`boxScreenW >= 84px`), was auf dem Schaltplan zu klein zum Ablesen war.
+  - *Lösung:* Deutlich größere Typografie und Boxmaße in `drawProbe` (Header `12px bold`, Typ-Badge `22×16px`, Messwerte `13px semibold`, Zeilenhöhe `18px`, Mindestbreite `132px`, Standard-Offset `(+40, -40)` auf dem Raster) sowie angepasster `hitTestProbe`.
+
+### §30.2 — Umsetzung Runde 29 (W88–W93, alles verifiziert)
+
+- **Geänderte Dateien:**
+  - `src/components/DrawingTools.tsx`: W88/W90 – Auswahlwerkzeug mit `MousePointer2` (`Esc`) statt `Move`-Icon; `[Stift | Radiergummi | Knotenpunkt]` in einer gemeinsamen Leitungs-Kapsel (Segmented Control) und `[Netzname | Notiz]` in einer zweiten Beschriftungs-Kapsel.
+  - `src/components/ComponentStrip.tsx`: W88/W90 – Klare optische Trennung der drei Bereiche: Schnell-Bauteile als Schaltzeichen-Kacheln, Zeichenwerkzeuge als Segmented-Control-Kapseln und Messsonden als farbige Sonden-Pills (`rounded-full`) mit farbigem Typ-Badge (`V`, `A`, `V·A`, `W`, `ΔV`, `REF`, `D`).
+  - `src/components/cursors.ts`: W89 – Eigener `ERASER_CURSOR` für das Radiergummi-Werkzeug.
+  - `src/lib/schematic/importers.ts`: W91 – `parseSpiceValue` unterstützt Einheiten (`Ω`, `Ohm`, `R`, `Hz`, `F`, `H`, `V`, `A`, `W`, `s`), `µ` sowie deutsches Dezimalkomma (`4,7k`).
+  - `src/state/editor.ts`: W93 – Standard-Offset neuer Probes auf `(+40, -40)` im `GRID = 10`-Raster gesetzt.
+  - `src/components/Canvas.tsx`: W89–W93 – `ERASER_CURSOR` beim Radiergummi (kein `PEN_CURSOR` mehr über Leitungen/Pins); `V` = Spannungs-Probe, `A` = Strom-Probe, `Esc` = Auswahl; Fokus-Schutz (`editingOpenedAt` + `editInputRef`) und Verzicht auf `setPointerCapture` beim Öffnen des Inline-Editors (`label`, `text`, `value`), Live-Vorschau für `label`/`text` und Doppelklick-Werteingabe direkt auf Bauteilen/Widerständen; Werttext bei Bauteil-Auswahl in `--wire-sel` mit hervorgehoben und vom Auswahlrahmen umschlossen; eckiger Kasten in der Mitte von `sr.marquee` entfernt; `drawProbe` und `hitTestProbe` deutlich vergrößert (`12px`/`13px` Monospace, `minW = 132px`).
+  - `scripts/wiretest.ts`: Automatisierte Regressionstests für `W88–W93`.
+- **Verifikation:**
+  - `./node_modules/.bin/tsc --noEmit`: 0 Fehler
+  - `npx --no-install eslint src scripts`: 0 Fehler / 0 Warnungen
+  - `npm test`: alle 7 Suiten grün
+  - `npx --no-install next build`: Produktions-Build erfolgreich
+
+
+
 
 
 
