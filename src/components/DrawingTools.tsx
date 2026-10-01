@@ -1,12 +1,10 @@
 "use client";
 
 /**
- * W68 (Runde 26) / W73 (Runde 27) / W88 & W90 (Runde 29): Zeichenwerkzeuge in der Kopfleiste.
- *
- * Klar gegliederte Werkzeug-Kapseln (Segmented Controls), die sich optisch
- * deutlich von den Bauteil-Kacheln und den Messsonden-Pills abheben:
+ * W68 (Runde 26) / W73 (Runde 27) / W88 & W90 (Runde 29) / W97 (Runde 30):
+ * Zeichenwerkzeuge in der Kopfleiste – luftige Segmented-Control-Kapseln:
  *  1. Auswahl-Zeiger (`MousePointer2`, `Esc`)
- *  2. Leitungs-Kapsel: Stift (`W`), Radiergummi (`E`) und Knotenpunkt (`J`) gehören zusammen
+ *  2. Leitungs-Kapsel: Stift (`W`), Radiergummi (`E`) und Knotenpunkt (`J`)
  *  3. Beschriftungs-Kapsel: Netzname (`L`) und Notiz (`T`)
  */
 import { MousePointer2, Pencil, Eraser, GitCommitHorizontal, Tag, StickyNote } from "lucide-react";
@@ -61,7 +59,7 @@ export function DrawingTools() {
   const effectiveTool: Tool = netDrawing ? "wire" : tool;
 
   return (
-    <div className="flex items-center gap-1.5" role="toolbar" aria-label="Zeichenwerkzeuge">
+    <div className="flex items-center gap-2.5" role="toolbar" aria-label="Zeichenwerkzeuge">
       {TOOL_CAPSULES.map((capsule) => (
         <div
           key={capsule.id}
@@ -83,7 +81,7 @@ export function DrawingTools() {
                 )}
                 <button
                   type="button"
-                  className="grid h-7 w-8 shrink-0 place-items-center rounded-md border transition-colors"
+                  className="grid h-7 w-9 shrink-0 place-items-center rounded-md border transition-colors"
                   style={{
                     background: active ? "var(--tool-active-bg)" : "transparent",
                     color: active ? "var(--tool-active-text)" : "var(--text)",

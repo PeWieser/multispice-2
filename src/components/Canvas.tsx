@@ -25,7 +25,7 @@ import {
 } from "@/lib/schematic/netdraw";
 import { engine, hitTestInstance, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
 import { LEGACY_PROBE_COLORS, PROBE_CSSVAR, PROBE_HEX } from "@/lib/probe-style";
-import { Library as LibIcon, Minus, Plus, Sparkles } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
@@ -2440,30 +2440,6 @@ export default function Canvas() {
           }}
         />
       )}
-      {/* Empty state – delightful onboarding */}
-      {(() => {
-        const doc = useEditor.getState().doc;
-        if (doc.instances.length === 0 && doc.wires.length === 0) {
-          return (
-            <div className="pointer-events-none absolute inset-0 grid place-items-center">
-              <div className="pointer-events-auto rounded-2xl p-6 text-center shadow-2xl backdrop-blur-xl max-w-[380px]" style={{ background: "color-mix(in srgb, var(--panel-solid) 92%, transparent)", border: "1px solid var(--border-strong)" }}>
-                <div className="mx-auto mb-3 h-12 w-12 rounded-xl grid place-items-center" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)", color: "var(--accent)" }}>
-                  <Sparkles size={20} />
-                </div>
-                <div className="text-[14px] font-semibold">Leere Leinwand – los geht’s!</div>
-                <div className="mt-1 text-[12px] text-mute">Drücke <kbd className="kbd">{adaptShortcut("⌘K", apple)}</kbd> für die Bauteil-Bibliothek oder ziehe Bauteile aus der Seitenleiste.</div>
-                <div className="mt-3 flex flex-wrap gap-1.5 justify-center">
-                  <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => useEditor.setState({ libraryOpen: true })}><LibIcon size={12} /> Bibliothek öffnen</button>
-                  <button className="btn h-7 px-3 text-[11px]" onClick={() => { const id = useEditor.getState().addInstance("resistor", 0, 0); if (id) useEditor.getState().setSelection([id]); }}>+ R Widerstand</button>
-                  <button className="btn h-7 px-3 text-[11px]" onClick={() => useEditor.getState().setPlacingProbe("voltage")}>∿ Probe</button>
-                </div>
-                <div className="mt-3 text-[10px] text-mute">Tipps: <span className="mono">W</span> Wire • <span className="mono">R</span> Drehen • <span className="mono">F</span> Fit • <span className="mono">Leertaste</span> Simulieren • <span className="mono">?</span> Hilfe</div>
-              </div>
-            </div>
-          );
-        }
-        return null;
-      })()}
       {showHelp && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={()=>setShowHelp(false)}>
           <div className="rounded-2xl p-5 w-full max-w-[560px] max-h-[80vh] overflow-auto" style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} onClick={e=>e.stopPropagation()}>

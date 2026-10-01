@@ -9,7 +9,6 @@ import MenuBar from "./MenuBar";
 import StatusBar from "./StatusBar";
 import ComponentStrip from "./ComponentStrip";
 import DrawingTools from "./DrawingTools";
-import SheetTabs from "./SheetTabs";
 import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
 import { engine, useEditor, ThemePref } from "@/state/editor";
@@ -332,7 +331,6 @@ export default function Workbench() {
           )}
         </div>
         <MobileBottomToolbar />
-        <SheetTabs />
         <StatusBar isMobile />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
@@ -361,7 +359,6 @@ export default function Workbench() {
             <BottomPanel />
           </div>
         </div>
-        <SheetTabs />
         <StatusBar />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
@@ -389,8 +386,7 @@ export default function Workbench() {
           <BottomPanel />
         </div>
       </div>
-      {/* W72: Dateileiste unten – Reiter der geöffneten Blätter, + legt eines an. */}
-      <SheetTabs />
+      {/* W96: Eine einzige schlanke Fußleiste (links geöffnete Blätter, rechts Prüfung & Sim-Zeit). */}
       <StatusBar />
       {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}

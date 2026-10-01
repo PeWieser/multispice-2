@@ -47,6 +47,7 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
   const showInlineValues = useEditor((s) => s.showInlineValues);
   const showRulers = useEditor((s) => s.showRulers);
   const showPageFrame = useEditor((s) => s.showPageFrame);
+  const bottomOpen = useEditor((s) => s.bottomOpen);
   const flowDir = useEditor((s) => s.currentFlowDirection);
   const fileRef = useRef<HTMLInputElement>(null);
   const st = useEditor.getState;
@@ -168,11 +169,8 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
   }
 
   return (
-    <header className="flex h-9 shrink-0 items-center gap-0.5 px-2 text-[12px]"
+    <header className="flex h-9 shrink-0 items-center gap-0.5 px-2.5 text-[12px]"
       style={{ background: "var(--panel)", borderBottom: "1px solid var(--border)" }}>
-      {/* Minimal – no logo */}
-      <span className="mr-2 hidden max-w-[140px] truncate text-[11px] text-mute lg:inline">{docName}</span>
-
       <Menu label="Datei" {...menuProps("datei")}>
         <MenuItem onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
         <MenuItem hint="⌘S" onClick={() => st().saveProject()}>Lokal speichern</MenuItem>
@@ -231,6 +229,9 @@ export default function MenuBar({ onAnalysis, onSettings, onWizards, onProjects,
         <MenuItem onClick={() => st().fitView()}>Einpassen (F)</MenuItem>
         <MenuItem hint="⌘K" onClick={() => st().toggleLibrary()}>Bibliothek</MenuItem>
         <MenuItem hint="⌘I" onClick={() => st().toggleInspector()}>Inspector</MenuItem>
+        <MenuItem checked={bottomOpen} onClick={() => st().toggleBottom()}>Auswertung &amp; Konsole (unten)</MenuItem>
+        <MenuItem onClick={() => st().setBottomTab("netlist")}>SPICE-Netzliste öffnen</MenuItem>
+        <MenuItem onClick={() => st().setBottomTab("bom")}>Stückliste (BOM) öffnen</MenuItem>
         <MenuSeparator />
         <MenuItem checked={theme === "system"} onClick={() => setTheme("system")}>System (Auto)</MenuItem>
         <MenuItem checked={theme === "dark"} onClick={() => setTheme("dark")}>Dunkel</MenuItem>

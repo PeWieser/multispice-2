@@ -2378,6 +2378,45 @@ Nutzer-Vorgaben aus der Rückfrage.
   - `npm test`: alle 7 Suiten grün
   - `npx --no-install next build`: Produktions-Build erfolgreich
 
+---
+
+## §31 — Runde 30: Dokumentenname oben links weg, Einrichtungs-Wizard weg, 1 untere Leiste statt 3 Balken & luftige Werkzeugleiste (W94–W97)
+
+### §31.1 — Ursachenanalyse & Plan (W94–W97, bestätigt per `ask_user`)
+
+- **W94 · Dokumentenname oben links in der Menüleiste entfernen (`MenuBar.tsx`):**
+  - *Ursache:* In `MenuBar.tsx` stand vor dem Menüpunkt `Datei` noch `<span className="mr-2 hidden max-w-[140px] truncate text-[11px] text-mute lg:inline">{docName}</span>` (redundant zu den Schaltblatt-Reitern unten).
+  - *Lösung:* Den Dokumentennamen oben links ersatzlos entfernen, sodass die Menüleiste sauber mit `Datei` beginnt.
+- **W95 · Einrichtungs-Wizard („Leere Leinwand – los geht's!") bei neuem Dokument entfernen (`Canvas.tsx`):**
+  - *Ursache:* Bei leerem Dokument (`doc.instances.length === 0 && doc.wires.length === 0`) legte `Canvas.tsx` eine große Willkommens-Karte mitten über das leere Schaltblatt.
+  - *Lösung:* Das Onboarding-Overlay in `Canvas.tsx` ersatzlos entfernen – ein neues Schaltblatt ist sofort frei und bereit zum Zeichnen.
+- **W96 · Unten von 3 gestapelten Balken auf 1 einzige schlanke Leiste reduzieren (`BottomPanel.tsx`, `SheetTabs.tsx`, `StatusBar.tsx`, `Workbench.tsx`, `MenuBar.tsx`):**
+  - *Nutzer-Entscheidung (`ask_user`):*
+    1. `bottom_bar_layout = hide_panel_tabs_until_opened`: Unten gibt es dauerhaft **nur noch 1 einzige Leiste** (links die Schaltblatt-Reiter `+` / Blätter, rechts der Status). `BottomPanel` hat im eingeklappten Zustand (`bottomOpen === false`) **keine eigene 34-px-Leiste** mehr (`return null`), sondern öffnet sich nur bei Bedarf über das obere Menü (`Ansicht` / `Analysen`) oder über den Prüfungs-Button unten rechts.
+    2. `bottom_status_items = minimal_sim_and_erc`: Doppelte Zoom-%-Anzeige, Auto-Save-Uhrzeit und `x/y`-Koordinaten entfallen. Unten rechts bleiben nur der **Prüfungs-Status** (`✓ Prüfung ok` / `⚠ Hinweise` / `✕ Fehler`, öffnet/schließt das untere Panel) sowie die **Simulations-Geschwindigkeit / Simulationszeit**.
+- **W97 · Obere Werkzeugleiste (`ComponentStrip.tsx`, `DrawingTools.tsx`) entzerren (`reduce_quick_parts_and_probes`):**
+  - *Nutzer-Entscheidung (`ask_user`):*
+    1. Schnell-Bauteile auf die **5 wichtigsten Grundbauteile** reduzieren (`R`, `C`, `L`, `VDC`, `GND` – alle weiteren Bauteile über `Bibliothek`).
+    2. Messsonden entschlacken: Direkt sichtbar stehen **`V`** und **`A`**, während die Spezial-Sonden (`V·A`, `W`, `ΔV`, `REF`, `D`) in einem sauberen Dropdown-Menü **`Sonden ▾`** gebündelt werden.
+    3. Höhere Leiste (`h-11` / `44 px`) und großzügige Abstände zwischen allen Gruppen und Buttons, damit nichts mehr gequetscht wirkt.
+
+### §31.2 — Umsetzung Runde 30 (W94–W97, alles verifiziert)
+
+- **Geänderte Dateien:**
+  - `src/components/MenuBar.tsx`: W94/W96 – Dokumentenname oben links vor `Datei` entfernt; im Menü `Ansicht` direkten Umschalter für `Auswertung & Konsole (unten)`, `SPICE-Netzliste öffnen` und `Stückliste (BOM) öffnen` ergänzt.
+  - `src/components/Canvas.tsx`: W95 – Einrichtungs-Wizard („Leere Leinwand – los geht's!") bei leerem/neuem Dokument komplett entfernt.
+  - `src/components/BottomPanel.tsx`: W96 – Im geschlossenen Zustand (`!bottomOpen`) rendert `BottomPanel` überhaupt keine Leiste (`return null`), sondern erscheint nur bei Bedarf.
+  - `src/components/StatusBar.tsx`: W96 – Verschmilzt die Schaltblatt-Reiter (`+` und geöffnete Blätter) auf der linken Seite und den stark entschlackten Status (`✓ Prüfung ok` + Simulations-Geschwindigkeit/Zeit, ohne Zoom-%, Auto-Save-Uhrzeit und `x/y`-Koordinaten) auf der rechten Seite zu **einer einzigen schlanken 30-px-Leiste**.
+  - `src/components/Workbench.tsx`: W96 – Separates `<SheetTabs />` entfernt, sodass unten dauerhaft nur 1 einzige Leiste steht.
+  - `src/components/ComponentStrip.tsx` & `src/components/DrawingTools.tsx`: W97 – Schnell-Bauteile auf die 5 Grundelemente (`R`, `C`, `L`, `VDC`, `GND`) reduziert; Messsonden auf `V` + `A` + Portal-Dropdown `Sonden ▾` (`V·A`, `W`, `ΔV`, `REF`, `D`) gebündelt; Leistenhöhe (`h-11`), Abstände (`gap-3` / `gap-2.5`) und Button-Maße spürbar luftiger gestaltet.
+- **Verifikation:**
+  - `./node_modules/.bin/tsc --noEmit`: 0 Fehler
+  - `npx --no-install eslint src scripts`: 0 Fehler / 0 Warnungen
+  - `npm test`: alle 7 Suiten grün
+  - `npx --no-install next build`: Produktions-Build erfolgreich
+
+
+
 
 
 

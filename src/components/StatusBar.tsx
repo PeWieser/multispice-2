@@ -1,75 +1,144 @@
 "use client";
 
-import { Gauge } from "lucide-react";
+import { Gauge, Plus, X } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
-import { engine, useEditor, useHud } from "@/state/editor";
+import { engine, sheets, useEditor } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) {
   const apple = useIsApple();
+  const docId = useEditor((s) => s.doc.id);
+  const docName = useEditor((s) => s.doc.name);
+  const newDocument = useEditor((s) => s.newDocument);
+  const openSheet = useEditor((s) => s.openSheet);
+  const renameSheet = useEditor((s) => s.renameSheet);
+  const log = useEditor((s) => s.log);
+
   const running = useEditor((s) => s.sim.running);
-  const selection = useEditor((s) => s.selection);
   const timeScale = useEditor((s) => s.sim.timeScale);
   const setSimOption = useEditor((s) => s.setSimOption);
-  const zoom = useEditor((s) => s.view.zoom);
-  const fitView = useEditor((s) => s.fitView);
   const errors = useEditor((s) => s.netResult.errors.length);
   const warnings = useEditor((s) => s.netResult.warnings.length);
+  const bottomOpen = useEditor((s) => s.bottomOpen);
+  const bottomTab = useEditor((s) => s.bottomTab);
   const setBottomTab = useEditor((s) => s.setBottomTab);
-  const cursor = useHud((s) => s.cursor);
-  const lastSavedAt = useEditor((s) => s.lastSavedAt);
-  const savePending = useEditor((s) => s.savePending);
+  const toggleBottom = useEditor((s) => s.toggleBottom);
   const tick = useEditor((s) => s.sim.tick);
   const leadArmed = useEditor((s) => s.leadArmed);
   void tick;
   const simTime = running ? engine.lastState.time : 0;
 
-  if (isMobile) {
-    return (
-      <footer
-        className="flex h-[32px] shrink-0 items-center gap-2 px-3 text-[11px] text-mute"
-        style={{ background: "var(--panel-solid)", borderTop: "1px solid var(--border)" }}
-      >
-        <span className="mono">{Math.round(zoom * 100)} %</span>
-        {/* W72: Der Hinweistext ist der Dateileiste gewichen (SheetTabs).
-            Nur noch Hinweise, die vor einem Fehler warnen, bleiben stehen. */}
-        {leadArmed && (
-          <span className="min-w-0 flex-1 truncate text-[10px]" style={{ color: "var(--accent)" }}>
-            Messleitung {leadArmed.name ?? ""} in der Hand – Leitung oder Pin antippen (Esc legt sie zurück)
-          </span>
-        )}
-        <span className="mono text-[10px]">{running ? formatValue(simTime, "s") : "bereit"}</span>
-        <span title={savePending ? "Auto-Save schreibt in ≤ 2 s" : "Gespeichert (Auto-Save)"} style={{ color: savePending ? "var(--warn)" : lastSavedAt ? "var(--ok)" : "var(--text-mute)" }}>
-          {savePending ? "●" : lastSavedAt ? "✓" : "○"}
-        </span>
-      </footer>
-    );
-  }
+  // Geöffnete Schaltblätter (das aktuelle Blatt steht immer in der Liste)
+  const current = sheets.find((s) => s.id === docId) ?? { id: docId, name: docName, doc: null as never };
+  const list = sheets.some((s) => s.id === docId) ? sheets : [current, ...sheets];
+  const benannt = (id: string, name: string) => (id === docId ? docName || name : name);
+
+  const toggleErcPanel = () => {
+    if (bottomOpen && bottomTab === "errors") {
+      toggleBottom();
+    } else {
+      setBottomTab("errors");
+    }
+  };
 
   return (
     <footer
-      className="flex h-[26px] shrink-0 items-center gap-3 px-3 text-[11px] text-mute"
+      className="flex h-[30px] shrink-0 items-center gap-2 px-2.5 text-[11px] text-mute"
       style={{ background: "var(--panel)", borderTop: "1px solid var(--border)" }}
     >
-      {selection.length > 0 && (
-        <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "var(--accent-soft)", color: "var(--accent)", border: "1px solid var(--accent-mid)" }}>
-          {adaptShortcut(`${selection.length} ausgewählt`, apple)}
-        </span>
-      )}
-      {/* W72: Die untere Leiste trug den langen Bedienhinweis („Tooltips") – der
-          ist der Dateileiste gewichen. Was bleibt, sind die Elemente rechts
-          (Prüfung, Zeitskalierung, Koordinaten, Zoom, Zeit, Auto-Save) und der
-          dringende Hinweis zur Messleitung. */}
-      <span className="min-w-0 flex-1 truncate" style={leadArmed ? { color: "var(--accent)" } : undefined}>
+      {/* Links: Schaltblatt-Reiter (+ legt ein neues Blatt an, Klick wechselt, × schließt) */}
+      <div
+        className="flex min-w-0 items-center gap-1 overflow-x-auto no-scrollbar"
+        role="tablist"
+        aria-label="Geöffnete Schaltblätter"
+      >
+        <button
+          type="button"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md border transition-colors"
+          style={{ background: "var(--panel-2)", borderColor: "var(--border)", color: "var(--text-dim)" }}
+          title="Neues Schaltblatt"
+          aria-label="Neues Schaltblatt"
+          onClick={() => newDocument()}
+        >
+          <Plus size={13} />
+        </button>
+
+        <div className="mx-0.5 h-4 w-px shrink-0" style={{ background: "var(--border)" }} />
+
+        {list.map((s) => {
+          const active = s.id === docId;
+          const name = benannt(s.id, s.name);
+          return (
+            <div
+              key={s.id}
+              className="group flex h-6 shrink-0 items-center gap-1 rounded-md border px-2 text-[11px] transition-colors"
+              style={{
+                background: active ? "var(--tool-active-bg)" : "var(--panel-2)",
+                borderColor: active ? "var(--tool-active-border)" : "var(--border)",
+                color: active ? "var(--tool-active-text)" : "var(--text-dim)",
+              }}
+            >
+              <button
+                type="button"
+                className="max-w-[140px] truncate font-medium"
+                title={name}
+                role="tab"
+                aria-selected={active}
+                onClick={() => openSheet(s.id)}
+              >
+                {name || "Unbenannt"}
+              </button>
+              <button
+                type="button"
+                className="grid h-4 w-4 place-items-center rounded opacity-60 hover:opacity-100"
+                title="Blatt schließen"
+                aria-label={`Blatt ${name} schließen`}
+                onClick={() => {
+                  if (sheets.length <= 1) {
+                    log("warn", "Das letzte Blatt bleibt offen – lege erst ein neues an (＋)");
+                    return;
+                  }
+                  const idx = sheets.findIndex((s2) => s2.id === s.id);
+                  if (idx < 0) return;
+                  if (s.id === docId) renameSheet(s.id, name);
+                  sheets.splice(idx, 1);
+                  if (active) {
+                    const next = sheets[Math.min(idx, sheets.length - 1)];
+                    if (next) openSheet(next.id);
+                  }
+                }}
+              >
+                <X size={11} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Mitte: Nur sichtbar, wenn gerade eine Messleitung vom Oszi/FG in der Hand ist */}
+      <span className="min-w-0 flex-1 truncate px-1" style={leadArmed ? { color: "var(--wire-sel)" } : undefined}>
         {leadArmed
-          ? adaptShortcut(`Messleitung ${leadArmed.name ?? ""} in der Hand – klicke im Schaltplan auf eine Leitung oder einen Pin · Esc legt sie zurück`, apple)
+          ? adaptShortcut(
+              `Messleitung ${leadArmed.name ?? ""} in der Hand – Leitung oder Pin anklicken (Esc legt sie zurück)`,
+              apple,
+            )
           : ""}
       </span>
 
+      {/* Rechts (W96: stark entschlackt – nur Prüfungs-Status & Simulations-Geschwindigkeit/Zeit) */}
       <button
-        className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]"
-        onClick={() => setBottomTab("errors")}
-        title="Prüfung öffnen"
+        type="button"
+        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 transition-colors hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]"
+        style={
+          bottomOpen
+            ? {
+                background: "var(--tool-active-bg)",
+                color: "var(--tool-active-text)",
+              }
+            : undefined
+        }
+        onClick={toggleErcPanel}
+        title={bottomOpen ? "Auswertungs-Panel schließen" : "Prüfung & Auswertungs-Panel öffnen"}
       >
         {errors ? (
           <span style={{ color: "var(--err)" }}>✕ {errors} Fehler</span>
@@ -80,59 +149,32 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
         )}
       </button>
 
-      <span className="hidden shrink-0 items-center gap-1.5 md:flex" title="Zeitskalierung der Live-Simulation">
-        <Gauge size={12} />
-        <span className="relative inline-flex items-center">
-          <input
-            type="range"
-            className="w-20"
-            min={-4}
-            max={1}
-            step={0.05}
-            value={Math.abs(Math.log10(timeScale)) < 0.09 ? 0 : Math.log10(timeScale)}
-            onChange={(e) => {
-              // W9: Rastpunkt bei 1× – Normalgeschwindigkeit muss spürbar einrasten.
-              const v = Number(e.target.value);
-              // W28: breiterer Rastpunkt – 1× muss spürbar einrasten
-              setSimOption("timeScale", Math.abs(v) < 0.09 ? 1 : Math.pow(10, v));
-            }}
-            title="Simulationsgeschwindigkeit – rastet bei 1× ein"
-          />
+      {!isMobile && (
+        <span className="hidden shrink-0 items-center gap-1.5 md:flex" title="Zeitskalierung der Live-Simulation">
+          <Gauge size={12} />
+          <span className="relative inline-flex items-center">
+            <input
+              type="range"
+              className="w-20"
+              min={-4}
+              max={1}
+              step={0.05}
+              value={Math.abs(Math.log10(timeScale)) < 0.09 ? 0 : Math.log10(timeScale)}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setSimOption("timeScale", Math.abs(v) < 0.09 ? 1 : Math.pow(10, v));
+              }}
+              title="Simulationsgeschwindigkeit – rastet bei 1× ein"
+            />
+          </span>
+          <span className="mono w-11">
+            {timeScale === 1 ? "1×" : timeScale > 1 ? `${timeScale.toFixed(1)}×` : `1/${Math.round(1 / timeScale)}×`}
+          </span>
         </span>
-        <span className="mono w-12">{timeScale === 1 ? "1×" : timeScale > 1 ? `${timeScale.toFixed(1)}×` : `1/${Math.round(1 / timeScale)}×`}</span>
-      </span>
+      )}
 
-      <span className="mono hidden shrink-0 sm:inline">x {Math.round(cursor.x)} · y {Math.round(cursor.y)}</span>
-      <button className="mono shrink-0 rounded px-1.5 py-0.5 hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]" onClick={fitView} title="Einpassen (F)">
-        {Math.round(zoom * 100)} %
-      </button>
-      <span className="mono hidden w-[92px] shrink-0 text-right lg:inline" title="Simulationszeit">
+      <span className="mono shrink-0 text-right" title="Simulationszeit">
         {running ? `t = ${formatValue(simTime, "s")}` : "bereit"}
-      </span>
-      <span
-        className="mono hidden shrink-0 items-center gap-1 sm:flex"
-        title={
-          savePending
-            ? "Änderung ausstehend – Auto-Save schreibt in ≤ 2 s"
-            : lastSavedAt
-              ? `Zuletzt gespeichert um ${new Date(lastSavedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} (Auto-Save oder ${adaptShortcut("⌘S", apple)})`
-              : "Auto-Save aktiv – schreibt 2 s nach jeder Änderung"
-        }
-      >
-        {savePending ? (
-          <span style={{ color: "var(--warn)" }}>●</span>
-        ) : lastSavedAt ? (
-          <span style={{ color: "var(--ok)" }}>✓</span>
-        ) : (
-          <span className="text-mute">○</span>
-        )}
-        <span className="text-mute">
-          {savePending
-            ? "speichert …"
-            : lastSavedAt
-              ? new Date(lastSavedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
-              : "Auto-Save"}
-        </span>
       </span>
     </footer>
   );
