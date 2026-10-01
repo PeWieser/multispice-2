@@ -2186,7 +2186,13 @@ Dateileiste („Neues Schaltblatt", Reiter mit Schließen-Knopf) vorhanden.
 
 ### 27.3 · Merge
 
-Der Merge-Commit `d518ffa` bringt `main` in den Zweig; der PR ist danach inhaltlich konfliktfrei und
-die Checks laufen grün. Gemerged wird als **Merge-Commit** (wie PR #3), der Zweig bleibt erhalten,
-damit diese Arena-Session weiterarbeiten kann.
+Der Merge-Commit `d518ffa` bringt `main` in den Zweig; danach ist der PR inhaltlich konfliktfrei und
+die Checks laufen grün.
+
+**Ergebnis:** PR #4 wurde am 01.10.2026 um 12:52 UTC als **Merge-Commit `02b3fcc`** nach `main`
+übernommen (Merge-Methode wie bei PR #3). Der `verify`-Lauf auf dem Branch
+(`36864629740`) und auf `main` (`36864753080`) sind **erfolgreich** – der Lint-Schritt läuft jetzt
+grün durch. Der Zweig `arena/01a0ee02-multispice-2` bleibt erhalten, damit diese Arena-Session
+weiterarbeiten kann; `git diff origin/main <Branch>` ist leer (identischer Inhalt).
+Abschluss-Kommentar am PR: `issuecomment-5931878084`.
 
