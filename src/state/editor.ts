@@ -22,7 +22,7 @@ import {
   straightenWirePoints,
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
-import { normalizeDocGeometry } from "@/lib/schematic/netdraw";
+import { contactKeep, normalizeDocGeometry } from "@/lib/schematic/netdraw";
 import { orthoFollow } from "@/lib/schematic/ortho";
 import { RealtimeEngine } from "@/lib/sim/realtime";
 import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
@@ -50,7 +50,7 @@ function scheduleAutosave() {
 
 export const engine = new RealtimeEngine();
 
-export type Tool = "select" | "wire" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
+export type Tool = "select" | "wire" | "junction" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
 
 export type InstrumentKind =
   | "dmm"
@@ -263,6 +263,10 @@ export interface EditorState {
   bumpTick: (fps: number) => void;
   loadPreset: (id: string) => void;
   newDocument: () => void;
+  /** W72: Blatt aus der Dateileiste öffnen. */
+  openSheet: (id: string) => void;
+  /** W72: Blattname in der Dateileiste nachführen (Umbenennen im Inspector). */
+  renameSheet: (id: string, name: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
   saveProject: (name?: string) => void;
@@ -273,6 +277,31 @@ export interface EditorState {
 
 let logId = 1;
 const now = () => new Date().toLocaleTimeString("de-DE", { hour12: false });
+
+/**
+ * W72: Die Dateileiste zeigt die geöffneten Blätter als Reiter. Bis daraus
+ * echte Projekte werden, steht hier die Liste der geöffneten Blätter; die
+ * Verweise auf die Simulations-Objekte (`engine.doc`, Geräte, Netzprüfung)
+ * werden beim Wechsel über `applyDoc` aktualisiert – sonst würde eine
+ * umgestellte `useEditor.getState().doc` nicht neu vernetzt.
+ */
+export interface SheetEntry {
+  id: string;
+  name: string;
+  doc: SchematicDoc;
+}
+export const sheets: SheetEntry[] = [];
+
+/** W72: ein Blatt in den Bearbeitungszustand bringen (inkl. Netzprüfung, Simulation, Geräte). */
+export function applyDoc(doc: SchematicDoc, opts: { pushHistory?: boolean } = {}): void {
+  const st = useEditor.getState();
+  const wasRunning = st.sim.running;
+  st.setDoc(doc, opts.pushHistory ?? true);
+  engine.running = wasRunning;
+  if (wasRunning) engine.rebuild(doc);
+  useEditor.setState({ instruments: [] });
+  useEditor.getState().refreshNets();
+}
 
 function nextLabel(doc: SchematicDoc, part: PartDef): string {
   let n = 1;
@@ -987,7 +1016,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().commit((d) => {
       for (const w of d.wires) {
         if (!sel.has(w.id)) continue;
-        w.points = straightenWirePoints(w.points);
+        // W70: Eckpunkte fallen weg, Kontaktpunkte (T-Stellen, Pins) bleiben.
+        w.points = straightenWirePoints(w.points, GRID, contactKeep(d, w.id));
         n++;
       }
       // Enden wieder auf die Pins rasten (begradigen kann Pins minimal verfehlen);
@@ -1384,9 +1414,38 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   newDocument: () => {
+    // W72: „+" legt ein neues leeres Schaltblatt an und öffnet es als Reiter.
     engine.running = false;
-    set((s) => ({ doc: emptyDoc(), past: [...s.past, s.doc], future: [], selection: [], sim: { ...s.sim, running: false } }));
-    get().refreshNets();
+    // Das offene Blatt bleibt als Reiter erhalten (auch wenn es noch nicht in
+    // der Liste steht) – „+" öffnet ein zusätzliches Blatt, keine Ersetzung.
+    const aktuell = get().doc;
+    if (!sheets.some((s2) => s2.id === aktuell.id)) sheets.push({ id: aktuell.id, name: aktuell.name, doc: aktuell });
+    const doc = emptyDoc();
+    const entry: SheetEntry = { id: doc.id, name: doc.name, doc };
+    sheets.push(entry);
+    applyDoc(doc, { pushHistory: true });
+    set({ sim: { ...get().sim, running: false } });
+    get().log("ok", `Neues Schaltblatt „${doc.name}“ angelegt`);
+  },
+
+  openSheet: (id) => {
+    const entry = sheets.find((s2) => s2.id === id);
+    if (!entry) return;
+    // Das aktuelle Blatt behält seinen Stand (inkl. Namen) in der Liste.
+    const aktiv = sheets.find((s2) => s2.id === get().doc.id);
+    if (aktiv) {
+      aktiv.doc = get().doc;
+      aktiv.name = get().doc.name || aktiv.name;
+    }
+    applyDoc(entry.doc, { pushHistory: false });
+    // Undo gehört zum Blatt: Verlauf nicht über Blattgrenzen tragen.
+    set({ past: [], future: [] });
+    get().log("info", `Blatt „${entry.name}“ geöffnet`);
+  },
+
+  renameSheet: (id, name) => {
+    const entry = sheets.find((s2) => s2.id === id);
+    if (entry) entry.name = name;
   },
 
   setAnalysis: (a) => set((s) => ({ analysis: { ...s.analysis, ...a } })),
@@ -1424,10 +1483,17 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   restoreLocalProject: () => {
+    // W72: Das beim Start geladene Blatt ist der erste Reiter.
+    const first = get().doc;
+    if (!sheets.length) sheets.push({ id: first.id, name: first.name, doc: first });
     const stored = loadProjectLocal();
     if (stored) {
       const doc = stored.doc as any;
       if (!Array.isArray(doc.probes)) doc.probes = [];
+      // W72: Der wiederhergestellte Stand ist das erste Blatt in der Dateileiste.
+      const restored = stored.doc as SchematicDoc;
+      if (sheets.length) sheets[0] = { id: restored.id, name: restored.name, doc: restored };
+      else sheets.push({ id: restored.id, name: restored.name, doc: restored });
       set({
         doc: stored.doc,
         selection: [],

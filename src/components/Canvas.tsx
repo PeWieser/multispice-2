@@ -851,6 +851,18 @@ export default function Canvas() {
     }
 
     const sr = stateRef.current;
+    // W68: Knotenpunkt-Vorschau
+    if ((sr as any).junctionHover) {
+      const j = (sr as any).junctionHover as { x: number; y: number };
+      const connected = (st.doc.junctions ?? []).some((q) => Math.hypot(q.x - j.x, q.y - j.y) < 0.5);
+      ctx.save();
+      ctx.strokeStyle = connected ? css("--err", "#b3372c") : css("--ok", "#4ade80");
+      ctx.lineWidth = 1.8 / Math.max(view.zoom, 0.3);
+      ctx.beginPath(); ctx.arc(j.x, j.y, 8 / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = connected ? css("--err", "#b3372c") : css("--ok", "#4ade80");
+      ctx.beginPath(); ctx.arc(j.x, j.y, 2.6 / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
     // W63/W64: Netz in Arbeit – gesetzte Ecken stehen fest, der Rest läuft als
     // gestrichelte Vorschau bis zum Zeiger bzw. exakt auf das Magnet-Ziel.
     if (sr.netDraft) {
@@ -1127,7 +1139,8 @@ export default function Canvas() {
     // Eckpunkt, Klick auf Pin/Verbindungspunkt/Leitung schließt exakt an und
     // beendet ihn (Esc verwirft die angefangene Leitung).
     const magnet = 14 / Math.max(st.view.zoom, 0.25);
-    {
+    if (st.tool !== "junction") {
+      // (Im Knotenpunkt-Werkzeug darf ein Klick nahe einem Pin kein Netz beginnen.)
       const res = netClick(st.doc, sr.netDraft, world, sp, { magnet, allowStartOnEmpty: st.tool === "wire", startOnWire: st.tool === "wire" });
       if (res) {
         if (res.kind === "start") {
@@ -1284,6 +1297,13 @@ export default function Canvas() {
       return;
     }
 
+
+    if (st.tool === "junction") {
+      // W68: Knotenpunkt-Werkzeug – setzt bzw. entfernt einen Verbindungspunkt
+      // an der nächsten Kreuzung zweier Leitungen (W61: nur mit Punkt leitend).
+      st.toggleJunction(world.x, world.y);
+      return;
+    }
 
     if (st.tool === "label" || st.tool === "text") {
       const rect = canvasRef.current?.getBoundingClientRect();
@@ -1588,6 +1608,20 @@ export default function Canvas() {
 
     if (sr.marquee) { sr.marquee.x1 = world.x; sr.marquee.y1 = world.y; }
 
+    // W68: Knotenpunkt-Werkzeug – der nächste Treffpunkt zweier Leitungen wird
+    // mit einem Ring gezeigt, damit der Klick sitzt.
+    if (st.tool === "junction") {
+      let best: { x: number; y: number } | null = null;
+      let bestD = 16 / Math.max(st.view.zoom, 0.25);
+      for (const c of wireJunctionCandidates(st.doc)) {
+        const dd = Math.hypot(c.x - world.x, c.y - world.y);
+        if (dd < bestD) { bestD = dd; best = c; }
+      }
+      (sr as any).junctionHover = best;
+    } else if ((sr as any).junctionHover) {
+      (sr as any).junctionHover = null;
+    }
+
     // W64: Anschluss-Magnet. Das beste Ziel (Pin → Verbindungspunkt → Leitung)
     // wird gemerkt, die Vorschau springt exakt dorthin – Klicks müssen nicht
     // mehr pixelgenau treffen, Anschlüsse gehen nicht mehr verloren.
@@ -1599,7 +1633,7 @@ export default function Canvas() {
     // (Leitungsgriff „copy/grab", Pan, Löschen) bleiben unangetastet.
     const canvasEl = canvasRef.current;
     if (canvasEl && !(sr as any)._hoveredHandle) {
-      const drawing = Boolean(sr.netDraft) || st.tool === "wire" || sr.netHover !== null;
+      const drawing = (Boolean(sr.netDraft) || st.tool === "wire" || sr.netHover !== null) && st.tool !== "junction";
       if (drawing) canvasEl.style.cursor = PEN_CURSOR;
       else if (!spaceDown.current && !sr.panning && !sr.dragging) canvasEl.style.cursor = st.tool === "erase" ? "not-allowed" : st.tool === "pan" ? "grab" : "default";
     }
@@ -1784,31 +1818,20 @@ export default function Canvas() {
       if (probe) {
         st.setSelection([probe.id]); useEditor.getState().openInstrument("inspector");
       } else {
-        // Double-click on wire segment adds point
+        // W67: Doppelklick auf eine Leitung zieht von dort ein neues Netz
+        // (Multisim: „Leitung abzweigen"). Der Anker liegt exakt auf der
+        // Leitung; der Abzweig erhält beim Anschließen einen Verbindungspunkt.
         const wireId = hitWire(st.doc, world);
         if (wireId) {
-          const wire = st.doc.wires.find(w=>w.id===wireId);
-          if (wire) {
-            // Find closest segment
-            let bestSeg = 0;
-            let bestDist = Infinity;
-            for (let i=0;i<wire.points.length-1;i++) {
-              const a=wire.points[i], b=wire.points[i+1];
-              const dx=b.x-a.x, dy=b.y-a.y;
-              const len2=dx*dx+dy*dy||1;
-              let t=((world.x-a.x)*dx+(world.y-a.y)*dy)/len2;
-              t=Math.max(0,Math.min(1,t));
-              const cx=a.x+t*dx, cy=a.y+t*dy;
-              const d=(cx-world.x)**2+(cy-world.y)**2;
-              if (d<bestDist){ bestDist=d; bestSeg=i; }
-            }
-            st.commit((d)=>{
-              const w = d.wires.find(x=>x.id===wireId);
-              if (w) w.points.splice(bestSeg+1,0,{x:world.x,y:world.y});
-            });
-            st.log("info", `Punkt hinzugefügt via Doppelklick – jetzt ${wire.points.length+1} Punkte`);
-            return;
-          }
+          const target = findNetTarget(st.doc, world, 14 / Math.max(st.view.zoom, 0.25));
+          const anchor = target?.kind === "wire" || target?.kind === "junction"
+            ? { x: target.x, y: target.y }
+            : snap(world);
+          sr.netDraft = { anchor, corners: [] };
+          sr.netHover = null;
+          if (canvasRef.current) canvasRef.current.style.cursor = PEN_CURSOR;
+          st.log("info", `Abzweig ab (${Math.round(anchor.x)}, ${Math.round(anchor.y)}) – Klick setzt Ecken, Klick auf Pin/Leitung verbindet, Esc bricht ab`);
+          return;
         }
       }
     }
@@ -2122,7 +2145,9 @@ export default function Canvas() {
           </span>
         </div>
       )}
-      <div className="absolute bottom-3 right-3 flex flex-col gap-1.5">
+      {/* W71: Die Geräteleiste ist 44 px breit (Instruments.tsx DeviceBar) –
+          das Zoom-Feld sitzt links daneben und verschwindet nicht mehr darunter. */}
+      <div className="absolute bottom-3 right-[52px] flex flex-col gap-1.5">
         <ZoomButtons onFit={() => useEditor.getState().fitView()} />
       </div>
     </div>

@@ -2026,3 +2026,123 @@ liegen woanders:
 `tsc --noEmit` ✓ · `eslint src scripts` ✓ · `npm test` ✓ (142 Prüfungen, 0 Fehler) ·
 `next build` ✓ · Vorschau `/` HTTP 200.
 
+---
+
+## §26 — Runde 26: Abzweig per Doppelklick, Werkzeugleiste mit Symbolen, Begradigen räumt Ecken, untere Leiste mit Dateireitern
+
+**Auftrag (wörtlich):** „sobald man mit dem cursor auf eine Leitung doppelklickt, man ab dort eine
+Leitung ziehen kann. zudem soll in der titelleiste, also da wo probes usw. sind, noch
+zeichenwerkzeuge sein (z.b. für knotenpunkte, stiftwerkzeug aktivieren usw.). die symbole für die
+bauteile sollen ohne beschriftung sein, dafür mit besseren symbolen (kleine wiederstände, gnd usw.).
+… Wenn ich einen zusätzlichen punkt einfüge, also aus einer graden leitung eine mit ecke mache und
+diese wieder begradige, dann soll der eckpunkt gelöscht werden, also wieder zu einer linie gemacht
+werden. … Auch ist mir noch aufgefallen, dass das zoomtool rechts unten dauerhaft unter der leiste
+rechts verschwindet. Verschiebe zudem die dateileiste, mit den geöffneten dokumenten nach unten. die
+untere leiste, mit den tooltips darf bis auf die elemente rechts verschwinden und eben durch die
+dateileiste ersetzt werden. diese funktioniert auch noch nicht (das + macht nichts)."
+
+### 26.0 · Prüfung: wo sitzt was heute?
+
+- **Doppelklick auf eine Leitung** fügt heute einen Stützpunkt ein
+  (`Canvas.tsx` `onDoubleClick`: „Double-click on wire segment adds point"). Ein Abzweig ist damit
+  nicht möglich – genau das soll sich ändern.
+- **Titelleiste** = `ComponentStrip.tsx`: Bibliothek, sechs Schnellbauteile (R, C, L, Diode, VDC,
+  GND – jeweils Kategorie-Symbol **plus Textkürzel**) und die Probe-Knöpfe (V, A, V·A, W, ΔV, REF, D).
+  Zeichenwerkzeuge gibt es dort nicht; die stecken nur im Handy-Streifen (`MobileBottomToolbar`).
+- **Begradigen** (`straightenWirePoints`) rastet aufs Raster und macht rechte Winkel, **behält aber
+  jeden Stützpunkt** – ein per Griff gezogener Eckpunkt bleibt als Knick stehen (`wiretest` W55
+  prüft genau das).
+- **Zoom-Bedienfeld** liegt in `Canvas.tsx` bei `absolute bottom-3 right-3`; die **Geräteleiste**
+  (`Instruments.tsx` `DeviceBar`) ist ein dauerhaft sichtbarer 44 px breiter Streifen
+  `absolute top-0 right-0 bottom-0 z-20` im selben Container → deckt das Zoom-Feld dauerhaft zu.
+- **Dateileiste** = `SheetTabs` ganz oben: ein einziger Reiter mit dem Dokumentnamen und ein `+`
+  **als `<span>`** (ohne Funktion); Kommentar im Code: „heute ein Blatt, Leiste ist vorbereitet".
+  Die **untere Leiste** = `StatusBar` mit langem Hinweistext (Tooltips) links und den Messwerten,
+  Zoom, Zeit, Auto-Save rechts.
+- Der Store hat bereits `newDocument()` (leeres Blatt) – darauf kann ein echtes `+` aufsetzen.
+
+### 26.1 · Arbeitspakete
+
+- **W67 · Abzweig per Doppelklick.** Doppelklick auf eine Leitung startet ein neues Netz an genau
+  diesem Punkt (Fußpunkt, gerastet): Vorschau läuft von dort, Klick auf Pin/Leitung schließt an,
+  Klick ins Leere setzt Ecken, `Esc` verwirft. Die bisherige Funktion „Doppelklick fügt Stützpunkt
+  ein" entfällt dafür (Punkte setzt man weiter über den Mittel-Griff, W54).
+- **W68 · Werkzeugleiste.** Der Streifen oben bekommt links die Zeichenwerkzeuge
+  (Auswahl, Stift/Netz, Knotenpunkt, Netzname, Notiz, Löschen) und behält rechts die Probes. Der
+  Knotenpunkt ist ein neues Werkzeug: Klick setzt/entfernt einen Verbindungspunkt (W61), mit
+  Vorschau-Ring am nächsten Treffpunkt zweier Leitungen.
+- **W69 · Bauteil-Symbole ohne Beschriftung.** Statt Kategorie-Symbol + Kürzel zeigen die
+  Schnellbauteile jetzt echte Schaltsymbol-Glyphen (Widerstand als Zickzack, Kondensator, Spule,
+  Diode, Spannungsquelle, Masse) – ohne Text, Name nur als Tooltip.
+- **W70 · Begradigen räumt Ecken.** `straightenWirePoints` reduziert auf den kürzesten Weg:
+  liegen die Enden auf einer Achse, wird die Leitung wieder **eine Gerade** (der eingefügte
+  Eckpunkt verschwindet); sonst bleibt genau **ein** Knick, weitere Stützpunkte fallen weg.
+- **W71 · Zoom sichtbar.** Das Zoom-Bedienfeld wird so platziert, dass die Geräteleiste es nicht
+  mehr verdeckt (genaue Platzierung nach Nutzerantwort).
+- **W72 · Untere Leiste = Dateireiter.** `SheetTabs` wandert nach unten und wird echt: mehrere
+  geöffnete Blätter als Reiter, `+` legt ein neues Blatt an, Klick wechselt, `×` schließt. Der
+  Hinweistext der Statusleiste entfällt; die rechten Elemente (Prüfung, Zeitskalierung,
+  Koordinaten, Zoom, Simulationszeit, Auto-Save) bleiben in derselben Zeile.
+### 26.2 · Rückfragen und Antworten (bindend)
+
+| Frage | Antwort |
+|---|---|
+| Was soll das `+` in der Dateileiste tun? | **Neues leeres Schaltblatt** (neuer Reiter) |
+| Wohin mit dem Zoom-Bedienfeld? | **Rechts unten, links neben der Geräteleiste** |
+
+### 26.3 · Umsetzung (W67–W72, alles verifiziert)
+
+- **W67 · Abzweig per Doppelklick.** Doppelklick auf eine Leitung öffnet an dieser Stelle ein neues
+  Netz: Anker ist der exakte Fußpunkt auf der Leitung (gerastet), die Vorschau läuft von dort,
+  Klick auf Pin/Leitung schließt an, Klick ins Leere setzt Ecken, `Esc` verwirft. Die alte
+  Doppelklick-Funktion „Stützpunkt einfügen" entfällt dafür; Punkte setzt man weiter über den
+  Mittel-Griff (W54) oder – beim Ziehen – über die Griffe.
+- **W68 · Zeichenwerkzeuge in der Kopfleiste.** Der Streifen oben zeigt jetzt links die Werkzeuge
+  **Auswahl · Stift (Netz zeichnen, `W`) · Knotenpunkt · Netzname (`L`) · Notiz (`T`) · Löschen (`E`)**
+  und rechts weiterhin die Probes. Der Stift ist das bisherige Leitungswerkzeug (Netz darf auf
+  freier Fläche beginnen), der **Knotenpunkt** ist neu: Klick setzt bzw. entfernt den
+  Verbindungspunkt an der nächsten Kreuzung zweier Leitungen (W61), ein Ring zeigt vorher das Ziel
+  (grün = setzen, rot = entfernen). Auf schmalen Fenstern weichen die Probes dem Platzbedarf aus.
+  Die Werkzeuge gibt es auch im Handy-Streifen.
+- **W69 · Bauteil-Symbole ohne Beschriftung.** Die sechs Schnellbauteile zeigen jetzt echte
+  Schaltzeichen (`src/components/PartGlyphs.tsx`: Widerstand als Zickzack, Kondensator, Spule,
+  Diode, Spannungsquelle, Masse) statt Kategorie-Symbol + Textkürzel; der Name steht im Tooltip und
+  als `aria-label`.
+- **W70 · Begradigen räumt Ecken.** `straightenWirePoints` reduziert auf den kürzesten Weg: liegen
+  Anfang und Ende auf einer Achse, wird die Leitung wieder **eine Gerade** (der zusätzlich gesetzte
+  Eckpunkt verschwindet), sonst bleibt genau **ein Knick** (längere Achse zuerst). Punkte, an denen
+  etwas hängt (T-Kontakt zu einer anderen Leitung, Pin, Netzlabel, Verbindungspunkt), sind
+  geschützt (`contactKeep`) – sonst hätte das Zusammenziehen z. B. in `ce-amp` einen T-Kontakt in ein
+  offenes Ende verwandelt (gemessen und behoben: W49/W62-Prüfungen wieder 0 offene Enden).
+  Gilt für „Leitung begradigen" (Menü/Kontextmenü), ⇧L und für die Geometrie-Reinigung W62.
+- **W71 · Zoom sichtbar.** Das Zoom-Bedienfeld (+ / − / FIT) sitzt jetzt `right-52px` – links neben
+  der 44 px breiten Geräteleiste, in derselben Ecke, und wird nicht mehr verdeckt.
+- **W72 · Dateileiste unten.** Der frühere obere Blatt-Reiter wandert nach unten (`SheetTabs.tsx`):
+  geöffnete Blätter als Reiter, `+` legt ein **neues leeres Schaltblatt** an (Store: `newDocument`
+  hält das bisherige Blatt in der Liste), Klick wechselt (Store: `openSheet` → `applyDoc` setzt
+  Netzprüfung und Simulation neu auf, Undo startet beim Blatt neu), `×` schließt einen Reiter, das
+  letzte Blatt bleibt offen. Die Reiter tragen den aktuellen Blattnamen (auch nach dem Umbenennen
+  im Inspector). Der lange Bedienhinweis („Tooltips") der unteren Leiste ist entfallen; die
+  Elemente rechts (Prüfung, Zeitskalierung, Koordinaten, Zoom, Simulationszeit, Auto-Save) bleiben
+  in derselben Zeile, dringende Hinweise (Messleitung in der Hand) erscheinen weiterhin.
+  **Bewusste Grenze:** Die Blätter liegen im Arbeitsspeicher, das Auto-Save schreibt weiterhin das
+  aktive Blatt – Reiter überleben den Neustart noch nicht (im Code vermerkt).
+- **Tests** (`scripts/wiretest.ts`, 7 neue Prüfungen): W70 (geradlinig → zwei Punkte, versetzt →
+  genau ein Knick, T-Kontakt geschützt und elektrisch weiter verbunden) und W72 (neues Blatt in der
+  Liste, leer und aktiv, Wechsel öffnet das alte Blatt samt Netzprüfung, Undo startet neu).
+
+### 26.4 · Verifikation
+
+`tsc --noEmit` ✓ · `eslint src scripts` ✓ · `npm test` ✓ (150 Prüfungen, 0 Fehler) ·
+`next build` ✓ · Vorschau `/` HTTP 200; im gerenderten HTML sind die neuen Werkzeugknöpfe
+(Auswahl/Stift/Knotenpunkt/Netzname/Notiz/Löschen), die Bauteil-Symbole ohne Beschriftung und die
+Dateileiste („Neues Schaltblatt", Reiter mit Schließen-Knopf) vorhanden.
+
+### 26.5 · Hinweise
+
+- Der Knotenpunkt lässt sich jetzt auch ohne Werkzeug setzen: Rechtsklick auf eine Leitung →
+  „Verbindungspunkt setzen/entfernen" (W61) bleibt bestehen.
+- Beim Blattwechsel werden offene Gerätefenster geschlossen (sie gehören zum Blatt).
+- Die Bauteil-Symbole im Streifen sind bewusst einfach gehalten (24 px-Raster, currentColor) und
+  lassen sich später um weitere Schnellbauteile ergänzen.
+

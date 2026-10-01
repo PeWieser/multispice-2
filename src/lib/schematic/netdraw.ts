@@ -67,7 +67,7 @@ export function normalizeDocGeometry(
   let wires = 0;
   for (const w of doc.wires) {
     const before = w.points;
-    const after = straightenWirePoints(before, grid);
+    const after = straightenWirePoints(before, grid, contactKeep(doc, w.id));
     const changed =
       after.length !== before.length ||
       after.some((p, i) => p.x !== before[i].x || p.y !== before[i].y);
@@ -75,6 +75,39 @@ export function normalizeDocGeometry(
     w.points = after;
   }
   return { instances, ends: snap.moved, wires };
+}
+
+/**
+ * W70: Punkte, die beim Begradigen nicht verschwinden dürfen – dort hängt eine
+ * andere Leitung, ein Pin, ein Netzlabel oder ein Verbindungspunkt. Sonst würde
+ * aus einer T-Verbindung ein offenes Ende (im Beispiel `ce-amp` passiert).
+ */
+export function contactKeep(doc: SchematicDoc, wireId: string): (p: Pt) => boolean {
+  const anchors = new Set<string>();
+  const kk = (x: number, y: number) => `${Math.round(x * 100)},${Math.round(y * 100)}`;
+  for (const inst of doc.instances) {
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    for (let idx = 0; idx < part.pins.length; idx++) {
+      const q = pinPosition(inst, idx);
+      anchors.add(kk(q.x, q.y));
+    }
+  }
+  for (const l of doc.labels) anchors.add(kk(l.x, l.y));
+  for (const j of doc.junctions ?? []) anchors.add(kk(j.x, j.y));
+  const others = doc.wires.filter((w) => w.id !== wireId);
+  return (p: Pt) => {
+    if (anchors.has(kk(p.x, p.y))) return true;
+    for (const o of others) {
+      for (const q of o.points) if (Math.abs(q.x - p.x) < 0.01 && Math.abs(q.y - p.y) < 0.01) return true;
+      for (let i = 0; i + 1 < o.points.length; i++) {
+        const a = o.points[i];
+        const b = o.points[i + 1];
+        if (pointOnSegment(p.x, p.y, a.x, a.y, b.x, b.y)) return true;
+      }
+    }
+    return false;
+  };
 }
 
 /* ------------------------------------------------------------------ */

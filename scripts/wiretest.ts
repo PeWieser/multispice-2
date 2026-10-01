@@ -6,7 +6,7 @@
  * W51 offene Enden/Null-/Doppelleitungen melden · W52 Drehen/Spiegeln reißt nicht ab
  * W53 Verbindungspunkte · W54 Segment verschieben · W55 Ausrichten/Verteilen/Begradigen
  * W56 Überlappungswarnung · W61 Kreuzungen wie in Multisim (Punkt = verbunden)
- * W62 Geometrie reinigen · W63 Netz zeichnen · W64 Anschluss-Magnet
+ * W62 Geometrie reinigen · W63 Netz zeichnen · W64 Anschluss-Magnet · W70 Begradigen räumt Ecken
  */
 import {
   GRID,
@@ -21,7 +21,7 @@ import {
 } from "../src/lib/schematic/model";
 import { PART_MAP } from "../src/lib/library/catalog";
 import { PRESETS, routeOrthogonal } from "../src/lib/schematic/tools";
-import { collectPins, reattachWiresToPins, useEditor, wireJunctionCandidates } from "../src/state/editor";
+import { collectPins, reattachWiresToPins, sheets, useEditor, wireJunctionCandidates } from "../src/state/editor";
 import { isValidProjectDoc, normalizeProjectDoc } from "../src/lib/storage";
 import { buildNetPath, findNetTarget, needsJunction, netClick, normalizeDocGeometry } from "../src/lib/schematic/netdraw";
 
@@ -187,6 +187,41 @@ function makeDoc2(): SchematicDoc {
   const pts = useEditor.getState().doc.wires[0].points;
   check("W55: begradigen rastet aufs Raster", pts.every((p) => p.x % GRID === 0 && p.y % GRID === 0), JSON.stringify(pts));
   check("W55: begradigen macht rechte Winkel", orth(pts), JSON.stringify(pts));
+}
+{
+  // W70: aus einer geraden Leitung eine mit Ecke machen und wieder begradigen →
+  // der Eckpunkt verschwindet, die Leitung ist wieder eine Linie.
+  const st = useEditor.getState();
+  const doc = makeDoc2();
+  doc.wires[0].points = [{ x: 200, y: 200 }, { x: 300, y: 200 }, { x: 300, y: 300 }, { x: 200, y: 300 }];
+  st.setDoc(doc, false);
+  st.setSelection(["w1"]);
+  st.straightenSelection();
+  const pts = useEditor.getState().doc.wires[0].points;
+  check("W70 geradlinig: Eckpunkt verschwindet, zwei Punkte bleiben", pts.length === 2, JSON.stringify(pts));
+  check("W70 geradlinig: Enden unverändert", pts[0].x === 200 && pts[0].y === 200 && pts[1].x === 200 && pts[1].y === 300, JSON.stringify(pts));
+
+  // Zwei Punkte, die nicht auf einer Achse liegen: genau ein Knick bleibt.
+  const doc2 = makeDoc2();
+  doc2.wires[0].points = [{ x: 200, y: 200 }, { x: 300, y: 200 }, { x: 300, y: 300 }, { x: 400, y: 300 }];
+  st.setDoc(doc2, false);
+  st.setSelection(["w1"]);
+  st.straightenSelection();
+  const pts2 = useEditor.getState().doc.wires[0].points;
+  check("W70 versetzt: genau ein Knick bleibt", pts2.length === 3, JSON.stringify(pts2));
+  check("W70 versetzt: rechte Winkel", orth(pts2), JSON.stringify(pts2));
+
+  // W70 · Sicherung: ein T-Kontakt (Punkt auf fremder Leitung) darf nicht verschwinden.
+  const doc3 = makeDoc2();
+  doc3.wires[0].points = [{ x: 100, y: 200 }, { x: 200, y: 200 }, { x: 300, y: 200 }]; // gerade, Berührpunkt in der Mitte
+  doc3.wires.push({ id: "w2", points: [{ x: 200, y: 200 }, { x: 200, y: 300 }] });
+  st.setDoc(doc3, false);
+  st.setSelection(["w1"]);
+  st.straightenSelection();
+  const res = buildNets(useEditor.getState().doc);
+  const pts3 = useEditor.getState().doc.wires[0].points;
+  check("W70 T-Kontakt bleibt erhalten (Punkt geschützt)", pts3.some((q) => q.x === 200 && q.y === 200), JSON.stringify(pts3));
+  check("W70 beide Leitungen bleiben im selben Netz", res.pointNets["100,200"] === res.pointNets["200,300"], `${res.pointNets["100,200"]} / ${res.pointNets["200,300"]}`);
 }
 {
   const st = useEditor.getState();
@@ -466,6 +501,21 @@ const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointN
   // 7 · mit Leitungswerkzeug (W) startet es auch auf leerer Fläche
   const start2 = netClick(twoPins, null, { x: 703, y: 697 }, { x: 700, y: 700 }, { magnet: 14, allowStartOnEmpty: true });
   check("W63 Leitungswerkzeug startet auch auf freier Fläche", start2?.kind === "start" && start2.draft.anchor.x === 700 && start2.draft.anchor.y === 700, JSON.stringify(start2));
+}
+
+{
+  // W72: Dateileiste – „+" legt ein Blatt an, openSheet wechselt inkl. Netzprüfung.
+  const st = useEditor.getState();
+  st.newDocument();
+  const nachNeu = useEditor.getState().doc;
+  check("W72 neues Schaltblatt erscheint in der Dateileiste", sheets.some((s) => s.id === nachNeu.id), JSON.stringify(sheets.map((s) => s.name)));
+  check("W72 neues Blatt ist leer und aktiv", nachNeu.instances.length === 0 && nachNeu.wires.length === 0);
+  const vorher = sheets.find((s) => s.id !== nachNeu.id)!;
+  st.openSheet(vorher.id);
+  check("W72 Wechsel öffnet das erste Blatt", useEditor.getState().doc.id === vorher.id);
+  const res = useEditor.getState().netResult;
+  check("W72 Netzprüfung läuft nach dem Wechsel (Netze vorhanden)", res.nets.length > 0, `${res.nets.length} Netze`);
+  check("W72 Undo-Verlauf startet beim Blatt neu", useEditor.getState().past.length === 0);
 }
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);

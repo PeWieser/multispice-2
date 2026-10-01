@@ -198,9 +198,37 @@ export function attachWireEnd(pts: WPt[], idx: number, target: WPt): void {
  * rechte Winkel auflösen, Zwischenpunkte entfernen. Anschließend rastet
  * `snapWiresToPins` die Enden wieder auf die Pins.
  */
-export function straightenWirePoints(pts: WPt[], grid = GRID): WPt[] {
+/**
+ * W55/W70: Leitung begradigen – Stützpunkte aufs Raster und rechte Winkel.
+ *
+ * W70: Ein zusätzlich gesetzter Eckpunkt („aus einer geraden Leitung eine mit
+ * Ecke machen") verschwindet beim Begradigen wieder, wenn es die Geometrie
+ * zulässt: liegen Anfang und Ende auf einer Achse, wird die Leitung **eine
+ * Gerade**; sonst bleibt genau **ein** Knick. Vorher blieb jeder Stützpunkt als
+ * Zacke stehen.
+ */
+export function straightenWirePoints(pts: WPt[], grid = GRID, keepPoint?: (p: WPt) => boolean): WPt[] {
   const snap = (v: number) => Math.round(v / grid) * grid;
-  let out = cleanWirePoints(pts.map((p) => ({ x: snap(p.x), y: snap(p.y) })));
+  let out = cleanProtected(pts.map((p) => ({ x: snap(p.x), y: snap(p.y) })), keepPoint);
+  if (out.length < 2) return out;
+  // Bei mehr als zwei Punkten reduzieren: gleiche Achse → eine Gerade, sonst ein
+  // einziger Knick (längere Achse zuerst). Punkte, an denen eine andere Leitung,
+  // ein Pin oder ein Verbindungspunkt hängt, bleiben erhalten (`keepPoint`) –
+  // sonst würde das Begradigen einen T-Kontakt unterbrechen.
+  if (out.length > 2) {
+    const a = out[0];
+    const b = out[out.length - 1];
+    const inner = out.slice(1, -1).filter((p) => keepPoint?.(p));
+    if (!inner.length) {
+      if (a.x === b.x || a.y === b.y) out = [{ ...a }, { ...b }];
+      else {
+        const bend = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y) ? { x: b.x, y: a.y } : { x: a.x, y: b.y };
+        out = [{ ...a }, bend, { ...b }];
+      }
+    } else {
+      out = cleanProtected([{ ...a }, ...inner, { ...b }], keepPoint);
+    }
+  }
   for (let i = 0; i + 1 < out.length; i++) {
     const a = out[i];
     const b = out[i + 1];
@@ -208,7 +236,22 @@ export function straightenWirePoints(pts: WPt[], grid = GRID): WPt[] {
     const prev = out[i - 1];
     const bend = prev && prev.x === a.x ? { x: b.x, y: a.y } : { x: a.x, y: b.y };
     out.splice(i + 1, 0, bend);
-    out = cleanWirePoints(out);
+    out = cleanProtected(out, keepPoint);
+  }
+  return out;
+}
+
+/** W70: wie `cleanWirePoints`, aber geschützte Punkte (T-Kontakte) bleiben. */
+function cleanProtected(pts: WPt[], keepPoint?: (p: WPt) => boolean): WPt[] {
+  if (!keepPoint) return cleanWirePoints(pts);
+  const out: WPt[] = [];
+  for (const p of pts) if (!out.length || !samePt(out[out.length - 1], p)) out.push({ x: p.x, y: p.y });
+  for (let i = out.length - 2; i >= 1; i--) {
+    const a = out[i - 1];
+    const b = out[i];
+    const c = out[i + 1];
+    const collinear = (a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y);
+    if (collinear && !keepPoint(b)) out.splice(i, 1);
   }
   return out;
 }
