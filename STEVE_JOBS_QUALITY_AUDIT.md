@@ -2146,3 +2146,47 @@ Dateileiste („Neues Schaltblatt", Reiter mit Schließen-Knopf) vorhanden.
 - Die Bauteil-Symbole im Streifen sind bewusst einfach gehalten (24 px-Raster, currentColor) und
   lassen sich später um weitere Schnellbauteile ergänzen.
 
+---
+
+## §27 — PR-Merge: Konflikt mit `main` gelöst, CI-Lint repariert
+
+**Auftrag:** „Please merge the pull request."
+
+### 27.1 · Warum PR #4 nicht direkt mergebar war
+
+- **Konflikt:** `main` hat seit dem Branch-Punkt (`16dcceb`) genau einen Commit mehr –
+  `0ffccd6` „Add files via upload" mit der Datei **`oszi v2/PORTIERUNG.md`** (486 Zeilen). Unser
+  Zweig enthält dieselbe Datei (als Arbeitsgrundlage übernommen und in Runde 24 um die
+  W60-Anmerkungen in §10.1/§10.2 ergänzt). Beide Seiten haben sie unabhängig angelegt → Git sieht
+  einen **add/add-Konflikt**, GitHub meldete `CONFLICTING`.
+  **Lösung:** `git merge origin/main`, Konflikt mit **unserer** Fassung aufgelöst – sie ist eine
+  Obermenge (506 statt 486 Zeilen, die 8 W60-Zeilen kommen hinzu, sonst identisch). Damit ist auch
+  die vom Nutzer hochgeladene Datei vollständig in `main` enthalten, der Merge also verlustfrei.
+  - Hinweis: Ein früherer Versuch scheiterte an „refusing to merge unrelated histories" – der
+    lokale Klon war **shallow** (`git rev-parse --is-shallow-repository` → true). Nach
+    `git fetch --unshallow origin` ist `16dcceb` wieder die gemeinsame Basis.
+- **CI `verify` schlug fehl** – und zwar in jedem Lauf seit Runde 19, immer am Schritt **„Lint"**
+  (`npx eslint .`), während Typen, Build und Tests übersprungen wurden. Ursache: `eslint.config.mjs`
+  ignorierte `reference/**`, `reference 2/**` und `oszi v2/**`, **nicht aber `function generator/`** –
+  obwohl dieser Referenzordner in `tsconfig.json` ausdrücklich ausgeschlossen ist und nicht zum
+  Build gehört. Damit fand der Lint Fehler im Vorbild (u. a. `react-hooks/refs` in
+  `function generator/src/components/FunctionGenerator.tsx` und `Knob.tsx`).
+  **Lösung:** `function generator/**` in die ESLint-Ignores aufgenommen (die Vorbild-Dateien selbst
+  bleiben unangetastet). Damit ist `npx eslint .` identisch zur bisherigen lokalen Prüfung
+  (`eslint src scripts`).
+
+### 27.2 · Verifikation (jeder CI-Schritt lokal nachgefahren)
+
+| Schritt (CI) | Befehl | Ergebnis |
+|---|---|---|
+| Typen | `npx tsc --noEmit` | ✓ exit 0 |
+| Lint | `npx eslint .` | ✓ exit 0 (vorher: 10 Fehler, alle aus `function generator/`) |
+| Build | `npx next build` | ✓ exit 0 |
+| Tests | `npm run test --silent` | ✓ exit 0, 155 Prüfungen, 0 Fehler |
+
+### 27.3 · Merge
+
+Der Merge-Commit `d518ffa` bringt `main` in den Zweig; der PR ist danach inhaltlich konfliktfrei und
+die Checks laufen grün. Gemerged wird als **Merge-Commit** (wie PR #3), der Zweig bleibt erhalten,
+damit diese Arena-Session weiterarbeiten kann.
+
