@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Gauge, Plus, X } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, sheets, useEditor } from "@/state/editor";
@@ -12,6 +13,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
   const newDocument = useEditor((s) => s.newDocument);
   const openSheet = useEditor((s) => s.openSheet);
   const renameSheet = useEditor((s) => s.renameSheet);
+  const reorderSheets = useEditor((s) => s.reorderSheets);
   const log = useEditor((s) => s.log);
 
   const running = useEditor((s) => s.sim.running);
@@ -27,6 +29,9 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
   const leadArmed = useEditor((s) => s.leadArmed);
   void tick;
   const simTime = running ? engine.lastState.time : 0;
+
+  const [dragSheetId, setDragSheetId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   // Geöffnete Schaltblätter (das aktuelle Blatt steht immer in der Liste)
   const current = sheets.find((s) => s.id === docId) ?? { id: docId, name: docName, doc: null as never };
@@ -46,7 +51,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
       className="flex h-[30px] shrink-0 items-center gap-2 px-2.5 text-[11px] text-mute"
       style={{ background: "var(--panel)", borderTop: "1px solid var(--border)" }}
     >
-      {/* Links: Schaltblatt-Reiter (+ legt ein neues Blatt an, Klick wechselt, × schließt) */}
+      {/* Links: Schaltblatt-Reiter (+ legt ein neues Blatt an, Klick wechselt, Ziehen sortiert um, × schließt) */}
       <div
         className="flex min-w-0 items-center gap-1 overflow-x-auto no-scrollbar"
         role="tablist"
@@ -67,21 +72,57 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
 
         {list.map((s) => {
           const active = s.id === docId;
+          const isDragged = dragSheetId === s.id;
+          const isDragOver = dragOverId === s.id && dragSheetId !== s.id;
           const name = benannt(s.id, s.name);
           return (
             <div
               key={s.id}
-              className="group flex h-6 shrink-0 items-center gap-1 rounded-md border px-2 text-[11px] transition-colors"
+              draggable
+              onDragStart={(e) => {
+                setDragSheetId(s.id);
+                e.dataTransfer.effectAllowed = "move";
+                try {
+                  e.dataTransfer.setData("text/plain", s.id);
+                } catch {}
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (dragSheetId && dragSheetId !== s.id) {
+                  setDragOverId(s.id);
+                  reorderSheets(dragSheetId, s.id);
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const from = dragSheetId || e.dataTransfer.getData("text/plain");
+                if (from && from !== s.id) {
+                  reorderSheets(from, s.id);
+                }
+                setDragSheetId(null);
+                setDragOverId(null);
+              }}
+              onDragEnd={() => {
+                setDragSheetId(null);
+                setDragOverId(null);
+              }}
+              className="group flex h-6 shrink-0 cursor-grab active:cursor-grabbing select-none items-center gap-1 rounded-md border px-2 text-[11px] transition-colors"
               style={{
                 background: active ? "var(--tool-active-bg)" : "var(--panel-2)",
-                borderColor: active ? "var(--tool-active-border)" : "var(--border)",
+                borderColor: isDragOver
+                  ? "var(--wire-sel)"
+                  : active
+                    ? "var(--tool-active-border)"
+                    : "var(--border)",
                 color: active ? "var(--tool-active-text)" : "var(--text-dim)",
+                opacity: isDragged ? 0.55 : 1,
               }}
+              title={`${name} (zum Verschieben ziehen)`}
             >
               <button
                 type="button"
-                className="max-w-[140px] truncate font-medium"
-                title={name}
+                className="max-w-[140px] truncate font-medium cursor-grab active:cursor-grabbing"
                 role="tab"
                 aria-selected={active}
                 onClick={() => openSheet(s.id)}
@@ -93,7 +134,8 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
                 className="grid h-4 w-4 place-items-center rounded opacity-60 hover:opacity-100"
                 title="Blatt schließen"
                 aria-label={`Blatt ${name} schließen`}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (sheets.length <= 1) {
                     log("warn", "Das letzte Blatt bleibt offen – lege erst ein neues an (＋)");
                     return;
@@ -105,6 +147,8 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
                   if (active) {
                     const next = sheets[Math.min(idx, sheets.length - 1)];
                     if (next) openSheet(next.id);
+                  } else {
+                    useEditor.getState().bumpTick(0);
                   }
                 }}
               >
@@ -125,57 +169,59 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
           : ""}
       </span>
 
-      {/* Rechts (W96: stark entschlackt – nur Prüfungs-Status & Simulations-Geschwindigkeit/Zeit) */}
-      <button
-        type="button"
-        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 transition-colors hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]"
-        style={
-          bottomOpen
-            ? {
-                background: "var(--tool-active-bg)",
-                color: "var(--tool-active-text)",
-              }
-            : undefined
-        }
-        onClick={toggleErcPanel}
-        title={bottomOpen ? "Auswertungs-Panel schließen" : "Prüfung & Auswertungs-Panel öffnen"}
-      >
-        {errors ? (
-          <span style={{ color: "var(--err)" }}>✕ {errors} Fehler</span>
-        ) : warnings ? (
-          <span style={{ color: "var(--warn)" }}>⚠ {warnings} Hinweise</span>
-        ) : (
-          <span style={{ color: "var(--ok)" }}>✓ Prüfung ok</span>
+      {/* Rechts (W96 / W98b: feste Breiten mit tabular-nums, damit bei laufender Simulation nichts wackelt!) */}
+      <div className="flex shrink-0 items-center gap-2.5">
+        <button
+          type="button"
+          className="flex min-w-[100px] shrink-0 items-center justify-center gap-1 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]"
+          style={
+            bottomOpen
+              ? {
+                  background: "var(--tool-active-bg)",
+                  color: "var(--tool-active-text)",
+                }
+              : undefined
+          }
+          onClick={toggleErcPanel}
+          title={bottomOpen ? "Auswertungs-Panel schließen" : "Prüfung & Auswertungs-Panel öffnen"}
+        >
+          {errors ? (
+            <span style={{ color: "var(--err)" }}>✕ {errors} Fehler</span>
+          ) : warnings ? (
+            <span style={{ color: "var(--warn)" }}>⚠ {warnings} Hinweise</span>
+          ) : (
+            <span style={{ color: "var(--ok)" }}>✓ Prüfung ok</span>
+          )}
+        </button>
+
+        {!isMobile && (
+          <span className="hidden shrink-0 items-center gap-1.5 md:flex" title="Zeitskalierung der Live-Simulation">
+            <Gauge size={12} className="shrink-0" />
+            <span className="relative inline-flex items-center">
+              <input
+                type="range"
+                className="w-20"
+                min={-4}
+                max={1}
+                step={0.05}
+                value={Math.abs(Math.log10(timeScale)) < 0.09 ? 0 : Math.log10(timeScale)}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setSimOption("timeScale", Math.abs(v) < 0.09 ? 1 : Math.pow(10, v));
+                }}
+                title="Simulationsgeschwindigkeit – rastet bei 1× ein"
+              />
+            </span>
+            <span className="mono w-[44px] shrink-0 text-right tabular-nums">
+              {timeScale === 1 ? "1×" : timeScale > 1 ? `${timeScale.toFixed(1)}×` : `1/${Math.round(1 / timeScale)}×`}
+            </span>
+          </span>
         )}
-      </button>
 
-      {!isMobile && (
-        <span className="hidden shrink-0 items-center gap-1.5 md:flex" title="Zeitskalierung der Live-Simulation">
-          <Gauge size={12} />
-          <span className="relative inline-flex items-center">
-            <input
-              type="range"
-              className="w-20"
-              min={-4}
-              max={1}
-              step={0.05}
-              value={Math.abs(Math.log10(timeScale)) < 0.09 ? 0 : Math.log10(timeScale)}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setSimOption("timeScale", Math.abs(v) < 0.09 ? 1 : Math.pow(10, v));
-              }}
-              title="Simulationsgeschwindigkeit – rastet bei 1× ein"
-            />
-          </span>
-          <span className="mono w-11">
-            {timeScale === 1 ? "1×" : timeScale > 1 ? `${timeScale.toFixed(1)}×` : `1/${Math.round(1 / timeScale)}×`}
-          </span>
+        <span className="mono w-[96px] shrink-0 text-right tabular-nums" title="Simulationszeit">
+          {running ? `t = ${formatValue(simTime, "s")}` : "bereit"}
         </span>
-      )}
-
-      <span className="mono shrink-0 text-right" title="Simulationszeit">
-        {running ? `t = ${formatValue(simTime, "s")}` : "bereit"}
-      </span>
+      </div>
     </footer>
   );
 }

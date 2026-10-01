@@ -2415,6 +2415,45 @@ Nutzer-Vorgaben aus der Rückfrage.
   - `npm test`: alle 7 Suiten grün
   - `npx --no-install next build`: Produktions-Build erfolgreich
 
+---
+
+## §32 — Runde 31: Kein Stift-Cursor beim Leitung-Verschieben, feste Status-Symbole rechts unten, verschiebbare Datei-Tabs, funktionierende Beispiel-Simulationen & klare Stromrichtung beim Ampere-Messen (W98–W99)
+
+### §32.1 — Ursachenanalyse & Plan (W98–W99)
+
+- **W98a · Kein Stift-Cursor beim Überfahren oder Verschieben von Leitungen (`Canvas.tsx`):**
+  - *Ursache:* `findNetTarget` liefert auf Leitungen `{ kind: "wire" }`. In `onPointerMove` prüfte die Cursor-Logik `st.tool === "select" && sr.netHover !== null` **vor** `!sr.dragging` und ohne Beschränkung auf `sr.netHover.kind === "pin"`. Dadurch erschien beim Überfahren und sogar während des Ziehens (`wireSegDrag`, `wirePointDrag`, `sr.dragging`) einer Leitung der `PEN_CURSOR`.
+  - *Lösung:* Während jeder Zieh-Geste (`dragging`, `wireSegDrag`, `wirePointDrag`, `probeAnchorDrag`) ist `sr.netHover = null` und der Cursor zeigt `"ns-resize"` / `"ew-resize"` bzw. `"grabbing"`. Im `select`-Modus ohne aktiven `netDraft` erscheint `PEN_CURSOR` ausschließlich über einem Bauteil-Pin (`sr.netHover?.kind === "pin"`), während über Leitungssegmenten der Verschiebe-Cursor (`"ns-resize"` / `"ew-resize"`) erscheint.
+- **W98b · Symbole unten rechts bei laufender Simulation fest verankern (`StatusBar.tsx`):**
+  - *Ursache:* Das Textfeld für die Simulationszeit (`t = ...` vs. `bereit`) hatte keine feste Breite mehr; durch wechselnde Stringlängen (`1.2 ms` → `100.4 ms`) wackelten der Geschwindigkeitsregler und das Prüfungs-Symbol in jedem Frame.
+  - *Lösung:* Feste Breite und tabellarische Ziffern (`w-[98px] tabular-nums text-right` für die Zeit, `w-[44px] tabular-nums` für den Geschwindigkeitsfaktor), sodass alle Symbole unten rechts bei laufender Simulation absolut ruhig stehen.
+- **W98c · Datei-Tabs unten per Drag & Drop verschiebbar (`editor.ts`, `StatusBar.tsx`, `SheetTabs.tsx`):**
+  - *Lösung:* Neue Store-Aktion `reorderSheets(fromId, toId)` in `src/state/editor.ts` sowie Drag-&-Drop-Handler (`draggable`, `onDragStart`, `onDragOver`, `onDrop`, `onDragEnd`) auf den Schaltblatt-Reitern in `StatusBar.tsx` und `SheetTabs.tsx`.
+- **W98d · Simulation in den Beispielen (insb. 555 Blinker, OPV, Arduino, 4-Bit-Zähler) reparieren (`model.ts`, `netdraw.ts`, `tools.ts`, `editor.ts`, `realtime.ts`):**
+  - *Ursache:* `normalizeDocGeometry` rief `straightenWirePoints` auf allen Leitungen auf. `straightenWirePoints` reduzierte mehrteilige orthogonale Umleitungen (z. B. die 4-Punkt-Umleitungen um den NE555 in `astable555`) auf einen einzigen L-Knick und drehte 3-Punkt-L-Knicke um. Dadurch liefen die Leitungen in `astable555` mitten durch `U1.GND` (`380,310`), `U1.CTRL` (`460,310`) und `U1.DIS` (`380,250`) und schlossen `C1` nach Masse sowie `R1` nach `VCC` kurz – der 555-Blinker konnte nicht schwingen. Zudem speicherte Auto-Save diesen kurzgeschlossenen Stand im `localStorage`.
+  - *Lösung:*
+    1. Neue Funktion `orthogonalizeWirePoints` in `src/lib/schematic/model.ts`, die Punkte aufs Raster zieht und nur tatsächlich schräge Segmente rechtwinklig macht, bestehende orthogonale Umwege/Ecken aber erhält. `normalizeDocGeometry` nutzt `orthogonalizeWirePoints`.
+    2. Alle 8 Presets in `src/lib/schematic/tools.ts` auf exakte `GRID = 10`-Pin-Koordinaten gebracht (0 Kurzschlüsse, 0 offene Enden).
+    3. `restoreLocalProject` in `src/state/editor.ts` erkennt, falls im `localStorage` noch ein durch den früheren Bug kurzgeschlossenes Standard-Beispiel liegt, und stellt automatisch die intakte Vorlage wieder her.
+- **W99 · Deutliche Stromrichtung beim Ampere-/Strommessen & vorzeichenrichtige Messung (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache:* Der Strompfeil an der Messspitze war winzig (`17 px` ohne Beschriftung), richtete sich auf senkrechten Leitungen nicht automatisch entlang der Leitung aus (`rotation = 0°`), und `netCurrentMap` teilte Bauteilströme pauschal durch `part.pins.length` ohne Berücksichtigung der Flussrichtung entlang des gemessenen Leitungssegments.
+  - *Lösung:*
+    1. Automatische Ausrichtung (`inferWireAngleAt`) entlang des Leitungssegments (`0°` waagerecht, `90°` senkrecht) beim Platzieren und Verschieben einer Strom-/Leistungs-/V·I-Sonde.
+    2. Großes, kontrastreiches **Stromrichtungs-Badge (`I ━━━▶`) + Messzangen-Ring** direkt an der Messspitze auf der Leitung sowie Richtungspfeil (`→`, `↓`, `←`, `↑`) im Sonden-Kästchen.
+    3. KCL-basierte vorzeichenrichtige Berechnung des Zweigstroms entlang der Pfeilrichtung (`+I` in Pfeilrichtung, `−I` gegen die Pfeilrichtung).
+    4. Doppelklick auf eine Stromsonde (oder Rechtsklick → „Stromrichtung umkehren (⇄)") kehrt die Messrichtung sofort um 180° um.
+
+### 32.2 Ergebnisse Runde 31 (W98–W99)
+
+- **W98a (`src/components/Canvas.tsx`)**: Während `wireSegDrag`, `wirePointDrag`, `probeAnchorDrag` und `sr.dragging` wird `sr.netHover = null` gesetzt und der passende Verschiebe-Cursor (`"ns-resize"`, `"ew-resize"`, `"grabbing"`) erzwungen. Im Auswahlmodus (`select` ohne `netDraft`) springt der Anschluss-Magnet nur noch auf Bauteil-Pins (`kind === "pin"`) an – beim Überfahren oder Verschieben von Leitungen erscheint niemals mehr der Stift-Cursor (`PEN_CURSOR`).
+- **W98b (`src/components/StatusBar.tsx`)**: Die Elemente unten rechts besitzen feste Breiten mit `tabular-nums` (`min-w-[100px]` für die Prüfung, `w-[44px]` für die Geschwindigkeit, `w-[96px]` für die Simulationszeit), sodass während der laufenden Simulation kein einziges Symbol mehr wackelt oder springt.
+- **W98c (`src/state/editor.ts`, `src/components/StatusBar.tsx`, `src/components/SheetTabs.tsx`)**: `reorderSheets(fromId, toId)` erlaubt das freie Umsortieren der Schaltblatt-Reiter in der unteren Leiste per Drag & Drop.
+- **W98d (`src/lib/schematic/model.ts`, `src/lib/schematic/netdraw.ts`, `src/lib/schematic/tools.ts`, `src/lib/sim/realtime.ts`, `src/state/editor.ts`)**: `normalizeDocGeometry` nutzt `orthogonalizeWirePoints` statt `straightenWirePoints`, damit mehrknickige Umgehungsleitungen nicht über Bauteil-Pins gefaltet werden. Alle 8 Vorlagen sind auf `GRID = 10` ausgerichtet (0 Fehler, 0 Warnungen, 0 offene Enden, 0 Kurzschlüsse), `rebuild()` befüllt sofort `currents`/`power`, und `restoreLocalProject()` heilt automatisch früher im `localStorage` gespeicherte kurzgeschlossene Vorlagen.
+- **W99 (`src/components/Canvas.tsx`, `src/state/editor.ts`)**: `inferWireAngleAt` richtet Strom-/Leistungs-/V·A-Sonden automatisch entlang waagerechter (`0°`) und senkrechter (`90°`) Leitungen aus; `drawProbe` zeichnet an der Messspitze eine Stromzangen-Hülse samt leuchtendem Richtungs-Pfeil-Schild, zeigt den Richtungspfeil (`→`, `↓`, `←`, `↑`) im Kästchen und berechnet den Zweigstrom vorzeichenrichtig in Pfeilrichtung (Umkehren per Doppelklick oder Kontextmenü).
+- **Verifikation**: `./node_modules/.bin/tsc --noEmit`, `npx --no-install eslint src`, `npm test` (inkl. Abschnitt 21 für `W98–W99`) und `npx --no-install next build` laufen fehlerfrei durch.
+
+
+
 
 
 

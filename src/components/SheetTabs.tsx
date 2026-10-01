@@ -1,17 +1,6 @@
 "use client";
 
-/**
- * W72 (Runde 26): Dateileiste unten.
- *
- * Die geöffneten Schaltblätter stehen als Reiter in der unteren Leiste:
- * Klick wechselt das Blatt, `+` legt ein neues an, `×` schließt es.
- * Der Reiter des aktuellen Blattes trägt dessen Namen (auch nach dem
- * Umbenennen im Inspector).
- *
- * Noch offen (bewusst): Blätter liegen im Arbeitsspeicher, das Auto-Save
- * schreibt weiterhin das aktive Blatt; Reiter überleben den Neustart deshalb
- * nicht. Der Weg dorthin ist mit dieser Struktur vorbereitet.
- */
+import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { sheets, useEditor } from "@/state/editor";
 
@@ -21,9 +10,13 @@ export default function SheetTabs() {
   const newDocument = useEditor((s) => s.newDocument);
   const openSheet = useEditor((s) => s.openSheet);
   const renameSheet = useEditor((s) => s.renameSheet);
+  const reorderSheets = useEditor((s) => s.reorderSheets);
   const log = useEditor((s) => s.log);
+  const tick = useEditor((s) => s.sim.tick);
+  void tick;
 
-  // Das aktuelle Blatt steht immer in der Liste (auch vor dem ersten Anlegen).
+  const [dragSheetId, setDragSheetId] = useState<string | null>(null);
+
   const current = sheets.find((s) => s.id === docId) ?? { id: docId, name: docName, doc: null as never };
   const list = sheets.some((s) => s.id === docId) ? sheets : [current, ...sheets];
   const benannt = (id: string, name: string) => (id === docId ? docName || name : name);
@@ -53,15 +46,38 @@ export default function SheetTabs() {
         return (
           <div
             key={s.id}
-            className="group flex h-6 shrink-0 items-center gap-1 rounded-md border px-2 text-[11px]"
+            draggable
+            onDragStart={(e) => {
+              setDragSheetId(s.id);
+              e.dataTransfer.effectAllowed = "move";
+              try {
+                e.dataTransfer.setData("text/plain", s.id);
+              } catch {}
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (dragSheetId && dragSheetId !== s.id) {
+                reorderSheets(dragSheetId, s.id);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const from = dragSheetId || e.dataTransfer.getData("text/plain");
+              if (from && from !== s.id) {
+                reorderSheets(from, s.id);
+              }
+              setDragSheetId(null);
+            }}
+            onDragEnd={() => setDragSheetId(null)}
+            className="group flex h-6 shrink-0 cursor-grab active:cursor-grabbing select-none items-center gap-1 rounded-md border px-2 text-[11px]"
             style={{
-              background: active ? "var(--accent-soft)" : "var(--panel-2)",
-              borderColor: active ? "var(--accent-mid)" : "var(--border)",
-              color: active ? "var(--accent)" : "var(--text-dim)",
+              background: active ? "var(--tool-active-bg)" : "var(--panel-2)",
+              borderColor: active ? "var(--tool-active-border)" : "var(--border)",
+              color: active ? "var(--tool-active-text)" : "var(--text-dim)",
             }}
           >
             <button
-              className="max-w-[160px] truncate font-medium"
+              className="max-w-[160px] truncate font-medium cursor-grab active:cursor-grabbing"
               title={name}
               role="tab"
               aria-selected={active}
@@ -71,7 +87,7 @@ export default function SheetTabs() {
             </button>
             <button
               className="grid h-4 w-4 place-items-center rounded opacity-60 hover:opacity-100"
-              title="Blatt schließen (bleibt im Auto-Save erhalten)"
+              title="Blatt schließen"
               aria-label={`Blatt ${name} schließen`}
               onClick={() => {
                 if (sheets.length <= 1) {
@@ -80,7 +96,6 @@ export default function SheetTabs() {
                 }
                 const idx = sheets.findIndex((s2) => s2.id === s.id);
                 if (idx < 0) return;
-                // Namen des offenen Blattes sichern, dann Reiter entfernen.
                 if (s.id === docId) renameSheet(s.id, name);
                 sheets.splice(idx, 1);
                 if (active) {

@@ -287,6 +287,8 @@ export interface EditorState {
   openSheet: (id: string) => void;
   /** W72: Blattname in der Dateileiste nachführen (Umbenennen im Inspector). */
   renameSheet: (id: string, name: string) => void;
+  /** W98c: Reihenfolge der Blätter in der Dateileiste per Drag & Drop ändern. */
+  reorderSheets: (fromId: string, toId: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
   saveProject: (name?: string) => void;
@@ -382,6 +384,18 @@ function resolveNearestNetPoint(
 
   if (bestNet && bestPt) return { net: bestNet, x: bestPt.x, y: bestPt.y };
   return null;
+}
+
+/** W99: Erkennt die Leitungsrichtung (0° waagerecht, 90° senkrecht) an einem Messpunkt. */
+export function inferWireAngleAt(doc: SchematicDoc, x: number, y: number): Rotation {
+  const wf = nearestWireFoot(doc, { x, y }, 18);
+  if (wf) {
+    const w = doc.wires.find((item) => item.id === wf.wireId);
+    const a = w?.points[wf.segIdx];
+    const b = w?.points[wf.segIdx + 1];
+    if (a && b && Math.abs(a.x - b.x) < Math.abs(a.y - b.y)) return 90;
+  }
+  return 0;
 }
 
 const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -1360,6 +1374,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     // W85/W93: Anzeigekästchen-Offset exakt auf dem GRID=10-Raster (+40, -40)
     const offsetX = 40;
     const offsetY = -40;
+    const autoRot = inferWireAngleAt(get().doc, anchorX, anchorY);
     const probe = {
       id,
       kind,
@@ -1373,6 +1388,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       net: autoNet,
       ref: "0",
       ...def,
+      rotation: autoRot,
     } as import("@/lib/schematic/model").MeasurementProbe;
     if (!probe.name) probe.name = `${kind.charAt(0).toUpperCase()}${get().doc.probes.filter(p=>p.kind===kind).length+1}`;
     get().commit((d) => {
@@ -1399,6 +1415,9 @@ export const useEditor = create<EditorState>((set, get) => ({
         const ay = pr.anchorY ?? pr.y;
         const hit = resolveNearestNetPoint(d, get().netResult, ax, ay, 24);
         pr.net = hit ? hit.net : undefined;
+        if (!("rotation" in patch)) {
+          pr.rotation = inferWireAngleAt(d, ax, ay);
+        }
       }
     });
     // Auto-add to legacy probes for grapher (Transient/AC)
@@ -1665,9 +1684,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     const preset = PRESETS.find((p) => p.id === id);
     if (!preset) return;
     engine.running = false;
+    const prevId = get().doc.id;
     const doc = preset.build();
+    const sheetIdx = sheets.findIndex((s2) => s2.id === prevId);
+    if (sheetIdx >= 0) {
+      sheets[sheetIdx] = { id: doc.id, name: doc.name, doc };
+    }
     set((s) => ({ doc, past: [...s.past, s.doc], future: [], selection: [], sim: { ...s.sim, running: false } }));
     get().refreshNets();
+    engine.reset(doc);
     get().log("ok", `Vorlage geladen: ${preset.name}`);
   },
 
@@ -1704,6 +1729,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   renameSheet: (id, name) => {
     const entry = sheets.find((s2) => s2.id === id);
     if (entry) entry.name = name;
+  },
+
+  reorderSheets: (fromId, toId) => {
+    if (fromId === toId) return;
+    const curDoc = get().doc;
+    if (!sheets.some((s2) => s2.id === curDoc.id)) {
+      sheets.unshift({ id: curDoc.id, name: curDoc.name, doc: curDoc });
+    }
+    const fromIdx = sheets.findIndex((s2) => s2.id === fromId);
+    const toIdx = sheets.findIndex((s2) => s2.id === toId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+    const [moved] = sheets.splice(fromIdx, 1);
+    sheets.splice(toIdx, 0, moved);
+    set((s) => ({ sim: { ...s.sim, tick: s.sim.tick + 1 } }));
   },
 
   setAnalysis: (a) => set((s) => ({ analysis: { ...s.analysis, ...a } })),
@@ -1751,6 +1790,27 @@ export const useEditor = create<EditorState>((set, get) => ({
       // W72: Der wiederhergestellte Stand ist das erste Blatt in der Dateileiste.
       const restored = stored.doc as SchematicDoc;
       normalizeDocGeometry(restored);
+      // W98d: Falls im localStorage noch ein durch das frühere straightenWirePoints
+      // kurzgeschlossenes Standard-Beispiel (z. B. "555 Blinker") liegt, wird es
+      // automatisch auf die intakte Vorlage aktualisiert (Probes bleiben erhalten).
+      const builtRestored = buildNets(restored);
+      const hasShortedPart = builtRestored.netlist.devices.some(
+        (dev) =>
+          (dev.type === "R" || dev.type === "C" || dev.type === "V" || dev.type === "LED") &&
+          dev.nodes.length >= 2 &&
+          dev.nodes[0] === dev.nodes[1],
+      );
+      if (hasShortedPart) {
+        const matchingPreset = PRESETS.find((p) => {
+          const pd = p.build();
+          return pd.name === restored.name && pd.instances.length === restored.instances.length;
+        });
+        if (matchingPreset) {
+          const fresh = matchingPreset.build();
+          fresh.probes = restored.probes ?? [];
+          Object.assign(restored, fresh);
+        }
+      }
       if (sheets.length) sheets[0] = { id: restored.id, name: restored.name, doc: restored };
       else sheets.push({ id: restored.id, name: restored.name, doc: restored });
       set({

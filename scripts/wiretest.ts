@@ -840,5 +840,79 @@ console.log("\n=== 20) W88–W93: Runde 29 (Werte-Parser, Radiergummi-Cursor, La
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* 21) W98–W99: Runde 31 – Vorlagen-Simulation, Tab-Reihenfolge & I   */
+/* ------------------------------------------------------------------ */
+console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Stromrichtung) ===");
+{
+  const { PRESETS } = require("../src/lib/schematic/tools") as typeof import("../src/lib/schematic/tools");
+  const { RealtimeEngine } = require("../src/lib/sim/realtime") as typeof import("../src/lib/sim/realtime");
+  const { inferWireAngleAt, sheets, useEditor } = require("../src/state/editor") as typeof import("../src/state/editor");
+
+  // W98d: Alle 8 Vorlagen haben 0 Fehler, 0 Warnungen, 0 offene Enden und 0 kurzgeschlossene Zweipole
+  let presetProblemCount = 0;
+  for (const p of PRESETS) {
+    const doc = p.build();
+    const nr = buildNets(doc);
+    const shorted = nr.netlist.devices.filter(
+      (d) => (d.type === "R" || d.type === "C" || d.type === "V") && d.nodes[0] === d.nodes[1],
+    );
+    if (nr.errors.length > 0 || nr.warnings.length > 0 || nr.openEnds.length > 0 || shorted.length > 0) {
+      presetProblemCount++;
+    }
+  }
+  check("W98d Alle 8 Vorlagen sind ERC-fehlerfrei und ohne kurzgeschlossene Bauteile", presetProblemCount === 0, `presetProblemCount=${presetProblemCount}`);
+
+  // W98d: 555-Blinker schwingt in der Echtzeit-Simulation (OUT wechselt Pegel, LED führt Strom)
+  const astableDoc = PRESETS.find((p) => p.id === "astable555")!.build();
+  const rt = new RealtimeEngine();
+  rt.reset(astableDoc);
+  rt.running = true;
+  let minOut = Infinity;
+  let maxOut = -Infinity;
+  let maxLedI = 0;
+  for (let k = 0; k < 65; k++) {
+    const st = rt.tick(0.016);
+    const vOut = st.nets["OUT"] ?? 0;
+    const iLed = Math.abs(st.currents["D1"] ?? 0);
+    if (vOut < minOut) minOut = vOut;
+    if (vOut > maxOut) maxOut = vOut;
+    if (iLed > maxLedI) maxLedI = iLed;
+  }
+  check(
+    "W98d 555-Blinker schwingt stabil in der Echtzeit-Simulation (OUT > 5 V Hub, D1-Strom > 5 mA)",
+    maxOut - minOut > 5 && maxLedI > 0.005,
+    `minOut=${minOut.toFixed(2)}, maxOut=${maxOut.toFixed(2)}, maxLedI=${(maxLedI * 1000).toFixed(2)}mA`,
+  );
+
+  // W98c: reorderSheets verschiebt Datei-Tabs zuverlässig
+  const st = useEditor.getState();
+  st.newDocument();
+  const idA = useEditor.getState().doc.id;
+  st.newDocument();
+  const idB = useEditor.getState().doc.id;
+  const beforeA = sheets.findIndex((s) => s.id === idA);
+  const beforeB = sheets.findIndex((s) => s.id === idB);
+  st.reorderSheets(idB, idA);
+  const afterA = sheets.findIndex((s) => s.id === idA);
+  const afterB = sheets.findIndex((s) => s.id === idB);
+  check(
+    "W98c reorderSheets tauscht die Reihenfolge der Schaltblatt-Reiter",
+    beforeA < beforeB && afterB < afterA,
+    JSON.stringify({ beforeA, beforeB, afterA, afterB }),
+  );
+
+  // W99: inferWireAngleAt erkennt waagerechte (0°) und senkrechte (90°) Leitungen für den Stromrichtungspfeil
+  st.loadPreset("astable555");
+  const doc555 = useEditor.getState().doc;
+  const angHoriz = inferWireAngleAt(doc555, 520, 270); // OUT-Leitung waagerecht (460,270)->(590,270)
+  const angVert = inferWireAngleAt(doc555, 290, 200); // R1->R2 senkrecht (290,190)->(290,210)
+  check(
+    "W99 inferWireAngleAt erkennt waagerechte (0°) und senkrechte (90°) Leitungssegmente",
+    angHoriz === 0 && angVert === 90,
+    `angHoriz=${angHoriz}, angVert=${angVert}`,
+  );
+}
+
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);
 if (failed) process.exit(1);

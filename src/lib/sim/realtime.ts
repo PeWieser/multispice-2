@@ -109,11 +109,21 @@ export class RealtimeEngine {
     this.slowPushCounter = 0;
     this.deviceBuffers.clear();
     const op = this.sim.operatingPoint();
+    const nets = this.sim.snapshot();
+    const currents: Record<string, number> = {};
+    const power: Record<string, number> = {};
+    for (const d of this.netlist.devices) {
+      const i = this.sim.deviceCurrent(d);
+      currents[d.id] = i;
+      const va = this.sim.nodeVoltage(d.nodes[0] ?? "0");
+      const vb = this.sim.nodeVoltage(d.nodes[1] ?? "0");
+      power[d.id] = (va - vb) * i;
+    }
     this.lastState = {
       time: 0,
-      nets: this.sim.snapshot(),
-      currents: {},
-      power: {},
+      nets,
+      currents,
+      power,
       ok: op.ok,
       message: op.message,
       stepsPerSecond: 0,

@@ -23,7 +23,7 @@ import {
   type NetPathOptions,
   type NetTarget,
 } from "@/lib/schematic/netdraw";
-import { engine, hitTestInstance, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
+import { engine, hitTestInstance, inferWireAngleAt, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
 import { LEGACY_PROBE_COLORS, PROBE_CSSVAR, PROBE_HEX } from "@/lib/probe-style";
 import { Minus, Plus } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
@@ -1751,13 +1751,18 @@ export default function Canvas() {
     }
     sr.lastMouse = { x: e.clientX, y: e.clientY };
 
-    // W54/W83: Segment verschieben – senkrecht zur Segmentrichtung, die neue
+    // W54/W83/W98a: Segment verschieben – senkrecht zur Segmentrichtung, die neue
     // Segmentposition rastet direkt auf die Rasterlinie sp.y / sp.x (GRID=10) ein.
+    // Während des Ziehens einer Leitung darf NIEMALS der Stift-Cursor erscheinen!
     if ((sr as any).wireSegDrag) {
+      sr.netHover = null;
       const seg = (sr as any).wireSegDrag as { wireId: string; segIdx: number; orig: Array<{ x: number; y: number }>; applied: { dx: number; dy: number } };
       const sa = seg.orig[seg.segIdx];
       const sb = seg.orig[seg.segIdx + 1];
       const horizontal = Math.abs(sb.x - sa.x) >= Math.abs(sb.y - sa.y);
+      if (canvasRef.current) {
+        canvasRef.current.style.cursor = horizontal ? "ns-resize" : "ew-resize";
+      }
       let dx = 0;
       let dy = 0;
       if (horizontal) dy = sp.y - sa.y;
@@ -1770,8 +1775,10 @@ export default function Canvas() {
       return;
     }
 
-    // W78: Eck- oder Endpunkt einer Leitung streng orthogonal verschieben
+    // W78/W98a: Eck- oder Endpunkt einer Leitung streng orthogonal verschieben
     if ((sr as any).wirePointDrag) {
+      sr.netHover = null;
+      if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
       const { wireId, pointIdx, orig } = (sr as any).wirePointDrag as {
         wireId: string;
         pointIdx: number;
@@ -1827,6 +1834,8 @@ export default function Canvas() {
       return;
     }
     if ((sr as any).probeAnchorDrag) {
+      sr.netHover = null;
+      if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
       const { probeId } = (sr as any).probeAnchorDrag;
       // W87: Messspitze (Anker) rastet beim Ziehen per Magnet auf nahen Pins,
       // Verbindungspunkten oder Leitungssegmenten ein (sonst auf dem Raster sp).
@@ -1839,6 +1848,8 @@ export default function Canvas() {
     }
 
     if (sr.dragging && st.selection.length) {
+      sr.netHover = null;
+      if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
       if ((e.ctrlKey || e.metaKey) && !sr.duplicated && !sr.moved) {
         st.duplicateSelection();
         sr.duplicated = true;
@@ -1881,6 +1892,7 @@ export default function Canvas() {
         sr.dragStart = { x: Math.round(sr.dragStart.x / GRID) * GRID + dx, y: Math.round(sr.dragStart.y / GRID) * GRID + dy };
         sr.moved = true;
       }
+      return;
     }
 
     if (sr.marquee) { sr.marquee.x1 = world.x; sr.marquee.y1 = world.y; }
@@ -1899,17 +1911,25 @@ export default function Canvas() {
       (sr as any).junctionHover = null;
     }
 
-    // W64/W89: Anschluss-Magnet nur in Modi, in denen tatsächlich Leitungen
-    // gezeichnet oder Labels auf Leitungen gesetzt werden – niemals beim Radiergummi!
+    // W64/W89/W98a: Anschluss-Magnet nur in Modi, in denen tatsächlich Leitungen
+    // gezeichnet oder Labels gesetzt werden. Im Auswahlmodus (`select` ohne `netDraft`)
+    // darf der Magnet-Ring nur auf freien/angeschlossenen Bauteil-Pins (`kind === "pin"`)
+    // anspringen – NIEMALS auf Leitungssegmenten, weil ein Klick+Ziehen auf einer
+    // Leitung das Segment verschiebt und kein neues Netz zeichnet!
     const magnet = 14 / Math.max(st.view.zoom, 0.25);
-    if (st.tool === "wire" || st.tool === "select" || st.tool === "label" || Boolean(sr.netDraft)) {
+    if (st.tool === "wire" || st.tool === "label" || Boolean(sr.netDraft)) {
       sr.netHover = findNetTarget(st.doc, world, magnet);
+    } else if (st.tool === "select") {
+      const rawTarget = findNetTarget(st.doc, world, magnet);
+      sr.netHover = rawTarget?.kind === "pin" ? rawTarget : null;
     } else {
       sr.netHover = null;
     }
 
-    // W65/W89: Saubere Cursor-Steuerung pro Werkzeug. Der Radiergummi zeigt
-    // IMMER das Radiergummi-Icon (ERASER_CURSOR) und niemals den Stift!
+    // W65/W89/W98a: Saubere Cursor-Steuerung pro Werkzeug.
+    // - Der Radiergummi zeigt IMMER das Radiergummi-Icon (ERASER_CURSOR).
+    // - Beim Überfahren oder Verschieben einer Leitung im Auswahlmodus erscheint
+    //   NIEMALS der Stift (PEN_CURSOR), sondern der Segment-Verschiebe-Cursor.
     const canvasEl = canvasRef.current;
     if (canvasEl && !(sr as any)._hoveredHandle) {
       if (spaceDown.current || sr.panning) {
@@ -1924,11 +1944,22 @@ export default function Canvas() {
         Boolean(sr.netDraft) ||
         st.tool === "wire" ||
         (st.tool === "select" &&
-          sr.netHover !== null &&
+          sr.netHover?.kind === "pin" &&
           !hitTestProbe(st.doc, world) &&
           !hitTestProbeAnchor(st.doc, world))
       ) {
         canvasEl.style.cursor = PEN_CURSOR;
+      } else if (st.tool === "select" && !sr.dragging) {
+        const hoverSeg = hitWireSegment(st.doc, world.x, world.y);
+        if (hoverSeg) {
+          const hw = st.doc.wires.find((x) => x.id === hoverSeg.wireId);
+          const ha = hw?.points[hoverSeg.segIdx];
+          const hb = hw?.points[hoverSeg.segIdx + 1];
+          const isHoriz = ha && hb ? Math.abs(hb.x - ha.x) >= Math.abs(hb.y - ha.y) : true;
+          canvasEl.style.cursor = isHoriz ? "ns-resize" : "ew-resize";
+        } else {
+          canvasEl.style.cursor = "default";
+        }
       } else if (!sr.dragging) {
         canvasEl.style.cursor = "default";
       }
@@ -2150,10 +2181,21 @@ export default function Canvas() {
         useEditor.getState().openInstrument("inspector");
       }
     } else {
-      const probe = hitTestProbe(st.doc, world);
+      const probe = hitTestProbe(st.doc, world) ?? hitTestProbeAnchor(st.doc, world);
       if (probe) {
         st.setSelection([probe.id]);
-        useEditor.getState().openInstrument("inspector");
+        // W99: Doppelklick auf eine Strom-/Leistungs-/V·A-Sonde kehrt sofort die
+        // Strommessrichtung um (Shift + Doppelklick öffnet den Inspector).
+        if (
+          !e.shiftKey &&
+          (probe.kind === "current" || probe.kind === "voltage_current" || probe.kind === "power")
+        ) {
+          const nextDir = probe.direction ? 0 : 1;
+          st.updateMeasurementProbe(probe.id, { direction: nextDir });
+          st.log("info", `Strommessrichtung von ${probe.name ?? "Sonde"} umgekehrt`);
+        } else {
+          useEditor.getState().openInstrument("inspector");
+        }
       } else {
         // W67/W77: Doppelklick auf eine Leitung zieht von dort ein neues Netz
         // (Multisim: „Leitung abzweigen").
@@ -3121,9 +3163,6 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   const col = (probe.color && !LEGACY_PROBE_COLORS.has(probe.color as string))
     ? (probe.color as string)
     : css(PROBE_CSSVAR[probe.kind] ?? "--warn", PROBE_HEX[probe.kind] ?? "#a87a12");
-  const rot = ((probe.rotation ?? 0) * Math.PI) / 180;
-  const dir = probe.direction ?? 0;
-
   const ax = probe.anchorX ?? probe.x;
   const ay = probe.anchorY ?? probe.y;
   const bx = probe.x;
@@ -3131,6 +3170,14 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   const iz = 1 / Math.max(zoom, 0.2);
 
   const st = useEditor.getState();
+  const autoWireDeg = inferWireAngleAt(st.doc, ax, ay);
+  const baseDeg = probe.rotation !== undefined ? probe.rotation : autoWireDeg;
+  const dir = probe.direction ?? 0;
+  const effectiveDeg = (((baseDeg + (dir ? 180 : 0)) % 360) + 360) % 360;
+  const effectiveRad = (effectiveDeg * Math.PI) / 180;
+  const dirArrow =
+    effectiveDeg === 90 ? "↓" : effectiveDeg === 180 ? "←" : effectiveDeg === 270 ? "↑" : "→";
+
   const netName = probe.net ?? nearestNetName({ x: ax, y: ay }, 20);
   let refNetName: string | null = null;
   if (probe.ref) {
@@ -3144,8 +3191,55 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
 
   const v = live && netName ? (live.nets[netName] ?? 0) : 0;
   const refV = live && refNetName ? (live.nets[refNetName] ?? 0) : 0;
-  let i = live && netName ? (netCurrentMap.get(netName) ?? 0) : 0;
-  if (dir) i = -i;
+
+  // W99: Gerichteter Zweigstrom in Pfeilrichtung (effectiveRad) am Messpunkt (ax, ay)
+  // nach dem Kirchhoffschen Knotensatz (KCL). Für 2-polige Bauteile fließt
+  // live.currents[inst.label] von Pin 0 (Senke aus dem Netz) nach Pin 1 (Quelle in das Netz).
+  let i = 0;
+  if (live && netName) {
+    const ux = Math.cos(effectiveRad);
+    const uy = Math.sin(effectiveRad);
+    let forwardSinkSum = 0;
+    let backwardSinkSum = 0;
+    let forwardCount = 0;
+    let backwardCount = 0;
+    for (const inst of st.doc.instances) {
+      const part = PART_MAP[inst.partId];
+      if (!part) continue;
+      const devCurrent = live.currents[inst.label] ?? 0;
+      for (let pIdx = 0; pIdx < part.pins.length; pIdx++) {
+        const pNet = netResult.pinNets[`${inst.id}:${pIdx}`];
+        if (pNet !== netName) continue;
+        const pos = pinPosition(inst, pIdx);
+        const dot = (pos.x - ax) * ux + (pos.y - ay) * uy;
+        // Wie viel Strom nimmt dieser Pin aus dem Netz auf?
+        let pinSink = 0;
+        if (part.pins.length === 2) {
+          pinSink = pIdx === 0 ? devCurrent : -devCurrent;
+        } else {
+          pinSink = pIdx === 0 ? devCurrent : -devCurrent / Math.max(1, part.pins.length - 1);
+        }
+        if (dot >= 0) {
+          forwardSinkSum += pinSink;
+          forwardCount++;
+        } else {
+          backwardSinkSum += pinSink;
+          backwardCount++;
+        }
+      }
+    }
+    if (forwardCount > 0 && backwardCount > 0) {
+      i = forwardSinkSum;
+    } else if (forwardCount > 0) {
+      i = forwardSinkSum;
+    } else if (backwardCount > 0) {
+      i = -backwardSinkSum;
+    }
+    if (Math.abs(i) < 1e-12) {
+      const fallbackMag = netCurrentMap.get(netName) ?? 0;
+      i = dir ? -fallbackMag : fallbackMag;
+    }
+  }
 
   let vrms = 0, vpp = 0, vavg = 0, irms = 0, ipp = 0, freq = 0;
   if (live && probe.periodic && netName) {
@@ -3173,8 +3267,10 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     digital: "D",
   };
   const glyph = glyphMap[probe.kind] ?? "V";
+  const hasCurrentDir =
+    probe.kind === "current" || probe.kind === "power" || probe.kind === "voltage_current";
   const titleName = probe.name || glyph;
-  const headerText = `${titleName}  ${netName ? `(${netName})` : "(—)"}`;
+  const headerText = `${titleName}${hasCurrentDir ? ` ${dirArrow}` : ""}  ${netName ? `(${netName})` : "(—)"}`;
 
   const valueLines: string[] = [];
   let digCol: string | null = null;
@@ -3182,9 +3278,9 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     valueLines.push("Nicht verbunden");
   } else if (!live) {
     if (probe.kind === "voltage") valueLines.push("V(dc): — V");
-    else if (probe.kind === "current") valueLines.push("I(dc): — A");
-    else if (probe.kind === "voltage_current") valueLines.push("V: — V · I: — A");
-    else if (probe.kind === "power") valueLines.push("P: — W");
+    else if (probe.kind === "current") valueLines.push(`I(${dirArrow}): — A`);
+    else if (probe.kind === "voltage_current") valueLines.push(`V: — V · I(${dirArrow}): — A`);
+    else if (probe.kind === "power") valueLines.push(`P(${dirArrow}): — W`);
     else if (probe.kind === "diff") valueLines.push("ΔV: — V");
     else if (probe.kind === "ref") valueLines.push(`Bezug: ${netName}`);
     else if (probe.kind === "digital") valueLines.push("Logik: —");
@@ -3200,7 +3296,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
       }
       if (refNetName && refNetName !== "0") valueLines.push(`Ref ${refNetName}: ${formatValue(refV, "V")}`);
     } else if (probe.kind === "current") {
-      if (show.idc !== false) valueLines.push(`I(dc): ${formatValue(i, "A")}`);
+      if (show.idc !== false) valueLines.push(`I(${dirArrow}): ${formatValue(i, "A")}`);
       if (probe.periodic) {
         if (show.irms) valueLines.push(`I(rms): ${formatValue(irms, "A")}`);
         if (show.ipp) valueLines.push(`I(p-p): ${formatValue(ipp, "A")}`);
@@ -3208,13 +3304,13 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     } else if (probe.kind === "voltage_current") {
       const dv = refNetName ? v - refV : v;
       valueLines.push(`V: ${formatValue(dv, "V")}`);
-      valueLines.push(`I: ${formatValue(i, "A")}`);
+      valueLines.push(`I(${dirArrow}): ${formatValue(i, "A")}`);
       if (probe.periodic && show.vrms) valueLines.push(`Vrms ${formatValue(vrms, "V")} · Irms ${formatValue(irms, "A")}`);
     } else if (probe.kind === "power") {
       const dv = refNetName ? v - refV : v;
       const pwr = dv * i;
       valueLines.push(`P: ${formatValue(pwr, "W")}`);
-      if (show.vdc !== false) valueLines.push(`${formatValue(dv, "V")} · ${formatValue(i, "A")}`);
+      if (show.vdc !== false) valueLines.push(`${formatValue(dv, "V")} · I(${dirArrow}) ${formatValue(i, "A")}`);
     } else if (probe.kind === "diff") {
       const dv = v - refV;
       valueLines.push(`ΔV: ${formatValue(dv, "V")}`);
@@ -3316,10 +3412,58 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     ctx.restore();
   }
 
-  // ---- 4. Messspitze / Kontaktpunkt auf der Leitung (ax, ay) + ggf. Strompfeil ----
+  // ---- 4. Messspitze / Kontaktpunkt auf der Leitung (ax, ay) + W99 Stromzange & Richtungspfeil ----
   ctx.save();
   ctx.translate(ax, ay);
   ctx.scale(iz, iz);
+
+  if (hasCurrentDir) {
+    const strokeCol = selected ? css("--wire-sel", "#d97706") : col;
+    ctx.save();
+    ctx.rotate(effectiveRad);
+
+    // 4a) Stromzangen-Hülse (Current Clamp Ring) um die Leitung bei (0, 0)
+    ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = selected ? 2.2 : 1.7;
+    roundRect(ctx, -4.5, -7.5, 9, 15, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    // 4b) Kontrastreiches Richtungs-Pfeil-Schild ("I ━━▶") parallel zur Leitung
+    const badgeY = -18;
+    ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = selected ? 2.0 : 1.5;
+    roundRect(ctx, -18, badgeY - 7.5, 36, 15, 7.5);
+    ctx.fill();
+    ctx.stroke();
+
+    // Kräftiger Richtungspfeil im Schild + direkt auf der Leitung
+    ctx.strokeStyle = strokeCol;
+    ctx.fillStyle = strokeCol;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(-11, badgeY);
+    ctx.lineTo(6, badgeY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(13, badgeY);
+    ctx.lineTo(4.5, badgeY - 4.5);
+    ctx.lineTo(4.5, badgeY + 4.5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Zusätzlich direkter Richtungspfeil unmittelbar auf der Leitung vor der Stromzange
+    ctx.beginPath();
+    ctx.moveTo(13, 0);
+    ctx.lineTo(5.5, -4.5);
+    ctx.lineTo(5.5, 4.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   // Kontaktpunkt auf der Leitung
   ctx.fillStyle = css("--panel-solid", "#1a1f2e");
   ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
@@ -3332,27 +3476,6 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.beginPath();
   ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
   ctx.fill();
-
-  // Strom-/Leistungspfeil direkt am Messpunkt entlang der Leitung
-  if (probe.kind === "current" || probe.kind === "power" || probe.kind === "voltage_current") {
-    const ang = rot + (dir ? Math.PI : 0);
-    ctx.save();
-    ctx.rotate(ang);
-    ctx.strokeStyle = col;
-    ctx.fillStyle = col;
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(-10, -7);
-    ctx.lineTo(7, -7);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(10, -7);
-    ctx.lineTo(5, -10);
-    ctx.lineTo(5, -4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
   ctx.restore();
 
   // ---- 5. Permanentes Multisim-Anzeigekästchen bei (boxX0, boxY0) (W93: groß & kontrastreich) ----

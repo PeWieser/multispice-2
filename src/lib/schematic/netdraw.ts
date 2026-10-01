@@ -19,6 +19,7 @@ import {
   type SchematicDoc,
   attachWireEnd,
   cleanWirePoints,
+  orthogonalizeWirePoints,
   pinPosition,
   snapWiresToPins,
   straightenWirePoints,
@@ -89,7 +90,7 @@ export function normalizeDocGeometry(
   let wires = 0;
   for (const w of doc.wires) {
     const before = w.points;
-    const after = straightenWirePoints(before, grid, contactKeep(doc, w.id));
+    const after = orthogonalizeWirePoints(before, grid, contactKeep(doc, w.id));
     const changed =
       after.length !== before.length ||
       after.some((p, i) => p.x !== before[i].x || p.y !== before[i].y);
