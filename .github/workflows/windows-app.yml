@@ -1,0 +1,90 @@
+name: Windows Desktop App
+
+on:
+  push:
+    branches: [main, "arena/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows-app:
+    name: Build Windows Desktop App (Portable & Installer)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Web App Dependencies
+        run: npm ci
+
+      - name: Build Static Next.js Bundle (out/)
+        run: npm run build
+
+      - name: Assemble Electron Packaging Workspace
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-win-app | Out-Null
+          Copy-Item -Path desktop/main.cjs -Destination dist-win-app/main.cjs -Force
+          Copy-Item -Path desktop/preload.cjs -Destination dist-win-app/preload.cjs -Force
+          Copy-Item -Path out -Destination dist-win-app/out -Recurse -Force
+
+          $pkg = @{
+            name = "multispice-desktop"
+            productName = "MultiSpice"
+            version = "1.0.0"
+            description = "MultiSpice Interactive Circuit Simulator (Frameless Multi-Window Desktop Edition)"
+            author = "MultiSpice Project"
+            main = "main.cjs"
+            private = $true
+            devDependencies = @{
+              electron = "^33.2.0"
+              "electron-builder" = "^25.1.8"
+            }
+            build = @{
+              appId = "de.multispice.desktop"
+              productName = "MultiSpice"
+              files = @(
+                "main.cjs",
+                "preload.cjs",
+                "out/**/*"
+              )
+              win = @{
+                target = @(
+                  @{ target = "portable"; arch = @("x64") },
+                  @{ target = "nsis"; arch = @("x64") }
+                )
+                artifactName = '${productName}-${version}-${target}.${ext}'
+              }
+              nsis = @{
+                oneClick = $false
+                allowToChangeInstallationDirectory = $true
+                createDesktopShortcut = $true
+                createStartMenuShortcut = $true
+              }
+            }
+          } | ConvertTo-Json -Depth 8
+
+          Set-Content -Path dist-win-app/package.json -Value $pkg -Encoding UTF8
+
+      - name: Build Windows Portable .exe and NSIS Installer .exe
+        working-directory: dist-win-app
+        run: |
+          npm install
+          npx electron-builder --win portable nsis --x64 --publish never
+
+      - name: Upload Windows App Artifacts (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiSpice-Windows-App
+          path: |
+            dist-win-app/dist/*.exe
+          if-no-files-found: error
+          retention-days: 30

@@ -947,6 +947,22 @@ console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Strom
     sawLowPhase && maxLedWhenLow < 1e-6 && v1AlwaysSourcing,
     `sawLowPhase=${sawLowPhase}, maxLedWhenLow=${(maxLedWhenLow * 1e6).toFixed(4)}µA, v1AlwaysSourcing=${v1AlwaysSourcing}`,
   );
+
+  // W116–W118: Hauptparameter-Einheiten für Inline-Editor (R -> Ω, C -> F, V -> V) sowie Notiz-Erstellung/Bearbeitung
+  st.newDocument();
+  const noteId = "n_test_w117";
+  st.commit((d) => {
+    d.notes.push({ id: noteId, x: 120, y: 160, text: "Messpunkt A: U_ref = 2,5 V" });
+  });
+  st.updateNote(noteId, "Messpunkt A: U_ref = 2,50 V");
+  const savedNote = useEditor.getState().doc.notes.find((n) => n.id === noteId);
+  const rUnit = PART_MAP["resistor"]?.params[0]?.unit;
+  const cUnit = PART_MAP["capacitor"]?.params[0]?.unit;
+  check(
+    "W116/W117 Inline-Editor-Einheiten (Ω, F) und Schaltplan-Notizkarte vorhanden und aktualisierbar",
+    rUnit === "Ω" && cUnit === "F" && savedNote?.text === "Messpunkt A: U_ref = 2,50 V",
+    `rUnit=${rUnit}, cUnit=${cUnit}, note=${savedNote?.text}`,
+  );
 }
 
 

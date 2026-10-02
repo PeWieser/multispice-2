@@ -24,7 +24,10 @@ const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false })
 const PartEditorDialog = dynamic(() => import("./PartEditorDialog"), { ssr: false });
 const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
 const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
+const StandaloneInstrumentView = dynamic(() => import("./Instruments").then((m) => m.StandaloneInstrumentView), { ssr: false });
 import { loadCustomParts } from "@/lib/library/customParts";
+import DesktopTitleBar, { isDesktopApp, useDesktopMultiWindowSync } from "./DesktopTitleBar";
+import type { InstrumentKind } from "@/state/editor";
 
 /** R8: Ein echtes Schaltblatt für window.print() – Rahmen, Kopf, Stempel.
  *  Der Capture läuft synchron im beforeprint-Event (direkt am <img>-Element),
@@ -211,6 +214,45 @@ export default function Workbench() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [partEditorOpen, setPartEditorOpen] = useState(false);
 
+  const desktopParams = useSyncExternalStore(
+    () => () => {},
+    () => {
+      if (typeof window === "undefined") return "";
+      return window.location.search;
+    },
+    () => "",
+  );
+  const parsedDesktop = (() => {
+    if (!desktopParams) return { role: "main" as const, winId: undefined, kind: undefined, title: undefined };
+    const sp = new URLSearchParams(desktopParams);
+    const dw = sp.get("desktopWindow");
+    if (dw === "instrument") {
+      return {
+        role: "instrument" as const,
+        winId: sp.get("winId") ?? "inst_1",
+        kind: (sp.get("kind") ?? "scope") as InstrumentKind,
+        title: sp.get("title") ?? "Messgerät",
+      };
+    }
+    if (dw === "library") {
+      return {
+        role: "library" as const,
+        winId: "library",
+        kind: undefined,
+        title: sp.get("title") ?? "Bauteile-Bibliothek",
+      };
+    }
+    return { role: "main" as const, winId: undefined, kind: undefined, title: undefined };
+  })();
+
+  const isDesktopRuntime = useSyncExternalStore(
+    () => () => {},
+    () => isDesktopApp(),
+    () => false,
+  );
+
+  useDesktopMultiWindowSync(parsedDesktop.role, parsedDesktop.winId);
+
   // R17: Messen statt raten – Zeit bis Interaktivität in der Konsole sichtbar.
   useEffect(() => {
     performance.mark("ms-ready");
@@ -262,6 +304,55 @@ export default function Workbench() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // W118: Abgekoppelte, rahmenlose Windows-OS-Fenster für Messgeräte/Inspector & Bibliothek
+  // mit eigener Fensterleiste im Stil von iTunes für Windows.
+  if (parsedDesktop.role === "instrument" && parsedDesktop.kind) {
+    return (
+      <div
+        className="flex h-screen w-screen flex-col overflow-hidden"
+        style={{
+          background: "var(--panel-solid)",
+          border: "1px solid var(--border-strong)",
+        }}
+      >
+        <DesktopTitleBar
+          title={parsedDesktop.title ?? "Messgerät"}
+          subtitle="MultiSpice Messgerät"
+          compact
+        />
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <StandaloneInstrumentView
+            winId={parsedDesktop.winId ?? "inst_1"}
+            fallbackKind={parsedDesktop.kind}
+            fallbackTitle={parsedDesktop.title}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (parsedDesktop.role === "library") {
+    return (
+      <div
+        className="flex h-screen w-screen flex-col overflow-hidden"
+        style={{
+          background: "var(--panel-solid)",
+          border: "1px solid var(--border-strong)",
+        }}
+      >
+        <DesktopTitleBar
+          title={parsedDesktop.title ?? "Bauteile-Bibliothek"}
+          subtitle="MultiSpice Katalog"
+          compact
+        />
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <LibraryPalette standalone onPartEditor={() => setPartEditorOpen(true)} />
+        </div>
+        {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
+      </div>
+    );
+  }
 
   // Mobile layout — W110: Nutzt exakt dieselbe ComponentStrip + DrawingTools wie Desktop/Tablet
   if (isMobile) {
@@ -346,6 +437,7 @@ export default function Workbench() {
   // Desktop – original layout but with dvh and better flex
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
+      {isDesktopRuntime && <DesktopTitleBar title="MultiSpice" />}
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} />
       <ComponentStrip tools={<DrawingTools />} />
       <div className="relative flex min-h-0 flex-1">

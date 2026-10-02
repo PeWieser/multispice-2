@@ -2612,21 +2612,41 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
 - **W115 (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`, `src/components/LibraryPalette.tsx`, `src/components/MenuBar.tsx`, `src/components/Workbench.tsx`)**:
   - Vollständiger Bauteile-Editor mit Gehäuse-Vorlagen (`DIP-8`, `SOIC-8`, `DIP-14`, `DIP-16`, `TO-220`, `SOT-23`, `0805`), frei konfigurierbarer Pin-Zuweisung (Name, Seite, elektrische Funktion), Live-Schaltzeichen- & Gehäuse-Vorschau und Speicherung in der Bibliothek.
 
+---
 
+## §37 — Runde 36: Kompakte Inline-Textfelder mit Einheit, edles Notiz-Design & Windows-Desktop-App-Workflow mit rahmenlosen Multi-Fenstern (W116–W118)
 
+### 37.1 Ursachenanalyse & Plan (W116–W118)
 
+1. **W116 — Inline-Textfelder auf dem Canvas (Widerstandswert, Netzname, Notiz) nicht mehr über die volle Bildschirmbreite & mit Einheit (`Canvas.tsx`, `globals.css`)**:
+   - **Ursache**: Die globale CSS-Klasse `.input` in `src/app/globals.css` setzt `width: 100%` außerhalb von `@layer utilities` und überschrieb dadurch in Tailwind v4 die Klasse `w-48` des Inline-Editors in `Canvas.tsx`. Zudem fehlten beim Bearbeiten eines Bauteilwerts das Bauteil-Label (`R1`, `C1` …) und die physikalische Einheit (`Ω`, `F`, `H`, `V`, `A`, `Hz`).
+   - **Lösung**:
+     - Das Inline-Editor-Popover auf dem Canvas erhält eine feste, kompakte Breite (`width: auto` mit expliziter `style={{ width: ... }}`), ein solides, abgedunkeltes Panel-Design mit warmem Bernstein-Fokusrahmen (`var(--wire-sel)`), links das Bauteil-/Typ-Badge (`R1`, `NET`, `NOTIZ`), rechts direkt im Feld das **Einheiten-Badge** (`Ω`, `F`, `H`, `V`, `A`, `Hz`) und einen Bestätigungs-Button (`↵`).
 
+2. **W117 — Neues, hochwertiges Notiz-Design auf dem Schaltplan (`Canvas.tsx`)**:
+   - **Ursache**: Notizen (`doc.notes`) wurden bisher nur als nackter grauer Text (`ctx.fillText`) ohne Karte, ohne Akzent und ohne mehrzeilige Darstellung auf den Hintergrund gezeichnet; auch die Vorschau und die Trefferfläche waren rudimentär.
+   - **Lösung**:
+     - Notizen werden als technische **Laborbuch-Callout-Karten** gezeichnet: abgerundetes Kärtchen (`var(--panel-solid)` mit feinem Rahmen `var(--border-strong)` und sanftem Schatten), links ein **3 px breiter warmer Bernstein-Akzentstreifen** (`#f59e0b`), oben links ein dezentes `NOTIZ`-Kopf-Badge + Pin-Ankerpunkt, klare Typografie (`var(--text)`) und Unterstützung für mehrzeiligen Text (`\n` bzw. Wortumbruch).
+     - Sowohl die Platzier-Vorschau (`tool === "text"`) als auch der Klick-/Doppelklick-Hit-Test prüfen die gesamte Kartenfläche.
 
+3. **W118 — Zusätzlicher GitHub-Workflow & Electron-Shell für Windows-Desktop-App mit rahmenlosen iTunes-Stil-Fenstern (`.github/workflows/windows-app.yml`, `desktop/`, `Workbench.tsx`, `Instruments.tsx`, `LibraryPalette.tsx`)**:
+   - **Anforderung (`ask_user` bestätigt)**:
+     - Web-App bleibt 100 % wie bisher.
+     - Zusätzliche Workflow-Datei `.github/workflows/windows-app.yml`, die auf `windows-latest` aus dem Projekt eine echte Windows-Desktop-App (Portable `.exe` + NSIS-Installer `.exe`) baut und als GitHub-Artifact bereitstellt.
+     - Sowohl das **Hauptfenster** als auch die **Messgeräte / Inspector** und die **Bibliothek** laufen unter Windows als **eigene rahmenlose Windows-Fenster (`frame: false`)** ohne Standard-Windows-Titelleiste, stattdessen mit einer eigens designten, ziehbaren Custom-Window-Bar im **iTunes-für-Windows-Stil** (gebürsteter/ dunkler Studio-Header mit integrierten Fenster-Buttons Minimieren/Maximieren/Schließen).
+     - Live-Synchronisation zwischen Hauptfenster und ausgelagerten Geräte-/Bibliotheksfenstern über `BroadcastChannel("multispice-desktop-sync")` + Electron-IPC.
 
+### 37.2 Umsetzung & Verifikation (`W116–W118`)
 
-
-
-
-
-
-
-
-
-
-
-
+- **`W116` (`src/components/Canvas.tsx`)**:
+  - Das nackte `<input className="input mono absolute z-40 w-48">` (das wegen `.input { width: 100% }` über die gesamte Bildschirmbreite gestreckt wurde) wurde durch ein kompaktes, schwebendes **Inline-Popover-Kärtchen** (`width: 196 px` für Bauteilwerte/Netznamen bzw. `248 px` für Notizen) ersetzt.
+  - Oben links zeigt ein Kontext-Badge den Bauteil-Bezeichner (`R1`, `C1`, `V1` …) bzw. `NET` oder `NOTIZ`, rechts daneben den Parameternamen (z. B. `Widerstand`, `Kapazität`, `Netzname`).
+  - Im Eingabefeld selbst wird rechtsbündig direkt die **physikalische Einheit (`Ω`, `F`, `H`, `V`, `A`, `Hz`)** als festes Einheiten-Badge eingeblendet.
+- **`W117` (`src/components/Canvas.tsx`)**:
+  - Notizen (`doc.notes`) werden als hochwertige **Laborbuch-Notizkarten** gezeichnet: abgerundetes Kärtchen (`var(--panel-solid)` mit feinem Schatten und Rahmen), links ein **3,5 px breiter warmer Bernstein-Akzentstreifen (`#f59e0b`)**, oben ein dezentes `NOTIZ`-Kopf-Badge und darunter klar lesbarer ein- oder mehrzeiliger Notiztext (`var(--text)`).
+  - Sowohl die Live-Vorschau beim Platzieren (`tool === "text"`) als auch `getNoteBounds` / `hitTestNote` verwenden exakt die neue Kartengeometrie.
+- **`W118` (`src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`, `src/components/Instruments.tsx`, `src/components/LibraryPalette.tsx`, `desktop/main.cjs`, `desktop/preload.cjs`, `.github/workflows/windows-app.yml`)**:
+  - Web-App bleibt zu 100 % unverändert.
+  - In der Windows-Desktop-App (Electron) öffnen das **Hauptfenster**, alle **Messgeräte / Inspector** (`StandaloneInstrumentView`) und die **Bauteile-Bibliothek** (`LibraryPalette standalone`) als echte, eigenständige **rahmenlose Windows-OS-Fenster (`frame: false`)** ohne Standard-Windows-Titelleiste.
+  - Jedes Fenster besitzt oben die maßgeschneiderte **`DesktopTitleBar`** im Stil von **iTunes für Windows** (gebürstete dunkle Metall-Optik, ziehbar per `-webkit-app-region: drag`, integriertes LCD-Statusfenster im Hauptfenster und eigene Minimieren-/Maximieren-/Schließen-Buttons).
+  - `.github/workflows/windows-app.yml` baut auf `windows-latest` den statischen Next.js-Export (`out/`) und paketiert mit `electron-builder` sowohl die **Portable `.exe`** als auch den **NSIS-Installer `.exe`** als GitHub-Actions-Artefakt (`MultiSpice-Windows-App`).

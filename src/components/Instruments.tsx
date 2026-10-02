@@ -1565,6 +1565,11 @@ export function InstrumentLayer() {
   }, []);
 
   if (typeof document === "undefined") return null;
+  // W118: In der Windows-Desktop-App öffnen sich alle Messgeräte & der Inspector
+  // als echte eigenständige, rahmenlose Windows-OS-Fenster.
+  if (typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
+    return null;
+  }
 
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-40 flex flex-col">
@@ -1595,3 +1600,57 @@ export function InstrumentLayer() {
     document.body,
   );
 }
+
+/**
+ * W118: Rendert ein einzelnes Messgerät oder den Inspector flächendeckend in einem
+ * abgekoppelten, rahmenlosen Windows-OS-Fenster (mit eigener iTunes-for-Windows-Leiste).
+ */
+export function StandaloneInstrumentView({
+  winId,
+  fallbackKind,
+  fallbackTitle,
+}: {
+  winId: string;
+  fallbackKind: InstrumentKind;
+  fallbackTitle?: string;
+}) {
+  const instruments = useEditor((s) => s.instruments);
+  const win: InstrumentWindow = useMemo(() => {
+    const found = instruments.find((w) => w.id === winId) ?? instruments.find((w) => w.kind === fallbackKind);
+    if (found) return found;
+    const spec = WINDOW_SPECS[fallbackKind] ?? { w: 520, h: 360, minW: 320, minH: 240 };
+    return {
+      id: winId,
+      kind: fallbackKind,
+      title: fallbackTitle ?? fallbackKind.toUpperCase(),
+      x: 0,
+      y: 0,
+      w: spec.w,
+      h: spec.h,
+      z: 1,
+      minimized: false,
+      docked: false,
+      config: {},
+    };
+  }, [instruments, winId, fallbackKind, fallbackTitle]);
+
+  return (
+    <div className="relative flex h-full w-full flex-col overflow-auto" style={{ background: "var(--panel-solid)" }}>
+      {win.kind === "scope" && <OsziScopeLazy win={win} />}
+      {win.kind === "dmm" && <Multimeter win={win} />}
+      {win.kind === "funcgen" && <FgScopeLazy win={win} />}
+      {win.kind === "bode" && <BodePlotter win={win} />}
+      {win.kind === "logic" && <LogicAnalyzer win={win} />}
+      {win.kind === "logicconv" && <LogicConverter win={win} />}
+      {win.kind === "watt" && <Wattmeter win={win} />}
+      {win.kind === "iv" && <IvAnalyzer />}
+      {win.kind === "spectrum" && <SpectrumAnalyzer win={win} />}
+      {win.kind === "pattern" && <PatternGenerator />}
+      {win.kind === "counter" && <FrequencyCounter win={win} />}
+      {win.kind === "distortion" && <DistortionAnalyzer win={win} />}
+      {win.kind === "network" && <NetworkAnalyzer win={win} />}
+      {win.kind === "inspector" && <InspectorBody />}
+    </div>
+  );
+}
+

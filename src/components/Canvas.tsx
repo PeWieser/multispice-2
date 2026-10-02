@@ -109,12 +109,22 @@ function hitTestLabel(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model")
   return null;
 }
 
+function getNoteBounds(n: import("@/lib/schematic/model").TextNote): { x: number; y: number; w: number; h: number } {
+  const sz = n.size ?? 11;
+  const raw = n.text && n.text.trim().length > 0 ? n.text : "Notiz";
+  const lines = raw.split(/\r?\n/);
+  const maxChars = Math.max(6, ...lines.map((l) => l.length));
+  const lineH = sz + 5;
+  const w = Math.max(96, Math.ceil(maxChars * (sz * 0.58) + 26));
+  const h = 18 + lines.length * lineH + 8;
+  return { x: n.x, y: n.y - 18, w, h };
+}
+
 function hitTestNote(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").TextNote | null {
   for (let i = doc.notes.length - 1; i >= 0; i--) {
     const n = doc.notes[i];
-    const sz = n.size ?? 11;
-    const w = Math.max(32, (n.text?.length ?? 4) * (sz * 0.62));
-    if (p.x >= n.x - 4 && p.x <= n.x + w + 6 && p.y >= n.y - sz - 4 && p.y <= n.y + 6) {
+    const b = getNoteBounds(n);
+    if (p.x >= b.x - 4 && p.x <= b.x + b.w + 4 && p.y >= b.y - 4 && p.y <= b.y + b.h + 4) {
       return n;
     }
   }
@@ -1133,22 +1143,62 @@ export default function Canvas() {
       ctx.beginPath(); ctx.arc(label.x, label.y, 2.5, 0, Math.PI * 2); ctx.fill();
     }
 
+    // W117: Edle Laborbuch-Notizkarten (Callout-Cards mit warmem Bernstein-Akzentstreifen)
     ctx.textAlign = "left";
     for (const note of doc.notes) {
       const sz = note.size ?? 11;
       const isSel = selection.includes(note.id);
-      ctx.font = `${sz}px ui-sans-serif, system-ui`;
-      if (isSel) {
-        const nw = ctx.measureText(note.text).width;
-        ctx.save();
-        ctx.strokeStyle = css("--wire-sel", "#c77a16");
-        ctx.lineWidth = 1.4 / view.zoom;
-        ctx.setLineDash([4 / view.zoom, 3 / view.zoom]);
-        ctx.strokeRect(note.x - 4, note.y - sz - 2, nw + 8, sz + 6);
-        ctx.restore();
+      const lines = (note.text || "Notiz").split(/\r?\n/);
+      const lineH = sz + 5;
+      ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
+      let maxTw = 48;
+      for (const ln of lines) {
+        const wLn = ctx.measureText(ln).width;
+        if (wLn > maxTw) maxTw = wLn;
       }
-      ctx.fillStyle = isSel ? css("--wire-sel", "#c77a16") : css("--text-mute", "#64708c");
-      ctx.fillText(note.text, note.x, note.y);
+      const cardX = note.x;
+      const cardY = note.y - 18;
+      const cardW = Math.max(96, Math.ceil(maxTw + 24));
+      const cardH = 18 + lines.length * lineH + 8;
+
+      ctx.save();
+      // Sanfter Kartenschatten
+      ctx.fillStyle = "rgba(0, 0, 0, 0.24)";
+      roundRect(ctx, cardX + 1.5, cardY + 2, cardW, cardH, 6);
+      ctx.fill();
+
+      // Kartenkörper
+      ctx.fillStyle = css("--panel-solid", "#161b26");
+      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      ctx.fill();
+
+      // Linker Akzentstreifen (3.5 px)
+      ctx.save();
+      ctx.beginPath();
+      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      ctx.clip();
+      ctx.fillStyle = css("--wire-sel", "#f59e0b");
+      ctx.fillRect(cardX, cardY, 3.5, cardH);
+      ctx.restore();
+
+      // Rahmen (hervorgehoben bei Auswahl)
+      ctx.strokeStyle = isSel ? css("--wire-sel", "#f59e0b") : css("--border-strong", "#334155");
+      ctx.lineWidth = (isSel ? 1.8 : 1.1) / Math.max(view.zoom, 0.35);
+      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      ctx.stroke();
+
+      // Kopfzeile "NOTIZ"
+      ctx.font = "700 8px ui-monospace, monospace";
+      ctx.fillStyle = css("--wire-sel", "#f59e0b");
+      ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
+
+      // Notiztext (ein- oder mehrzeilig)
+      ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
+      ctx.fillStyle = css("--text", "#e2e8f0");
+      for (let li = 0; li < lines.length; li++) {
+        ctx.fillText(lines[li], cardX + 10, cardY + 16 + (li + 1) * lineH - 4);
+      }
+      ctx.restore();
     }
 
     for (const probe of doc.probes) {
@@ -1340,10 +1390,26 @@ export default function Canvas() {
         ctx.arc(lx, ly, 3.2, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        ctx.font = "11px ui-sans-serif, system-ui";
-        ctx.fillStyle = css("--wire-sel", "#c77a16");
+        const cardX = cursor.x;
+        const cardY = cursor.y - 18;
+        const cardW = 136;
+        const cardH = 42;
+        ctx.fillStyle = css("--panel-solid", "#161b26");
+        roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+        ctx.fill();
+        ctx.fillStyle = css("--wire-sel", "#f59e0b");
+        ctx.fillRect(cardX, cardY + 3, 3.5, cardH - 6);
+        ctx.strokeStyle = css("--wire-sel", "#f59e0b");
+        ctx.lineWidth = 1.3 / Math.max(view.zoom, 0.35);
+        roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+        ctx.stroke();
+        ctx.font = "700 8px ui-monospace, monospace";
+        ctx.fillStyle = css("--wire-sel", "#f59e0b");
         ctx.textAlign = "left";
-        ctx.fillText("📝 Notiz hier klicken…", cursor.x, cursor.y);
+        ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
+        ctx.font = "500 11px ui-sans-serif, system-ui";
+        ctx.fillStyle = css("--text", "#e2e8f0");
+        ctx.fillText("Notiz platzieren …", cardX + 10, cardY + 30);
       }
       ctx.restore();
     }
@@ -2744,37 +2810,110 @@ export default function Canvas() {
           {tooltip.spark && tooltip.spark.length > 8 && <Sparkline data={tooltip.spark} />}
         </div>
       )}
-      {editing && (
-        <input
-          ref={editInputRef}
-          autoFocus
-          className="input mono absolute z-40 w-48"
-          style={{
-            left: Math.max(8, editing.sx + 8),
-            top: Math.max(8, editing.sy - 14),
-            boxShadow: "var(--shadow)",
-            borderColor: "var(--wire-sel)",
-          }}
-          key={`${editing.kind}_${editing.instId ?? editing.itemId ?? `${editing.x}_${editing.y}`}`}
-          defaultValue={editing.initial}
-          placeholder={editing.kind === "label" ? "Netzname (z. B. IN, VCC) …" : editing.kind === "value" ? "Wert (z. B. 10k, 4u7, 470) …" : "Notiz eingeben …"}
-          onPointerDown={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") commitEditing((e.target as HTMLInputElement).value);
-            else if (e.key === "Escape") commitEditing(null);
-          }}
-          onBlur={(e) => {
-            // W91: Schutz gegen sofortiges onBlur durch das Loslassen der Maustaste
-            // unmittelbar nach dem Öffnen des Eingabefelds.
-            if (performance.now() - editingOpenedAt.current < 280) {
-              e.target.focus();
-              return;
-            }
-            commitEditing(e.target.value);
-          }}
-        />
-      )}
+      {editing && (() => {
+        const editInst = editing.instId
+          ? selDoc.instances.find((i) => i.id === editing.instId)
+          : null;
+        const editPart = editInst ? PART_MAP[editInst.partId] : null;
+        const editMainParam = editPart?.params[0];
+        const unitLabel = editing.kind === "value" ? (editMainParam?.unit ?? "") : "";
+        const badgeLabel =
+          editing.kind === "value"
+            ? (editInst?.label ?? "WERT")
+            : editing.kind === "label"
+              ? "NET"
+              : "NOTIZ";
+        const boxWidth = editing.kind === "text" ? 248 : 196;
+        const vp = useHud.getState().viewport;
+        const vw = vp.w > 0 ? vp.w : 800;
+        const vh = vp.h > 0 ? vp.h : 600;
+        const leftPos = Math.max(8, Math.min(vw - boxWidth - 12, editing.sx - 20));
+        const topPos = Math.max(8, Math.min(vh - 70, editing.sy - 16));
+
+        return (
+          <div
+            key={`${editing.kind}_${editing.instId ?? editing.itemId ?? `${editing.x}_${editing.y}`}`}
+            className="absolute z-40 flex flex-col rounded-xl p-2 shadow-2xl"
+            style={{
+              left: leftPos,
+              top: topPos,
+              width: boxWidth,
+              background: "var(--panel-solid)",
+              border: "1.5px solid var(--wire-sel, #f59e0b)",
+              boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="mb-1.5 flex items-center justify-between gap-1.5 px-0.5">
+              <span
+                className="mono rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase"
+                style={{
+                  background: "color-mix(in srgb, var(--wire-sel, #f59e0b) 18%, transparent)",
+                  color: "var(--wire-sel, #f59e0b)",
+                }}
+              >
+                {badgeLabel}
+              </span>
+              <span className="text-[10px] text-mute">
+                {editing.kind === "value"
+                  ? editMainParam?.label ?? "Wert"
+                  : editing.kind === "label"
+                    ? "Netzname"
+                    : "Schaltplan-Notiz"}
+              </span>
+            </div>
+            <div
+              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1"
+              style={{
+                background: "var(--bg)",
+                borderColor: "var(--border-strong)",
+              }}
+            >
+              <input
+                ref={editInputRef}
+                autoFocus
+                type="text"
+                className="mono min-w-0 flex-1 bg-transparent text-[12.5px] font-medium text-[var(--text)] outline-none"
+                defaultValue={editing.initial}
+                placeholder={
+                  editing.kind === "label"
+                    ? "z. B. IN, VCC"
+                    : editing.kind === "value"
+                      ? "z. B. 10k, 4,7k"
+                      : "Notiztext …"
+                }
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") commitEditing((e.target as HTMLInputElement).value);
+                  else if (e.key === "Escape") commitEditing(null);
+                }}
+                onBlur={(e) => {
+                  // W91: Schutz gegen sofortiges onBlur durch das Loslassen der Maustaste
+                  // unmittelbar nach dem Öffnen des Eingabefelds.
+                  if (performance.now() - editingOpenedAt.current < 280) {
+                    e.target.focus();
+                    return;
+                  }
+                  commitEditing(e.target.value);
+                }}
+              />
+              {unitLabel && (
+                <span
+                  className="mono shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold"
+                  style={{
+                    background: "var(--panel-2)",
+                    color: "var(--text-dim)",
+                    border: "1px solid var(--border)",
+                  }}
+                  title={`Einheit: ${unitLabel} (Präfixe k, m, u/µ, n, p, M erlaubt)`}
+                >
+                  {unitLabel}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {ctxMenu && (
         <ContextMenu
           menu={ctxMenu}

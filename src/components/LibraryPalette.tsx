@@ -248,8 +248,15 @@ function CatNode({
   );
 }
 
-export default function LibraryPalette({ onPartEditor }: { onPartEditor?: () => void } = {}) {
-  const open = useEditor((s) => s.libraryOpen);
+export default function LibraryPalette({
+  onPartEditor,
+  standalone = false,
+}: {
+  onPartEditor?: () => void;
+  standalone?: boolean;
+} = {}) {
+  const openStore = useEditor((s) => s.libraryOpen);
+  const open = standalone ? true : openStore;
   const pos = useEditor((s) => s.libraryPos);
   const size = useEditor((s) => s.librarySize);
   const setPos = useEditor((s) => s.setLibraryPos);
@@ -412,6 +419,15 @@ export default function LibraryPalette({ onPartEditor }: { onPartEditor?: () => 
     if (part) setSelected(part);
     setPlacing(id);
     useEditor.setState({ libraryOpen: false });
+    if (standalone && typeof window !== "undefined") {
+      try {
+        const bc = new BroadcastChannel("multispice-desktop-sync");
+        bc.postMessage({ type: "pick-part", partId: id });
+        bc.close();
+      } catch {}
+      window.multispiceDesktop?.sendSync({ type: "pick-part", partId: id });
+      window.multispiceDesktop?.windowControl("close");
+    }
   };
 
   // Keyboard navigation – arrow keys + enter to place, like Multisim
@@ -451,21 +467,33 @@ export default function LibraryPalette({ onPartEditor }: { onPartEditor?: () => 
   }, [open, selectedIdx, query, tab, results, visibleList]);
 
   if (!open) return null;
+  if (!standalone && typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
+    return null;
+  }
 
   return (
     <div
       ref={paletteRef}
-      className="fixed z-40 flex flex-col overflow-hidden rounded-xl will-change-transform"
-      style={{
-        left: pos.x,
-        top: pos.y,
-        width: size.w,
-        height: size.h,
-        background: "var(--panel-solid)",
-        border: "1px solid var(--border-strong)",
-        boxShadow: "var(--shadow)",
-      }}
+      className={
+        standalone
+          ? "flex h-full w-full flex-col overflow-hidden"
+          : "fixed z-40 flex flex-col overflow-hidden rounded-xl will-change-transform"
+      }
+      style={
+        standalone
+          ? { background: "var(--panel-solid)" }
+          : {
+              left: pos.x,
+              top: pos.y,
+              width: size.w,
+              height: size.h,
+              background: "var(--panel-solid)",
+              border: "1px solid var(--border-strong)",
+              boxShadow: "var(--shadow)",
+            }
+      }
     >
+      {!standalone && (
       <div
         className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3"
         style={{ borderBottom: "1px solid var(--border)" }}
@@ -505,6 +533,7 @@ export default function LibraryPalette({ onPartEditor }: { onPartEditor?: () => 
           </button>
         </div>
       </div>
+      )}
 
       <div className="p-2.5 space-y-2">
         <div className="relative">
