@@ -158,89 +158,6 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
   );
 }
 
-function MobileBottomToolbar() {
-  const tool = useEditor((s) => s.tool);
-  const setTool = useEditor((s) => s.setTool);
-  const placingPartId = useEditor((s) => s.placingPartId);
-  const setPlacing = useEditor((s) => s.setPlacing);
-  const setPlacingProbe = useEditor((s) => s.setPlacingProbe);
-  const placingProbe = useEditor((s) => s.placingProbeKind);
-
-  const tools = [
-    { id: "select", label: "Auswahl", icon: "↖" },
-    { id: "wire", label: "Stift – Netz zeichnen", icon: "✎" },
-    { id: "erase", label: "Radiergummi – Löschen", icon: "⌫" },
-    { id: "junction", label: "Knotenpunkt setzen/entfernen", icon: "◉" },
-    { id: "label", label: "Netzname setzen", icon: "L" },
-    { id: "text", label: "Notiz schreiben", icon: "T" },
-    { id: "probe_voltage", label: "Spannungs-Probe", icon: "V" },
-    { id: "probe_current", label: "Strom-Probe", icon: "A" },
-  ] as const;
-
-  const quickParts = [
-    { id: "resistor", label: "R" },
-    { id: "capacitor", label: "C" },
-    { id: "inductor", label: "L" },
-    { id: "vdc", label: "VDC" },
-    { id: "gnd", label: "GND" },
-  ] as const;
-
-  // Einmalig beim Start: gespeicherten Stand aus dem Browser wiederherstellen.
-  useEffect(() => {
-    useEditor.getState().restoreLocalProject();
-  }, []);
-
-  return (
-    <div className="flex h-[54px] shrink-0 items-center gap-1.5 overflow-x-auto no-scrollbar px-2" style={{ background: "var(--panel-solid)", borderTop: "1px solid var(--border)" }}>
-      {tools.map((t) => {
-        const isProbeBtn = t.id.startsWith("probe_");
-        const probeKind = t.id === "probe_voltage" ? "voltage" : "current";
-        const active = isProbeBtn ? placingProbe === probeKind : tool === (t.id as any);
-        return (
-          <button
-            key={t.id}
-            className="grid h-[40px] min-w-[42px] shrink-0 place-items-center rounded-xl text-[12px] font-bold border px-2"
-            aria-label={t.label}
-            title={t.label}
-            style={
-              active
-                ? { background: "var(--tool-active-bg)", color: "var(--tool-active-text)", borderColor: "var(--tool-active-border)" }
-                : { background: "var(--panel-2)", color: "var(--text-dim)", borderColor: "var(--border)" }
-            }
-            onClick={() => {
-              if (isProbeBtn) {
-                setPlacingProbe(placingProbe === probeKind ? null : (probeKind as any));
-              } else {
-                setTool(t.id as any);
-              }
-            }}
-          >
-            {t.icon}
-          </button>
-        );
-      })}
-      <div className="mx-0.5 h-6 w-px shrink-0" style={{ background: "var(--border-strong)" }} />
-      {quickParts.map((qp) => {
-        const active = tool === "place" && placingPartId === qp.id;
-        return (
-          <button
-            key={qp.id}
-            className="grid h-[40px] min-w-[42px] shrink-0 place-items-center rounded-xl text-[11px] font-mono font-bold border px-2"
-            style={
-              active
-                ? { background: "var(--tool-active-bg)", color: "var(--tool-active-text)", borderColor: "var(--tool-active-border)" }
-                : { background: "var(--panel-2)", color: "var(--text-dim)", borderColor: "var(--border)" }
-            }
-            onClick={() => setPlacing(active ? null : qp.id)}
-          >
-            {qp.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; height?: string }) {
   if (!open) return null;
   return (
@@ -342,11 +259,12 @@ export default function Workbench() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Mobile layout
+  // Mobile layout — W110: Nutzt exakt dieselbe ComponentStrip + DrawingTools wie Desktop/Tablet
   if (isMobile) {
     return (
       <div className="flex h-[100dvh] w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
         <MobileTopBar onMenu={() => setMobileMenuOpen(true)} onSettings={() => setSettingsOpen(true)} />
+        <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1 overflow-hidden">
             <Canvas />
@@ -380,7 +298,6 @@ export default function Workbench() {
             </div>
           )}
         </div>
-        <MobileBottomToolbar />
         <StatusBar isMobile />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}

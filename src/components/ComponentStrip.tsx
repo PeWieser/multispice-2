@@ -85,7 +85,12 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
   const toggleProbeMenu = () => {
     if (!probeMenuOpen && moreBtnRef.current) {
       const r = moreBtnRef.current.getBoundingClientRect();
-      setMenuPos({ left: Math.max(8, Math.min(window.innerWidth - 220, r.left)), top: r.bottom + 6 });
+      const menuHeight = 220;
+      const openUpwards = r.bottom + menuHeight > window.innerHeight;
+      setMenuPos({
+        left: Math.max(8, Math.min(window.innerWidth - 220, r.left)),
+        top: openUpwards ? Math.max(8, r.top - menuHeight - 6) : r.bottom + 6,
+      });
     }
     setProbeMenuOpen((v) => !v);
   };

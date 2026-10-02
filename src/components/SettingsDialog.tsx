@@ -1,328 +1,564 @@
 "use client";
 
-import { useState } from "react";
-import { Settings, X, Zap, Search, Monitor, Palette, Gauge, Component, Globe } from "lucide-react";
-import { Dialog } from "./ui";
-import { ProbeHoverConfig, DEFAULT_HOVER, loadHoverConfig, saveHoverConfig, SymbolStylePref, loadSymbolStyle, saveSymbolStyle, resolveSymbolStyle, detectLocaleSymbol } from "@/lib/settings";
-import { useEditor } from "@/state/editor";
-import { adaptShortcut, useIsApple } from "@/lib/platform";
+import { useEffect, useState } from "react";
+import { Activity, Crosshair, Grid3X3, SlidersHorizontal, X } from "lucide-react";
+import { ThemePref, useEditor } from "@/state/editor";
+import {
+  loadHoverConfig,
+  saveHoverConfig,
+  ProbeHoverConfig,
+  SymbolStylePref,
+  saveSymbolStyle,
+  detectLocaleSymbol,
+} from "@/lib/settings";
 
-export default function SettingsDialog({ onClose }: { onClose: () => void }) {
-  const apple = useIsApple();
-  const [tab, setTab] = useState<"probe" | "library" | "canvas" | "general" | "symbols">("probe");
-  const [symbolStyle, setSymbolStyleState] = useState<SymbolStylePref>(() => loadSymbolStyle());
+type SettingsSection = "general" | "canvas" | "simulation" | "probes";
+
+function MacSwitch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  label?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+      className="relative inline-flex h-[20px] w-[36px] shrink-0 cursor-pointer items-center rounded-full transition-colors duration-150"
+      style={{
+        background: checked ? "var(--wire-sel, #f59e0b)" : "rgba(120, 128, 140, 0.34)",
+      }}
+    >
+      <span
+        className="inline-block h-[16px] w-[16px] rounded-full bg-white shadow transition-transform duration-150"
+        style={{
+          transform: checked ? "translateX(18px)" : "translateX(2px)",
+        }}
+      />
+    </button>
+  );
+}
+
+function MacSegmented<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div
+      className="inline-flex rounded-[7px] p-0.5 text-[11px]"
+      style={{
+        background: "var(--bg)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className="rounded-[5px] px-2.5 py-1 font-medium transition-all"
+            style={{
+              background: active ? "var(--panel-2)" : "transparent",
+              color: active ? "var(--text)" : "var(--text-mute)",
+              boxShadow: active ? "0 1px 2px rgba(0,0,0,0.22)" : "none",
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SettingsGroup({
+  title,
+  children,
+}: {
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4 last:mb-0">
+      {title && (
+        <div className="mb-1.5 px-1 text-[11px] font-semibold tracking-tight text-dim">
+          {title}
+        </div>
+      )}
+      <div
+        className="divide-y overflow-hidden rounded-[10px]"
+        style={{
+          background: "var(--panel-2)",
+          border: "1px solid var(--border)",
+          borderColor: "var(--border)",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SettingsRow({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between gap-4 px-3.5 py-2.5"
+      style={{ borderColor: "var(--border)" }}
+    >
+      <div className="min-w-0">
+        <div className="text-[12px] font-medium text-[var(--text)]">{title}</div>
+        {subtitle && (
+          <div className="mt-0.5 text-[11px] leading-snug text-mute">{subtitle}</div>
+        )}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+export default function SettingsDialog({
+  open = true,
+  onClose,
+}: {
+  open?: boolean;
+  onClose: () => void;
+}) {
+  const [section, setSection] = useState<SettingsSection>("general");
   const [hoverCfg, setHoverCfg] = useState<ProbeHoverConfig>(() => loadHoverConfig());
+
+  const theme = useEditor((s) => s.theme);
+  const symbolStyle = useEditor((s) => s.symbolStyle);
   const showGrid = useEditor((s) => s.showGrid);
   const snap = useEditor((s) => s.snap);
   const autoRoute = useEditor((s) => s.autoRoute);
+  const showRulers = useEditor((s) => s.showRulers);
+  const showPageFrame = useEditor((s) => s.showPageFrame);
   const showCurrentFlow = useEditor((s) => s.showCurrentFlow);
+  const currentFlowDirection = useEditor((s) => s.currentFlowDirection);
   const showVoltageColors = useEditor((s) => s.showVoltageColors);
   const showInlineValues = useEditor((s) => s.showInlineValues);
   const showErcMarkers = useEditor((s) => s.showErcMarkers);
   const showRated = useEditor((s) => s.showRated);
-  const theme = useEditor((s) => s.theme);
-  const symbolStyleStore = useEditor((s) => s.symbolStyle);
+  const st = useEditor.getState;
 
-  const saveHover = (patch: Partial<ProbeHoverConfig>) => {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const updateHover = (patch: Partial<ProbeHoverConfig>) => {
     const next = { ...hoverCfg, ...patch };
     setHoverCfg(next);
     saveHoverConfig(next);
+    window.dispatchEvent(new Event("multispice-settings"));
   };
 
+  const applyTheme = (t: ThemePref) => {
+    st().setTheme(t);
+    try {
+      localStorage.setItem("multispice.theme", t);
+    } catch {}
+  };
+
+  const applySymbolStyle = (s: SymbolStylePref) => {
+    st().setSymbolStyle(s);
+    saveSymbolStyle(s);
+  };
+
+  const navItems: Array<{
+    id: SettingsSection;
+    label: string;
+    icon: React.ReactNode;
+  }> = [
+    { id: "general", label: "Allgemein", icon: <SlidersHorizontal size={14} /> },
+    { id: "canvas", label: "Arbeitsfläche", icon: <Grid3X3 size={14} /> },
+    { id: "simulation", label: "Simulation", icon: <Activity size={14} /> },
+    { id: "probes", label: "Messsonden", icon: <Crosshair size={14} /> },
+  ];
+
+  const activeStd: "iec" | "ansi" =
+    symbolStyle === "auto" ? detectLocaleSymbol() : symbolStyle;
+
   return (
-    <Dialog
-      title="Einstellungen"
-      subtitle="Human Design: alles konfigurierbar, aber mit sinnvollen Defaults"
-      onClose={onClose}
-      wide
-      actions={
-        <button className="btn btn-primary" onClick={onClose}>
-          Schließen
-        </button>
-      }
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3 backdrop-blur-[2px]"
+      onMouseDown={onClose}
     >
-      <div className="flex gap-2 mb-3">
-        {[
-          { id: "probe", label: "Probes", icon: <Zap size={12} /> },
-          { id: "library", label: "Bibliothek", icon: <Search size={12} /> },
-          { id: "canvas", label: "Canvas", icon: <Monitor size={12} /> },
-          { id: "symbols", label: "Symbole", icon: <Component size={12} /> },
-          { id: "general", label: "Allgemein", icon: <Settings size={12} /> },
-        ].map((t) => (
-          <button key={t.id} className="tab flex items-center gap-1.5" data-active={tab === t.id} onClick={() => setTab(t.id as any)}>
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Einstellungen"
+        className="flex h-[460px] max-h-[88vh] w-[660px] max-w-[96vw] flex-col overflow-hidden rounded-[12px] shadow-2xl"
+        style={{
+          background: "var(--panel-solid)",
+          border: "1px solid var(--border-strong)",
+          boxShadow: "var(--shadow)",
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {/* macOS Window Titlebar */}
+        <div
+          className="flex h-10 shrink-0 items-center justify-between px-3.5"
+          style={{
+            background: "var(--panel-2)",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Schließen"
+              className="group flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#ff5f57] text-black/75 transition-opacity hover:opacity-90"
+            >
+              <X size={9} className="opacity-0 group-hover:opacity-100" />
+            </button>
+          </div>
+          <div className="text-[12px] font-semibold tracking-tight text-[var(--text)]">
+            Einstellungen
+          </div>
+          <div className="w-6" />
+        </div>
 
-      {tab === "probe" && (
-        <div className="space-y-4">
-          <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-            <div className="text-[11px] font-medium mb-2 flex items-center gap-1.5">
-              <Zap size={12} /> Alt+Hover Messwerte (Run Modus)
-            </div>
-            <div className="text-[11px] text-mute mb-3 leading-snug">
-              Im Run Modus bei gehaltener Alt Taste und Maus über Leiterbahnen werden Messwerte angezeigt. Hier konfigurierbar was angezeigt wird. Wie in LTSpice/Multisim.
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { key: "showNetName", label: "Netz Name anzeigen" },
-                { key: "showV", label: "Spannung V" },
-                { key: "showI", label: "Strom I (geschätzt)" },
-                { key: "showP", label: "Leistung P ≈ V·I" },
-                { key: "showFreq", label: "Frequenz f (via FFT)" },
-              ].map((f) => (
-                <label key={f.key} className="flex items-center gap-2 text-[12px] py-1">
-                  <input
-                    type="checkbox"
-                    checked={(hoverCfg as any)[f.key]}
-                    onChange={(e) => saveHover({ [f.key]: e.target.checked } as any)}
-                    className="h-3.5 w-3.5 accent-[var(--accent)]"
+        {/* macOS Split View: Sidebar + Content */}
+        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+          {/* Sidebar */}
+          <aside
+            className="flex shrink-0 gap-1 overflow-x-auto p-2 sm:w-[176px] sm:flex-col sm:overflow-visible sm:p-2.5"
+            style={{
+              background: "var(--bg)",
+              borderRight: "1px solid var(--border)",
+            }}
+          >
+            {navItems.map((item) => {
+              const active = section === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSection(item.id)}
+                  className="flex items-center gap-2.5 rounded-[7px] px-2.5 py-1.5 text-left text-[12px] font-medium whitespace-nowrap transition-colors"
+                  style={{
+                    background: active
+                      ? "rgba(245, 158, 11, 0.16)"
+                      : "transparent",
+                    color: active ? "var(--wire-sel, #f59e0b)" : "var(--text)",
+                  }}
+                >
+                  <span className="shrink-0 opacity-85">{item.icon}</span>
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </aside>
+
+          {/* Main Content Area */}
+          <main className="flex-1 overflow-y-auto p-4 sm:p-5">
+            {section === "general" && (
+              <>
+                <SettingsGroup title="Darstellung">
+                  <SettingsRow
+                    title="Erscheinungsbild"
+                    subtitle="Farbschema der Benutzeroberfläche und des Schaltplans"
+                  >
+                    <MacSegmented<ThemePref>
+                      value={theme}
+                      options={[
+                        { value: "system", label: "System" },
+                        { value: "dark", label: "Dunkel" },
+                        { value: "light", label: "Hell" },
+                      ]}
+                      onChange={applyTheme}
+                    />
+                  </SettingsRow>
+                </SettingsGroup>
+
+                <SettingsGroup title="Schaltplan-Norm">
+                  <SettingsRow
+                    title="Bauteil-Symbole"
+                    subtitle="Darstellung von Widerständen, Kondensatoren und Logikgattern"
+                  >
+                    <MacSegmented<SymbolStylePref>
+                      value={symbolStyle}
+                      options={[
+                        { value: "auto", label: "Auto" },
+                        { value: "iec", label: "IEC (EU)" },
+                        { value: "ansi", label: "ANSI (US)" },
+                      ]}
+                      onChange={applySymbolStyle}
+                    />
+                  </SettingsRow>
+                  <div className="grid grid-cols-3 gap-2.5 p-3">
+                    <SymbolPreviewCard label="Widerstand" std={activeStd} kind="R" />
+                    <SymbolPreviewCard label="Kondensator" std={activeStd} kind="C" />
+                    <SymbolPreviewCard label="Operationsverstärker" std={activeStd} kind="OP" />
+                  </div>
+                </SettingsGroup>
+              </>
+            )}
+
+            {section === "canvas" && (
+              <>
+                <SettingsGroup title="Raster & Leitungsführung">
+                  <SettingsRow
+                    title="Raster einblenden"
+                    subtitle="Punktraster im Schaltplan-Hintergrund darstellen"
+                  >
+                    <MacSwitch
+                      checked={showGrid}
+                      onChange={() => useEditor.setState({ showGrid: !showGrid })}
+                      label="Raster einblenden"
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Am Raster ausrichten"
+                    subtitle="Bauteile und Knoten auf das 10-px-Raster fangen"
+                  >
+                    <MacSwitch
+                      checked={snap}
+                      onChange={() => useEditor.setState({ snap: !snap })}
+                      label="Am Raster ausrichten"
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Orthogonale Leitungsführung"
+                    subtitle="Leitungen automatisch im 90°-Winkel um Hindernisse führen"
+                  >
+                    <MacSwitch
+                      checked={autoRoute}
+                      onChange={() => useEditor.setState({ autoRoute: !autoRoute })}
+                      label="Orthogonale Leitungsführung"
+                    />
+                  </SettingsRow>
+                </SettingsGroup>
+
+                <SettingsGroup title="Blatt & Hilfslinien">
+                  <SettingsRow
+                    title="Lineale anzeigen"
+                    subtitle="Koordinaten-Lineale am oberen und linken Rand"
+                  >
+                    <MacSwitch
+                      checked={showRulers}
+                      onChange={() => st().toggleRulers()}
+                      label="Lineale anzeigen"
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Blattrand & Schriftfeld"
+                    subtitle="Zeichnungsrahmen mit Titelstempel einblenden"
+                  >
+                    <MacSwitch
+                      checked={showPageFrame}
+                      onChange={() => st().togglePageFrame()}
+                      label="Blattrand & Schriftfeld"
+                    />
+                  </SettingsRow>
+                </SettingsGroup>
+              </>
+            )}
+
+            {section === "simulation" && (
+              <>
+                <SettingsGroup title="Stromfluss & Potentiale">
+                  <SettingsRow
+                    title="Stromfluss animieren"
+                    subtitle="Bewegte Ladungsträger während der laufenden Simulation zeigen"
+                  >
+                    <MacSwitch
+                      checked={showCurrentFlow}
+                      onChange={() => st().toggleCurrentFlow()}
+                      label="Stromfluss animieren"
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Stromrichtung"
+                    subtitle="Physikalischer Elektronenfluss (− → +) oder technische Richtung (+ → −)"
+                  >
+                    <MacSegmented<"electron" | "conventional">
+                      value={currentFlowDirection}
+                      options={[
+                        { value: "electron", label: "Elektronen (− → +)" },
+                        { value: "conventional", label: "Technisch (+ → −)" },
+                      ]}
+                      onChange={(dir) => st().setCurrentFlowDirection(dir)}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Spannungsfarben auf Leitungen"
+                    subtitle="Leitungen entsprechend ihrem Knotenpotential einfärben"
+                  >
+                    <MacSwitch
+                      checked={showVoltageColors}
+                      onChange={() => st().toggleVoltageColors()}
+                      label="Spannungsfarben auf Leitungen"
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Live-Messwerte an Knoten"
+                    subtitle="Spannungswerte direkt im Schaltplan einblenden"
+                  >
+                    <MacSwitch
+                      checked={showInlineValues}
+                      onChange={() => st().toggleInlineValues()}
+                      label="Live-Messwerte an Knoten"
+                    />
+                  </SettingsRow>
+                </SettingsGroup>
+
+                <SettingsGroup title="Prüfung & Grenzwerte">
+                  <SettingsRow
+                    title="ERC-Fehlermarker"
+                    subtitle="Offene Pins und Kurzschlüsse im Schaltplan markieren"
+                  >
+                    <MacSwitch
+                      checked={showErcMarkers}
+                      onChange={() => st().toggleErcMarkers()}
+                      label="ERC-Fehlermarker"
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Bauteil-Überlastung anzeigen"
+                    subtitle="Überschrittene Verlustleistungs- und Maximalwerte hervorheben"
+                  >
+                    <MacSwitch
+                      checked={showRated}
+                      onChange={() => st().toggleRated()}
+                      label="Bauteil-Überlastung anzeigen"
+                    />
+                  </SettingsRow>
+                </SettingsGroup>
+              </>
+            )}
+
+            {section === "probes" && (
+              <SettingsGroup title="Angezeigte Messgrößen (Alt + Hover)">
+                <SettingsRow title="Netzname">
+                  <MacSwitch
+                    checked={hoverCfg.showNetName}
+                    onChange={() => updateHover({ showNetName: !hoverCfg.showNetName })}
+                    label="Netzname"
                   />
-                  <span className="text-dim">{f.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-            <div className="text-[11px] font-medium mb-2">Probe Darstellung</div>
-            <div className="text-[11px] text-mute mb-2">Leader-Stil: dünner Pfeil vom Bauteil zur Leitung. Kleine Fähnchen-Marker mit konstanter Screen-Größe (Ref-Stil).</div>
-            <div className="grid grid-cols-2 gap-2 text-[11px] mono">
-              <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                V Probe: Ocker (--warn)
-              </div>
-              <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                A Probe: Teal (--accent-2)
-              </div>
-              <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                W Probe: Violett (--accent-3)
-              </div>
-              <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                REF: Grau (--text-mute)
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg p-3 text-[11px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)" }}>
-            <div className="font-medium mb-1">💡 Tipp</div>
-            • Voltage misst gegen GND oder REF-Probe (Dropdown in Inspector).<br />
-            • Current Pfeil reversierbar via Rechtsklick → Richtung umkehren.<br />
-            • Differential ΔV = V+ - Vref automatisch mit gestrichelter Linie.<br />
-            • Probe Table im BottomPanel zeigt alle Werte permanent + CSV Export.
-          </div>
+                </SettingsRow>
+                <SettingsRow title="Spannung (V)">
+                  <MacSwitch
+                    checked={hoverCfg.showV}
+                    onChange={() => updateHover({ showV: !hoverCfg.showV })}
+                    label="Spannung (V)"
+                  />
+                </SettingsRow>
+                <SettingsRow title="Stromstärke (I)">
+                  <MacSwitch
+                    checked={hoverCfg.showI}
+                    onChange={() => updateHover({ showI: !hoverCfg.showI })}
+                    label="Stromstärke (I)"
+                  />
+                </SettingsRow>
+                <SettingsRow title="Leistung (P)">
+                  <MacSwitch
+                    checked={hoverCfg.showP}
+                    onChange={() => updateHover({ showP: !hoverCfg.showP })}
+                    label="Leistung (P)"
+                  />
+                </SettingsRow>
+                <SettingsRow title="Frequenz (f)">
+                  <MacSwitch
+                    checked={hoverCfg.showFreq}
+                    onChange={() => updateHover({ showFreq: !hoverCfg.showFreq })}
+                    label="Frequenz (f)"
+                  />
+                </SettingsRow>
+              </SettingsGroup>
+            )}
+          </main>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
 
-      {tab === "library" && (
-        <div className="space-y-3">
-          <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-            <div className="text-[11px] font-medium mb-2">Bibliothek Anzeige</div>
-            <div className="space-y-2">
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Grid vs List Default</span>
-                <select className="input w-32 py-0.5 text-[11px]">
-                  <option>Liste (kompakt)</option>
-                  <option>Grid (visuell)</option>
-                </select>
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Symbol Vorschau Größe</span>
-                <select className="input w-32 py-0.5 text-[11px]">
-                  <option>40px (kompakt)</option>
-                  <option>64px (groß)</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-[12px]">
-                <input type="checkbox" defaultChecked className="h-3.5 w-3.5" /> Datenblatt Links anzeigen
-              </label>
-            </div>
-          </div>
-          <div className="text-[11px] text-mute">Suche: Text mit Command Palette, Autocomplete Live, „/“ Fokus, „r 10k“ für Widerstand 10k. Handcrafted Icons farbcodiert für schnelles Scannen.</div>
-        </div>
-      )}
-
-      {tab === "canvas" && (
-        <div className="space-y-3">
-          <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-            <div className="text-[11px] font-medium mb-2">Canvas-Darstellung</div>
-            <div className="space-y-2">
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Raster anzeigen</span>
-                <input type="checkbox" checked={showGrid} onChange={() => useEditor.setState({ showGrid: !showGrid })} className="h-3.5 w-3.5" />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Am Raster fangen (10px)</span>
-                <input type="checkbox" checked={snap} onChange={() => useEditor.setState({ snap: !snap })} className="h-3.5 w-3.5" />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Auto-Route A* (Manhattan)</span>
-                <input type="checkbox" checked={autoRoute} onChange={() => useEditor.setState({ autoRoute: !autoRoute })} className="h-3.5 w-3.5" />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Stromfluss animieren (Pfeile)</span>
-                <input type="checkbox" checked={showCurrentFlow} onChange={() => useEditor.getState().toggleCurrentFlow()} className="h-3.5 w-3.5" />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Spannungsfarben (Live)</span>
-                <input type="checkbox" checked={showVoltageColors} onChange={() => useEditor.getState().toggleVoltageColors()} className="h-3.5 w-3.5" />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Pin-Namen beim Hover</span>
-                <input type="checkbox" defaultChecked={true} className="h-3.5 w-3.5" title="Immer an – zeigt Pin-Name und Netz beim Hovern" disabled />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Netz-Highlight beim Hover</span>
-                <input type="checkbox" defaultChecked={true} className="h-3.5 w-3.5" title="Ganzes Netz leuchtet bei Hover – wie Multisim" disabled />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Alignment Guides (Figma-like)</span>
-                <input type="checkbox" defaultChecked={true} className="h-3.5 w-3.5" title="Zeigt Hilfslinien beim Ausrichten" disabled />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Live Werte auf Schaltplan (V auf Leitung, A auf Bauteil)</span>
-                <input type="checkbox" checked={showInlineValues} onChange={() => useEditor.getState().toggleInlineValues()} className="h-3.5 w-3.5" />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>ERC Marker visuell (rote Fehler direkt am Bauteil)</span>
-                <input type="checkbox" checked={showErcMarkers} onChange={() => useEditor.getState().toggleErcMarkers()} className="h-3.5 w-3.5" />
-              </label>
-              <label className="flex items-center justify-between text-[12px]">
-                <span>Rated Blow-up (Rauch wenn überlastet)</span>
-                <input type="checkbox" checked={showRated} onChange={() => useEditor.getState().toggleRated()} className="h-3.5 w-3.5" />
-              </label>
-            </div>
-          </div>
-          <div className="rounded-lg p-3 text-[11px] leading-snug" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
-            <div className="font-medium mb-1">✨ Wow-Details</div>
-            • Wire Handles: 44px Hit-Area, 9px Kreis Enden grün, 7px Raute Mitte, 6→10px Plus Insert, Hover +4px weiß, Glow, Index-Label<br/>
-            • Double-click: Handle löscht Punkt (wenn &gt;2), Segment fügt Punkt hinzu<br/>
-            • Tooltip: Koordinaten, Δ, Länge, Winkel, Magnet-Snap<br/>
-            • Pin-Hover: 10px Kreis rgba(91,140,255,0.25) + innerer Dot, Tooltip mit Pin-Name/Netz<br/>
-            • Net-Highlight: Hover über Leitung → ganzes Netz accent-2<br/>
-            • Ghost: Schatten 12px/6px, Snap-Indikator, 65% Opacity<br/>
-            • Marquee: gestrichelt 6/4, Count Badge mit Größe<br/>
-            • Empty State: Onboarding mit {adaptShortcut("⌘K", apple)}, +R, Probe<br/>
-            • Shortcuts Overlay: ? Taste<br/>
-            • Library: Arrow Keys + Enter, will-change-transform drag 60fps<br/>
-            • Instruments: rAF + direct DOM, will-change-transform, commit on up
-          </div>
-        </div>
-      )}
-
-      {tab === "symbols" && (
-        <div className="space-y-3">
-          <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-            <div className="text-[11px] font-medium mb-2 flex items-center gap-1.5">
-              <Component size={12} /> Bauteil-Symbole – ISO (IEC) vs ANSI (US)
-            </div>
-            <div className="text-[11px] text-mute mb-3 leading-snug">
-              Multisim erlaubt ISO (europäisch, Rechteck-Widerstand) und ANSI (amerikanisch, Zickzack). Standardmäßig nach Browser-Sprache: DE/FR → IEC, US → ANSI. Wie in professionellen EDA Tools.
-            </div>
-            <div className="flex gap-1.5 mb-3">
-              {(["auto", "iec", "ansi"] as const).map((s) => (
-                <button
-                  key={s}
-                  className="tab flex-1 flex flex-col items-center gap-1 py-2"
-                  data-active={symbolStyle === s}
-                  onClick={() => {
-                    setSymbolStyleState(s);
-                    saveSymbolStyle(s);
-                    useEditor.getState().setSymbolStyle(s);
-                  }}
-                >
-                  <span className="text-[12px] font-medium">{s === "auto" ? "Auto" : s === "iec" ? "IEC / ISO" : "ANSI / US"}</span>
-                  <span className="text-[9px] text-mute">{s === "auto" ? `Erkannt: ${detectLocaleSymbol().toUpperCase()} (${navigator.language})` : s === "iec" ? "Rechteck EU" : "Zickzack US"}</span>
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <div className="rounded-lg p-2.5 border" style={{ background: "var(--panel)", borderColor: symbolStyle === "iec" || (symbolStyle === "auto" && detectLocaleSymbol() === "iec") ? "var(--accent)" : "var(--border)" }}>
-                <div className="font-medium mb-1">IEC / ISO (EU) – Standard DE</div>
-                <div className="mono text-[10px] text-mute leading-tight">
-                  ▭ Widerstand Rechteck<br/>
-                  ▭▭ Poti Rechteck mit Pfeil<br/>
-                  ∿∿ Induktor Bögen<br/>
-                  Wie in KiCad, EasyEDA EU
-                </div>
-                <div className="mt-2 flex justify-center">
-                  <svg width={80} height={24} viewBox="-30 -10 60 20"><path d="M-30 0 H-20 M-20 -7 H20 V7 H-20 Z M20 0 H30" stroke="currentColor" fill="none" strokeWidth={1.5} /></svg>
-                </div>
-              </div>
-              <div className="rounded-lg p-2.5 border" style={{ background: "var(--panel)", borderColor: symbolStyle === "ansi" || (symbolStyle === "auto" && detectLocaleSymbol() === "ansi") ? "var(--accent)" : "var(--border)" }}>
-                <div className="font-medium mb-1">ANSI / US – Standard US</div>
-                <div className="mono text-[10px] text-mute leading-tight">
-                  〰 Widerstand Zickzack<br/>
-                  〰 Poti Zickzack mit Pfeil<br/>
-                  ⌇ Induktor geschweift<br/>
-                  Wie in Multisim US, LTspice
-                </div>
-                <div className="mt-2 flex justify-center">
-                  <svg width={80} height={24} viewBox="-30 -10 60 20"><path d="M-30 0 H-20 L-16 -8 L-12 8 L-8 -8 L-4 8 L0 -8 L4 8 L8 -8 L12 8 L16 -8 L20 0 H30" stroke="currentColor" fill="none" strokeWidth={1.5} /></svg>
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 text-[10px] text-mute flex items-center gap-1.5">
-              <Globe size={10} /> Browser: {typeof navigator !== "undefined" ? navigator.language : "–"} → {resolveSymbolStyle(symbolStyle).toUpperCase()} aktiv • Speichert in localStorage
-            </div>
-          </div>
-          <div className="rounded-lg p-3 text-[11px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)" }}>
-            <div className="font-medium mb-1">💡 Tipp</div>
-            In DE/FR wird IEC (Rechteck) erwartet, in US ANSI (Zickzack). Auto erkennt via <code>navigator.language</code>. Umschalten sofort sichtbar auf Canvas + Library Vorschau.
-          </div>
-        </div>
-      )}
-
-      {tab === "general" && (
-        <div className="space-y-3">
-          <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-            <div className="text-[11px] font-medium mb-2 flex items-center gap-1.5">
-              <Palette size={12} /> Theme
-            </div>
-            <div className="flex gap-1.5">
-              {(["system", "dark", "light"] as const).map((t) => (
-                <button
-                  key={t}
-                  className="tab flex-1"
-                  data-active={theme === t}
-                  onClick={() => {
-                    useEditor.getState().setTheme(t);
-                    try {
-                      localStorage.setItem("multispice.theme", t);
-                    } catch {}
-                  }}
-                >
-                  {t === "system" ? "System Auto" : t === "dark" ? "Dunkel" : "Hell"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-lg p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-            <div className="text-[11px] font-medium mb-2 flex items-center gap-1.5">
-              <Gauge size={12} /> Performance
-            </div>
-            <div className="text-[11px] text-mute">Abtastrate, Temperatur etc im Inspector → Solver Tab. Hier nur Anzeige.</div>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] mono">
-              <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                Bauteile: {useEditor.getState().netResult.netlist.devices.length}
-              </div>
-              <div className="rounded px-2 py-1" style={{ background: "var(--panel)" }}>
-                Knoten: {useEditor.getState().netResult.nets.length}
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg p-3 text-[11px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--ok) 8%, transparent)" }}>
-            <div className="font-medium mb-1">♿ Accessibility</div>
-            • Alle Buttons haben aria-label, Tooltips, Keyboard Shortcuts<br />
-            • Hit Targets min 44x44px auf Mobile<br />
-            • Kontrast AA, tabular-nums für Zahlen<br />
-            • Screenreader: role=log für Konsole, aria-pressed für Toggles<br />
-            • Motion ≤250ms, prefers-reduced-motion Support
-          </div>
-        </div>
-      )}
-    </Dialog>
+function SymbolPreviewCard({
+  label,
+  std,
+  kind,
+}: {
+  label: string;
+  std: "iec" | "ansi";
+  kind: "R" | "C" | "OP";
+}) {
+  return (
+    <div
+      className="flex flex-col items-center rounded-[8px] p-2"
+      style={{
+        background: "var(--bg)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      <svg width="88" height="36" viewBox="-44 -18 88 36">
+        {kind === "R" &&
+          (std === "iec" ? (
+            <g stroke="var(--comp)" strokeWidth="1.6" fill="none">
+              <line x1="-34" y1="0" x2="-16" y2="0" />
+              <rect x="-16" y="-6" width="32" height="12" />
+              <line x1="16" y1="0" x2="34" y2="0" />
+            </g>
+          ) : (
+            <g stroke="var(--comp)" strokeWidth="1.6" fill="none">
+              <polyline points="-34,0 -18,0 -14,-6 -8,6 -2,-6 4,6 10,-6 14,6 18,0 34,0" />
+            </g>
+          ))}
+        {kind === "C" &&
+          (std === "iec" ? (
+            <g stroke="var(--comp)" strokeWidth="1.6" fill="none">
+              <line x1="-30" y1="0" x2="-4" y2="0" />
+              <rect x="-7" y="-9" width="3" height="18" fill="var(--comp)" />
+              <rect x="4" y="-9" width="3" height="18" />
+              <line x1="7" y1="0" x2="30" y2="0" />
+            </g>
+          ) : (
+            <g stroke="var(--comp)" strokeWidth="1.6" fill="none">
+              <line x1="-30" y1="0" x2="-4" y2="0" />
+              <line x1="-4" y1="-9" x2="-4" y2="9" />
+              <path d="M 5,-9 Q 0,0 5,9" />
+              <line x1="3" y1="0" x2="30" y2="0" />
+            </g>
+          ))}
+        {kind === "OP" && (
+          <g stroke="var(--comp)" strokeWidth="1.4" fill="none">
+            <polygon points="-14,-11 -14,11 16,0" />
+            <line x1="-26" y1="-5" x2="-14" y2="-5" />
+            <line x1="-26" y1="5" x2="-14" y2="5" />
+            <line x1="16" y1="0" x2="28" y2="0" />
+          </g>
+        )}
+      </svg>
+      <div className="mt-1 text-[10px] text-mute">{label}</div>
+    </div>
   );
 }

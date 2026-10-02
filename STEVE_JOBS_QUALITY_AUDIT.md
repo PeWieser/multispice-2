@@ -2527,6 +2527,46 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
 - **W106 (`src/components/Canvas.tsx`)**: T-Abzweige mitten auf Leitungssegmenten werden beim Aufbau des Leitungsgraphen automatisch verknüpft, und Mehrpol-Bauteile (NE555, OPV, BJT, MOSFET) erhalten per KCL den Gegenstrom der angeschlossenen Zweipole, sodass ein stetiges Knotenpotential `phi` über 24 Relaxationsschritte die Flussrichtung auf allen Zweigen bestimmt.
 - **W107 (`src/components/Canvas.tsx`)**: Ladungsträger werden im festen Abstand `FLOW_SPACING = 22 px` als kontrastreiche Perlen (`#fde047` mit dunklem Rand `rgba(15,23,42,0.88)`, Radius `2.85 px`) gezeichnet.
 
+---
+
+## §35 — Runde 34: Entschlackte Menüs, Einstellungen im macOS-Stil & einheitliche Symbole auf Mobilgeräten (W108–W110)
+
+### 35.1 Ursachenanalyse & Plan (W108–W110)
+
+1. **W108 — Menüs (`MenuBar.tsx`) entschlacken, insbesondere „Bearbeiten“ und „Ansicht“**:
+   - **Ursache**: Im Menü „Bearbeiten“ standen 22 Einträge (inkl. 8 einzelner Ausrichten-/Verteilen-Befehle mit internem Label `Anordnen (W55)` sowie `Leitungen prüfen & reparieren`). Im Menü „Ansicht“ standen permanente Grundeinstellungen wie `Stromrichtung: − nach +`, `System (Auto)` / `Dunkel` / `Hell`, `Blattrand`, `Lineale` sowie lose Checkboxen (`Strom`, `Farben`) rechts in der Menüleiste.
+   - **Lösung**:
+     - **Bearbeiten** wird auf die klassischen Kernbefehle reduziert: `Rückgängig`, `Wiederholen`, `Kopieren`, `Einfügen`, `Duplizieren`, `Alles auswählen`, `Drehen (+90°)`, `Drehen (−90°)`, `Spiegeln`, `Leitungen begradigen`, `Löschen`.
+     - **Ansicht** enthält nur noch die schnellen Ansichts-Umschalter: `Einpassen (F)`, `Stromfluss animieren`, `Spannungsfarben`, `Bibliothek`, `Inspector`, `Auswertung & Konsole`, sowie `Einstellungen …` (`⌘,`).
+     - Grundeinstellungen wie **Stromrichtung** (`Elektronenfluss − → +` vs. `Technisch + → −`), **Erscheinungsbild** (`System`, `Dunkel`, `Hell`), **Lineale**, **Blattrand** und **Live-Werte** wandern komplett in die Einstellungen (`SettingsDialog.tsx`).
+     - Die losen Checkboxen `Strom` / `Farben` und der doppelte `⌘K`-Button rechts in der `MenuBar` werden entfernt; dort steht nur noch das Zahnrad-Icon für die Einstellungen.
+
+2. **W109 — Professioneller Einstellungs-Dialog im macOS-Stil ohne Tipps (`SettingsDialog.tsx`)**:
+   - **Ursache**: `SettingsDialog.tsx` enthielt Marketing-/Entwickler-Textkästen (`💡 Tipp`, `✨ Wow-Details`, `♿ Accessibility`), funktionslose Dummy-Selects/Checkboxen und einfache Standard-Checkboxen.
+   - **Lösung**: Kompletter Neubau im **macOS System-Settings-Stil**:
+     - Zwei-Spalten-Layout mit linker Sidebar (`Allgemein`, `Arbeitsfläche`, `Simulation`, `Messsonden`) und rechten **Grouped-Inset-Cards**.
+     - Echte **macOS Toggle-Switches** und **macOS Segmented Controls** (u. a. für `Erscheinungsbild`, `Stromrichtung: Elektronen (− → +) / Technisch (+ → −)` und `Schaltzeichen-Norm: Auto / IEC / ANSI`).
+     - Keinerlei Tipps, keine „Wow-Details“-Boxen und keine funktionslosen Dummy-Steuerelemente.
+
+3. **W110 — Einheitliche Symbole auf dem Smartphone wie am Desktop (`Workbench.tsx`, `ComponentStrip.tsx`)**:
+   - **Ursache**: `Workbench.tsx` nutzte auf Smartphones (`isMobile`) eine eigene `MobileBottomToolbar` mit Text-Zeichen (`"↖"`, `"✎"`, `"⌫"`, `"◉"`, `"R"`, `"C"`) statt der echten `DrawingTools`-Icons (`MousePointer2`, `Pencil`, `Eraser`, `GitCommitHorizontal`, `Tag`, `StickyNote`), `PartGlyph`-Schaltzeichen und farbigen Sonden-Pills aus `ComponentStrip.tsx`.
+   - **Lösung**: Auf Smartphones wird dieselbe `ComponentStrip` mit `<DrawingTools />` (horizontal scrollbar) verwendet wie auf Tablet und Desktop – damit sind der Auswahl-Cursor (`MousePointer2`), Stift, Radiergummi, Knotenpunkt, Bauteil-Schaltzeichen und die Probe-Symbole (`V`, `A`, `▾`) auf allen Geräten zu 100 % identisch.
+
+### 35.2 Ergebnisse Runde 34 (W108–W110)
+
+- **W108 (`src/components/MenuBar.tsx`)**:
+  - Das Menü **Bearbeiten** wurde von 22 auf 11 klare Standardbefehle entschlackt (`Rückgängig`, `Wiederholen`, `Kopieren`, `Einfügen`, `Duplizieren`, `Alles auswählen`, `Drehen (+90°)`, `Drehen (−90°)`, `Spiegeln`, `Leitungen begradigen`, `Löschen`).
+  - Das Menü **Ansicht** enthält nur noch die schnellen Ansichts-Umschalter (`Schaltplan einpassen`, `Stromfluss animieren`, `Spannungsfarben`, `Bibliothek`, `Inspector`, `Auswertung & Konsole`, `Einstellungen …`); Grundeinstellungen wie `Stromrichtung`, `Erscheinungsbild`, `Lineale`, `Blattrand` und `Live-Messwerte` wurden in die Einstellungen verschoben.
+  - Die losen Checkboxen (`Strom`, `Farben`) rechts in der Menüleiste wurden entfernt.
+- **W109 (`src/components/SettingsDialog.tsx`)**:
+  - Kompletter Neubau im **macOS System-Settings-Stil** (linke Sidebar `Allgemein`, `Arbeitsfläche`, `Simulation`, `Messsonden` + rechte Grouped-Inset-Cards mit echten macOS-Toggle-Switches und macOS-Segmented-Controls).
+  - Alle Tipp-Kästen (`💡 Tipp`, `✨ Wow-Details`, `♿ Accessibility`) und funktionslosen Dummy-Steuerelemente wurden entfernt.
+  - Unter `Simulation` lässt sich die **Stromrichtung** (`Elektronen (− → +)` vs. `Technisch (+ → −)`) direkt per Segmented Control umschalten.
+- **W110 (`src/components/Workbench.tsx`, `src/components/ComponentStrip.tsx`)**:
+  - Die abweichende `MobileBottomToolbar` (mit Text-Symbolen `"↖"`, `"✎"`, `"⌫"`, `"◉"`, `"V"`, `"A"`) wurde durch `<ComponentStrip tools={<DrawingTools />} />` ersetzt, sodass Cursor-, Werkzeug-, Bauteil- und Sonden-Symbole auf dem Smartphone exakt mit der Desktop-Ansicht übereinstimmen.
+
+
+
 
 
 
