@@ -147,6 +147,9 @@ export default function Canvas() {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[]; spark?: number[] | null } | null>(null);
   const [editing, setEditing] = useState<{ kind: "label" | "text" | "value"; x: number; y: number; sx: number; sy: number; instId?: string; itemId?: string; initial?: string } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; wx: number; wy: number; target: CtxTarget } | null>(null);
+  const [isTouchActive, setIsTouchActive] = useState(false);
+  const lastTouchTimeRef = useRef<number>(0);
+  const lastTouchTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const editingDone = useRef(false);
   const spaceDown = useRef(false);
 
@@ -249,11 +252,11 @@ export default function Canvas() {
     return null;
   }, []);
 
-  const hitTestProbeAnchor = useCallback((doc: SchematicDoc, p: Pt): MeasurementProbe | null => {
+  const hitTestProbeAnchor = useCallback((doc: SchematicDoc, p: Pt, touchExpand = false): MeasurementProbe | null => {
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
     const zoom = useEditor.getState().view.zoom;
     const iz = 1 / Math.max(zoom, 0.25);
-    const hitR = (isMobile ? 18 : 11) * iz;
+    const hitR = (touchExpand || isMobile ? 18 : 11) * iz;
     for (let i = doc.probes.length - 1; i >= 0; i--) {
       const pr = doc.probes[i];
       const ax = pr.anchorX ?? pr.x;
@@ -1296,31 +1299,66 @@ export default function Canvas() {
     return { kind: "empty", net: nearestNetName(world) };
   };
 
-  // Touch handling state
-  const touchState = useRef<{ lastDist: number; lastMid: Pt | null; longPressTimer: any; startPt: Pt | null } | null>(null);
+  // Touch handling state (W100: unterstützt alle Touch-Geräte inkl. iPad/Tablet/Touch-Notebook)
+  const touchState = useRef<{
+    lastDist: number;
+    lastMid: Pt | null;
+    longPressTimer: ReturnType<typeof setTimeout> | null;
+    startPt: Pt | null;
+    startScreen: Pt | null;
+    pinching?: boolean;
+  } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent) => {
-    // Mobile long press for context menu / Alt tooltip
-    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    if (isMobile) {
-      const world = toWorld(e.clientX, e.clientY);
-      (touchState.current as any) = { startPt: world, lastDist: 0, lastMid: null, longPressTimer: null };
-      // Long press 500ms -> context menu + Alt tooltip
-      (touchState.current as any).longPressTimer = setTimeout(() => {
-        const target = getTargetAt(world);
-        setCtxMenu({ x: e.clientX, y: e.clientY, wx: world.x, wy: world.y, target });
-        // Haptic feedback
-        try { (navigator as any).vibrate?.(20); } catch {}
-      }, 500);
+    const isTouch = e.pointerType === "touch";
+    if (isTouch) {
+      lastTouchTimeRef.current = performance.now();
+      if (!isTouchActive) setIsTouchActive(true);
+    } else if (e.pointerType === "mouse" && performance.now() - lastTouchTimeRef.current > 600) {
+      if (isTouchActive) setIsTouchActive(false);
     }
+
+    // W100: Während einer aktiven 2-Finger-Pinch-Geste keine 1-Finger-Klicks ausführen
+    if (touchState.current?.pinching) return;
 
     const st = useEditor.getState();
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;
     sr.dragStart = world; sr.moved = false; sr.duplicated = false;
+    sr.lastMouse = { x: e.clientX, y: e.clientY };
 
     if (ctxMenu) { setCtxMenu(null); return; }
+
+    // W100: Long-Press (500 ms ohne Bewegung > 10 px) öffnet auf jedem Touch-Gerät
+    // das Kontextmenü und bricht ein evtl. gestartetes Ziehen/Schwenken sauber ab.
+    if (isTouch) {
+      if (touchState.current?.longPressTimer) {
+        clearTimeout(touchState.current.longPressTimer);
+      }
+      const clientX = e.clientX;
+      const clientY = e.clientY;
+      touchState.current = {
+        startPt: world,
+        startScreen: { x: clientX, y: clientY },
+        lastDist: 0,
+        lastMid: { x: clientX, y: clientY },
+        pinching: false,
+        longPressTimer: setTimeout(() => {
+          if (touchState.current?.pinching) return;
+          sr.dragging = false;
+          sr.panning = false;
+          sr.marquee = null;
+          (sr as any).wireSegDrag = null;
+          (sr as any).wirePointDrag = null;
+          (sr as any).probeAnchorDrag = null;
+          useEditor.getState().endGesture();
+          const target = getTargetAt(world);
+          setCtxMenu({ x: clientX, y: clientY, wx: world.x, wy: world.y, target });
+          try { (navigator as any).vibrate?.(20); } catch {}
+        }, 500),
+      };
+    }
 
     // W91: Bei aktivem Label-/Notiz-Werkzeug sofort das Eingabefeld öffnen,
     // OHNE setPointerCapture auf dem Canvas (damit das Loslassen der Maustaste
@@ -1388,19 +1426,19 @@ export default function Canvas() {
       } catch {}
     }
 
-    // W63/W64/W77/W87: Netzmodus wie in Multisim – hat Vorrang, solange aktiv
+    // W63/W64/W77/W87/W101: Netzmodus wie in Multisim – hat Vorrang, solange aktiv
     // gezeichnet wird (`sr.netDraft`) oder das Stift-Werkzeug (`wire`) aktiv ist.
     // Im `select`-Modus (`sr.netDraft === null`) darf ein Klick auf eine bestehende
     // Probe (Kästchen oder Messspitze) oder auf einen ausgewählten Leitungsgriff
     // jedoch NICHT versehentlich ein neues Netz starten!
-    const magnet = 14 / Math.max(st.view.zoom, 0.25);
+    const magnet = (isTouch ? 22 : 14) / Math.max(st.view.zoom, 0.25);
     const blockingSelectHit =
       st.tool === "select" &&
       !sr.netDraft &&
       Boolean(
-        hitTestProbeAnchor(st.doc, world) ||
-          hitTestProbe(st.doc, world) ||
-          hitWireHandle(st.doc, world, st.view.zoom, true),
+        hitTestProbeAnchor(st.doc, world, isTouch) ||
+          hitTestProbe(st.doc, world, isTouch ? 24 : undefined) ||
+          hitWireHandle(st.doc, world, st.view.zoom, true, isTouch ? 20 : 12),
       );
     if (
       e.button === 0 &&
@@ -1451,18 +1489,18 @@ export default function Canvas() {
       }
     }
 
-    // W77/W78/W87: Leitungs-Griffe und Probe-Messspitze im Auswahlmodus
+    // W77/W78/W87/W101: Leitungs-Griffe und Probe-Messspitze im Auswahlmodus
     if (st.tool === "select" && e.button === 0 && e.detail < 2) {
       // W87: Messspitze (Anker) einer Probe direkt greifbar – auch ohne dass
       // die Probe vorher ausgewählt sein musste!
-      const anchorProbe = hitTestProbeAnchor(st.doc, world);
+      const anchorProbe = hitTestProbeAnchor(st.doc, world, isTouch);
       if (anchorProbe) {
         if (!st.selection.includes(anchorProbe.id)) st.setSelection([anchorProbe.id]);
         st.beginGesture();
         (sr as any).probeAnchorDrag = { probeId: anchorProbe.id };
         return;
       }
-      const handle = hitWireHandle(st.doc, world, st.view.zoom, true);
+      const handle = hitWireHandle(st.doc, world, st.view.zoom, true, isTouch ? 20 : 12);
       if (handle) {
         const segWire = st.doc.wires.find((x) => x.id === handle.wireId);
         if (segWire) {
@@ -1487,7 +1525,7 @@ export default function Canvas() {
         }
       }
       // Also allow dragging any wire corner handle even if wire not selected – auto-select
-      const anyHandle = hitWireHandle(st.doc, world, st.view.zoom, false);
+      const anyHandle = hitWireHandle(st.doc, world, st.view.zoom, false, isTouch ? 20 : 12);
       if (anyHandle && !anyHandle.isMid) {
         const segWire = st.doc.wires.find((x) => x.id === anyHandle.wireId);
         if (segWire) {
@@ -1632,7 +1670,7 @@ export default function Canvas() {
       st.beginGesture();
       sr.dragging = true;
     } else {
-      const wireHit = hitWire(st.doc, world);
+      const wireHit = hitWire(st.doc, world, isTouch ? 12 : 6);
       if (wireHit) {
         if (e.shiftKey || e.metaKey || e.ctrlKey) st.setSelection([...new Set([...st.selection, wireHit])]);
         else if (!st.selection.includes(wireHit)) st.setSelection([wireHit]);
@@ -1640,7 +1678,7 @@ export default function Canvas() {
         // Alt zieht wie bisher die ganze Auswahl mit. Bei Doppelklick (e.detail >= 2)
         // kein Segment-Ziehen starten, damit onDoubleClick einen Abzweig startet.
         if (e.detail >= 2) return;
-        const seg = e.altKey ? null : hitWireSegment(st.doc, world.x, world.y);
+        const seg = e.altKey ? null : hitWireSegment(st.doc, world.x, world.y, isTouch ? 14 : 8);
         const multi = st.selection.length > 1 && st.selection.some((id) => st.doc.instances.some((i) => i.id === id));
         if (seg && !multi) {
           const segWire = st.doc.wires.find((x) => x.id === seg.wireId);
@@ -1659,7 +1697,13 @@ export default function Canvas() {
         sr.dragging = true;
       } else {
         if (!e.shiftKey && !e.metaKey && !e.ctrlKey) st.setSelection([]);
-        sr.marquee = { x0: world.x, y0: world.y, x1: world.x, y1: world.y };
+        // W100 (pan_on_touch): Mit einem Finger auf freiem Hintergrund schwenkt
+        // der Schaltplan (Pan); mit der Maus bleibt es wie gewohnt der Auswahlrahmen (Marquee).
+        if (isTouch) {
+          sr.panning = true;
+        } else {
+          sr.marquee = { x0: world.x, y0: world.y, x1: world.x, y1: world.y };
+        }
       }
     }
   };
@@ -1705,6 +1749,20 @@ export default function Canvas() {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    const isTouch = e.pointerType === "touch";
+    if (isTouch) {
+      lastTouchTimeRef.current = performance.now();
+    } else if (
+      e.pointerType === "mouse" &&
+      (e.movementX !== 0 || e.movementY !== 0) &&
+      performance.now() - lastTouchTimeRef.current > 600 &&
+      isTouchActive
+    ) {
+      setIsTouchActive(false);
+    }
+
+    if (touchState.current?.pinching) return;
+
     const st = useEditor.getState();
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
@@ -1713,7 +1771,9 @@ export default function Canvas() {
 
     // Track hovered wire handle for delightful UX – show larger handle + tooltip
     if (st.tool === "select" && !(sr as any).wirePointDrag) {
-      const hovered = hitWireHandle(st.doc, world, st.view.zoom, true) || hitWireHandle(st.doc, world, st.view.zoom, false);
+      const hovered =
+        hitWireHandle(st.doc, world, st.view.zoom, true, isTouch ? 20 : 12) ||
+        hitWireHandle(st.doc, world, st.view.zoom, false, isTouch ? 20 : 12);
       const prev = (sr as any)._hoveredHandle;
       if ((hovered?.wireId !== prev?.wireId) || (hovered?.pointIdx !== prev?.pointIdx) || (hovered?.isMid !== prev?.isMid)) {
         (sr as any)._hoveredHandle = hovered;
@@ -1730,24 +1790,29 @@ export default function Canvas() {
       (sr as any)._hoveredHandle = null;
     }
 
-    // Clear long press if moved >10px
-    if (touchState.current?.startPt) {
-      const dx = world.x - touchState.current.startPt.x;
-      const dy = world.y - touchState.current.startPt.y;
-      if (Math.hypot(dx,dy) > 10 && touchState.current.longPressTimer) {
+    // Clear long press if moved > 10 screen px (or > 10 world units)
+    if (touchState.current?.longPressTimer) {
+      const scrDist = touchState.current.startScreen
+        ? Math.hypot(e.clientX - touchState.current.startScreen.x, e.clientY - touchState.current.startScreen.y)
+        : 0;
+      const worldDist = touchState.current.startPt
+        ? Math.hypot(world.x - touchState.current.startPt.x, world.y - touchState.current.startPt.y)
+        : 0;
+      if (scrDist > 10 || worldDist > 10) {
         clearTimeout(touchState.current.longPressTimer);
         touchState.current.longPressTimer = null;
       }
     }
 
-    // Pinch zoom handling – if 2 pointers active (we track via pointer events? Simplified: if e has 2 touches via native event)
-    // For pointer events, we need to handle touch events separately – we add onTouchMove below
-
-
     if (sr.panning) {
       const dx = (e.clientX - (sr.lastMouse.x || e.clientX)) / st.view.zoom;
       const dy = (e.clientY - (sr.lastMouse.y || e.clientY)) / st.view.zoom;
+      if (Math.hypot(e.clientX - (sr.lastMouse.x || e.clientX), e.clientY - (sr.lastMouse.y || e.clientY)) > 2) {
+        sr.moved = true;
+      }
       st.setView({ x: st.view.x - dx, y: st.view.y - dy });
+      sr.lastMouse = { x: e.clientX, y: e.clientY };
+      if (isTouch) return;
     }
     sr.lastMouse = { x: e.clientX, y: e.clientY };
 
@@ -1911,12 +1976,12 @@ export default function Canvas() {
       (sr as any).junctionHover = null;
     }
 
-    // W64/W89/W98a: Anschluss-Magnet nur in Modi, in denen tatsächlich Leitungen
+    // W64/W89/W98a/W101: Anschluss-Magnet nur in Modi, in denen tatsächlich Leitungen
     // gezeichnet oder Labels gesetzt werden. Im Auswahlmodus (`select` ohne `netDraft`)
     // darf der Magnet-Ring nur auf freien/angeschlossenen Bauteil-Pins (`kind === "pin"`)
     // anspringen – NIEMALS auf Leitungssegmenten, weil ein Klick+Ziehen auf einer
     // Leitung das Segment verschiebt und kein neues Netz zeichnet!
-    const magnet = 14 / Math.max(st.view.zoom, 0.25);
+    const magnet = (isTouch ? 22 : 14) / Math.max(st.view.zoom, 0.25);
     if (st.tool === "wire" || st.tool === "label" || Boolean(sr.netDraft)) {
       sr.netHover = findNetTarget(st.doc, world, magnet);
     } else if (st.tool === "select") {
@@ -2054,13 +2119,19 @@ export default function Canvas() {
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
+    const isTouch = e.pointerType === "touch";
+    const wasPinching = Boolean(touchState.current?.pinching);
+    const startScr = touchState.current?.startScreen ?? null;
     if (touchState.current?.longPressTimer) {
       clearTimeout(touchState.current.longPressTimer);
       touchState.current.longPressTimer = null;
     }
-    touchState.current = null;
+    if (!wasPinching) {
+      touchState.current = null;
+    }
     const st = useEditor.getState(); const sr = stateRef.current;
+    const wasMoved = sr.moved;
     st.endGesture();
     (sr as any).wirePointDrag = null;
     (sr as any).probeAnchorDrag = null;
@@ -2092,7 +2163,31 @@ export default function Canvas() {
       sr.marquee = null;
     }
     sr.dragging = false; sr.panning = false; (sr as any).wireSegDrag = null;
-    if (sr.moved && st.sim.running) engine.rebuild(st.doc);
+    if (wasMoved && st.sim.running) engine.rebuild(st.doc);
+
+    // W100: Zuverlässiger Touch-Doppeltipp (< 320 ms, < 26 px) für Inline-Werteingabe,
+    // Stromrichtungs-Umkehr, Leitungsabzweig und freies Beenden eines Netzes.
+    if (isTouch && !wasPinching && !wasMoved && !ctxMenu && st.tool !== "place") {
+      const now = e.timeStamp;
+      const tapDist = startScr ? Math.hypot(e.clientX - startScr.x, e.clientY - startScr.y) : 0;
+      if (tapDist < 12) {
+        const prevTap = lastTouchTapRef.current;
+        if (
+          prevTap &&
+          now - prevTap.time < 320 &&
+          Math.hypot(e.clientX - prevTap.x, e.clientY - prevTap.y) < 26
+        ) {
+          lastTouchTapRef.current = null;
+          onDoubleClick({
+            clientX: e.clientX,
+            clientY: e.clientY,
+            shiftKey: e.shiftKey,
+          } as React.MouseEvent);
+        } else {
+          lastTouchTapRef.current = { time: now, x: e.clientX, y: e.clientY };
+        }
+      }
+    }
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
@@ -2289,6 +2384,22 @@ export default function Canvas() {
 
 
   const tool = useEditor((s) => s.tool);
+  const placingPartId = useEditor((s) => s.placingPartId);
+  const placingProbeKind = useEditor((s) => s.placingProbeKind);
+  const selection = useEditor((s) => s.selection);
+  const netDrawing = useHud((s) => s.netDrawing);
+  const selDoc = useEditor((s) => s.doc);
+  const selId0 = selection[0];
+  const selInst0 = selection.length === 1 ? selDoc.instances.find((i) => i.id === selId0) : undefined;
+  const selProbe0 = selection.length === 1 ? selDoc.probes.find((p) => p.id === selId0) : undefined;
+  const selLabel0 = selection.length === 1 ? selDoc.labels.find((l) => l.id === selId0) : undefined;
+  const selNote0 = selection.length === 1 ? selDoc.notes.find((n) => n.id === selId0) : undefined;
+  const isCurrentProbe0 = Boolean(
+    selProbe0 &&
+      (selProbe0.kind === "current" || selProbe0.kind === "power" || selProbe0.kind === "voltage_current"),
+  );
+  const mainParam0 = selInst0 ? PART_MAP[selInst0.partId]?.params[0] : undefined;
+  const canInlineEdit0 = Boolean((selInst0 && mainParam0?.type === "number") || selLabel0 || selNote0);
 
   // W66: Werkzeugwechsel beendet ein angefangenes Netz – kein Zustand, der
   // unsichtbar weiterläuft, wenn der Nutzer z. B. auf „Auswahl" umschaltet.
@@ -2326,7 +2437,7 @@ export default function Canvas() {
         className="block h-full w-full touch-none"
         aria-label="Schaltplan Zeichenfläche"
         tabIndex={0}
-        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default" }}
+        style={{ cursor: tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -2368,41 +2479,63 @@ export default function Canvas() {
         }}
         onDragLeave={() => useHud.setState({ dragPart: null })}
         onTouchStart={(e) => {
-          if (e.touches.length === 2) {
+          lastTouchTimeRef.current = performance.now();
+          if (!isTouchActive) setIsTouchActive(true);
+          if (e.touches.length >= 2) {
+            if (touchState.current?.longPressTimer) {
+              clearTimeout(touchState.current.longPressTimer);
+            }
+            // W100: Beim Aufsetzen des 2. Fingers (Pinch-to-Zoom / 2-Finger-Pan)
+            // werden laufende 1-Finger-Aktionen sofort sauber abgebrochen.
+            const sr = stateRef.current;
+            sr.dragging = false;
+            sr.panning = false;
+            sr.marquee = null;
+            (sr as any).wireSegDrag = null;
+            (sr as any).wirePointDrag = null;
+            (sr as any).probeAnchorDrag = null;
+            useEditor.getState().endGesture();
             const dx = e.touches[0].clientX - e.touches[1].clientX;
             const dy = e.touches[0].clientY - e.touches[1].clientY;
             const dist = Math.hypot(dx, dy);
-            const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
-            const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
-            (touchState.current as any) = { lastDist: dist, lastMid: { x: mx, y: my }, longPressTimer: null, startPt: null };
+            const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            touchState.current = {
+              lastDist: dist,
+              lastMid: { x: mx, y: my },
+              longPressTimer: null,
+              startPt: null,
+              startScreen: null,
+              pinching: true,
+            };
           }
         }}
         onTouchMove={(e) => {
-          if (e.touches.length === 2 && touchState.current) {
+          if (e.touches.length >= 2 && touchState.current) {
             e.preventDefault();
             const dx = e.touches[0].clientX - e.touches[1].clientX;
             const dy = e.touches[0].clientY - e.touches[1].clientY;
             const dist = Math.hypot(dx, dy);
-            const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
-            const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
+            const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
             const lastDist = touchState.current.lastDist || dist;
             const lastMid = touchState.current.lastMid;
-            const scale = dist / lastDist;
+            const scale = dist / Math.max(lastDist, 1);
             const st = useEditor.getState();
-            const zooming = Math.abs(scale - 1) > 0.005;
+            const zooming = Math.abs(scale - 1) > 0.004;
             const panDx = lastMid ? mx - lastMid.x : 0;
             const panDy = lastMid ? my - lastMid.y : 0;
-            // R12: Pinch zoomt UND der Mittelpunkt schwenkt – eine Geste, eine Bewegung.
-            if (zooming || Math.hypot(panDx, panDy) > 1) {
+            // R12/W100: Pinch zoomt UND der Mittelpunkt schwenkt – eine Geste, eine Bewegung.
+            if (zooming || Math.hypot(panDx, panDy) > 0.5) {
               const rect = canvasRef.current?.getBoundingClientRect();
               let newZoom = st.view.zoom;
               let nx = st.view.x;
               let ny = st.view.y;
               if (zooming) {
-                newZoom = Math.max(0.15, Math.min(4, st.view.zoom * scale));
+                newZoom = Math.max(0.12, Math.min(6, st.view.zoom * scale));
                 const worldMid = toWorld(mx, my);
-                nx = worldMid.x - (mx - (rect?.left ?? 0))/newZoom;
-                ny = worldMid.y - (my - (rect?.top ?? 0))/newZoom;
+                nx = worldMid.x - (mx - (rect?.left ?? 0)) / newZoom;
+                ny = worldMid.y - (my - (rect?.top ?? 0)) / newZoom;
               }
               nx -= panDx / newZoom;
               ny -= panDy / newZoom;
@@ -2410,26 +2543,16 @@ export default function Canvas() {
             }
             touchState.current.lastDist = dist;
             touchState.current.lastMid = { x: mx, y: my };
-          } else if (e.touches.length === 1) {
-            // single finger pan if tool pan
-            const st = useEditor.getState();
-            if (st.tool === "pan") {
-              const touch = e.touches[0];
-              const last = touchState.current?.lastMid;
-              if (last) {
-                const dx = (touch.clientX - last.x)/st.view.zoom;
-                const dy = (touch.clientY - last.y)/st.view.zoom;
-                st.setView({ x: st.view.x - dx, y: st.view.y - dy });
-              }
-              if (touchState.current) touchState.current.lastMid = { x: touch.clientX, y: touch.clientY };
-            }
           }
         }}
         onTouchEnd={(e) => {
           if (touchState.current?.longPressTimer) {
             clearTimeout(touchState.current.longPressTimer);
+            touchState.current.longPressTimer = null;
           }
-          touchState.current = null;
+          if (e.touches.length === 0) {
+            touchState.current = null;
+          }
         }}
       />
       {tooltip && (
@@ -2550,6 +2673,239 @@ export default function Canvas() {
           </span>
         </div>
       )}
+      {/* W102: Kontextsensitive Touch-Schnellaktionsleiste (touch_only).
+          Erscheint ausschließlich nach Touch-Bedienung für Aktionen, die am Desktop
+          über Tastenkürzel (R, M, Leertaste, Entf, Esc) laufen. */}
+      {isTouchActive &&
+        (Boolean(tool === "place" && placingPartId) ||
+          Boolean(tool.startsWith("probe") && placingProbeKind) ||
+          netDrawing ||
+          tool === "wire" ||
+          selection.length > 0) && (
+          <div
+            className="absolute bottom-3 left-1/2 z-30 flex max-w-[calc(100vw-110px)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto no-scrollbar rounded-xl border px-2 py-1.5 text-[11.5px] font-medium shadow-xl backdrop-blur-md"
+            style={{
+              background: "color-mix(in srgb, var(--panel-solid) 94%, transparent)",
+              borderColor: "var(--border-strong)",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.38)",
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {tool === "place" && placingPartId ? (
+              <>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().rotateSelection(1)}
+                >
+                  ↻ 90°
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().rotateSelection(-1)}
+                >
+                  ↺ -90°
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().mirrorSelection()}
+                >
+                  ⇆ Spiegeln
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  style={{ color: "var(--err)" }}
+                  onClick={() => useEditor.getState().setPlacing(null)}
+                >
+                  ✕ Abbrechen
+                </button>
+              </>
+            ) : tool.startsWith("probe") && placingProbeKind ? (
+              <>
+                <span className="px-1.5 text-[11px] text-dim">Leitung oder Pin antippen</span>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().setPlacingProbe(null)}
+                >
+                  ✕ Fertig
+                </button>
+              </>
+            ) : netDrawing || tool === "wire" ? (
+              <>
+                {netDrawing ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                      onClick={() => {
+                        const sr = stateRef.current;
+                        if (sr.netDraft) {
+                          sr.netDraft = { ...sr.netDraft, flipBend: !sr.netDraft.flipBend };
+                        }
+                      }}
+                    >
+                      ↱ Knick wenden
+                    </button>
+                    <button
+                      type="button"
+                      className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                      style={{ color: "var(--ok)" }}
+                      onClick={() => {
+                        const sr = stateRef.current;
+                        const st = useEditor.getState();
+                        if (sr.netDraft) {
+                          const pts = finishNetDraft(sr.netDraft, cursor, {
+                            preferDir: sr.netDraft.corners.length === 0 ? sr.netDraft.preferDir : undefined,
+                            flipBend: sr.netDraft.flipBend,
+                            obstacles: getNetObstacles(st.doc),
+                          });
+                          if (pts) {
+                            st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: pts });
+                          }
+                          syncNetDraft(null);
+                          st.setTool("select");
+                        }
+                      }}
+                    >
+                      ✓ Hier beenden
+                    </button>
+                  </>
+                ) : (
+                  <span className="px-1.5 text-[11px] text-dim">Pin oder Leitung antippen</span>
+                )}
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  style={{ color: "var(--err)" }}
+                  onClick={() => {
+                    syncNetDraft(null);
+                    useEditor.getState().setTool("select");
+                  }}
+                >
+                  ✕ Abbrechen
+                </button>
+              </>
+            ) : (
+              <>
+                {!selProbe0 && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                      onClick={() => useEditor.getState().rotateSelection(1)}
+                    >
+                      ↻ 90°
+                    </button>
+                    <button
+                      type="button"
+                      className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                      onClick={() => useEditor.getState().mirrorSelection()}
+                    >
+                      ⇆ Spiegeln
+                    </button>
+                  </>
+                )}
+                {isCurrentProbe0 && selProbe0 && (
+                  <button
+                    type="button"
+                    className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                    onClick={() =>
+                      useEditor
+                        .getState()
+                        .updateMeasurementProbe(selProbe0.id, { direction: selProbe0.direction ? 0 : 1 })
+                    }
+                  >
+                    ⇄ Richtung
+                  </button>
+                )}
+                {canInlineEdit0 && (
+                  <button
+                    type="button"
+                    className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                    onClick={() => {
+                      editingDone.current = false;
+                      editingOpenedAt.current = performance.now();
+                      if (selInst0 && mainParam0) {
+                        const scr = toScreen({ x: selInst0.x, y: selInst0.y });
+                        const rawVal = Number(selInst0.params[mainParam0.key] ?? mainParam0.def);
+                        const formatted = Number.isFinite(rawVal)
+                          ? formatValue(rawVal, "").trim()
+                          : String(selInst0.params[mainParam0.key] ?? "");
+                        setEditing({
+                          kind: "value",
+                          instId: selInst0.id,
+                          x: selInst0.x,
+                          y: selInst0.y,
+                          sx: scr.x,
+                          sy: scr.y + 18,
+                          initial: formatted,
+                        });
+                      } else if (selLabel0) {
+                        const scr = toScreen({ x: selLabel0.x, y: selLabel0.y });
+                        setEditing({
+                          kind: "label",
+                          itemId: selLabel0.id,
+                          x: selLabel0.x,
+                          y: selLabel0.y,
+                          sx: scr.x,
+                          sy: scr.y,
+                          initial: selLabel0.name,
+                        });
+                      } else if (selNote0) {
+                        const scr = toScreen({ x: selNote0.x, y: selNote0.y });
+                        setEditing({
+                          kind: "text",
+                          itemId: selNote0.id,
+                          x: selNote0.x,
+                          y: selNote0.y,
+                          sx: scr.x,
+                          sy: scr.y,
+                          initial: selNote0.text,
+                        });
+                      }
+                    }}
+                  >
+                    ✎ Wert
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().openInstrument("inspector")}
+                >
+                  ⚙ Inspector
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().duplicateSelection()}
+                >
+                  ⎘ Kopie
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  style={{ color: "var(--err)" }}
+                  onClick={() => useEditor.getState().deleteSelection()}
+                >
+                  🗑 Löschen
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2 text-[11.5px]"
+                  onClick={() => useEditor.getState().setSelection([])}
+                  title="Auswahl aufheben"
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+        )}
       {/* W71: Die Geräteleiste ist 44 px breit (Instruments.tsx DeviceBar) –
           das Zoom-Feld sitzt links daneben und verschwindet nicht mehr darunter. */}
       <div className="absolute bottom-3 right-[52px] flex flex-col gap-1.5">
@@ -3032,12 +3388,13 @@ function hitWireSegment(doc: SchematicDoc, x: number, y: number, tol = 8): { wir
   return best;
 }
 
-function hitWire(doc: SchematicDoc, p: Pt): string | null {
+function hitWire(doc: SchematicDoc, p: Pt, tol = 6): string | null {
+  const tol2 = tol * tol;
   for (const w of doc.wires) for (let i=0;i+1<w.points.length;i++) {
     const a=w.points[i], b=w.points[i+1]; const dx=b.x-a.x, dy=b.y-a.y; const len2=dx*dx+dy*dy||1;
     let t=((p.x-a.x)*dx+(p.y-a.y)*dy)/len2; t=Math.max(0,Math.min(1,t));
     const cx=a.x+t*dx, cy=a.y+t*dy;
-    if ((cx-p.x)**2+(cy-p.y)**2<36) return w.id;
+    if ((cx-p.x)**2+(cy-p.y)**2 < tol2) return w.id;
   }
   return null;
 }
@@ -3077,10 +3434,11 @@ function probeTarget(doc: SchematicDoc, p: Pt): Pt | null {
   if (endBest) return { x: endBest.x, y: endBest.y };
   return segBest ? { x: segBest.x, y: segBest.y } : null;
 }
-function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = true): { wireId: string; pointIdx: number; isMid?: boolean; segIdx?: number; dist: number } | null {
+function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = true, baseRadius = 12): { wireId: string; pointIdx: number; isMid?: boolean; segIdx?: number; dist: number } | null {
   const st = useEditor.getState();
   const sel = onlySelected ? st.selection : doc.wires.map(w=>w.id);
-  const hitRadius = 12 / Math.max(zoom, 0.3); // generous hit for delightful grabbing
+  const hitRadius = baseRadius / Math.max(zoom, 0.3); // generous hit for delightful grabbing
+  const midBase = Math.max(10, baseRadius - 2);
   let best: any = null;
   let bestDist = Infinity;
   for (const wireId of sel) {
@@ -3102,7 +3460,7 @@ function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = tr
       const mx = Math.round(((a.x + b.x)/2) / GRID) * GRID;
       const my = Math.round(((a.y + b.y)/2) / GRID) * GRID;
       const d = Math.hypot(mx - p.x, my - p.y);
-      const midRadius = 10 / Math.max(zoom, 0.3);
+      const midRadius = midBase / Math.max(zoom, 0.3);
       if (d < midRadius && d < bestDist) {
         bestDist = d;
         best = { wireId, pointIdx: s+1, isMid: true, segIdx: s, dist: d };
@@ -3118,7 +3476,7 @@ function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = tr
         const mx = Math.round(((a.x + b.x)/2) / GRID) * GRID;
         const my = Math.round(((a.y + b.y)/2) / GRID) * GRID;
         const d = Math.hypot(mx - p.x, my - p.y);
-        const midRadius = 10 / Math.max(zoom, 0.3);
+        const midRadius = midBase / Math.max(zoom, 0.3);
         if (d < midRadius && d < bestDist) {
           bestDist = d;
           best = { wireId: wire.id, pointIdx: s+1, isMid: true, segIdx: s, dist: d };

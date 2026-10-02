@@ -912,6 +912,15 @@ console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Strom
     angHoriz === 0 && angVert === 90,
     `angHoriz=${angHoriz}, angVert=${angVert}`,
   );
+
+  // W103: setPlacing schließt automatisch das Bibliothek-Panel/BottomSheet
+  useEditor.setState({ libraryOpen: true });
+  st.setPlacing("resistor");
+  check(
+    "W103 setPlacing('resistor') schließt automatisch libraryOpen (für direktes Touch-Platzieren)",
+    useEditor.getState().libraryOpen === false && useEditor.getState().placingPartId === "resistor",
+  );
+  st.setPlacing(null);
 }
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);

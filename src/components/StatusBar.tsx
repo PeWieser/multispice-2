@@ -78,6 +78,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
           return (
             <div
               key={s.id}
+              data-sheet-id={s.id}
               draggable
               onDragStart={(e) => {
                 setDragSheetId(s.id);
@@ -104,6 +105,23 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
                 setDragOverId(null);
               }}
               onDragEnd={() => {
+                setDragSheetId(null);
+                setDragOverId(null);
+              }}
+              onTouchStart={() => {
+                setDragSheetId(s.id);
+              }}
+              onTouchMove={(e) => {
+                const t = e.touches[0];
+                if (!t) return;
+                const el = document.elementFromPoint(t.clientX, t.clientY)?.closest("[data-sheet-id]");
+                const targetId = el?.getAttribute("data-sheet-id");
+                if (targetId && targetId !== s.id) {
+                  setDragOverId(targetId);
+                  reorderSheets(s.id, targetId);
+                }
+              }}
+              onTouchEnd={() => {
                 setDragSheetId(null);
                 setDragOverId(null);
               }}

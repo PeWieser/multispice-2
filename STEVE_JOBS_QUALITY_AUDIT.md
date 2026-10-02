@@ -2452,6 +2452,51 @@ Nutzer-Vorgaben aus der Rückfrage.
 - **W99 (`src/components/Canvas.tsx`, `src/state/editor.ts`)**: `inferWireAngleAt` richtet Strom-/Leistungs-/V·A-Sonden automatisch entlang waagerechter (`0°`) und senkrechter (`90°`) Leitungen aus; `drawProbe` zeichnet an der Messspitze eine Stromzangen-Hülse samt leuchtendem Richtungs-Pfeil-Schild, zeigt den Richtungspfeil (`→`, `↓`, `←`, `↑`) im Kästchen und berechnet den Zweigstrom vorzeichenrichtig in Pfeilrichtung (Umkehren per Doppelklick oder Kontextmenü).
 - **Verifikation**: `./node_modules/.bin/tsc --noEmit`, `npx --no-install eslint src`, `npm test` (inkl. Abschnitt 21 für `W98–W99`) und `npx --no-install next build` laufen fehlerfrei durch.
 
+---
+
+## §33 — Runde 32: Touch-Optimierung bei unveränderter Maus- und Tastatursteuerung (W100–W105)
+
+### 33.1 Ursachenanalyse & Plan (W100–W105)
+
+Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % unverändert. Für Touch-Geräte (`e.pointerType === "touch"`, iPad, Tablet, Smartphone, Touch-Laptop) werden folgende 6 Punkte gezielt optimiert:
+
+1. **W100 — Saubere Trennung von 1-Finger- und 2-Finger-Touch-Gesten (`src/components/Canvas.tsx`)**:
+   - **Pinch-to-Zoom & 2-Finger-Pan ohne Geister-Aktionen**: Sobald ein zweiter Finger aufsetzt (`e.touches.length >= 2`), werden laufende 1-Finger-Gesten (`sr.dragging`, `sr.panning`, `sr.marquee`, `wireSegDrag`, `wirePointDrag`, `probeAnchorDrag`, `longPressTimer`) sofort abgebrochen (`pinching = true`), damit beim Zoomen mit zwei Fingern niemals versehentlich ein Bauteil verschoben oder ein Leitungs-Eckpunkt gesetzt wird.
+   - **1-Finger-Pan auf freiem Hintergrund bei Touch (`pan_on_touch`)**: Zieht man im Auswahl-Modus (`select`) mit dem Finger (`e.pointerType === "touch"`) auf freiem Hintergrund, schwenkt die Arbeitsfläche (`sr.panning = true`); ein kurzer Tipp auf freien Hintergrund hebt wie gewohnt die Auswahl auf. Mit der Maus (`e.pointerType === "mouse"`) bleibt es unverändert beim Auswahlrahmen (`sr.marquee`).
+   - **Zuverlässiger Long-Press (500 ms) & Doppeltipp auf allen Touch-Geräten**: Long-Press (Kontextmenü + Vibrations-Feedback) und Touch-Doppeltipp (< 320 ms, < 24 px für Inline-Werteingabe, Stromrichtungs-Umkehr und Leitungsabschluss) prüfen `e.pointerType === "touch"` statt `window.innerWidth < 768`, sodass auch iPads, große Tablets und Touch-Notebooks unterstützt sind.
+
+2. **W101 — Großzügigere Touch-Fangradien (`src/components/Canvas.tsx`)**:
+   - Nur bei `e.pointerType === "touch"` werden die Treffer- und Magnetradien vergrößert (Pin-/Leitungs-Magnet `22 / zoom` statt `14 / zoom`, Leitungs-Eckgriffe `20 / zoom` statt `12 / zoom`, Leitungssegmente `14 px` statt `8 px`, Sonden-Messspitze `18 / zoom` statt `10 / zoom`). Für die Maus bleiben sämtliche Radien unverändert.
+
+3. **W102 — Kontextuelle Touch-Schnellaktionsleiste (`touch_only`, `src/components/Canvas.tsx`)**:
+   - Sobald der Nutzer per Touch (`e.pointerType === "touch"`) interagiert, erscheint am unteren Canvas-Rand eine kompakte, kontextsensitive Schnellaktionsleiste für Aktionen, die am Desktop über Tastenkürzel laufen:
+     - **Beim Platzieren eines Bauteils (`tool === "place"`)**: `↻ 90°`, `↺ -90°`, `⇆ Spiegeln`, `✕ Abbrechen`
+     - **Beim Platzieren einer Sonde (`placingProbeKind`)**: `✕ Sonde ablegen`
+     - **Beim Zeichnen eines Netzes (`netDraft !== null`)**: `↱ Knick wenden`, `✓ Hier beenden`, `✕ Abbrechen`
+     - **Bei aktiver Auswahl (`selection.length > 0`)**: `↻ 90°`, `⇆ Spiegeln`, `✎ Wert / Eigenschaften` (oder `⇄ Stromrichtung` bei Stromsonden), `⎘ Duplizieren`, `🗑 Löschen`, `✕ Fertig`
+   - Sobald wieder eine Maus (`e.pointerType === "mouse"`) bewegt oder geklickt wird, blendet sich die Touch-Aktionsleiste automatisch aus.
+
+4. **W103 — Touch-Sortierung der Datei-Tabs & Touch-Platzierung aus Bibliothek/Schnell-Leiste (`src/components/StatusBar.tsx`, `src/components/SheetTabs.tsx`, `src/components/Workbench.tsx`)**:
+   - Datei-Tabs unten unterstützen neben HTML5-Drag-and-Drop (Maus) auch Touch-Ziehen (`onTouchStart`, `onTouchMove`, `onTouchEnd` via `document.elementFromPoint` + `data-sheet-id`), damit Reiter auch auf iOS/Android verschoben werden können.
+   - Auf Smartphones (`isMobile`) schließt sich das Bibliothek-BottomSheet automatisch, sobald ein Bauteil zum Platzieren angetippt wird (`libraryOpen` wird in `setPlacing` zurückgesetzt), damit man es sofort auf dem Schaltplan absetzen kann.
+
+5. **W104 — Abgerundete Mobile-Werkzeugleiste & größere Touch-Eckgriffe an Instrumenten (`src/components/Workbench.tsx`, `src/components/Instruments.tsx`)**:
+   - In `MobileTopBar` und `MobileBottomToolbar` stehen auf Smartphones zusätzlich Undo/Redo, Grundbauteile (`R`, `C`, `L`, `VDC`, `GND`), Beschriftung (`L`, `T`) und Geräte-Schnellzugriff (Oszi / FG) bereit.
+   - Die vier Resize-Ecken der schwebenden Instrumenten-Fenster (`Instruments.tsx`) erhalten eine vergrößerte Touch-Trefferfläche, ohne das sichtbare Erscheinungsbild für Mausnutzer zu verändern.
+
+### 33.2 Ergebnisse Runde 32 (W100–W104)
+
+- **W100 (`src/components/Canvas.tsx`)**:
+  - Beim Aufsetzen eines 2. Fingers (`onTouchStart` mit `e.touches.length >= 2`) werden laufende 1-Finger-Aktionen (`sr.dragging`, `sr.panning`, `sr.marquee`, `wireSegDrag`, `wirePointDrag`, `probeAnchorDrag`, `longPressTimer`) sofort abgebrochen (`pinching: true`) und `endGesture()` aufgerufen.
+  - Im Auswahl-Modus (`select`) schwenkt 1-Finger-Ziehen auf freiem Hintergrund bei Touch (`e.pointerType === "touch"`) den Schaltplan (`pan_on_touch`), während die Maus (`e.pointerType === "mouse"`) unverändert den Auswahlrahmen (`sr.marquee`) aufzieht.
+  - Long-Press (500 ms) für das Kontextmenü und Doppeltipp (< 320 ms, < 26 px) funktionieren auf allen Touch-Geräten über `e.pointerType === "touch"`.
+- **W101 (`src/components/Canvas.tsx`)**: Vergrößerte Fangradien ausschließlich bei `e.pointerType === "touch"` (Magnet `22 / zoom`, Leitungsgriffe `20 / zoom`, Leitungssegmente `14 px`, Sonden-Anker `18 / zoom`); Maus-Radien bleiben 1:1 unverändert.
+- **W102 (`src/components/Canvas.tsx`)**: Kontextuelle Touch-Schnellaktionsleiste (`touch_only`), die nur nach Touch-Interaktion (`isTouchActive`) erscheint und beim Platzieren (`↻ 90°`, `↺ -90°`, `⇆ Spiegeln`, `✕ Abbrechen`), beim Netzzeichnen (`↱ Knick wenden`, `✓ Hier beenden`, `✕ Abbrechen`) sowie bei aktiver Auswahl (`↻ 90°`, `⇆ Spiegeln`, `⇄ Richtung`, `✎ Wert`, `⚙ Inspector`, `⎘ Kopie`, `🗑 Löschen`, `✕`) alle Tastatur-Aktionen direkt per Fingertipp bereitstellt.
+- **W103 (`src/components/StatusBar.tsx`, `src/components/SheetTabs.tsx`, `src/state/editor.ts`)**: Datei-Tabs unten unterstützen neben HTML5-Drag-and-Drop auch Touch-Ziehen (`onTouchStart`/`onTouchMove`/`onTouchEnd` über `data-sheet-id`), und `setPlacing(partId)` schließt automatisch `libraryOpen`.
+- **W104 (`src/components/Workbench.tsx`, `src/components/Instruments.tsx`)**: `MobileTopBar` enthält Undo/Redo-Buttons, `MobileBottomToolbar` bietet alle Zeichenwerkzeuge und die 5 Grundbauteile (`R`, `C`, `L`, `VDC`, `GND`), die doppelte `StatusBar` im `BottomSheet` wurde entfernt, und die Titelleiste der Instrumenten-Fenster besitzt `touchAction: "none"`.
+
+
+
 
 
 

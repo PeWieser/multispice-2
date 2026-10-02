@@ -708,13 +708,14 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
   setPlacing: (partId) => {
     useHud.getState().cancelNetDrawing();
-    set({
+    set((s) => ({
       placingPartId: partId,
       placingRot: 0,
       placingMirror: false,
       tool: partId ? "place" : "select",
       placingProbeKind: null,
-    });
+      libraryOpen: partId ? false : s.libraryOpen,
+    }));
   },
   setPlacingProbe: (kind) => {
     useHud.getState().cancelNetDrawing();

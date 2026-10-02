@@ -46,6 +46,7 @@ export default function SheetTabs() {
         return (
           <div
             key={s.id}
+            data-sheet-id={s.id}
             draggable
             onDragStart={(e) => {
               setDragSheetId(s.id);
@@ -69,6 +70,17 @@ export default function SheetTabs() {
               setDragSheetId(null);
             }}
             onDragEnd={() => setDragSheetId(null)}
+            onTouchStart={() => setDragSheetId(s.id)}
+            onTouchMove={(e) => {
+              const t = e.touches[0];
+              if (!t) return;
+              const el = document.elementFromPoint(t.clientX, t.clientY)?.closest("[data-sheet-id]");
+              const targetId = el?.getAttribute("data-sheet-id");
+              if (targetId && targetId !== s.id) {
+                reorderSheets(s.id, targetId);
+              }
+            }}
+            onTouchEnd={() => setDragSheetId(null)}
             className="group flex h-6 shrink-0 cursor-grab active:cursor-grabbing select-none items-center gap-1 rounded-md border px-2 text-[11px]"
             style={{
               background: active ? "var(--tool-active-bg)" : "var(--panel-2)",

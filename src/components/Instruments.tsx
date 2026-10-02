@@ -1326,8 +1326,8 @@ function Window({ win }: { win: InstrumentWindow }) {
         onPointerDown={() => focusInstrument(win.id)}
       >
         <div
-          className={`flex h-9 shrink-0 items-center gap-2 px-3 ${win.docked ? "" : "cursor-grab"}`}
-          style={{ borderBottom: "1px solid var(--border)" }}
+          className={`flex h-9 shrink-0 select-none items-center gap-2 px-3 ${win.docked ? "" : "cursor-grab"}`}
+          style={{ borderBottom: "1px solid var(--border)", touchAction: "none" }}
           title={win.docked ? "Im Dock – Ziehen löst das Fenster, der Dock-Knopf unten rechts hält es hier" : "Ziehen (auch am Fensterhintergrund) bewegt das Fenster – es bleibt immer greifbar"}
           onPointerDown={(e) => beginDrag(e)}
         >

@@ -13,7 +13,7 @@ import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
 import { engine, useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
-import { Menu, X, Library, Settings, SlidersHorizontal, Play, Pause } from "lucide-react";
+import { Menu, X, Library, Settings, SlidersHorizontal, Play, Pause, Undo2, Redo2 } from "lucide-react";
 
 // R17: Schwere, selten geöffnete Oberflächen laden wir als eigene Chunks –
 // der Erststart bezahlt nur noch Canvas, Menü und Statusleiste.
@@ -107,13 +107,37 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
   const pauseSim = useEditor((s) => s.pauseSim);
   const toggleLibrary = useEditor((s) => s.toggleLibrary);
   const toggleRight = useEditor((s) => s.toggleRight);
+  const undo = useEditor((s) => s.undo);
+  const redo = useEditor((s) => s.redo);
+  const canUndo = useEditor((s) => s.past.length > 0);
+  const canRedo = useEditor((s) => s.future.length > 0);
   return (
-    <div className="flex h-[48px] shrink-0 items-center gap-2 px-3" style={{ background: "var(--panel-solid)", borderBottom: "1px solid var(--border)" }}>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={onMenu}>
+    <div className="flex h-[48px] shrink-0 items-center gap-1.5 px-2.5" style={{ background: "var(--panel-solid)", borderBottom: "1px solid var(--border)" }}>
+      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={onMenu} aria-label="Menü">
         <Menu size={18} />
       </button>
       <span className="text-[13px] font-semibold">Multispice</span>
       <div className="flex-1" />
+      <button
+        className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"
+        style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}
+        disabled={!canUndo}
+        onClick={undo}
+        title="Rückgängig"
+        aria-label="Rückgängig"
+      >
+        <Undo2 size={15} />
+      </button>
+      <button
+        className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"
+        style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}
+        disabled={!canRedo}
+        onClick={redo}
+        title="Wiederholen"
+        aria-label="Wiederholen"
+      >
+        <Redo2 size={15} />
+      </button>
       <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={onSettings} title="Einstellungen">
         <Settings size={16} />
       </button>
@@ -137,16 +161,28 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
 function MobileBottomToolbar() {
   const tool = useEditor((s) => s.tool);
   const setTool = useEditor((s) => s.setTool);
+  const placingPartId = useEditor((s) => s.placingPartId);
+  const setPlacing = useEditor((s) => s.setPlacing);
   const setPlacingProbe = useEditor((s) => s.setPlacingProbe);
   const placingProbe = useEditor((s) => s.placingProbeKind);
 
   const tools = [
     { id: "select", label: "Auswahl", icon: "↖" },
-    { id: "wire", label: "Stift – Netz zeichnen (W)", icon: "✎" },
+    { id: "wire", label: "Stift – Netz zeichnen", icon: "✎" },
+    { id: "erase", label: "Radiergummi – Löschen", icon: "⌫" },
     { id: "junction", label: "Knotenpunkt setzen/entfernen", icon: "◉" },
+    { id: "label", label: "Netzname setzen", icon: "L" },
+    { id: "text", label: "Notiz schreiben", icon: "T" },
     { id: "probe_voltage", label: "Spannungs-Probe", icon: "V" },
     { id: "probe_current", label: "Strom-Probe", icon: "A" },
-    { id: "erase", label: "Löschen", icon: "⌫" },
+  ] as const;
+
+  const quickParts = [
+    { id: "resistor", label: "R" },
+    { id: "capacitor", label: "C" },
+    { id: "inductor", label: "L" },
+    { id: "vdc", label: "VDC" },
+    { id: "gnd", label: "GND" },
   ] as const;
 
   // Einmalig beim Start: gespeicherten Stand aus dem Browser wiederherstellen.
@@ -155,13 +191,15 @@ function MobileBottomToolbar() {
   }, []);
 
   return (
-    <div className="flex h-[56px] shrink-0 items-center gap-1 overflow-x-auto px-2" style={{ background: "var(--panel-solid)", borderTop: "1px solid var(--border)" }}>
+    <div className="flex h-[54px] shrink-0 items-center gap-1.5 overflow-x-auto no-scrollbar px-2" style={{ background: "var(--panel-solid)", borderTop: "1px solid var(--border)" }}>
       {tools.map((t) => {
-        const active = tool === (t.id as any) || (t.id.startsWith("probe") && placingProbe);
+        const isProbeBtn = t.id.startsWith("probe_");
+        const probeKind = t.id === "probe_voltage" ? "voltage" : "current";
+        const active = isProbeBtn ? placingProbe === probeKind : tool === (t.id as any);
         return (
           <button
             key={t.id}
-            className="grid h-[44px] min-w-[56px] place-items-center rounded-xl text-[12px] font-bold border"
+            className="grid h-[40px] min-w-[42px] shrink-0 place-items-center rounded-xl text-[12px] font-bold border px-2"
             aria-label={t.label}
             title={t.label}
             style={
@@ -170,9 +208,8 @@ function MobileBottomToolbar() {
                 : { background: "var(--panel-2)", color: "var(--text-dim)", borderColor: "var(--border)" }
             }
             onClick={() => {
-              if (t.id.startsWith("probe")) {
-                const kind = t.id === "probe_voltage" ? "voltage" : "current";
-                setPlacingProbe(placingProbe === kind ? null : (kind as any));
+              if (isProbeBtn) {
+                setPlacingProbe(placingProbe === probeKind ? null : (probeKind as any));
               } else {
                 setTool(t.id as any);
               }
@@ -182,10 +219,24 @@ function MobileBottomToolbar() {
           </button>
         );
       })}
-      <div className="flex-1" />
-      <button className="btn h-[44px] px-3 text-[11px]" onClick={() => useEditor.getState().fitView()}>
-        Einpassen
-      </button>
+      <div className="mx-0.5 h-6 w-px shrink-0" style={{ background: "var(--border-strong)" }} />
+      {quickParts.map((qp) => {
+        const active = tool === "place" && placingPartId === qp.id;
+        return (
+          <button
+            key={qp.id}
+            className="grid h-[40px] min-w-[42px] shrink-0 place-items-center rounded-xl text-[11px] font-mono font-bold border px-2"
+            style={
+              active
+                ? { background: "var(--tool-active-bg)", color: "var(--tool-active-text)", borderColor: "var(--tool-active-border)" }
+                : { background: "var(--panel-2)", color: "var(--text-dim)", borderColor: "var(--border)" }
+            }
+            onClick={() => setPlacing(active ? null : qp.id)}
+          >
+            {qp.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -208,7 +259,6 @@ function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open
         </div>
         <div className="min-h-0 flex-1 overflow-auto">{children}</div>
       </div>
-      <StatusBar />
     </div>
   );
 }
