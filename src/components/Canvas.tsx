@@ -377,20 +377,52 @@ export default function Canvas() {
     }
 
     // ── W1: Flussrichtung aus KCL statt Raten ──────────────────────────
-    // Pro Netz: Einspeisepins (konventioneller Strom fließt INTO the net) als
-    // BFS-Quellen; Richtung pro Leitung = entlang wachsender BFS-Distanz.
-    // Default-Anzeige: Elektronenfluss (− → +), umschaltbar auf konventionell.
-    const flowByWire = new Map<string, { dir: number; mag: number }>();
+    // ── W1 / W105–W107: Physikalisch konsistente, sprungfreie Stromanimation ──
+    // 1. Konstante Ladungsträgerdichte im Leiter (fester Punktabstand SPACING = 22 px);
+    //    die Stromstärke I bestimmt die Driftgeschwindigkeit v(I).
+    // 2. Kontinuierliche Phasen-Integration pro Leitung (phase_k+1 = phase_k + v * dt):
+    //    kehrt sich der Stromfluss um, wechselt nur das Vorzeichen von v * dt —
+    //    die Elektronen bremsen ab und laufen ohne jeden Sprung zurück!
+    // 3. T-Abzweige und Mehrpol-Bauteile (NE555, OPV, BJT, MOSFET) werden über
+    //    Segment-Splitting und KCL-Bilanz vollständig berücksichtigt.
+    const FLOW_SPACING = 22;
+    const flowByWire = new Map<string, { dir: number; mag: number; phase: number }>();
     const flowState = stateRef.current as any;
+    if (!flowState._wirePhases) {
+      flowState._wirePhases = new Map<string, number>();
+    }
+    const wirePhases: Map<string, number> = flowState._wirePhases;
     const flowLive = showCurrentFlow && live && (sim.running || live.time > 0);
     if (flowLive) {
-      // Phase läuft NUR im Run auf – Pause friert ein, Stopp zeigt nichts.
-      if (sim.running) {
-        const dtms = flowState._flowLast ? now - flowState._flowLast : 0;
-        flowState._flowPhase = (flowState._flowPhase ?? 0) + Math.min(Math.max(dtms, 0), 100);
-      }
+      const dtms = sim.running && flowState._flowLast ? Math.min(Math.max(now - flowState._flowLast, 0), 80) : 0;
+      const dtSec = dtms / 1000;
       flowState._flowLast = now;
+
       if (flowState._flowDoc !== doc || flowState._flowNets !== netResult) {
+        // Alle relevanten Knotenpunkte (Leitungieckpunkte, Pins, Junctions) sammeln,
+        // damit auch T-Abzweige mitten auf einem Leitungssegment im Graphen verbunden sind.
+        const specialPts: Array<{ x: number; y: number; key: string }> = [];
+        const seenKeys = new Set<string>();
+        const regPt = (x: number, y: number) => {
+          const rx = Math.round(x);
+          const ry = Math.round(y);
+          const key = `${rx},${ry}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            specialPts.push({ x: rx, y: ry, key });
+          }
+        };
+        for (const w of doc.wires) for (const p of w.points) regPt(p.x, p.y);
+        for (const j of netResult.junctions) regPt(j.x, j.y);
+        for (const inst of doc.instances) {
+          const part = PART_MAP[inst.partId];
+          if (!part) continue;
+          for (let idx = 0; idx < part.pins.length; idx++) {
+            const pos = pinPosition(inst, idx);
+            regPt(pos.x, pos.y);
+          }
+        }
+
         const adj = new Map<string, Set<string>>();
         const addE = (a: string, b: string) => {
           if (a === b) return;
@@ -401,76 +433,179 @@ export default function Canvas() {
           if (!sb) adj.set(b, (sb = new Set()));
           sb.add(a);
         };
-        for (const w of doc.wires)
-          for (let i = 0; i + 1 < w.points.length; i++)
-            addE(
-              `${Math.round(w.points[i].x)},${Math.round(w.points[i].y)}`,
-              `${Math.round(w.points[i + 1].x)},${Math.round(w.points[i + 1].y)}`,
-            );
+        for (const w of doc.wires) {
+          for (let i = 0; i + 1 < w.points.length; i++) {
+            const ax = Math.round(w.points[i].x);
+            const ay = Math.round(w.points[i].y);
+            const bx = Math.round(w.points[i + 1].x);
+            const by = Math.round(w.points[i + 1].y);
+            const segLen = Math.hypot(bx - ax, by - ay);
+            if (segLen < 0.5) continue;
+            // Alle Punkte finden, die exakt auf diesem Segment liegen (inkl. T-Knoten)
+            const onSeg: Array<{ key: string; t: number }> = [];
+            for (const sp of specialPts) {
+              const d1 = Math.hypot(sp.x - ax, sp.y - ay);
+              const d2 = Math.hypot(bx - sp.x, by - sp.y);
+              if (Math.abs(d1 + d2 - segLen) < 0.75) {
+                onSeg.push({ key: sp.key, t: d1 / segLen });
+              }
+            }
+            onSeg.sort((u, v) => u.t - v.t);
+            for (let k = 0; k + 1 < onSeg.length; k++) {
+              addE(onSeg[k].key, onSeg[k + 1].key);
+            }
+          }
+        }
         flowState._flowDoc = doc;
         flowState._flowNets = netResult;
         flowState._flowAdj = adj;
       }
+
       const adj: Map<string, Set<string>> = flowState._flowAdj;
-      const pinsByNet = new Map<string, Array<{ key: string; entering: number }>>();
-      const netMag = new Map<string, number>();
+      const pinsByNet = new Map<string, Array<{ key: string; entering: number; isMultiPin?: boolean }>>();
       for (const inst of doc.instances) {
         const part = PART_MAP[inst.partId];
-        if (!part || part.pins.length !== 2) continue;
-        const I = live.currents[inst.label] ?? 0;
-        if (!Number.isFinite(I) || Math.abs(I) < 1e-12) continue;
-        for (let idx = 0; idx < 2; idx++) {
-          const net = netResult.pinNets[`${inst.id}:${idx}`];
-          if (!net) continue;
-          const pos = pinPosition(inst, idx);
-          const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
-          // deviceCurrent: positiv = node0 → node1 INS Gerät. Ins Netz am
-          // node1-Pin fließen +I, am node0-Pin −I (konventionell).
-          const entering = idx === 0 ? -I : I;
-          let arr = pinsByNet.get(net);
-          if (!arr) pinsByNet.set(net, (arr = []));
-          arr.push({ key: k, entering });
-          if (entering > 0) netMag.set(net, (netMag.get(net) ?? 0) + entering);
-        }
-      }
-      const dist = new Map<string, number>();
-      const netSign = new Map<string, number>();
-      for (const [net, pins] of pinsByNet) {
-        const sources = pins.filter((p) => p.entering > 1e-12).map((p) => p.key);
-        const sinks = pins.filter((p) => p.entering < -1e-12).map((p) => p.key);
-        const seeds = sources.length ? sources : sinks;
-        if (!seeds.length) continue;
-        netSign.set(net, sources.length ? 1 : -1);
-        if (!netMag.has(net)) {
-          let m = 0;
-          for (const p of pins) if (p.entering < 0) m += -p.entering;
-          netMag.set(net, m);
-        }
-        const q: Array<[string, number]> = seeds.map((k) => [k, 0]);
-        for (let qi = 0; qi < q.length; qi++) {
-          const [k, dk] = q[qi];
-          const prev = dist.get(k);
-          if (prev !== undefined && prev <= dk) continue;
-          dist.set(k, dk);
-          for (const nb of adj.get(k) ?? []) {
-            if (netResult.pointNets[nb] !== net) continue;
-            if ((dist.get(nb) ?? Infinity) > dk + 1) q.push([nb, dk + 1]);
+        if (!part) continue;
+        if (part.pins.length === 2) {
+          const I = live.currents[inst.label] ?? 0;
+          if (!Number.isFinite(I)) continue;
+          for (let idx = 0; idx < 2; idx++) {
+            const net = netResult.pinNets[`${inst.id}:${idx}`];
+            if (!net) continue;
+            const pos = pinPosition(inst, idx);
+            const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
+            // deviceCurrent: positiv = Pin 0 → Pin 1 durch das Bauteil.
+            // Ins Netz fließt am Pin 1 der Strom +I, am Pin 0 der Strom −I.
+            const entering = idx === 0 ? -I : I;
+            let arr = pinsByNet.get(net);
+            if (!arr) pinsByNet.set(net, (arr = []));
+            arr.push({ key: k, entering });
+          }
+        } else {
+          // Mehrpol-Bauteile (NE555, OPV, BJT, MOSFET, Logik): Pin-Positionen vormerken,
+          // damit KCL den Differenzstrom der angeschlossenen Zweipole sauber zuordnet.
+          const dev = engine.netlist.devices.find((d) => d.id === inst.label);
+          for (let idx = 0; idx < part.pins.length; idx++) {
+            const net = netResult.pinNets[`${inst.id}:${idx}`];
+            if (!net) continue;
+            const pos = pinPosition(inst, idx);
+            const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
+            let pinEnter = 0;
+            if (dev && engine.sim) {
+              // pinCurrent ist positiv ins Bauteil hinein -> ins Netz also negativ
+              pinEnter = -engine.sim.pinCurrent(dev, idx);
+            }
+            let arr = pinsByNet.get(net);
+            if (!arr) pinsByNet.set(net, (arr = []));
+            arr.push({ key: k, entering: pinEnter, isMultiPin: true });
           }
         }
       }
+
+      // Pro Netz ein glattes Knotenpotential phi aus den eingespeisten Pin-Strömen lösen,
+      // damit die Flussrichtung auf jedem Zweig (auch bei T-Abzweigen) stetig ist.
+      const phi = new Map<string, number>();
+      const netMag = new Map<string, number>();
+      for (const [net, pins] of pinsByNet) {
+        // KCL-Ausgleich: Falls Zweipole eine Netto-Summe != 0 in das Netz speisen
+        // (weil z. B. ein IC-Pin am anderen Ende sitzt), übernimmt der/die Mehrpol-Pin(s)
+        // exakt den Gegenstrom -twoPinSum.
+        let twoPinSum = 0;
+        let hasTwoPin = false;
+        const multiPins = pins.filter((p) => p.isMultiPin);
+        for (const p of pins) {
+          if (!p.isMultiPin) {
+            twoPinSum += p.entering;
+            if (Math.abs(p.entering) > 1e-12) hasTwoPin = true;
+          }
+        }
+        if (hasTwoPin && multiPins.length > 0 && Math.abs(twoPinSum) > 1e-12) {
+          const share = -twoPinSum / multiPins.length;
+          for (const mp of multiPins) mp.entering = share;
+        }
+
+        let posSum = 0;
+        let negSum = 0;
+        const inject = new Map<string, number>();
+        for (const p of pins) {
+          inject.set(p.key, (inject.get(p.key) ?? 0) + p.entering);
+          if (p.entering > 0) posSum += p.entering;
+          else negSum += -p.entering;
+        }
+        const mag = Math.max(posSum, negSum);
+        if (mag < 1e-10) continue;
+        netMag.set(net, mag);
+
+        // Alle Graph-Knoten dieses Netzes sammeln
+        const nodes: string[] = [];
+        const nodeSet = new Set<string>();
+        const q: string[] = [];
+        for (const p of pins) {
+          if (!nodeSet.has(p.key)) {
+            nodeSet.add(p.key);
+            nodes.push(p.key);
+            q.push(p.key);
+          }
+        }
+        for (let qi = 0; qi < q.length; qi++) {
+          const u = q[qi];
+          for (const v of adj.get(u) ?? []) {
+            if (!nodeSet.has(v)) {
+              nodeSet.add(v);
+              nodes.push(v);
+              q.push(v);
+            }
+          }
+        }
+        for (const u of nodes) phi.set(u, inject.get(u) ?? 0);
+        // 24 Gauß-Seidel-Relaxationsschritte propagieren das Potential von Quellen (+) zu Senken (-)
+        for (let iter = 0; iter < 24; iter++) {
+          for (const u of nodes) {
+            const nbs = adj.get(u);
+            if (!nbs || nbs.size === 0) continue;
+            let sumNb = 0;
+            let cnt = 0;
+            for (const v of nbs) {
+              if (!nodeSet.has(v)) continue;
+              sumNb += phi.get(v) ?? 0;
+              cnt++;
+            }
+            if (cnt > 0) {
+              const inj = inject.get(u) ?? 0;
+              phi.set(u, (sumNb + inj * 4) / cnt);
+            }
+          }
+        }
+      }
+
       const electron = st.currentFlowDirection !== "conventional";
+      const timeScaleFactor = Math.max(0.25, Math.min(3.5, Math.pow(sim.timeScale || 1, 0.35)));
       for (const w of doc.wires) {
         if (w.points.length < 2) continue;
         const k0 = `${Math.round(w.points[0].x)},${Math.round(w.points[0].y)}`;
         const k1 = `${Math.round(w.points[w.points.length - 1].x)},${Math.round(w.points[w.points.length - 1].y)}`;
         const net = netResult.pointNets[k0] ?? netResult.pointNets[k1];
         if (!net) continue;
-        const d0 = dist.get(k0);
-        const d1 = dist.get(k1);
-        const sign = netSign.get(net);
-        if (d0 === undefined || d1 === undefined || d0 === d1 || !sign) continue;
-        const conv = (d1 > d0 ? 1 : -1) * sign;
-        flowByWire.set(w.id, { dir: electron ? -conv : conv, mag: netMag.get(net) ?? 0 });
+        const mag = netMag.get(net) ?? 0;
+        if (mag < 1e-9) continue;
+        const p0 = phi.get(k0);
+        const p1 = phi.get(k1);
+        if (p0 === undefined || p1 === undefined) continue;
+        const dPhi = p0 - p1;
+        if (Math.abs(dPhi) < 1e-14) continue;
+        // Technischer Strom fließt von höherem phi (p0) zu niedrigerem phi (p1)
+        const convDir = dPhi > 0 ? 1 : -1;
+        const dir = electron ? -convDir : convDir;
+        // Gedämpfte logarithmische Driftgeschwindigkeit (px/s):
+        // ~14 px/s bei 0.1 µA, ~58 px/s bei 10 µA, ~92 px/s bei 10 mA, max 125 px/s
+        const speedPxPerSec =
+          Math.min(125, Math.max(14, 14 + Math.max(0, Math.log10(mag / 1e-7)) * 16)) * timeScaleFactor;
+        const prevPhase = wirePhases.get(w.id) ?? 0;
+        const nextPhase = sim.running
+          ? (((prevPhase + dir * speedPxPerSec * dtSec) % FLOW_SPACING) + FLOW_SPACING) % FLOW_SPACING
+          : prevPhase;
+        wirePhases.set(w.id, nextPhase);
+        flowByWire.set(w.id, { dir, mag, phase: nextPhase });
       }
     }
 
@@ -648,26 +783,32 @@ export default function Canvas() {
         // W13: Der Endpunkt-Marker genügt – kein Glow-Streifen.
       }
 
-      // W15: Dezente matte Punkte aus echter Flussrichtung – keine Pfeile,
-      // kein Neon. Phase nur im Run lebendig (W1).
+      // W15 / W105–W107: Kontrastreiche, sprungfreie Ladungsträger-Perlen
+      // mit konstantem Abstand (FLOW_SPACING = 22 px) und kontinuierlich
+      // integrierter Phase pro Leitung.
       const flow = flowByWire.get(wire.id);
       if (flow && flow.mag > 1e-9 && wire.points.length > 1) {
-        const absI = flow.mag;
         const totalLen = polyLength(wire.points);
-        if (totalLen > 2) {
-          const speed = Math.min(400, Math.max(20, Math.log10(absI + 1e-9) * 40 + 80));
-          const dir = flow.dir;
-          const offset = (((flowState._flowPhase ?? 0) * speed * 0.001 * dir) % totalLen + totalLen) % totalLen;
-          const count = Math.max(1, Math.floor(totalLen / 60));
-          ctx.fillStyle = css("--text-mute", "#94a3b8");
-          for (let d = 0; d < count; d++) {
-            const pos = (offset + (d * totalLen) / count) % totalLen;
+        if (totalLen >= 6) {
+          const iz = 1 / Math.max(view.zoom, 0.45);
+          // Sanftes Einblenden ab 1 nA bis 1 µA, darüber volle Sichtbarkeit
+          const intensity = Math.min(1, Math.max(0.45, (Math.log10(flow.mag / 1e-9) / 3)));
+          const rDot = 2.85 * iz;
+          const isElectron = st.currentFlowDirection !== "conventional";
+          ctx.save();
+          ctx.globalAlpha = intensity;
+          ctx.fillStyle = isElectron ? "#fde047" : "#ffffff";
+          ctx.strokeStyle = "rgba(15, 23, 42, 0.88)";
+          ctx.lineWidth = 1.25 * iz;
+          for (let pos = flow.phase; pos <= totalLen; pos += FLOW_SPACING) {
             const pt = pointAtLength(wire.points, pos);
             if (!pt) continue;
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 2 / Math.max(view.zoom, 0.5), 0, Math.PI * 2);
+            ctx.arc(pt.x, pt.y, rDot, 0, Math.PI * 2);
             ctx.fill();
+            ctx.stroke();
           }
+          ctx.restore();
         }
       }
     }

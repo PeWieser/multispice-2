@@ -2495,6 +2495,40 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
 - **W103 (`src/components/StatusBar.tsx`, `src/components/SheetTabs.tsx`, `src/state/editor.ts`)**: Datei-Tabs unten unterstützen neben HTML5-Drag-and-Drop auch Touch-Ziehen (`onTouchStart`/`onTouchMove`/`onTouchEnd` über `data-sheet-id`), und `setPlacing(partId)` schließt automatisch `libraryOpen`.
 - **W104 (`src/components/Workbench.tsx`, `src/components/Instruments.tsx`)**: `MobileTopBar` enthält Undo/Redo-Buttons, `MobileBottomToolbar` bietet alle Zeichenwerkzeuge und die 5 Grundbauteile (`R`, `C`, `L`, `VDC`, `GND`), die doppelte `StatusBar` im `BottomSheet` wurde entfernt, und die Titelleiste der Instrumenten-Fenster besitzt `touchAction: "none"`.
 
+---
+
+## §34 — Runde 33: Physikalisch sinnvolle, gut sichtbare und sprungfreie Stromanimation (W105–W107)
+
+### 34.1 Ursachenanalyse & Physikalische Einordnung (W105–W107)
+
+1. **Physikalische Frage (Geschwindigkeit vs. Menge/Dichte der Ladungsträger)**:
+   - In einem metallischen Leiter ist die **Ladungsträgerdichte $n$ konstant** (der Draht ist immer gleichmäßig mit freien Leitungselektronen gefüllt; bei größerem Strom entstehen nicht „mehr Elektronen“ im Draht).
+   - Nach $I = n \cdot e \cdot A \cdot v_d$ ist die **Stromstärke $I$ proportional zur Driftgeschwindigkeit $v_d$** der Ladungsträger.
+   - Würde man die Anzahl/den Abstand der Punkte dynamisch mit $I(t)$ ändern, würden bei Wechselstrom oder beim Laden/Entladen eines Kondensators ständig Punkte auf der Leitung aufploppen und verschwinden (was erneut ein Springen verursacht).
+   - **Sinnvolle Darstellung**: Fester, gleichmäßiger Punktabstand (`SPACING = 22 px` entlang der Leitung = konstante Ladungsträgerdichte $n$), während die **Geschwindigkeit** stetig mit der Stromstärke $|I|$ skaliert (komprimierte logarithmische Kennlinie von $\sim 14\,\text{px/s}$ bei $\mu\text{A}$ bis $\sim 120\,\text{px/s}$ bei $\text{A}$, damit sowohl Basisströme im $\mu\text{A}$-Bereich als auch Lastströme im $\text{mA}/\text{A}$-Bereich ohne Stroboskop-Effekt gleichzeitig erkennbar sind). Bei sehr kleinen Strömen blendet die Deckkraft sanft ein/aus; bei $I = 0$ kommen die Ladungsträger ruhig zum Stehen.
+
+2. **W105 — Ursache des „Springens“ bei Stromumkehr oder Stromänderung (`src/components/Canvas.tsx`)**:
+   - **Ursache**: Bisher wurde die Punktposition über `offset = (_flowPhase * speed * dir) % totalLen` aus der **Gesamtzeit seit Simulationsstart** (`_flowPhase`) berechnet. Sobald `dir` von $+1$ auf $-1$ wechselte (oder `speed` sich änderte), sprang `_flowPhase * speed * dir` schlagartig auf einen völlig anderen Modulo-Wert!
+   - **Lösung**: Wir speichern pro Leitung `wire.id` eine eigene kontinuierliche Phase `phasePx` (`Map<string, number>`) und **integrieren** in jedem Frame nur das Weg-Inkrement:
+     $$\text{phasePx}_{k+1} = (\text{phasePx}_k + \text{dir} \cdot \text{speed}(|I|) \cdot \Delta t) \bmod \text{SPACING}$$
+     Kehrt sich der Strom um, wechselt nur das Vorzeichen des winzigen Frame-Inkrements $\Delta x$ – die Ladungsträger bremsen an Ort und Stelle ab und laufen exakt von ihrer aktuellen Position aus in die Gegenrichtung zurück.
+
+3. **W106 — Vollständige Pin-Ströme inkl. Mehrpol-Bauteilen (NE555, OPV, Transistoren) & KCL-Bilanz (`src/components/Canvas.tsx`)**:
+   - **Ursache**: Bisher wurden für die Stromanimation nur 2-polige Bauteile (`part.pins.length === 2`) ausgewertet. Lag ein Zweig zwischen einem IC-Pin (z. B. `U1.DIS` oder `U1.OUT` beim NE555) und einem Knoten, fehlte der IC-Pin als Quelle/Senke.
+   - **Lösung**: Unbestimmte IC-/Mehrpol-Pins eines Netzes erhalten per Kirchhoffschem Knotensatz (KCL) automatisch den aus den angeschlossenen Zweipolen resultierenden Bilanzstrom $-\sum I_{\text{bekannt}}$ (bzw. `engine.sim.pinCurrent`), sodass alle Zweige (auch `DIS`, `OUT`, Transistor-Kollektor/Emitter/Basis) korrekt durchflossen werden.
+
+4. **W107 — Deutlich bessere Sichtbarkeit der fließenden Ladungsträger (`src/components/Canvas.tsx`)**:
+   - **Ursache**: Bisher wurden kleine mattgraue Punkte (`#94a3b8`, Radius `2 px`, Abstand `60 px`) ohne Kontrastrand direkt auf die blaue Leitung gezeichnet.
+   - **Lösung**: Gleichmäßiger Abstand (`22 px`) und kontrastreiche Ladungsträger-Perlen (leuchtendes Goldgelb `#fde047` bei Elektronenfluss bzw. Warmweiß `#ffffff` bei technischer Stromrichtung, eingefasst von einem dunklen Kontrastrand `#0f172a` mit Radius `2.9 px`), die sich im Dark- und Light-Mode sowie auf jeder Leitungsfarbe klar abheben.
+
+### 34.2 Ergebnisse Runde 33 (W105–W107)
+
+- **W105 (`src/components/Canvas.tsx`)**: Jede Leitung besitzt in `flowState._wirePhases` eine eigene kontinuierlich integrierte Phase `phasePx` (`phase_k+1 = (phase_k + dir * speed * dt) % 22`). Bei Richtungsumkehr oder Stromänderung ändert sich nur das infinitesimale Frame-Inkrement `dir * speed * dt` – es gibt keinerlei Positions-Sprünge mehr.
+- **W106 (`src/components/Canvas.tsx`)**: T-Abzweige mitten auf Leitungssegmenten werden beim Aufbau des Leitungsgraphen automatisch verknüpft, und Mehrpol-Bauteile (NE555, OPV, BJT, MOSFET) erhalten per KCL den Gegenstrom der angeschlossenen Zweipole, sodass ein stetiges Knotenpotential `phi` über 24 Relaxationsschritte die Flussrichtung auf allen Zweigen bestimmt.
+- **W107 (`src/components/Canvas.tsx`)**: Ladungsträger werden im festen Abstand `FLOW_SPACING = 22 px` als kontrastreiche Perlen (`#fde047` mit dunklem Rand `rgba(15,23,42,0.88)`, Radius `2.85 px`) gezeichnet.
+
+
+
 
 
 
