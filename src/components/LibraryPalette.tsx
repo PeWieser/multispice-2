@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Search, Star, X, Grip, FileText, ExternalLink, Zap, LayoutGrid, List, Command, Clock } from "lucide-react";
+import { Search, Star, X, Grip, FileText, ExternalLink, Zap, LayoutGrid, List, Command, Clock, Plus } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
@@ -248,7 +248,7 @@ function CatNode({
   );
 }
 
-export default function LibraryPalette() {
+export default function LibraryPalette({ onPartEditor }: { onPartEditor?: () => void } = {}) {
   const open = useEditor((s) => s.libraryOpen);
   const pos = useEditor((s) => s.libraryPos);
   const size = useEditor((s) => s.librarySize);
@@ -265,14 +265,26 @@ export default function LibraryPalette() {
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [selCat, setSelCat] = useState<string | null>(null);
+  const [customRev, setCustomRev] = useState(0);
   const activeTab = tab === "fav" ? "favorites" : tab === "recent" ? "recent" : "all";
   // Prevent re-render of list during drag – memoize results
 
+  useEffect(() => {
+    const onCustom = () => setCustomRev((v) => v + 1);
+    window.addEventListener("multispice-custom-parts", onCustom);
+    return () => window.removeEventListener("multispice-custom-parts", onCustom);
+  }, []);
 
   const detailPart = selected;  // W6: Detail folgt dem Klick, nicht der Maus
 
-  const tree = useMemo(() => buildCategoryTree(PARTS), []);
-  const results = useMemo(() => (query ? searchAdvanced(query) : []), [query]);
+  const tree = useMemo(() => {
+    void customRev;
+    return buildCategoryTree(PARTS);
+  }, [customRev]);
+  const results = useMemo(() => {
+    void customRev;
+    return query ? searchAdvanced(query) : [];
+  }, [query, customRev]);
   // Runde 12 (W22): Dreispalter – Spalte 2 zeigt die Teile der gewählten Kategorie
   const groups = useMemo(() => {
     const flat = (n: CategoryNode): PartDef[] => [...n.parts, ...n.children.flatMap(flat)];
@@ -469,7 +481,18 @@ export default function LibraryPalette() {
           <Command size={9} />K
         </span>
         <div className="flex-1" />
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+          {onPartEditor && (
+            <button
+              type="button"
+              className="btn h-6 gap-1 px-2 text-[11px]"
+              onClick={onPartEditor}
+              title="Eigenes Bauteil mit Gehäuse & Pinbelegung erstellen"
+            >
+              <Plus size={11} />
+              <span>Bauteil-Editor</span>
+            </button>
+          )}
           <button
             className="grid h-6 w-6 place-items-center rounded-md hover:bg-[var(--panel-2)]"
             onClick={() => setViewMode((m) => (m === "list" ? "grid" : "list"))}

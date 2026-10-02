@@ -21,8 +21,10 @@ const AnalysisDialog = dynamic(() => import("./AnalysisDialog"), { ssr: false })
 const SettingsDialog = dynamic(() => import("./SettingsDialog"), { ssr: false });
 const WizardsDialog = dynamic(() => import("./WizardsDialog"), { ssr: false });
 const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false });
+const PartEditorDialog = dynamic(() => import("./PartEditorDialog"), { ssr: false });
 const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
 const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
+import { loadCustomParts } from "@/lib/library/customParts";
 
 /** R8: Ein echtes Schaltblatt für window.print() – Rahmen, Kopf, Stempel.
  *  Der Capture läuft synchron im beforeprint-Event (direkt am <img>-Element),
@@ -207,6 +209,7 @@ export default function Workbench() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [wizardsOpen, setWizardsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [partEditorOpen, setPartEditorOpen] = useState(false);
 
   // R17: Messen statt raten – Zeit bis Interaktivität in der Konsole sichtbar.
   useEffect(() => {
@@ -240,6 +243,7 @@ export default function Workbench() {
   }, [resolved]);
 
   useEffect(() => {
+    loadCustomParts();
     useEditor.getState().restoreLocalProject();
   }, []);
 
@@ -271,7 +275,7 @@ export default function Workbench() {
             <InstrumentLayer />
             {/* Library as bottom sheet on mobile */}
             <BottomSheet open={libraryOpen} onClose={() => useEditor.getState().toggleLibrary()} title="Bibliothek" height="80vh">
-              <LibraryPalette />
+              <LibraryPalette onPartEditor={() => setPartEditorOpen(true)} />
             </BottomSheet>
             <BottomSheet open={rightOpen} onClose={() => useEditor.getState().toggleRight()} title="Inspector" height="70vh">
               <Inspector />
@@ -287,7 +291,7 @@ export default function Workbench() {
                       <X size={14} />
                     </button>
                   </div>
-                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} isMobile />
+                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} isMobile />
                 </div>
               </div>
             )}
@@ -303,6 +307,7 @@ export default function Workbench() {
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
+        {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
         <UndoToast />
         <PrintSheet />
       </div>
@@ -313,14 +318,14 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
-          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
+          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1 overflow-hidden">
               <Canvas />
               <InstrumentLayer />
-              <LibraryPalette />
+              <LibraryPalette onPartEditor={() => setPartEditorOpen(true)} />
               <DeviceBar />
             </div>
             <BottomPanel />
@@ -331,6 +336,7 @@ export default function Workbench() {
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
+        {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
         <UndoToast />
         <PrintSheet />
       </div>
@@ -340,14 +346,14 @@ export default function Workbench() {
   // Desktop – original layout but with dvh and better flex
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
-      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} />
+      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} />
       <ComponentStrip tools={<DrawingTools />} />
       <div className="relative flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1 overflow-hidden">
             <Canvas />
             <InstrumentLayer />
-            <LibraryPalette />
+            <LibraryPalette onPartEditor={() => setPartEditorOpen(true)} />
             <DeviceBar />
           </div>
           <BottomPanel />
@@ -359,6 +365,7 @@ export default function Workbench() {
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
+      {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
       <UndoToast />
         <PrintSheet />
     </div>

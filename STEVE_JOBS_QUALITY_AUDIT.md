@@ -2565,6 +2565,55 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
 - **W110 (`src/components/Workbench.tsx`, `src/components/ComponentStrip.tsx`)**:
   - Die abweichende `MobileBottomToolbar` (mit Text-Symbolen `"↖"`, `"✎"`, `"⌫"`, `"◉"`, `"V"`, `"A"`) wurde durch `<ComponentStrip tools={<DrawingTools />} />` ersetzt, sodass Cursor-, Werkzeug-, Bauteil- und Sonden-Symbole auf dem Smartphone exakt mit der Desktop-Ansicht übereinstimmen.
 
+---
+
+## §36 — Runde 35: Einheitliche Fenster-Kopfleiste, einzeilige Menüs, dezenter & physikalisch exakter Stromfluss & Bauteile-Editor (W111–W115)
+
+### 36.1 Ursachenanalyse & Plan (W111–W115)
+
+1. **W111 — Einheitliche Fenster-Kopfleiste für alle Fenster & Dialoge (`SettingsDialog.tsx`, `ui.tsx`)**:
+   - **Ursache**: `SettingsDialog.tsx` hatte oben links einen roten macOS-Schließpunkt (`#ff5f57`) und einen zentrierten Titel, während `LibraryPalette` und `Instruments` ihre Fenstertitelleiste mit Icon + Titel links und dem `X`-Schließen-Button rechts darstellen.
+   - **Lösung**: `SettingsDialog.tsx` und `Dialog` (`ui.tsx`) erhalten exakt dieselbe obere Fensterleiste wie die übrigen App-Fenster (`h-9`, `borderBottom: 1px solid var(--border)`, links Icon + Titel, rechts `<button className="btn px-1 py-0.5 h-6"><X size={13} /></button>`).
+
+2. **W112 — Keine Zweizeiler in den oberen Dropdown-Menüs (`ui.tsx`, `MenuBar.tsx`)**:
+   - **Ursache**: In `Menu` (`ui.tsx`) fehlte `w-max`, und in `MenuItem` fehlte `whitespace-nowrap`. Dadurch brachen längere Menüeinträge zusammen mit dem Shortcut-Hint bei 248 px Breite auf zwei Zeilen um.
+   - **Lösung**: `Menu` erhält `w-max min-w-[220px]` und `MenuItem` erhält `whitespace-nowrap` auf Button und Label-Span; alle Menübezeichnungen in `MenuBar.tsx` bleiben prägnant und garantiert einzeilig.
+
+3. **W113 — Dezenteres Farbdesign der Stromfluss-Animation (`Canvas.tsx`)**:
+   - **Ursache**: Die Ladungsträger-Perlen (`r = 2.85 px`, `#fde047` mit fast schwarzem Rand und voller Deckkraft `1.0`) wirkten farblich zu grell und dominant.
+   - **Lösung**: Kleinere, feinere Perlen (`r = 2.0 px`), gedämpfte warme Bernsteinfarbe (`#f59e0b` / `#e2e8f0`) mit sanfter Transparenz (`maxAlpha = 0.68`) und dezentem Konturrand (`rgba(15, 23, 42, 0.45)`).
+
+4. **W114 — Physikalisch exakter Stromfluss (Spannungsquelle Minuspol & NE555 LED bei ausgeschaltetem Ausgang, `engine.ts`, `Canvas.tsx`)**:
+   - **Ursache A (Minuspol der Spannungsquelle)**: Masse-Netze (`"0"`) bestehen im Schaltplan oft aus mehreren grafisch getrennten Leitungs-Inseln (jeweils ein Bauteil-Pin zu einem eigenen `GND`-Symbol mit `pins.length === 1`). Bisher wurden alle Pins von Netz `"0"` global in einen Topf geworfen und `GND`-Symbole (`pins.length === 1`) als `isMultiPin` behandelt, wodurch sich auf einzelnen Masse-Zweigen (z. B. `V1−` zu `GND1`) das Vorzeichen umkehren konnte.
+   - **Ursache B (Strom in der LED bei ausgeschaltetem Ausgang in `astable555`)**:
+     1. In `engine.ts` (`TIMER555`) war `vOutIdeal` bei `q = 0` auf `0.1 V` statt `vGnd` (`0 V`) gesetzt und `pinCurrent(d, 2)` gab `+iout` statt `-iout` zurück (obwohl `pinCurrent` positiv *in* das Bauteil hinein definiert ist).
+     2. In `Canvas.tsx` lag die Anzeigeschwelle bei `1e-9 A` (1 nA!). Dadurch reichte schon der winzige numerische Sperr-/Leckstrom einer gesperrten LED aus, um sichtbare Strompunkte in die ausgeschaltete LED wandern zu lassen.
+     3. Außerdem wurde die Stromstärke `mag` bisher pro Gesamtnetz (`netMag`) statt pro einzelnem Leitungszweig bestimmt, sodass selbst unbelastete Stichleitungen (z. B. zu hochohmigen Komparator-Eingängen `TRIG`/`THRES`) animiert wurden.
+   - **Lösung**:
+     1. In `engine.ts` liefert `TIMER555` bei `q = 0` echten Low-Pegel (`vGnd`), und `pinCurrent` liefert für alle Mehrpol-Bauteile (`TIMER555`, `Q`, `M`, `J`, `OPAMP`, `COMPARATOR`, `POT`, `VREG`) vorzeichenrichtig den Strom *in* den jeweiligen Pin hinein.
+     2. In `Canvas.tsx` wird die KCL-Bilanz **pro zusammenhängender Leitungs-Komponente (Connected Component im Draht-Graphen `adj`)** gelöst: `GND`-Pins (`partId === "gnd"`) nehmen exakt den Rückstrom ihrer jeweiligen Leitungs-Insel auf, und aus dem gelösten linearen Kirchhoff-System $\sum_{v \in N(u)} (\phi(u) - \phi(v)) = I_{\text{inj}}(u)$ ergibt sich auf jedem Draht der echte physikalische Zweigstrom $I_{\text{wire}} = \Delta \phi$ in Ampere.
+     3. Die Sichtbarkeitsschwelle wird auf physikalisch sinnvolle `10 µA` (`1e-5 A`) angehoben – unterhalb von `10 µA` (Sperrströme, hochohmige Eingänge, ausgeschalteter Ausgang) steht der Stromfluss komplett still.
+
+5. **W115 — Eigener Bauteile-Editor mit Gehäuse & Pin-Zuweisung (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`, `LibraryPalette.tsx`, `MenuBar.tsx`)**:
+   - Neuer Bauteile-Editor im einheitlichen Fenster-Design:
+     - Auswahl des **Gehäuses / Footprints** (`DIP-8`, `DIP-14`, `DIP-16`, `SOIC-8`, `TO-220`, `TO-92`, `SOT-23`, `0805`, `Eigenes IC`),
+     - Interaktive **Pin-Zuweisung** (Pin-Nummer, Name, Gehäuseseite `Links`/`Rechts`/`Oben`/`Unten`, elektrische Funktion) mit **Live-Schaltzeichen- & Gehäuse-Vorschau**,
+     - Speicherung in der Bauteil-Bibliothek (`localStorage` + sofortige Registrierung in `PARTS` / `PART_MAP` unter `Eigene Bauteile`), direkt erreichbar über die Bibliothek (`+ Neues Bauteil`) und das Menü `Datei → Bauteil-Editor …`.
+
+### 36.2 Ergebnisse Runde 35 (W111–W115)
+
+- **W111 (`src/components/SettingsDialog.tsx`, `src/components/ui.tsx`)**: Alle Dialoge und Fenster (`SettingsDialog`, `Dialog`, `PartEditorDialog`, `LibraryPalette`, `Instruments`) nutzen nun dieselbe obere Fensterleiste (`h-9`, `borderBottom: 1px solid var(--border)`, Titel links, `X`-Button rechts).
+- **W112 (`src/components/ui.tsx`, `src/components/MenuBar.tsx`)**: `Menu` (`w-max min-w-[220px]`) und `MenuItem` (`whitespace-nowrap`) verhindern jeglichen Zeilenumbruch in den oberen Dropdown-Menüs.
+- **W113 (`src/components/Canvas.tsx`)**: Dezentere Ladungsträger-Perlen (`r = 2.0 px`, warme Bernsteinfarbe `#f59e0b` bzw. `#cbd5e1` mit sanfter Deckkraft `0.32..0.68` und feinem Rand `0.85 px`).
+- **W114 (`src/lib/sim/engine.ts`, `src/components/Canvas.tsx`)**:
+  - Die Totem-Pole-Ausgangsstufe des `TIMER555` speist bei `q = 1` (`HIGH`) ihren Laststrom echt aus `VCC` (`nVcc`) nach `OUT` (`nOut`) und zieht bei `q = 0` (`LOW`) `OUT` direkt nach `GND` (`0 V`). Dadurch ist der Strom durch die LED bei ausgeschaltetem Ausgang exakt `0 A`.
+  - In `Canvas.tsx` wird das Kirchhoff-System pro zusammenhängender Leitungs-Insel (Connected Component im Draht-Graphen `adj`) gelöst; `GND`-Symbole nehmen exakt den Rückstrom ihrer jeweiligen Leitungs-Insel auf, und hochohmige Steuereingänge (`TRIG`, `THR`, `RST`, `IN+`, `IN-`, `Gate`) erhalten keinen künstlichen Ausgleichsstrom.
+  - Die Anzeigeschwelle liegt bei `10 µA` (`1e-5 A`), sodass Leck-/Sperrströme unterdrückt werden.
+- **W115 (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`, `src/components/LibraryPalette.tsx`, `src/components/MenuBar.tsx`, `src/components/Workbench.tsx`)**:
+  - Vollständiger Bauteile-Editor mit Gehäuse-Vorlagen (`DIP-8`, `SOIC-8`, `DIP-14`, `DIP-16`, `TO-220`, `SOT-23`, `0805`), frei konfigurierbarer Pin-Zuweisung (Name, Seite, elektrische Funktion), Live-Schaltzeichen- & Gehäuse-Vorschau und Speicherung in der Bibliothek.
+
+
+
 
 
 

@@ -33,12 +33,14 @@ export default function MenuBar({
   onSettings,
   onWizards,
   onProjects,
+  onPartEditor,
   isMobile = false,
 }: {
   onAnalysis: (kind: string) => void;
   onSettings?: () => void;
   onWizards?: () => void;
   onProjects?: () => void;
+  onPartEditor?: () => void;
   isMobile?: boolean;
 }) {
   const docName = useEditor((s) => s.doc.name);
@@ -116,6 +118,9 @@ export default function MenuBar({
           <button className="btn w-full justify-start" onClick={() => st().newDocument()}>Neuer Schaltplan</button>
           <button className="btn w-full justify-start" onClick={() => st().saveProject()}>Lokal speichern</button>
           <button className="btn w-full justify-start" onClick={() => onProjects?.()}>Projekte …</button>
+          {onPartEditor && (
+            <button className="btn w-full justify-start" onClick={() => onPartEditor()}>Bauteile-Editor …</button>
+          )}
           <button className="btn w-full justify-start" onClick={() => fileRef.current?.click()}>Importieren …</button>
           <button className="btn w-full justify-start" onClick={exportSpice}>Export SPICE (.cir)</button>
           <button className="btn w-full justify-start" onClick={exportJson}>Export JSON</button>
@@ -196,7 +201,13 @@ export default function MenuBar({
         <MenuItem onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
         <MenuItem hint="⌘S" onClick={() => st().saveProject()}>Lokal speichern</MenuItem>
         <MenuItem onClick={() => onProjects?.()}>Projekte …</MenuItem>
-        <MenuItem onClick={() => fileRef.current?.click()}>Importieren (.json/.cir/.asc)</MenuItem>
+        <MenuItem onClick={() => fileRef.current?.click()}>Importieren …</MenuItem>
+        {onPartEditor && (
+          <>
+            <MenuSeparator />
+            <MenuItem onClick={() => onPartEditor()}>Bauteile-Editor …</MenuItem>
+          </>
+        )}
         <MenuSeparator />
         <MenuItem onClick={exportSpice}>Export SPICE (.cir)</MenuItem>
         <MenuItem onClick={exportJson}>Export JSON</MenuItem>

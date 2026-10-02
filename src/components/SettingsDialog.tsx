@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Crosshair, Grid3X3, SlidersHorizontal, X } from "lucide-react";
+import { Activity, Crosshair, Grid3X3, Settings, SlidersHorizontal, X } from "lucide-react";
 import { ThemePref, useEditor } from "@/state/editor";
 import {
   loadHoverConfig,
@@ -215,7 +215,7 @@ export default function SettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Einstellungen"
-        className="flex h-[460px] max-h-[88vh] w-[660px] max-w-[96vw] flex-col overflow-hidden rounded-[12px] shadow-2xl"
+        className="flex h-[460px] max-h-[88vh] w-[660px] max-w-[96vw] flex-col overflow-hidden rounded-xl shadow-2xl"
         style={{
           background: "var(--panel-solid)",
           border: "1px solid var(--border-strong)",
@@ -223,28 +223,26 @@ export default function SettingsDialog({
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        {/* macOS Window Titlebar */}
+        {/* W111: Einheitliche obere Fensterleiste wie alle anderen App-Fenster */}
         <div
-          className="flex h-10 shrink-0 items-center justify-between px-3.5"
+          className="flex h-9 shrink-0 items-center justify-between gap-2 px-3"
           style={{
-            background: "var(--panel-2)",
             borderBottom: "1px solid var(--border)",
           }}
         >
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Schließen"
-              className="group flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#ff5f57] text-black/75 transition-opacity hover:opacity-90"
-            >
-              <X size={9} className="opacity-0 group-hover:opacity-100" />
-            </button>
-          </div>
-          <div className="text-[12px] font-semibold tracking-tight text-[var(--text)]">
-            Einstellungen
-          </div>
-          <div className="w-6" />
+          <span className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--text)]">
+            <Settings size={13} className="text-mute" />
+            <span>Einstellungen</span>
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Schließen (Esc)"
+            aria-label="Schließen"
+            className="btn h-6 px-1 py-0.5"
+          >
+            <X size={13} />
+          </button>
         </div>
 
         {/* macOS Split View: Sidebar + Content */}

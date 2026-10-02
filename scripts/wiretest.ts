@@ -921,7 +921,34 @@ console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Strom
     useEditor.getState().libraryOpen === false && useEditor.getState().placingPartId === "resistor",
   );
   st.setPlacing(null);
+
+  // W114: Im 555-Blinker fließt bei ausgeschaltetem Ausgang (OUT < 0.2 V) kein Strom (< 1 µA)
+  // in die LED D1, und die Spannungsquelle V1 liefert in beiden Phasen immer Strom aus dem + Pol (I_V1 < 0)
+  const p555b = PRESETS.find((x) => x.id === "astable555")!;
+  const rtB = new RealtimeEngine();
+  rtB.rebuild(p555b.build());
+  rtB.running = true;
+  let maxLedWhenLow = 0;
+  let sawLowPhase = false;
+  let v1AlwaysSourcing = true;
+  for (let k = 0; k < 65; k++) {
+    const stepState = rtB.tick(0.016);
+    const vOut = stepState.nets["OUT"] ?? 0;
+    const iLed = Math.abs(stepState.currents["D1"] ?? 0);
+    const iV1 = stepState.currents["V1"] ?? 0;
+    if (iV1 >= 0) v1AlwaysSourcing = false;
+    if (vOut < 0.2) {
+      sawLowPhase = true;
+      if (iLed > maxLedWhenLow) maxLedWhenLow = iLed;
+    }
+  }
+  check(
+    "W114 Bei ausgeschaltetem 555-Ausgang (LOW) fließt kein Strom in die LED D1 (< 1 µA) und V1 speist immer aus",
+    sawLowPhase && maxLedWhenLow < 1e-6 && v1AlwaysSourcing,
+    `sawLowPhase=${sawLowPhase}, maxLedWhenLow=${(maxLedWhenLow * 1e6).toFixed(4)}µA, v1AlwaysSourcing=${v1AlwaysSourcing}`,
+  );
 }
+
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);
 if (failed) process.exit(1);
