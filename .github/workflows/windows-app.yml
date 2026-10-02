@@ -32,53 +32,31 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist-win-app | Out-Null
+          Copy-Item -Path desktop/package.json -Destination dist-win-app/package.json -Force
           Copy-Item -Path desktop/main.cjs -Destination dist-win-app/main.cjs -Force
           Copy-Item -Path desktop/preload.cjs -Destination dist-win-app/preload.cjs -Force
           Copy-Item -Path out -Destination dist-win-app/out -Recurse -Force
 
-          $pkg = @{
-            name = "multispice-desktop"
-            productName = "MultiSpice"
-            version = "1.0.0"
-            description = "MultiSpice Interactive Circuit Simulator (Frameless Multi-Window Desktop Edition)"
-            author = "MultiSpice Project"
-            main = "main.cjs"
-            private = $true
-            devDependencies = @{
-              electron = "^33.2.0"
-              "electron-builder" = "^25.1.8"
-            }
-            build = @{
-              appId = "de.multispice.desktop"
-              productName = "MultiSpice"
-              files = @(
-                "main.cjs",
-                "preload.cjs",
-                "out/**/*"
-              )
-              win = @{
-                target = @(
-                  @{ target = "portable"; arch = @("x64") },
-                  @{ target = "nsis"; arch = @("x64") }
-                )
-                artifactName = '${productName}-${version}-${target}.${ext}'
-              }
-              nsis = @{
-                oneClick = $false
-                allowToChangeInstallationDirectory = $true
-                createDesktopShortcut = $true
-                createStartMenuShortcut = $true
-              }
-            }
-          } | ConvertTo-Json -Depth 8
-
-          Set-Content -Path dist-win-app/package.json -Value $pkg -Encoding UTF8
-
       - name: Build Windows Portable .exe and NSIS Installer .exe
+        shell: pwsh
         working-directory: dist-win-app
         run: |
-          npm install
-          npx electron-builder --win portable nsis --x64 --publish never
+          $ErrorActionPreference = "Continue"
+          npm install 2>&1 | Tee-Object -FilePath npm-install.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content npm-install.log -Tail 25) -join " | "
+            Write-Output "::error title=npm install failed::$tail"
+            exit 1
+          }
+          npx electron-builder --win portable nsis --x64 --publish never 2>&1 | Tee-Object -FilePath builder.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content builder.log -Tail 30) -join " | "
+            Write-Output "::error title=electron-builder failed::$tail"
+            exit 1
+          }
+          $exes = Get-ChildItem -Path dist -Filter "*.exe" | ForEach-Object { "$($_.Name) ($([math]::Round($_.Length / 1MB, 1)) MB)" }
+          $summary = $exes -join ", "
+          Write-Output "::notice title=Windows Build Erfolgreich::Erzeugte Dateien: $summary"
 
       - name: Upload Windows App Artifacts (.exe)
         uses: actions/upload-artifact@v4

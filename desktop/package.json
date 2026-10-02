@@ -1,0 +1,48 @@
+{
+  "name": "multispice-desktop",
+  "productName": "MultiSpice",
+  "version": "1.0.0",
+  "description": "MultiSpice Interactive Circuit Simulator (Frameless Multi-Window Desktop Edition)",
+  "author": "MultiSpice Project",
+  "main": "main.cjs",
+  "private": true,
+  "devDependencies": {
+    "electron": "33.2.0",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "de.multispice.desktop",
+    "productName": "MultiSpice",
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "out/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-Portable.${ext}"
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

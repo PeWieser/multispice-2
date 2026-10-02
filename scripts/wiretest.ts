@@ -20,6 +20,7 @@ import {
   type SchematicDoc,
 } from "../src/lib/schematic/model";
 import { PART_MAP } from "../src/lib/library/catalog";
+import { SUBCIRCUIT_TEMPLATES, registerCustomPart, extractSubcircuitFromSchematic } from "../src/lib/library/customParts";
 import { PRESETS, routeOrthogonal } from "../src/lib/schematic/tools";
 import { collectPins, reattachWiresToPins, sheets, useEditor, useHud, wireJunctionCandidates } from "../src/state/editor";
 import { isValidProjectDoc, normalizeProjectDoc } from "../src/lib/storage";
@@ -962,6 +963,38 @@ console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Strom
     "W116/W117 Inline-Editor-Einheiten (Ω, F) und Schaltplan-Notizkarte vorhanden und aktualisierbar",
     rUnit === "Ω" && cUnit === "F" && savedNote?.text === "Messpunkt A: U_ref = 2,50 V",
     `rUnit=${rUnit}, cUnit=${cUnit}, note=${savedNote?.text}`,
+  );
+
+  // W120–W123: Bauteil-Studio mit Transistor-Innenschaltung (NE555 aus Transistoren & 5k-Teilern),
+  // freiem Symbol-Zeichnen und Schaltplan-Import
+  const ne555Tpl = SUBCIRCUIT_TEMPLATES.find((t) => t.id === "ne555_transistor")!;
+  const customNe555Def = registerCustomPart({
+    ...ne555Tpl.spec,
+    id: "custom_ne555_test",
+    customSymbol: [
+      { t: "rect", x: -30, y: -40, w: 60, h: 80, r: 4 },
+      { t: "text", x: 0, y: 4, s: "NE555-Q", size: 9, align: "center" },
+    ],
+  });
+  const extNets = ["0", "N_TRIG", "N_RST", "N_DIS", "N_VCC", "N_THR", "N_OUT", "N_CTRL"];
+  const compiledDevs = customNe555Def.toDevices(
+    { id: "u_custom555", partId: "custom_ne555_test", params: { r_div: 5000, bf_npn: 200 } },
+    extNets,
+  );
+  const has5kDivider = compiledDevs.some(
+    (d) => d.type === "R" && d.params.r === 5000 && d.nodes[0] === "N_VCC" && d.nodes[1] === "N_CTRL",
+  );
+  const hasDisTransistor = compiledDevs.some(
+    (d) => d.type === "Q" && d.nodes[0] === "N_DIS" && d.nodes[2] === "0",
+  );
+  const extractedFromPreset = extractSubcircuitFromSchematic(PRESETS.find((p) => p.id === "ce-amp")!.build());
+  check(
+    "W120/W121 NE555-Transistor-Innenschaltung kompiliert 5kΩ-Teiler + NPN-Entladetransistor Q14 + eigenes Schaltsymbol und extrahiert Subcircuits vom Schaltplan",
+    has5kDivider &&
+      hasDisTransistor &&
+      customNe555Def.symbol.length === 2 &&
+      extractedFromPreset.subcircuit.some((e) => e.kind === "npn"),
+    `devs=${compiledDevs.length}, has5k=${has5kDivider}, hasDisQ=${hasDisTransistor}, extracted=${extractedFromPreset.subcircuit.length}`,
   );
 }
 

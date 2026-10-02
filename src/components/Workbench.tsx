@@ -213,6 +213,17 @@ export default function Workbench() {
   const [wizardsOpen, setWizardsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [partEditorOpen, setPartEditorOpen] = useState(false);
+  const [partEditorInitialId, setPartEditorInitialId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const onOpenStudio = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ partId?: string }>).detail;
+      setPartEditorInitialId(detail?.partId);
+      setPartEditorOpen(true);
+    };
+    window.addEventListener("multispice-open-part-studio", onOpenStudio);
+    return () => window.removeEventListener("multispice-open-part-studio", onOpenStudio);
+  }, []);
 
   const desktopParams = useSyncExternalStore(
     () => () => {},
@@ -398,7 +409,15 @@ export default function Workbench() {
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-        {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
+        {partEditorOpen && (
+          <PartEditorDialog
+            initialPartId={partEditorInitialId}
+            onClose={() => {
+              setPartEditorOpen(false);
+              setPartEditorInitialId(undefined);
+            }}
+          />
+        )}
         <UndoToast />
         <PrintSheet />
       </div>
@@ -409,14 +428,14 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
-          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} />
+          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1 overflow-hidden">
               <Canvas />
               <InstrumentLayer />
-              <LibraryPalette onPartEditor={() => setPartEditorOpen(true)} />
+              <LibraryPalette onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
               <DeviceBar />
             </div>
             <BottomPanel />
@@ -427,7 +446,15 @@ export default function Workbench() {
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-        {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
+        {partEditorOpen && (
+          <PartEditorDialog
+            initialPartId={partEditorInitialId}
+            onClose={() => {
+              setPartEditorOpen(false);
+              setPartEditorInitialId(undefined);
+            }}
+          />
+        )}
         <UndoToast />
         <PrintSheet />
       </div>
@@ -438,14 +465,14 @@ export default function Workbench() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
       {isDesktopRuntime && <DesktopTitleBar title="MultiSpice" />}
-      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} />
+      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
       <ComponentStrip tools={<DrawingTools />} />
       <div className="relative flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1 overflow-hidden">
             <Canvas />
             <InstrumentLayer />
-            <LibraryPalette onPartEditor={() => setPartEditorOpen(true)} />
+            <LibraryPalette onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
             <DeviceBar />
           </div>
           <BottomPanel />
@@ -457,7 +484,15 @@ export default function Workbench() {
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
         {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-      {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
+      {partEditorOpen && (
+        <PartEditorDialog
+          initialPartId={partEditorInitialId}
+          onClose={() => {
+            setPartEditorOpen(false);
+            setPartEditorInitialId(undefined);
+          }}
+        />
+      )}
       <UndoToast />
         <PrintSheet />
     </div>

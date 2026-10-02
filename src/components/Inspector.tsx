@@ -358,6 +358,27 @@ export default function Inspector() {
                   </div>
                 )}
 
+                {part.tags?.includes("custom") && (
+                  <button
+                    type="button"
+                    className="btn w-full gap-1.5"
+                    style={{
+                      borderColor: "var(--wire-sel, #f59e0b)",
+                      color: "var(--wire-sel, #f59e0b)",
+                    }}
+                    onClick={() => {
+                      window.dispatchEvent(
+                        new CustomEvent("multispice-open-part-studio", {
+                          detail: { partId: selected.partId },
+                        }),
+                      );
+                    }}
+                  >
+                    <Cpu size={13} />
+                    <span>Im Bauteil-Studio bearbeiten (Innenschaltung & Symbol)</span>
+                  </button>
+                )}
+
                 <div className="flex gap-1.5 pt-1">
                   <button className="btn flex-1" onClick={() => st.rotateSelection(1)}>
                     Drehen (R)

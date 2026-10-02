@@ -2650,3 +2650,48 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
   - In der Windows-Desktop-App (Electron) öffnen das **Hauptfenster**, alle **Messgeräte / Inspector** (`StandaloneInstrumentView`) und die **Bauteile-Bibliothek** (`LibraryPalette standalone`) als echte, eigenständige **rahmenlose Windows-OS-Fenster (`frame: false`)** ohne Standard-Windows-Titelleiste.
   - Jedes Fenster besitzt oben die maßgeschneiderte **`DesktopTitleBar`** im Stil von **iTunes für Windows** (gebürstete dunkle Metall-Optik, ziehbar per `-webkit-app-region: drag`, integriertes LCD-Statusfenster im Hauptfenster und eigene Minimieren-/Maximieren-/Schließen-Buttons).
   - `.github/workflows/windows-app.yml` baut auf `windows-latest` den statischen Next.js-Export (`out/`) und paketiert mit `electron-builder` sowohl die **Portable `.exe`** als auch den **NSIS-Installer `.exe`** als GitHub-Actions-Artefakt (`MultiSpice-Windows-App`).
+
+---
+
+## §38 — Runde 37 (`W119–W123`): Windows-Workflow-Überwachung & Umfangreiches Bauteil-Studio (Transistor-Innenschaltung, Symbol-Zeicheneditor, Gehäuse & Pin-Mapping)
+
+### 38.1 Analyse & Plan (`W119–W123`)
+
+1. **`W119` — Windows-App GitHub-Actions-Workflow reparieren & per Check-Annotations überwachen (`.github/workflows/windows-app.yml`, `desktop/package.json`)**:
+   - **Ursache des Fehlers in Run `37038326578`**: In `electron-builder` ist `${target}` in `win.artifactName` keine gültige Substitutions-Variable (`Unknown substitution: target`); `artifactName` muss pro Target (`portable.artifactName` und `nsis.artifactName`) definiert werden. Zudem legen wir eine saubere, statische `desktop/package.json` im Repository ab statt sie in PowerShell per `ConvertTo-Json` zu serialisieren.
+   - **Überwachung per Annotations/Kommentar**: Da die Sandbox den Zip-Download von `results-receiver.actions.githubusercontent.com` blockiert, gibt der Workflow Baufortschritt, etwaige Fehlermeldungen und die erzeugten `.exe`-Artefakte samt Dateigröße als GitHub-Actions-Annotations (`::notice title=...::` / `::error title=...::`) aus, die direkt über `gh run view` ausgelesen werden können.
+
+2. **`W120` — Umfangreiche Transistor-/Subcircuit-Innenschaltung im Bauteil-Studio (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`)**:
+   - Eigene Bauteile können eine vollständige **Innenschaltung (Subcircuit / Makromodell)** aus Transistoren (`NPN`, `PNP`, `NMOS`, `PMOS`), Dioden (`Diode`, `Zener`), Komparatoren/OpAmps, Widerständen (`R`), Kondensatoren (`C`), Spulen (`L`) und Quellen (`V`, `I`) besitzen.
+   - **Drei Wege zum Aufbau**:
+     1. **Vom aktuellen Schaltplan übernehmen**: Liest alle Bauteile, Leitungen und Netzlabels vom Canvas ein und wandelt Netzlabels automatisch in Ein-/Ausgangs-Pins um.
+     2. **Interaktiver Innenschaltungs-Baukasten**: Direktes Hinzufügen/Bearbeiten interner Transistoren, Widerstände usw. samt Knoten-Verbindungen und Live-Topologie-Schaltbild.
+     3. **Fertige Transistor-Innenschaltungs-Vorlagen**: u. a. **NE555 mit 3× 5 kΩ-Spannungsteiler, Komparatoren, Flip-Flop, NPN-Entladetransistor (`DISCH`) und Push-Pull-Transistor-Endstufe (`OUT`)**, **Diskreter Operationsverstärker (NPN/PNP-Differenzstufe)**, **CMOS-Inverter (PMOS + NMOS)**, **Darlington-Transistorstufe** und **Transistor-Konstantstromquelle**.
+   - **Echte MNA-Simulation**: `compileSubcircuitToDevices` expandiert die Innenschaltung für jede platzierte Instanz mit isolierten internen Knoten (`${inst.id}__sub_${node}`) und direkt angebundenen Außen-Pins in echte Simulator-Devices.
+
+3. **`W121` — Interaktiver Symbol-Zeicheneditor (`SymbolCanvasEditor` in `src/components/PartEditorDialog.tsx`)**:
+   - Grafische Zeichenfläche mit Raster zum **selber Zeichnen und Beschriften** von Schaltsymbolen:
+     - Werkzeuge für **Auswählen/Verschieben**, **Linie/Polylinie (Dreieck/Pfeil)**, **Rechteck (gefüllt/ungefüllt, abgerundet)**, **Kreis**, **Bogen**, **freie Text-Beschriftung** (Größe & Ausrichtung) sowie **freies Platzieren/Verschieben der Ein- und Ausgangspins**.
+     - Schnellgeneratoren (Standard-IC-Block, Transistor-Kreis, Verstärker-Dreieck, Leeres Blatt) als Startpunkt.
+
+4. **`W122` — Ein-/Ausgangs-Pins & Gehäuse-Editor (`src/components/PartEditorDialog.tsx`)**:
+   - Jeder Pin besitzt Name, Pin-Nummer, elektrische Rolle (`IN`, `OUT`, `I/O`, `VCC`, `GND`, `PASSIVE`), optionale Symbol-Markierung (`Invertiert ○`, `Takteingang ▷`), Position/Seite und den **zugeordneten Knoten der Innenschaltung**.
+   - Interaktive Gehäuse-Draufsicht (`DIP-8`, `DIP-14`, `DIP-16`, `SOIC-8`, `TO-220`, `TO-92`, `SOT-23`, `QFP-16`, `Custom`) mit Pin-1-Markierung und Pin-Zuordnung.
+
+5. **`W123` — Bauteil-Verwaltung, Nachbearbeiten, JSON-Import/Export & Inspector-Integration**:
+   - Bestehende eigene Bauteile können jederzeit im Bauteil-Studio geladen, geändert, dupliziert, gelöscht oder als JSON exportiert/importiert werden.
+   - Direkt aus dem Inspector kann ein ausgewähltes eigenes Bauteil im Bauteil-Studio geöffnet werden.
+
+### 38.2 Umsetzung & Verifikation (`W119–W123`)
+
+- **`W119` (`desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+  - Statische `desktop/package.json` mit getrennten `portable.artifactName` (`${productName}-${version}-Portable.${ext}`) und `nsis.artifactName` (`${productName}-${version}-Setup.${ext}`) angelegt (behebt den `Unknown substitution: target`-Fehler in `electron-builder`).
+  - Workflow gibt Baufortschritt, Fehler-Logs und die erzeugten `.exe`-Artefakte samt Dateigröße als GitHub-Actions-Annotations (`::notice::` / `::error::`) aus, sodass der Lauf direkt über `gh run view` überwacht werden kann.
+- **`W120–W123` (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`, `src/components/Inspector.tsx`, `src/components/Workbench.tsx`)**:
+  - **4-Tab-Bauteil-Studio**:
+    1. **Innenschaltung (Transistoren & Knoten)**: Interaktiver Subcircuit-Baukasten (`NPN`, `PNP`, `NMOS`, `PMOS`, `R`, `C`, `L`, `Diode`, `Zener`, `Komparator`, `OPV`, `Quellen`) mit Live-Topologie-Vorschau, direktem Import vom Haupt-Schaltplan (*„Vom Schaltplan übernehmen“*) und 4 kompletten Transistor-Innenschaltungs-Vorlagen (darunter **NE555 Timer mit 3× 5 kΩ-Spannungsteiler, NPN-Darlington-Threshold, PNP-Trigger/Reset, NPN-Open-Collector-Entladetransistor Q14 an DIS und Totem-Pole-Transistor an OUT**).
+    2. **Schaltsymbol zeichnen & beschriften**: Interaktiver Vektor-Zeicheneditor (`SymbolCanvasEditor`) auf dem 10-px/5-px-Raster für Linien, Rechtecke, Kreise, Bögen, freie Beschriftungen und ziehbare Pin-Ankerpunkte.
+    3. **Ein-/Ausgangs-Pins & Gehäuse**: Pin-Konfigurator mit elektrischer Rolle (`IN`, `OUT`, `I/O`, `VCC`, `GND`), Pin-Markierungen (`Invertiert ○`, `Takt ▷`), Gehäuseseite, Knoten-Mapping zur Innenschaltung und physischer Gehäuse-Draufsicht (`PackageTopView` für `DIP-8`, `SOIC-8`, `DIP-14`, `DIP-16`, `TO-220`, `TO-92`, `0805`).
+    4. **Parameter & Verwaltung**: Eigene Bauteil-Parameter, JSON-Export/Import und direkter Sprung aus dem Inspector (*„Im Bauteil-Studio bearbeiten“*).
+
+
