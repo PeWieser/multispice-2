@@ -1,0 +1,51 @@
+{
+  "name": "multispice-desktop",
+  "version": "1.0.0",
+  "description": "MultiSpice – Schaltungssimulation & virtuelles Messlabor (Windows Desktop Edition)",
+  "author": "MultiSpice",
+  "license": "MIT",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis dir --x64"
+  },
+  "build": {
+    "appId": "de.multispice.desktop",
+    "productName": "MultiSpice",
+    "asar": true,
+    "compression": "store",
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "icon.ico",
+      "out/**/*"
+    ],
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "dir",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MultiSpice",
+      "artifactName": "${productName}-${version}-Setup.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "33.3.1",
+    "electron-builder": "25.1.8",
+    "png-to-ico": "2.1.8"
+  }
+}

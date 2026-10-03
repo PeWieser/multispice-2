@@ -2190,3 +2190,681 @@ Der Merge-Commit `d518ffa` bringt `main` in den Zweig; der PR ist danach inhaltl
 die Checks laufen grün. Gemerged wird als **Merge-Commit** (wie PR #3), der Zweig bleibt erhalten,
 damit diese Arena-Session weiterarbeiten kann.
 
+---
+
+## §28 — Runde 27: Toolleiste (Amber), Zoom-Bedienfeld, Netz-Zeichnen, orthogonales Leitungs-Editing & Leinwand-Handling wie in Multisim
+
+**Auftrag:** Prüfung und Überarbeitung der Menüleiste/Werkzeugleiste (Bauteile, Library, Probes) sowie
+des gesamten Leinwand-Handlings (Netze zeichnen und bearbeiten wie in Multisim), inkl. der
+Nutzer-Vorgaben aus der Rückfrage.
+
+### 28.0 · Verbindliche Nutzer-Entscheidungen (Ask-User & Direktvorgaben)
+
+| Thema | Entscheidung |
+|---|---|
+| Farbgebung der oberen Toolleiste | **Warmer Bernstein-/Amber-Akzent (`warm_amber`)** statt kaltem Blau – passend zur Auswahlfarbe auf dem Plan |
+| Zoom-Menü rechts unten | **Vertikal getrennt (`split_vertical`)**: oben `[+]` und `[−]` mit exakt zentrierten Icons und Trennlinie, darunter mit Abstand ein optisch abgesetzter `[FIT]`-Knopf |
+| Bibliothek beim Bauteil-Wählen | **Automatisch schließen (`auto_close`)**, sobald man ein Bauteil zum Platzieren auswählt, damit die Leinwand frei ist |
+| Leitung im freien Raum beenden | **Doppelklick beendet die Leitung im Leeren (`dblclick_ends`)**; `Esc` und Rechtsklick verwerfen weiterhin die angefangene Leitung |
+
+### 28.1 · Arbeitspakete (W73–W81)
+
+- **W73 · Toolleiste, Schnellbauteile, Bibliothek & Menüleiste (M1–M6):**
+  - Aktive Werkzeuge und Schnellbauteile in `ComponentStrip.tsx` und `DrawingTools.tsx` nutzen den
+    warmen Amber-Ton (`var(--wire-sel)`) statt des bisherigen Blaus (`var(--accent)` mit fehlendem
+    `--accent-contrast`).
+  - Probe-Knöpfe bleiben auch auf mittleren Fensterbreiten erreichbar (kein hartes Ausblenden unter
+    `1024 px`).
+  - `ResistorGlyph` in `PartGlyphs.tsx` folgt der eingestellten Symbolnorm (IEC-Rechteck vs.
+    ANSI-Zickzack); Schnellbauteile um NPN-Transistor und OPV ergänzt.
+  - Werkzeug-Anzeige synchronisiert: sobald auf der Leinwand ein Netz gezogen wird (`netDraft`),
+    leuchtet „Stift" aktiv; Klick auf „Auswahl" bricht ein laufendes Netz zuverlässig ab.
+  - `LibraryPalette` schließt sich automatisch, sobald ein Bauteil zum Platzieren gewählt wird.
+  - `MenuBar`: `Geräte → Funktionsgenerator` startet wie das Oszi die Bauteil-Platzierung
+    (`setPlacing("funcgen")`); `Wizards …` sowie `Drehen`/`Spiegeln` und alle Ausrichten-/Verteilen-
+    Richtungen im Desktop-Menü ergänzt.
+- **W74 · Zoom-Bedienfeld rechts unten (`ZoomButtons` in `Canvas.tsx`):**
+  - Zwei getrennte Blöcke übereinander: oben `[+]` und `[−]` als quadratische `32×32`-Buttons mit
+    exakt mittigen SVG-Icons (`Plus`/`Minus`) und feiner Trennlinie; darunter abgesetzt der
+    `[FIT]`-Knopf mit eigenem Rahmen und abgesetzter Fläche.
+- **W75 · Bauteil-Ghost vor dem Absetzen drehen/spiegeln & Drag-and-Drop Auto-Connect (M2/M3):**
+  - `placingRot` und `placingMirror` im Store: während ein Bauteil zum Platzieren am Zeiger hängt,
+    drehen `R`/`⇧R`/`⌘R` und spiegelt `M` die Vorschau am Zeiger (statt zufällig ausgewählte
+    Bauteile im Hintergrund zu drehen); `addInstance` übernimmt Orientierung und Spiegelung.
+  - Drag & Drop aus der Bibliothek nutzt dieselbe Auto-Connect-/In-Line-Logik wie das Klick-Platzieren.
+- **W76 · Bauteil in Leitung einsetzen trennt die Leitung auf (In-Line-Split wie in Multisim, E4):**
+  - Wird ein Bauteil so auf eine durchgehende Leitung gesetzt, dass zwei seiner Pins auf demselben
+    Leitungssegment liegen, wird das Segment zwischen den beiden Pins aufgetrennt (Reihenschaltung
+    statt Kurzschluss).
+- **W77 · Netz zeichnen wie in Multisim (W1–W4):**
+  - Doppelklick auf eine Leitung startet zuverlässig einen Abzweig (W67), ohne dass der erste Klick
+    ein `+`-Mittel-Handle auslöst oder der zweite Klick einen Stützpunkt löscht.
+  - `buildNetPath` / `previewNetPath` berücksichtigt die Pin-Auswärtsrichtung und umgeht
+    Bauteil-Hindernisse; die einmal eingeschlagene Knick-Orientierung bleibt stabil (und lässt sich
+    per `Leertaste` beim Zeichnen wenden).
+  - Doppelklick auf freie Fläche (oder Klick auf den letzten Eckpunkt) beendet das Netz als offenen
+    Leitungszug; `Esc` und Rechtsklick verwerfen es.
+- **W78 · Streng orthogonale Leitungs-Bearbeitung ohne Pin-Abriss (E1/E2):**
+  - Beim parallelen Ziehen eines Leitungssegments (`setWireSegmentOffset`) bleiben Endpunkte, die auf
+    einem Bauteil-Pin (oder T-Kontakt) sitzen, fest verankert und bilden automatisch eine orthogonale
+    90°-Stufe.
+  - Beim Ziehen an Eckpunkten oder am mittleren `+`-Griff wandern die anliegenden Segmente streng
+    orthogonal (90°) mit – es entstehen keine schrägen/diagonalen Linien mehr und kein Pin reißt ab.
+- **W79 · Ein Undo-Schritt pro Zug statt History-Flutung (E3):**
+  - Ziehen von Bauteilen, Leitungssegmenten, Leitungspunkten und Probe-Ankern legt genau **einen**
+    Undo-Snapshot zu Beginn des Zugs an (`Strg+Z` macht den gesamten Zug auf einmal rückgängig).
+- **W80 · T-Abzweige wandern mit & Junction-Hygiene (E5):**
+  - Endet eine Leitung per T-Kontakt / Junction auf einer mitbewegten Leitung, wandert der
+    Anschlusspunkt samt Junction orthogonal mit.
+  - Beim Löschen oder Umbauen von Leitungen werden verwaiste `junctions` (ohne Leitungskontakt)
+    automatisch bereinigt.
+- **W81 · Labels & Notizen greifbar, Probes auf langen Segmenten & Direkt-Wertedit (E6–E8):**
+  - Hit-Test, Auswahl, Verschieben, Doppelklick-Umbenennen, Kontextmenü und Löschen für `doc.labels`
+    und `doc.notes`.
+  - Probes rasten per Fußpunkt-Projektion auf jedem Leitungssegment ein (auch mitten auf langen
+    Leitungen) und aktualisieren beim Verschieben ihrer Pfeilspitze (`probeAnchorDrag`) sofort das
+    zugeordnete Netz.
+  - Doppelklick auf den Bauteilwert/-namen unter dem Symbol öffnet direkt das Inline-Wertfeld;
+    Doppelklick auf das Symbol öffnet den Inspector. Der „Faults"-Block im Kontextmenü wandert von
+    der Leitung zum Bauteil.
+
+## §28.2 — Umsetzung Runde 27 (W73–W81, alles verifiziert)
+
+- **Verifikation:**
+  - `./node_modules/.bin/tsc --noEmit`: 0 Fehler
+  - `npx --no-install eslint src scripts`: 0 Fehler / 0 Warnungen
+  - `npm test`: alle 7 Suiten grün (`importtest`, `simtest`, `check-pin-congruence`, `windowtest`, `wiretest` inkl. neuer W73–W81-Prüfungen, `ozsitest`, `presettest`)
+  - `npx --no-install next build`: Produktions-Build erfolgreich
+
+---
+
+## §29 — Runde 28: Raster-Konsistenz, `orthoFollow` am Ausgang (`OUT`) & Multisim-Probes (W82–W87)
+
+### §29.1 — Ursachenanalyse & Plan (W82–W87)
+
+- **W82 · Leitung löst sich beim Verschieben des Widerstands an `OUT` (`orthoFollow` in `src/lib/schematic/ortho.ts`):**
+  - *Ursache 1:* Bei einer geraden 2-Punkt-Leitung (`pts.length === 2`, wie die Leitung `(460, 270) → (590, 270)` zwischen `U1.OUT` und `R3` in `astable555`) ergab `const inner = idx === 0 ? 1 : pts.length - 2` für `idx === 1` (das bewegte Ende an `R3`) den Wert **`inner = 0`**. Dadurch fügte `pts.splice(inner, 0, bend)` den Knickpunkt **vor Index 0** (also vor dem festen Pin `U1.OUT`) ein statt zwischen Index 0 und Index 1 (`pts.splice(1, 0, ...)`). Index 0 wanderte auf `(460, 280)` (abgerissen vom Ausgangs-Pin `(460, 270)`) und zwischen `(460, 270)` und `(590, 280)` entstand ein schräges Segment.
+  - *Ursache 2:* Wenn zwei horizontal/vertikal verbundene Pins gegeneinander verschoben werden, legte `pickBend` den einzelnen L-Knick direkt auf die Koordinate des festen Pins (`{ x: a.x, y: end.y }`), sodass die Leitung quer durch das Bauteilgehäuse (`U1`) lief; beim Zurückschieben auf gleiche Höhe blieben zudem kollineare Zwischenpunkte stehen.
+  - *Lösung:* In `orthoFollow` bleibt das nicht bewegte Ende (`fixedIdx`) unantastbar auf seiner Koordinate; bei `pts.length === 2` wird bei ausreichendem Achsenabstand (`>= 2 * GRID`) eine saubere orthogonale Z-Stufe in der Mitte (`midX`/`midY` auf `GRID = 10` gerundet) bzw. ein hindernisfreier L-Knick an Index `1` eingefügt, und abschließend bereinigt ` orthoFollow` kollineare/doppelte Zwischenpunkte in-place, sodass beim Zurückschieben wieder eine glatte 2-Punkt-Gerade entsteht.
+- **W83 · Bauteil- und Leitungs-Raster (`GRID = 10`) ohne „halbe Rasterfelder" (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache 1 (Bauteile nicht gleichauf):* Beim Ziehen von Bauteilen in `Canvas.tsx` (`sr.dragging`) suchte `_alignGuides` nach den **Grafik-Bounding-Box-Kanten** (`instanceBounds`: `b.x`, `b.y`, `b.x + b.w/2`, `b.y + b.h/2`). Da Schaltsymbole (Widerstand `h = 14 → y - 7`, LED `y - 22 .. y + 10 → Mitte y - 6`, NE555 `y - 48`) asymmetrische bzw. Nicht-10er-Kanten haben, verschob `dx += guideX - (selMinX + dx)` gezogene Bauteile **vom 10-px-Raster herunter** auf krumme Koordinaten (`...3`, `...5`, `...7`).
+  - *Ursache 2 (Leitungen um ein halbes Rasterfeld verschoben):* Durch die vom Raster gezogenen Bauteile landeten auch deren Pins und Leitungen auf halben Rasterfeldern (`...5`), und `wireSegDrag` addierte nur ein relatives `dy = Math.round((sp.y - sr.dragStart.y) / GRID) * GRID` auf `orig`, statt das gezogene Segment selbst auf die Rasterlinie `sp.y` (`...0`) einzurasten. Ebenso richteten `alignSelection` und `distributeSelection` nach Grafik-Bounding-Boxen ohne Raster-Snap aus.
+  - *Lösung:*
+    1. Beim Ziehen von Bauteilen (`sr.dragging`) rastet der Bauteil-Ursprung `(inst.x, inst.y)` immer exakt auf Vielfache von `GRID = 10` ein; `_alignGuides` vergleicht ausschließlich Raster-Ursprünge (`other.x`, `other.y`) und Pin-Positionen (`pinPosition`), niemals krumme Grafik-Bounding-Box-Ränder, und verbiegt `dx`/`dy` niemals auf Nicht-Vielfache von `GRID`.
+    2. Beim Ziehen eines Leitungssegments (`wireSegDrag`) rastet die neue Segmentposition direkt auf die Rasterlinie `sp.y` (horizontal) bzw. `sp.x` (vertikal) ein (`dy = sp.y - sa.y` bzw. `dx = sp.x - sa.x`, jeweils auf `GRID` gerundet).
+    3. `alignSelection` und `distributeSelection` in `editor.ts` richten Bauteil-Ursprünge streng auf Vielfachen von `GRID = 10` aus und führen angeschlossene Leitungen über `orthoFollow` sauber mit.
+- **W84 · Sichtbares Gitter (`showGrid`), `normalizeDocGeometry` & `PRESETS` (`Canvas.tsx`, `netdraw.ts`, `tools.ts`, `editor.ts`):**
+  - *Ursache:* `Canvas.tsx` schaltete das sichtbare Gitter bereits bei `view.zoom < 1.1` (also auch beim Standard-Zoom `1.0`!) auf `step = GRID * 5 = 50 px` um, während alle Snaps auf `GRID = 10 px` liefen. Zudem führte `normalizeDocGeometry` erst `snapWiresToPins` und danach `straightenWirePoints` aus und ließ `doc.labels` (z. B. `OUT` bei `(460, 268)` in `astable555`, `IN` bei `(200, 245)` in `noninv-opamp`) sowie `restoreLocalProject()` unnormalisiert.
+  - *Lösung:* Ab `view.zoom >= 0.45` zeichnet `Canvas.tsx` durchgängig das `GRID = 10`-Raster als feines Gitter und jede 5. Linie (`50 px`) als Hauptlinie (`--grid-strong`), sodass jedes sichtbare kleine Kästchen exakt 1 Bewegungsschritt (`10 px`) ist. `normalizeDocGeometry` rundet auch `doc.labels`, `doc.junctions` und `doc.probes` aufs Raster und rastet Leitungsenden abschließend noch einmal per `snapWiresToPins` ein; `restoreLocalProject()` normalisiert geladene Altstände automatisch.
+- **W85 · Multisim-Probes: Permanentes Anzeigefeld & einheitliche Darstellung (`drawProbe` in `Canvas.tsx`):**
+  - *Ursache:* Bisher zeigte `drawProbe` bei gestoppter Simulation (`live === null`) überhaupt keine Messwert-Box, sondern nur ein winziges schräges Fähnchen am Ende eines Strichs; bei laufender Simulation schwebte rechts neben dem Fähnchen zusätzlich eine unverbundene Box. Außerdem trug `addMeasurementProbe` das Netz gleichzeitig in das alte `st.probes`-Array ein, wodurch `Canvas.tsx` an `net.points[0]` einen zweiten lila Geisterkreis zeichnete.
+  - *Lösung:* Echte NI-Multisim-Darstellung:
+    1. Am Ankerpunkt `(anchorX, anchorY)` auf der Leitung sitzt der farbige Messkontakt mit Pfeilspitze (bzw. bei Strom-/Leistungssonde zusätzlich ein klarer Strom-Richtungspfeil entlang der Leitung).
+    2. Eine saubere Leader-Linie verbindet den Messpunkt `(anchorX, anchorY)` direkt mit dem **immer sichtbaren** Sonden-Anzeigekästchen bei `(probe.x, probe.y)` (Standard-Offset `(+30, -30)` exakt auf dem `GRID = 10`-Raster).
+    3. Das Anzeigekästchen zeigt oben/links den farbigen Sonden-Header (`V1`, `I1`, `P1` … + Netzname wie `OUT` oder `unverbunden`) und darunter die Messwerte (`V(dc)`, `V(rms)`, `V(p-p)`, `f`, `I`, `P` im Live-Betrieb bzw. `Bereit` vor Simulationsstart).
+    4. Keine doppelten lila Geisterkreise (`st.probes`) mehr für Netze, die bereits eine `MeasurementProbe` besitzen.
+- **W86 · Multisim-Probes: Live-Ghost beim Platzieren (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache:* Der Platzier-Ghost zeichnete die Probe ohne `anchorX/anchorY` direkt am Cursor, sprang beim Klick aber plötzlich um `(+32, -28)` weg; zudem überschrieb `Canvas.tsx` nach `addMeasurementProbe` das Netz noch einmal mit `nearestNetName(world)`.
+  - *Lösung:* Schon in der Platzier-Vorschau (`st.tool.startsWith("probe")`) rastet die Messspitze (`anchorX, anchorY`) per `resolveNearestNetPoint` live auf der nächsten Leitung oder dem nächsten Pin ein, zeigt den Leuchtring auf der Leitung und das Sonden-Kästchen im Rasterabstand `(+30, -30)` samt Live-Messwert – exakt deckungsgleich mit der platzierten Sonde.
+- **W87 · Multisim-Probes: Hit-Testing, freies Verschieben des Anzeigekästchens & Umstecken der Messspitze (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache:* `hitTestProbe` prüfte nur einen 16-px-Kreis um `(pr.x, pr.y)` und verfehlte das Anzeigekästchen; `moveSelection` verschob beim Ziehen einer ausgewählten Probe auch `anchorX/anchorY` mit (sodass die Messspitze von der Leitung abriss!), während beim Verschieben eines Bauteils `onMovedPin(pr)` fälschlich `(pr.x, pr.y)` statt `(pr.anchorX, pr.anchorY)` prüfte.
+  - *Lösung:*
+    1. `hitTestProbe` trifft das gesamte Anzeigekästchen der Probe in Welt-/Screen-Koordinaten, und `hitTestProbeAnchor` erkennt gezielt Klicks auf die Messspitze `(anchorX, anchorY)` (auch ohne vorherige Auswahl).
+    2. Zieht man das **Anzeigekästchen** einer Probe, wandert nur das Kästchen `(pr.x, pr.y)` auf dem `GRID = 10`-Raster, während die Messspitze `(anchorX, anchorY)` fest auf ihrer Leitung bleibt!
+    3. Zieht man die **Messspitze** `(anchorX, anchorY)` (`probeAnchorDrag`), rastet sie mit Magnet-Fang auf jedem Pin oder Leitungssegment ein und aktualisiert sofort `probe.net`.
+    4. Wird hingegen das **Bauteil oder die Leitung** verschoben, auf der `(anchorX, anchorY)` sitzt, wandert die gesamte Probe (`anchorX/Y` + `x/y`) automatisch mit.
+
+### §29.2 — Umsetzung Runde 28 (W82–W87, alles verifiziert)
+
+- **Geänderte Dateien:**
+  - `src/lib/schematic/ortho.ts`: W82 – `orthoFollow` fügt Knickpunkte bei 2-Punkt-Leitungen immer an Index `1` (statt Index `0`) ein, schützt das feste Leitungsende unverrückbar am Ziel-Pin, ignoriert in `segHitsBox` das Padding des eigenen Start-/End-Bauteils (außer beim Entlangschrammen an der Gehäusekante) und entfernt am Ende doppelte/kollineare Zwischenpunkte in-place (`cleanInPlace`).
+  - `src/lib/schematic/netdraw.ts`: W84 – `normalizeDocGeometry` rundet auch `doc.labels`, `doc.junctions` und `doc.probes` aufs `GRID = 10`-Raster und rastet nach `straightenWirePoints` alle Leitungsenden erneut per `snapWiresToPins` auf Bauteil-Pins ein.
+  - `src/lib/schematic/tools.ts`: W84 – Rohkoordinaten in `astable555` und `noninv-opamp` (`268`, `244`, `292`, `316`, `245`, `275`) direkt auf Vielfache von `GRID = 10` gesetzt.
+  - `src/state/editor.ts`: W83–W87 – `moveSelection` hält Probe-Messspitzen beim Verschieben des Anzeigekästchens fest auf ihrer Leitung und führt Probes mit, wenn die Leitung/das Bauteil unter der Messspitze bewegt wird; `alignSelection` und `distributeSelection` richten Bauteile streng auf dem `GRID = 10`-Raster aus; `addMeasurementProbe` legt Sonden im Rasterabstand `(+30, -30)` ab; `removeMeasurementProbe` und `deleteSelection` räumen auch `st.probes` auf; `restoreLocalProject` normalisiert geladene Altstände.
+  - `src/components/Canvas.tsx`: W83–W87 – Sichtgitter ab `zoom >= 0.45` immer im echten `GRID = 10`-Schritt (mit 50-px-Hauptlinien); kein krummer Grafik-Bounding-Box-Snap mehr beim Ziehen von Bauteilen; `wireSegDrag` rastet Segmente direkt auf die Rasterlinie `sp.y`/`sp.x` ein; `drawProbe`, `hitTestProbe`, `hitTestProbeAnchor` und Probe-Ghost im echten NI-Multisim-Stil (permanentes Anzeigekästchen mit Header + Messwerten auch vor Simulationsstart, durchgehende Leader-Linie vom Kästchenrand zur Messspitze, kein doppelter lila Geisterkreis).
+  - `scripts/wiretest.ts`: Automatisierte Regressionstests für `W82–W87`.
+- **Verifikation:**
+  - `./node_modules/.bin/tsc --noEmit`: 0 Fehler
+  - `npx --no-install eslint src scripts`: 0 Fehler / 0 Warnungen
+  - `npm test`: alle 7 Suiten grün
+  - `npx --no-install next build`: Produktions-Build erfolgreich
+
+---
+
+## §30 — Runde 29: Werkzeugleiste, Radiergummi-Cursor, Netzname/Notiz/Wert-Edit, Bauteil-Auswahl & gut lesbare Probe-Kästen (W88–W93)
+
+### §30.1 — Ursachenanalyse & Plan (W88–W93)
+
+- **W88 · Werkzeugleiste optisch differenzieren & Radiergummi zum Stift gruppieren (`DrawingTools.tsx`, `ComponentStrip.tsx`):**
+  - *Ursache:* Bauteile, Zeichenwerkzeuge und Probes sahen in der Leiste alle wie identische graue Einzelkästchen (`h-8 w-9 rounded-lg`) aus; das Auswahlwerkzeug nutzte das Vierfach-Pfeil-Icon `Move` statt eines Auswahlzeigers, und der Radiergummi (`erase`) saß am Ende der Textgruppe statt beim Stift (`wire`).
+  - *Lösung:*
+    1. `Auswahl` erhält das klare Zeiger-Icon `MousePointer2`.
+    2. `Stift` (`Pencil`), `Radiergummi` (`Eraser`) und `Knotenpunkt` (`Network`) bilden gemeinsam eine verbundene **Leitungs-Werkzeugkapsel** (Segmented Control mit gemeinsamem Rahmen und Innentrennlinien).
+    3. `Netzname` (`Tag`) und `Notiz` (`StickyNote`) bilden eine eigene verbundene **Beschriftungs-Kapsel**.
+    4. Die **Probes** erhalten eine eigenständige Pill-/Badge-Optik (`rounded-full`) mit farbigem Typ-Badge in der jeweiligen Sondenfarbe, sodass Bauteile, Werkzeuge und Messsonden auf den ersten Blick unterscheidbar sind.
+- **W89 · Eigener Radiergummi-Cursor (`ERASER_CURSOR`) statt Stift-Cursor (`cursors.ts`, `Canvas.tsx`):**
+  - *Ursache:* In `Canvas.tsx` prüfte `const drawing = (Boolean(sr.netDraft) || st.tool === "wire" || sr.netHover !== null) && st.tool !== "junction"`. Sobald man mit dem Radiergummi (`st.tool === "erase"`) über eine Leitung oder einen Pin fuhr, war `sr.netHover !== null` und der Cursor wechselte auf `PEN_CURSOR` (Stiftsymbol).
+  - *Lösung:* Neuer `ERASER_CURSOR` in `src/components/cursors.ts`; `PEN_CURSOR` erscheint nur noch beim aktiven Netzzeichnen (`sr.netDraft`, `st.tool === "wire"` oder `st.tool === "select"` über einem freien Pin/Knotenpunkt), während `st.tool === "erase"` durchgängig den `ERASER_CURSOR` zeigt.
+- **W90 · Sinnvolle Tastenkürzel für `V`, `A` und `Esc` (`Canvas.tsx`, `DrawingTools.tsx`, `ComponentStrip.tsx`):**
+  - *Ursache:* `V` wechselte ins Auswahlwerkzeug (`select`), während `A` die Strom-Probe (`current`) auswählte – widersprüchlich zu den Probe-Buttons `V` und `A`.
+  - *Lösung:* `V` wählt die Spannungs-Probe (`voltage`), `A` die Strom-Probe (`current`) (erneutes Drücken schaltet sie wieder aus); `Esc` wechselt jederzeit ins Auswahlwerkzeug (`select`).
+- **W91 · Netzbenennung (`label`), Notizen (`text`) und Doppelklick-Wertänderung (`value`) reparieren (`Canvas.tsx`, `importers.ts`):**
+  - *Ursache 1 (`label` / `text` / `value` Input schloss sich sofort):* `onPointerDown` rief `setPointerCapture` auf dem `<canvas>` auf und mountete noch während `pointerdown` das `<input autoFocus onBlur={...} />`. Beim Loslassen der Maustaste (`pointerup` / Fokus-Rückgabe an Canvas) feuerte sofort `onBlur` mit leerem Text und schloss das Eingabefeld in derselben Millisekunde wieder.
+  - *Ursache 2 (Widerstandswert per Doppelklick):* `hitTestInstance` prüfte nur die Symbol-Box (`b.y .. b.y + b.h + 6`), während Name und Wert bei `b.y + b.h + 14 .. + 26` darunter stehen; ein Doppelklick auf das Symbol selbst öffnete zudem nur den Inspector statt des Wert-Editors.
+  - *Lösung:*
+    1. Schutzzeit (`editingOpenedAt`) + explizite Fokussierung per `editInputRef` verhindern, dass das losgelassene Maus-Event das soeben geöffnete `<input>` per `onBlur` sofort wieder schließt.
+    2. Im `label`- und `text`-Modus zeigt der Canvas schon beim Bewegen der Maus eine Live-Vorschau am Zeiger; im `label`-Modus rastet der Klickpunkt per Magnet auf die nächste Leitung ein.
+    3. Doppelklick auf ein Bauteil mit numerischem Hauptwert (z. B. Widerstand, Kondensator, Spule, Quelle) **oder** auf seinen Namen/Wert darunter öffnet direkt das Inline-Werteingabefeld (`10k`, `470`, `4u7` …); `parseSpiceValue` akzeptiert auch Einheiten (`Ω`, `Ohm`, `F`, `H`, `V`, `A`, `Hz`) und Kommas (`4,7k`).
+- **W92 · Bauteilwert optisch mitauswählen & störenden Kasten im Auswahlrahmen entfernen (`Canvas.tsx`):**
+  - *Ursache:* In `drawInstance` blieb der Bauteilwert (`10kΩ`) bei `selected === true` grau (`--text-mute`) und lag außerhalb des gestrichelten Auswahlrahmens. Zudem zeichnete `sr.marquee` in der Mitte des aufgezogenen Auswahlrahmens ein Rechteck mit ungültigem `ctx.fillStyle = "var(--panel-solid)"` (schwarzer eckiger Kasten).
+  - *Lösung:* Bei ausgewähltem Bauteil leuchtet auch der Werttext in `--wire-sel` mit und der gestrichelte Auswahlrahmen umschließt Symbol + Name + Wert gemeinsam. Der eckige Kasten in der Mitte von `sr.marquee` entfällt.
+- **W93 · Probe-Kästen deutlich größer und optimal lesbar (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache:* `drawProbe` nutzte `9px` / `9.5px` Schrift und `15px` Headerhöhe (`boxScreenW >= 84px`), was auf dem Schaltplan zu klein zum Ablesen war.
+  - *Lösung:* Deutlich größere Typografie und Boxmaße in `drawProbe` (Header `12px bold`, Typ-Badge `22×16px`, Messwerte `13px semibold`, Zeilenhöhe `18px`, Mindestbreite `132px`, Standard-Offset `(+40, -40)` auf dem Raster) sowie angepasster `hitTestProbe`.
+
+### §30.2 — Umsetzung Runde 29 (W88–W93, alles verifiziert)
+
+- **Geänderte Dateien:**
+  - `src/components/DrawingTools.tsx`: W88/W90 – Auswahlwerkzeug mit `MousePointer2` (`Esc`) statt `Move`-Icon; `[Stift | Radiergummi | Knotenpunkt]` in einer gemeinsamen Leitungs-Kapsel (Segmented Control) und `[Netzname | Notiz]` in einer zweiten Beschriftungs-Kapsel.
+  - `src/components/ComponentStrip.tsx`: W88/W90 – Klare optische Trennung der drei Bereiche: Schnell-Bauteile als Schaltzeichen-Kacheln, Zeichenwerkzeuge als Segmented-Control-Kapseln und Messsonden als farbige Sonden-Pills (`rounded-full`) mit farbigem Typ-Badge (`V`, `A`, `V·A`, `W`, `ΔV`, `REF`, `D`).
+  - `src/components/cursors.ts`: W89 – Eigener `ERASER_CURSOR` für das Radiergummi-Werkzeug.
+  - `src/lib/schematic/importers.ts`: W91 – `parseSpiceValue` unterstützt Einheiten (`Ω`, `Ohm`, `R`, `Hz`, `F`, `H`, `V`, `A`, `W`, `s`), `µ` sowie deutsches Dezimalkomma (`4,7k`).
+  - `src/state/editor.ts`: W93 – Standard-Offset neuer Probes auf `(+40, -40)` im `GRID = 10`-Raster gesetzt.
+  - `src/components/Canvas.tsx`: W89–W93 – `ERASER_CURSOR` beim Radiergummi (kein `PEN_CURSOR` mehr über Leitungen/Pins); `V` = Spannungs-Probe, `A` = Strom-Probe, `Esc` = Auswahl; Fokus-Schutz (`editingOpenedAt` + `editInputRef`) und Verzicht auf `setPointerCapture` beim Öffnen des Inline-Editors (`label`, `text`, `value`), Live-Vorschau für `label`/`text` und Doppelklick-Werteingabe direkt auf Bauteilen/Widerständen; Werttext bei Bauteil-Auswahl in `--wire-sel` mit hervorgehoben und vom Auswahlrahmen umschlossen; eckiger Kasten in der Mitte von `sr.marquee` entfernt; `drawProbe` und `hitTestProbe` deutlich vergrößert (`12px`/`13px` Monospace, `minW = 132px`).
+  - `scripts/wiretest.ts`: Automatisierte Regressionstests für `W88–W93`.
+- **Verifikation:**
+  - `./node_modules/.bin/tsc --noEmit`: 0 Fehler
+  - `npx --no-install eslint src scripts`: 0 Fehler / 0 Warnungen
+  - `npm test`: alle 7 Suiten grün
+  - `npx --no-install next build`: Produktions-Build erfolgreich
+
+---
+
+## §31 — Runde 30: Dokumentenname oben links weg, Einrichtungs-Wizard weg, 1 untere Leiste statt 3 Balken & luftige Werkzeugleiste (W94–W97)
+
+### §31.1 — Ursachenanalyse & Plan (W94–W97, bestätigt per `ask_user`)
+
+- **W94 · Dokumentenname oben links in der Menüleiste entfernen (`MenuBar.tsx`):**
+  - *Ursache:* In `MenuBar.tsx` stand vor dem Menüpunkt `Datei` noch `<span className="mr-2 hidden max-w-[140px] truncate text-[11px] text-mute lg:inline">{docName}</span>` (redundant zu den Schaltblatt-Reitern unten).
+  - *Lösung:* Den Dokumentennamen oben links ersatzlos entfernen, sodass die Menüleiste sauber mit `Datei` beginnt.
+- **W95 · Einrichtungs-Wizard („Leere Leinwand – los geht's!") bei neuem Dokument entfernen (`Canvas.tsx`):**
+  - *Ursache:* Bei leerem Dokument (`doc.instances.length === 0 && doc.wires.length === 0`) legte `Canvas.tsx` eine große Willkommens-Karte mitten über das leere Schaltblatt.
+  - *Lösung:* Das Onboarding-Overlay in `Canvas.tsx` ersatzlos entfernen – ein neues Schaltblatt ist sofort frei und bereit zum Zeichnen.
+- **W96 · Unten von 3 gestapelten Balken auf 1 einzige schlanke Leiste reduzieren (`BottomPanel.tsx`, `SheetTabs.tsx`, `StatusBar.tsx`, `Workbench.tsx`, `MenuBar.tsx`):**
+  - *Nutzer-Entscheidung (`ask_user`):*
+    1. `bottom_bar_layout = hide_panel_tabs_until_opened`: Unten gibt es dauerhaft **nur noch 1 einzige Leiste** (links die Schaltblatt-Reiter `+` / Blätter, rechts der Status). `BottomPanel` hat im eingeklappten Zustand (`bottomOpen === false`) **keine eigene 34-px-Leiste** mehr (`return null`), sondern öffnet sich nur bei Bedarf über das obere Menü (`Ansicht` / `Analysen`) oder über den Prüfungs-Button unten rechts.
+    2. `bottom_status_items = minimal_sim_and_erc`: Doppelte Zoom-%-Anzeige, Auto-Save-Uhrzeit und `x/y`-Koordinaten entfallen. Unten rechts bleiben nur der **Prüfungs-Status** (`✓ Prüfung ok` / `⚠ Hinweise` / `✕ Fehler`, öffnet/schließt das untere Panel) sowie die **Simulations-Geschwindigkeit / Simulationszeit**.
+- **W97 · Obere Werkzeugleiste (`ComponentStrip.tsx`, `DrawingTools.tsx`) entzerren (`reduce_quick_parts_and_probes`):**
+  - *Nutzer-Entscheidung (`ask_user`):*
+    1. Schnell-Bauteile auf die **5 wichtigsten Grundbauteile** reduzieren (`R`, `C`, `L`, `VDC`, `GND` – alle weiteren Bauteile über `Bibliothek`).
+    2. Messsonden entschlacken: Direkt sichtbar stehen **`V`** und **`A`**, während die Spezial-Sonden (`V·A`, `W`, `ΔV`, `REF`, `D`) in einem sauberen Dropdown-Menü **`Sonden ▾`** gebündelt werden.
+    3. Höhere Leiste (`h-11` / `44 px`) und großzügige Abstände zwischen allen Gruppen und Buttons, damit nichts mehr gequetscht wirkt.
+
+### §31.2 — Umsetzung Runde 30 (W94–W97, alles verifiziert)
+
+- **Geänderte Dateien:**
+  - `src/components/MenuBar.tsx`: W94/W96 – Dokumentenname oben links vor `Datei` entfernt; im Menü `Ansicht` direkten Umschalter für `Auswertung & Konsole (unten)`, `SPICE-Netzliste öffnen` und `Stückliste (BOM) öffnen` ergänzt.
+  - `src/components/Canvas.tsx`: W95 – Einrichtungs-Wizard („Leere Leinwand – los geht's!") bei leerem/neuem Dokument komplett entfernt.
+  - `src/components/BottomPanel.tsx`: W96 – Im geschlossenen Zustand (`!bottomOpen`) rendert `BottomPanel` überhaupt keine Leiste (`return null`), sondern erscheint nur bei Bedarf.
+  - `src/components/StatusBar.tsx`: W96 – Verschmilzt die Schaltblatt-Reiter (`+` und geöffnete Blätter) auf der linken Seite und den stark entschlackten Status (`✓ Prüfung ok` + Simulations-Geschwindigkeit/Zeit, ohne Zoom-%, Auto-Save-Uhrzeit und `x/y`-Koordinaten) auf der rechten Seite zu **einer einzigen schlanken 30-px-Leiste**.
+  - `src/components/Workbench.tsx`: W96 – Separates `<SheetTabs />` entfernt, sodass unten dauerhaft nur 1 einzige Leiste steht.
+  - `src/components/ComponentStrip.tsx` & `src/components/DrawingTools.tsx`: W97 – Schnell-Bauteile auf die 5 Grundelemente (`R`, `C`, `L`, `VDC`, `GND`) reduziert; Messsonden auf `V` + `A` + Portal-Dropdown `Sonden ▾` (`V·A`, `W`, `ΔV`, `REF`, `D`) gebündelt; Leistenhöhe (`h-11`), Abstände (`gap-3` / `gap-2.5`) und Button-Maße spürbar luftiger gestaltet.
+- **Verifikation:**
+  - `./node_modules/.bin/tsc --noEmit`: 0 Fehler
+  - `npx --no-install eslint src scripts`: 0 Fehler / 0 Warnungen
+  - `npm test`: alle 7 Suiten grün
+  - `npx --no-install next build`: Produktions-Build erfolgreich
+
+---
+
+## §32 — Runde 31: Kein Stift-Cursor beim Leitung-Verschieben, feste Status-Symbole rechts unten, verschiebbare Datei-Tabs, funktionierende Beispiel-Simulationen & klare Stromrichtung beim Ampere-Messen (W98–W99)
+
+### §32.1 — Ursachenanalyse & Plan (W98–W99)
+
+- **W98a · Kein Stift-Cursor beim Überfahren oder Verschieben von Leitungen (`Canvas.tsx`):**
+  - *Ursache:* `findNetTarget` liefert auf Leitungen `{ kind: "wire" }`. In `onPointerMove` prüfte die Cursor-Logik `st.tool === "select" && sr.netHover !== null` **vor** `!sr.dragging` und ohne Beschränkung auf `sr.netHover.kind === "pin"`. Dadurch erschien beim Überfahren und sogar während des Ziehens (`wireSegDrag`, `wirePointDrag`, `sr.dragging`) einer Leitung der `PEN_CURSOR`.
+  - *Lösung:* Während jeder Zieh-Geste (`dragging`, `wireSegDrag`, `wirePointDrag`, `probeAnchorDrag`) ist `sr.netHover = null` und der Cursor zeigt `"ns-resize"` / `"ew-resize"` bzw. `"grabbing"`. Im `select`-Modus ohne aktiven `netDraft` erscheint `PEN_CURSOR` ausschließlich über einem Bauteil-Pin (`sr.netHover?.kind === "pin"`), während über Leitungssegmenten der Verschiebe-Cursor (`"ns-resize"` / `"ew-resize"`) erscheint.
+- **W98b · Symbole unten rechts bei laufender Simulation fest verankern (`StatusBar.tsx`):**
+  - *Ursache:* Das Textfeld für die Simulationszeit (`t = ...` vs. `bereit`) hatte keine feste Breite mehr; durch wechselnde Stringlängen (`1.2 ms` → `100.4 ms`) wackelten der Geschwindigkeitsregler und das Prüfungs-Symbol in jedem Frame.
+  - *Lösung:* Feste Breite und tabellarische Ziffern (`w-[98px] tabular-nums text-right` für die Zeit, `w-[44px] tabular-nums` für den Geschwindigkeitsfaktor), sodass alle Symbole unten rechts bei laufender Simulation absolut ruhig stehen.
+- **W98c · Datei-Tabs unten per Drag & Drop verschiebbar (`editor.ts`, `StatusBar.tsx`, `SheetTabs.tsx`):**
+  - *Lösung:* Neue Store-Aktion `reorderSheets(fromId, toId)` in `src/state/editor.ts` sowie Drag-&-Drop-Handler (`draggable`, `onDragStart`, `onDragOver`, `onDrop`, `onDragEnd`) auf den Schaltblatt-Reitern in `StatusBar.tsx` und `SheetTabs.tsx`.
+- **W98d · Simulation in den Beispielen (insb. 555 Blinker, OPV, Arduino, 4-Bit-Zähler) reparieren (`model.ts`, `netdraw.ts`, `tools.ts`, `editor.ts`, `realtime.ts`):**
+  - *Ursache:* `normalizeDocGeometry` rief `straightenWirePoints` auf allen Leitungen auf. `straightenWirePoints` reduzierte mehrteilige orthogonale Umleitungen (z. B. die 4-Punkt-Umleitungen um den NE555 in `astable555`) auf einen einzigen L-Knick und drehte 3-Punkt-L-Knicke um. Dadurch liefen die Leitungen in `astable555` mitten durch `U1.GND` (`380,310`), `U1.CTRL` (`460,310`) und `U1.DIS` (`380,250`) und schlossen `C1` nach Masse sowie `R1` nach `VCC` kurz – der 555-Blinker konnte nicht schwingen. Zudem speicherte Auto-Save diesen kurzgeschlossenen Stand im `localStorage`.
+  - *Lösung:*
+    1. Neue Funktion `orthogonalizeWirePoints` in `src/lib/schematic/model.ts`, die Punkte aufs Raster zieht und nur tatsächlich schräge Segmente rechtwinklig macht, bestehende orthogonale Umwege/Ecken aber erhält. `normalizeDocGeometry` nutzt `orthogonalizeWirePoints`.
+    2. Alle 8 Presets in `src/lib/schematic/tools.ts` auf exakte `GRID = 10`-Pin-Koordinaten gebracht (0 Kurzschlüsse, 0 offene Enden).
+    3. `restoreLocalProject` in `src/state/editor.ts` erkennt, falls im `localStorage` noch ein durch den früheren Bug kurzgeschlossenes Standard-Beispiel liegt, und stellt automatisch die intakte Vorlage wieder her.
+- **W99 · Deutliche Stromrichtung beim Ampere-/Strommessen & vorzeichenrichtige Messung (`Canvas.tsx`, `editor.ts`):**
+  - *Ursache:* Der Strompfeil an der Messspitze war winzig (`17 px` ohne Beschriftung), richtete sich auf senkrechten Leitungen nicht automatisch entlang der Leitung aus (`rotation = 0°`), und `netCurrentMap` teilte Bauteilströme pauschal durch `part.pins.length` ohne Berücksichtigung der Flussrichtung entlang des gemessenen Leitungssegments.
+  - *Lösung:*
+    1. Automatische Ausrichtung (`inferWireAngleAt`) entlang des Leitungssegments (`0°` waagerecht, `90°` senkrecht) beim Platzieren und Verschieben einer Strom-/Leistungs-/V·I-Sonde.
+    2. Großes, kontrastreiches **Stromrichtungs-Badge (`I ━━━▶`) + Messzangen-Ring** direkt an der Messspitze auf der Leitung sowie Richtungspfeil (`→`, `↓`, `←`, `↑`) im Sonden-Kästchen.
+    3. KCL-basierte vorzeichenrichtige Berechnung des Zweigstroms entlang der Pfeilrichtung (`+I` in Pfeilrichtung, `−I` gegen die Pfeilrichtung).
+    4. Doppelklick auf eine Stromsonde (oder Rechtsklick → „Stromrichtung umkehren (⇄)") kehrt die Messrichtung sofort um 180° um.
+
+### 32.2 Ergebnisse Runde 31 (W98–W99)
+
+- **W98a (`src/components/Canvas.tsx`)**: Während `wireSegDrag`, `wirePointDrag`, `probeAnchorDrag` und `sr.dragging` wird `sr.netHover = null` gesetzt und der passende Verschiebe-Cursor (`"ns-resize"`, `"ew-resize"`, `"grabbing"`) erzwungen. Im Auswahlmodus (`select` ohne `netDraft`) springt der Anschluss-Magnet nur noch auf Bauteil-Pins (`kind === "pin"`) an – beim Überfahren oder Verschieben von Leitungen erscheint niemals mehr der Stift-Cursor (`PEN_CURSOR`).
+- **W98b (`src/components/StatusBar.tsx`)**: Die Elemente unten rechts besitzen feste Breiten mit `tabular-nums` (`min-w-[100px]` für die Prüfung, `w-[44px]` für die Geschwindigkeit, `w-[96px]` für die Simulationszeit), sodass während der laufenden Simulation kein einziges Symbol mehr wackelt oder springt.
+- **W98c (`src/state/editor.ts`, `src/components/StatusBar.tsx`, `src/components/SheetTabs.tsx`)**: `reorderSheets(fromId, toId)` erlaubt das freie Umsortieren der Schaltblatt-Reiter in der unteren Leiste per Drag & Drop.
+- **W98d (`src/lib/schematic/model.ts`, `src/lib/schematic/netdraw.ts`, `src/lib/schematic/tools.ts`, `src/lib/sim/realtime.ts`, `src/state/editor.ts`)**: `normalizeDocGeometry` nutzt `orthogonalizeWirePoints` statt `straightenWirePoints`, damit mehrknickige Umgehungsleitungen nicht über Bauteil-Pins gefaltet werden. Alle 8 Vorlagen sind auf `GRID = 10` ausgerichtet (0 Fehler, 0 Warnungen, 0 offene Enden, 0 Kurzschlüsse), `rebuild()` befüllt sofort `currents`/`power`, und `restoreLocalProject()` heilt automatisch früher im `localStorage` gespeicherte kurzgeschlossene Vorlagen.
+- **W99 (`src/components/Canvas.tsx`, `src/state/editor.ts`)**: `inferWireAngleAt` richtet Strom-/Leistungs-/V·A-Sonden automatisch entlang waagerechter (`0°`) und senkrechter (`90°`) Leitungen aus; `drawProbe` zeichnet an der Messspitze eine Stromzangen-Hülse samt leuchtendem Richtungs-Pfeil-Schild, zeigt den Richtungspfeil (`→`, `↓`, `←`, `↑`) im Kästchen und berechnet den Zweigstrom vorzeichenrichtig in Pfeilrichtung (Umkehren per Doppelklick oder Kontextmenü).
+- **Verifikation**: `./node_modules/.bin/tsc --noEmit`, `npx --no-install eslint src`, `npm test` (inkl. Abschnitt 21 für `W98–W99`) und `npx --no-install next build` laufen fehlerfrei durch.
+
+---
+
+## §33 — Runde 32: Touch-Optimierung bei unveränderter Maus- und Tastatursteuerung (W100–W105)
+
+### 33.1 Ursachenanalyse & Plan (W100–W105)
+
+Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % unverändert. Für Touch-Geräte (`e.pointerType === "touch"`, iPad, Tablet, Smartphone, Touch-Laptop) werden folgende 6 Punkte gezielt optimiert:
+
+1. **W100 — Saubere Trennung von 1-Finger- und 2-Finger-Touch-Gesten (`src/components/Canvas.tsx`)**:
+   - **Pinch-to-Zoom & 2-Finger-Pan ohne Geister-Aktionen**: Sobald ein zweiter Finger aufsetzt (`e.touches.length >= 2`), werden laufende 1-Finger-Gesten (`sr.dragging`, `sr.panning`, `sr.marquee`, `wireSegDrag`, `wirePointDrag`, `probeAnchorDrag`, `longPressTimer`) sofort abgebrochen (`pinching = true`), damit beim Zoomen mit zwei Fingern niemals versehentlich ein Bauteil verschoben oder ein Leitungs-Eckpunkt gesetzt wird.
+   - **1-Finger-Pan auf freiem Hintergrund bei Touch (`pan_on_touch`)**: Zieht man im Auswahl-Modus (`select`) mit dem Finger (`e.pointerType === "touch"`) auf freiem Hintergrund, schwenkt die Arbeitsfläche (`sr.panning = true`); ein kurzer Tipp auf freien Hintergrund hebt wie gewohnt die Auswahl auf. Mit der Maus (`e.pointerType === "mouse"`) bleibt es unverändert beim Auswahlrahmen (`sr.marquee`).
+   - **Zuverlässiger Long-Press (500 ms) & Doppeltipp auf allen Touch-Geräten**: Long-Press (Kontextmenü + Vibrations-Feedback) und Touch-Doppeltipp (< 320 ms, < 24 px für Inline-Werteingabe, Stromrichtungs-Umkehr und Leitungsabschluss) prüfen `e.pointerType === "touch"` statt `window.innerWidth < 768`, sodass auch iPads, große Tablets und Touch-Notebooks unterstützt sind.
+
+2. **W101 — Großzügigere Touch-Fangradien (`src/components/Canvas.tsx`)**:
+   - Nur bei `e.pointerType === "touch"` werden die Treffer- und Magnetradien vergrößert (Pin-/Leitungs-Magnet `22 / zoom` statt `14 / zoom`, Leitungs-Eckgriffe `20 / zoom` statt `12 / zoom`, Leitungssegmente `14 px` statt `8 px`, Sonden-Messspitze `18 / zoom` statt `10 / zoom`). Für die Maus bleiben sämtliche Radien unverändert.
+
+3. **W102 — Kontextuelle Touch-Schnellaktionsleiste (`touch_only`, `src/components/Canvas.tsx`)**:
+   - Sobald der Nutzer per Touch (`e.pointerType === "touch"`) interagiert, erscheint am unteren Canvas-Rand eine kompakte, kontextsensitive Schnellaktionsleiste für Aktionen, die am Desktop über Tastenkürzel laufen:
+     - **Beim Platzieren eines Bauteils (`tool === "place"`)**: `↻ 90°`, `↺ -90°`, `⇆ Spiegeln`, `✕ Abbrechen`
+     - **Beim Platzieren einer Sonde (`placingProbeKind`)**: `✕ Sonde ablegen`
+     - **Beim Zeichnen eines Netzes (`netDraft !== null`)**: `↱ Knick wenden`, `✓ Hier beenden`, `✕ Abbrechen`
+     - **Bei aktiver Auswahl (`selection.length > 0`)**: `↻ 90°`, `⇆ Spiegeln`, `✎ Wert / Eigenschaften` (oder `⇄ Stromrichtung` bei Stromsonden), `⎘ Duplizieren`, `🗑 Löschen`, `✕ Fertig`
+   - Sobald wieder eine Maus (`e.pointerType === "mouse"`) bewegt oder geklickt wird, blendet sich die Touch-Aktionsleiste automatisch aus.
+
+4. **W103 — Touch-Sortierung der Datei-Tabs & Touch-Platzierung aus Bibliothek/Schnell-Leiste (`src/components/StatusBar.tsx`, `src/components/SheetTabs.tsx`, `src/components/Workbench.tsx`)**:
+   - Datei-Tabs unten unterstützen neben HTML5-Drag-and-Drop (Maus) auch Touch-Ziehen (`onTouchStart`, `onTouchMove`, `onTouchEnd` via `document.elementFromPoint` + `data-sheet-id`), damit Reiter auch auf iOS/Android verschoben werden können.
+   - Auf Smartphones (`isMobile`) schließt sich das Bibliothek-BottomSheet automatisch, sobald ein Bauteil zum Platzieren angetippt wird (`libraryOpen` wird in `setPlacing` zurückgesetzt), damit man es sofort auf dem Schaltplan absetzen kann.
+
+5. **W104 — Abgerundete Mobile-Werkzeugleiste & größere Touch-Eckgriffe an Instrumenten (`src/components/Workbench.tsx`, `src/components/Instruments.tsx`)**:
+   - In `MobileTopBar` und `MobileBottomToolbar` stehen auf Smartphones zusätzlich Undo/Redo, Grundbauteile (`R`, `C`, `L`, `VDC`, `GND`), Beschriftung (`L`, `T`) und Geräte-Schnellzugriff (Oszi / FG) bereit.
+   - Die vier Resize-Ecken der schwebenden Instrumenten-Fenster (`Instruments.tsx`) erhalten eine vergrößerte Touch-Trefferfläche, ohne das sichtbare Erscheinungsbild für Mausnutzer zu verändern.
+
+### 33.2 Ergebnisse Runde 32 (W100–W104)
+
+- **W100 (`src/components/Canvas.tsx`)**:
+  - Beim Aufsetzen eines 2. Fingers (`onTouchStart` mit `e.touches.length >= 2`) werden laufende 1-Finger-Aktionen (`sr.dragging`, `sr.panning`, `sr.marquee`, `wireSegDrag`, `wirePointDrag`, `probeAnchorDrag`, `longPressTimer`) sofort abgebrochen (`pinching: true`) und `endGesture()` aufgerufen.
+  - Im Auswahl-Modus (`select`) schwenkt 1-Finger-Ziehen auf freiem Hintergrund bei Touch (`e.pointerType === "touch"`) den Schaltplan (`pan_on_touch`), während die Maus (`e.pointerType === "mouse"`) unverändert den Auswahlrahmen (`sr.marquee`) aufzieht.
+  - Long-Press (500 ms) für das Kontextmenü und Doppeltipp (< 320 ms, < 26 px) funktionieren auf allen Touch-Geräten über `e.pointerType === "touch"`.
+- **W101 (`src/components/Canvas.tsx`)**: Vergrößerte Fangradien ausschließlich bei `e.pointerType === "touch"` (Magnet `22 / zoom`, Leitungsgriffe `20 / zoom`, Leitungssegmente `14 px`, Sonden-Anker `18 / zoom`); Maus-Radien bleiben 1:1 unverändert.
+- **W102 (`src/components/Canvas.tsx`)**: Kontextuelle Touch-Schnellaktionsleiste (`touch_only`), die nur nach Touch-Interaktion (`isTouchActive`) erscheint und beim Platzieren (`↻ 90°`, `↺ -90°`, `⇆ Spiegeln`, `✕ Abbrechen`), beim Netzzeichnen (`↱ Knick wenden`, `✓ Hier beenden`, `✕ Abbrechen`) sowie bei aktiver Auswahl (`↻ 90°`, `⇆ Spiegeln`, `⇄ Richtung`, `✎ Wert`, `⚙ Inspector`, `⎘ Kopie`, `🗑 Löschen`, `✕`) alle Tastatur-Aktionen direkt per Fingertipp bereitstellt.
+- **W103 (`src/components/StatusBar.tsx`, `src/components/SheetTabs.tsx`, `src/state/editor.ts`)**: Datei-Tabs unten unterstützen neben HTML5-Drag-and-Drop auch Touch-Ziehen (`onTouchStart`/`onTouchMove`/`onTouchEnd` über `data-sheet-id`), und `setPlacing(partId)` schließt automatisch `libraryOpen`.
+- **W104 (`src/components/Workbench.tsx`, `src/components/Instruments.tsx`)**: `MobileTopBar` enthält Undo/Redo-Buttons, `MobileBottomToolbar` bietet alle Zeichenwerkzeuge und die 5 Grundbauteile (`R`, `C`, `L`, `VDC`, `GND`), die doppelte `StatusBar` im `BottomSheet` wurde entfernt, und die Titelleiste der Instrumenten-Fenster besitzt `touchAction: "none"`.
+
+---
+
+## §34 — Runde 33: Physikalisch sinnvolle, gut sichtbare und sprungfreie Stromanimation (W105–W107)
+
+### 34.1 Ursachenanalyse & Physikalische Einordnung (W105–W107)
+
+1. **Physikalische Frage (Geschwindigkeit vs. Menge/Dichte der Ladungsträger)**:
+   - In einem metallischen Leiter ist die **Ladungsträgerdichte $n$ konstant** (der Draht ist immer gleichmäßig mit freien Leitungselektronen gefüllt; bei größerem Strom entstehen nicht „mehr Elektronen“ im Draht).
+   - Nach $I = n \cdot e \cdot A \cdot v_d$ ist die **Stromstärke $I$ proportional zur Driftgeschwindigkeit $v_d$** der Ladungsträger.
+   - Würde man die Anzahl/den Abstand der Punkte dynamisch mit $I(t)$ ändern, würden bei Wechselstrom oder beim Laden/Entladen eines Kondensators ständig Punkte auf der Leitung aufploppen und verschwinden (was erneut ein Springen verursacht).
+   - **Sinnvolle Darstellung**: Fester, gleichmäßiger Punktabstand (`SPACING = 22 px` entlang der Leitung = konstante Ladungsträgerdichte $n$), während die **Geschwindigkeit** stetig mit der Stromstärke $|I|$ skaliert (komprimierte logarithmische Kennlinie von $\sim 14\,\text{px/s}$ bei $\mu\text{A}$ bis $\sim 120\,\text{px/s}$ bei $\text{A}$, damit sowohl Basisströme im $\mu\text{A}$-Bereich als auch Lastströme im $\text{mA}/\text{A}$-Bereich ohne Stroboskop-Effekt gleichzeitig erkennbar sind). Bei sehr kleinen Strömen blendet die Deckkraft sanft ein/aus; bei $I = 0$ kommen die Ladungsträger ruhig zum Stehen.
+
+2. **W105 — Ursache des „Springens“ bei Stromumkehr oder Stromänderung (`src/components/Canvas.tsx`)**:
+   - **Ursache**: Bisher wurde die Punktposition über `offset = (_flowPhase * speed * dir) % totalLen` aus der **Gesamtzeit seit Simulationsstart** (`_flowPhase`) berechnet. Sobald `dir` von $+1$ auf $-1$ wechselte (oder `speed` sich änderte), sprang `_flowPhase * speed * dir` schlagartig auf einen völlig anderen Modulo-Wert!
+   - **Lösung**: Wir speichern pro Leitung `wire.id` eine eigene kontinuierliche Phase `phasePx` (`Map<string, number>`) und **integrieren** in jedem Frame nur das Weg-Inkrement:
+     $$\text{phasePx}_{k+1} = (\text{phasePx}_k + \text{dir} \cdot \text{speed}(|I|) \cdot \Delta t) \bmod \text{SPACING}$$
+     Kehrt sich der Strom um, wechselt nur das Vorzeichen des winzigen Frame-Inkrements $\Delta x$ – die Ladungsträger bremsen an Ort und Stelle ab und laufen exakt von ihrer aktuellen Position aus in die Gegenrichtung zurück.
+
+3. **W106 — Vollständige Pin-Ströme inkl. Mehrpol-Bauteilen (NE555, OPV, Transistoren) & KCL-Bilanz (`src/components/Canvas.tsx`)**:
+   - **Ursache**: Bisher wurden für die Stromanimation nur 2-polige Bauteile (`part.pins.length === 2`) ausgewertet. Lag ein Zweig zwischen einem IC-Pin (z. B. `U1.DIS` oder `U1.OUT` beim NE555) und einem Knoten, fehlte der IC-Pin als Quelle/Senke.
+   - **Lösung**: Unbestimmte IC-/Mehrpol-Pins eines Netzes erhalten per Kirchhoffschem Knotensatz (KCL) automatisch den aus den angeschlossenen Zweipolen resultierenden Bilanzstrom $-\sum I_{\text{bekannt}}$ (bzw. `engine.sim.pinCurrent`), sodass alle Zweige (auch `DIS`, `OUT`, Transistor-Kollektor/Emitter/Basis) korrekt durchflossen werden.
+
+4. **W107 — Deutlich bessere Sichtbarkeit der fließenden Ladungsträger (`src/components/Canvas.tsx`)**:
+   - **Ursache**: Bisher wurden kleine mattgraue Punkte (`#94a3b8`, Radius `2 px`, Abstand `60 px`) ohne Kontrastrand direkt auf die blaue Leitung gezeichnet.
+   - **Lösung**: Gleichmäßiger Abstand (`22 px`) und kontrastreiche Ladungsträger-Perlen (leuchtendes Goldgelb `#fde047` bei Elektronenfluss bzw. Warmweiß `#ffffff` bei technischer Stromrichtung, eingefasst von einem dunklen Kontrastrand `#0f172a` mit Radius `2.9 px`), die sich im Dark- und Light-Mode sowie auf jeder Leitungsfarbe klar abheben.
+
+### 34.2 Ergebnisse Runde 33 (W105–W107)
+
+- **W105 (`src/components/Canvas.tsx`)**: Jede Leitung besitzt in `flowState._wirePhases` eine eigene kontinuierlich integrierte Phase `phasePx` (`phase_k+1 = (phase_k + dir * speed * dt) % 22`). Bei Richtungsumkehr oder Stromänderung ändert sich nur das infinitesimale Frame-Inkrement `dir * speed * dt` – es gibt keinerlei Positions-Sprünge mehr.
+- **W106 (`src/components/Canvas.tsx`)**: T-Abzweige mitten auf Leitungssegmenten werden beim Aufbau des Leitungsgraphen automatisch verknüpft, und Mehrpol-Bauteile (NE555, OPV, BJT, MOSFET) erhalten per KCL den Gegenstrom der angeschlossenen Zweipole, sodass ein stetiges Knotenpotential `phi` über 24 Relaxationsschritte die Flussrichtung auf allen Zweigen bestimmt.
+- **W107 (`src/components/Canvas.tsx`)**: Ladungsträger werden im festen Abstand `FLOW_SPACING = 22 px` als kontrastreiche Perlen (`#fde047` mit dunklem Rand `rgba(15,23,42,0.88)`, Radius `2.85 px`) gezeichnet.
+
+---
+
+## §35 — Runde 34: Entschlackte Menüs, Einstellungen im macOS-Stil & einheitliche Symbole auf Mobilgeräten (W108–W110)
+
+### 35.1 Ursachenanalyse & Plan (W108–W110)
+
+1. **W108 — Menüs (`MenuBar.tsx`) entschlacken, insbesondere „Bearbeiten“ und „Ansicht“**:
+   - **Ursache**: Im Menü „Bearbeiten“ standen 22 Einträge (inkl. 8 einzelner Ausrichten-/Verteilen-Befehle mit internem Label `Anordnen (W55)` sowie `Leitungen prüfen & reparieren`). Im Menü „Ansicht“ standen permanente Grundeinstellungen wie `Stromrichtung: − nach +`, `System (Auto)` / `Dunkel` / `Hell`, `Blattrand`, `Lineale` sowie lose Checkboxen (`Strom`, `Farben`) rechts in der Menüleiste.
+   - **Lösung**:
+     - **Bearbeiten** wird auf die klassischen Kernbefehle reduziert: `Rückgängig`, `Wiederholen`, `Kopieren`, `Einfügen`, `Duplizieren`, `Alles auswählen`, `Drehen (+90°)`, `Drehen (−90°)`, `Spiegeln`, `Leitungen begradigen`, `Löschen`.
+     - **Ansicht** enthält nur noch die schnellen Ansichts-Umschalter: `Einpassen (F)`, `Stromfluss animieren`, `Spannungsfarben`, `Bibliothek`, `Inspector`, `Auswertung & Konsole`, sowie `Einstellungen …` (`⌘,`).
+     - Grundeinstellungen wie **Stromrichtung** (`Elektronenfluss − → +` vs. `Technisch + → −`), **Erscheinungsbild** (`System`, `Dunkel`, `Hell`), **Lineale**, **Blattrand** und **Live-Werte** wandern komplett in die Einstellungen (`SettingsDialog.tsx`).
+     - Die losen Checkboxen `Strom` / `Farben` und der doppelte `⌘K`-Button rechts in der `MenuBar` werden entfernt; dort steht nur noch das Zahnrad-Icon für die Einstellungen.
+
+2. **W109 — Professioneller Einstellungs-Dialog im macOS-Stil ohne Tipps (`SettingsDialog.tsx`)**:
+   - **Ursache**: `SettingsDialog.tsx` enthielt Marketing-/Entwickler-Textkästen (`💡 Tipp`, `✨ Wow-Details`, `♿ Accessibility`), funktionslose Dummy-Selects/Checkboxen und einfache Standard-Checkboxen.
+   - **Lösung**: Kompletter Neubau im **macOS System-Settings-Stil**:
+     - Zwei-Spalten-Layout mit linker Sidebar (`Allgemein`, `Arbeitsfläche`, `Simulation`, `Messsonden`) und rechten **Grouped-Inset-Cards**.
+     - Echte **macOS Toggle-Switches** und **macOS Segmented Controls** (u. a. für `Erscheinungsbild`, `Stromrichtung: Elektronen (− → +) / Technisch (+ → −)` und `Schaltzeichen-Norm: Auto / IEC / ANSI`).
+     - Keinerlei Tipps, keine „Wow-Details“-Boxen und keine funktionslosen Dummy-Steuerelemente.
+
+3. **W110 — Einheitliche Symbole auf dem Smartphone wie am Desktop (`Workbench.tsx`, `ComponentStrip.tsx`)**:
+   - **Ursache**: `Workbench.tsx` nutzte auf Smartphones (`isMobile`) eine eigene `MobileBottomToolbar` mit Text-Zeichen (`"↖"`, `"✎"`, `"⌫"`, `"◉"`, `"R"`, `"C"`) statt der echten `DrawingTools`-Icons (`MousePointer2`, `Pencil`, `Eraser`, `GitCommitHorizontal`, `Tag`, `StickyNote`), `PartGlyph`-Schaltzeichen und farbigen Sonden-Pills aus `ComponentStrip.tsx`.
+   - **Lösung**: Auf Smartphones wird dieselbe `ComponentStrip` mit `<DrawingTools />` (horizontal scrollbar) verwendet wie auf Tablet und Desktop – damit sind der Auswahl-Cursor (`MousePointer2`), Stift, Radiergummi, Knotenpunkt, Bauteil-Schaltzeichen und die Probe-Symbole (`V`, `A`, `▾`) auf allen Geräten zu 100 % identisch.
+
+### 35.2 Ergebnisse Runde 34 (W108–W110)
+
+- **W108 (`src/components/MenuBar.tsx`)**:
+  - Das Menü **Bearbeiten** wurde von 22 auf 11 klare Standardbefehle entschlackt (`Rückgängig`, `Wiederholen`, `Kopieren`, `Einfügen`, `Duplizieren`, `Alles auswählen`, `Drehen (+90°)`, `Drehen (−90°)`, `Spiegeln`, `Leitungen begradigen`, `Löschen`).
+  - Das Menü **Ansicht** enthält nur noch die schnellen Ansichts-Umschalter (`Schaltplan einpassen`, `Stromfluss animieren`, `Spannungsfarben`, `Bibliothek`, `Inspector`, `Auswertung & Konsole`, `Einstellungen …`); Grundeinstellungen wie `Stromrichtung`, `Erscheinungsbild`, `Lineale`, `Blattrand` und `Live-Messwerte` wurden in die Einstellungen verschoben.
+  - Die losen Checkboxen (`Strom`, `Farben`) rechts in der Menüleiste wurden entfernt.
+- **W109 (`src/components/SettingsDialog.tsx`)**:
+  - Kompletter Neubau im **macOS System-Settings-Stil** (linke Sidebar `Allgemein`, `Arbeitsfläche`, `Simulation`, `Messsonden` + rechte Grouped-Inset-Cards mit echten macOS-Toggle-Switches und macOS-Segmented-Controls).
+  - Alle Tipp-Kästen (`💡 Tipp`, `✨ Wow-Details`, `♿ Accessibility`) und funktionslosen Dummy-Steuerelemente wurden entfernt.
+  - Unter `Simulation` lässt sich die **Stromrichtung** (`Elektronen (− → +)` vs. `Technisch (+ → −)`) direkt per Segmented Control umschalten.
+- **W110 (`src/components/Workbench.tsx`, `src/components/ComponentStrip.tsx`)**:
+  - Die abweichende `MobileBottomToolbar` (mit Text-Symbolen `"↖"`, `"✎"`, `"⌫"`, `"◉"`, `"V"`, `"A"`) wurde durch `<ComponentStrip tools={<DrawingTools />} />` ersetzt, sodass Cursor-, Werkzeug-, Bauteil- und Sonden-Symbole auf dem Smartphone exakt mit der Desktop-Ansicht übereinstimmen.
+
+---
+
+## §36 — Runde 35: Einheitliche Fenster-Kopfleiste, einzeilige Menüs, dezenter & physikalisch exakter Stromfluss & Bauteile-Editor (W111–W115)
+
+### 36.1 Ursachenanalyse & Plan (W111–W115)
+
+1. **W111 — Einheitliche Fenster-Kopfleiste für alle Fenster & Dialoge (`SettingsDialog.tsx`, `ui.tsx`)**:
+   - **Ursache**: `SettingsDialog.tsx` hatte oben links einen roten macOS-Schließpunkt (`#ff5f57`) und einen zentrierten Titel, während `LibraryPalette` und `Instruments` ihre Fenstertitelleiste mit Icon + Titel links und dem `X`-Schließen-Button rechts darstellen.
+   - **Lösung**: `SettingsDialog.tsx` und `Dialog` (`ui.tsx`) erhalten exakt dieselbe obere Fensterleiste wie die übrigen App-Fenster (`h-9`, `borderBottom: 1px solid var(--border)`, links Icon + Titel, rechts `<button className="btn px-1 py-0.5 h-6"><X size={13} /></button>`).
+
+2. **W112 — Keine Zweizeiler in den oberen Dropdown-Menüs (`ui.tsx`, `MenuBar.tsx`)**:
+   - **Ursache**: In `Menu` (`ui.tsx`) fehlte `w-max`, und in `MenuItem` fehlte `whitespace-nowrap`. Dadurch brachen längere Menüeinträge zusammen mit dem Shortcut-Hint bei 248 px Breite auf zwei Zeilen um.
+   - **Lösung**: `Menu` erhält `w-max min-w-[220px]` und `MenuItem` erhält `whitespace-nowrap` auf Button und Label-Span; alle Menübezeichnungen in `MenuBar.tsx` bleiben prägnant und garantiert einzeilig.
+
+3. **W113 — Dezenteres Farbdesign der Stromfluss-Animation (`Canvas.tsx`)**:
+   - **Ursache**: Die Ladungsträger-Perlen (`r = 2.85 px`, `#fde047` mit fast schwarzem Rand und voller Deckkraft `1.0`) wirkten farblich zu grell und dominant.
+   - **Lösung**: Kleinere, feinere Perlen (`r = 2.0 px`), gedämpfte warme Bernsteinfarbe (`#f59e0b` / `#e2e8f0`) mit sanfter Transparenz (`maxAlpha = 0.68`) und dezentem Konturrand (`rgba(15, 23, 42, 0.45)`).
+
+4. **W114 — Physikalisch exakter Stromfluss (Spannungsquelle Minuspol & NE555 LED bei ausgeschaltetem Ausgang, `engine.ts`, `Canvas.tsx`)**:
+   - **Ursache A (Minuspol der Spannungsquelle)**: Masse-Netze (`"0"`) bestehen im Schaltplan oft aus mehreren grafisch getrennten Leitungs-Inseln (jeweils ein Bauteil-Pin zu einem eigenen `GND`-Symbol mit `pins.length === 1`). Bisher wurden alle Pins von Netz `"0"` global in einen Topf geworfen und `GND`-Symbole (`pins.length === 1`) als `isMultiPin` behandelt, wodurch sich auf einzelnen Masse-Zweigen (z. B. `V1−` zu `GND1`) das Vorzeichen umkehren konnte.
+   - **Ursache B (Strom in der LED bei ausgeschaltetem Ausgang in `astable555`)**:
+     1. In `engine.ts` (`TIMER555`) war `vOutIdeal` bei `q = 0` auf `0.1 V` statt `vGnd` (`0 V`) gesetzt und `pinCurrent(d, 2)` gab `+iout` statt `-iout` zurück (obwohl `pinCurrent` positiv *in* das Bauteil hinein definiert ist).
+     2. In `Canvas.tsx` lag die Anzeigeschwelle bei `1e-9 A` (1 nA!). Dadurch reichte schon der winzige numerische Sperr-/Leckstrom einer gesperrten LED aus, um sichtbare Strompunkte in die ausgeschaltete LED wandern zu lassen.
+     3. Außerdem wurde die Stromstärke `mag` bisher pro Gesamtnetz (`netMag`) statt pro einzelnem Leitungszweig bestimmt, sodass selbst unbelastete Stichleitungen (z. B. zu hochohmigen Komparator-Eingängen `TRIG`/`THRES`) animiert wurden.
+   - **Lösung**:
+     1. In `engine.ts` liefert `TIMER555` bei `q = 0` echten Low-Pegel (`vGnd`), und `pinCurrent` liefert für alle Mehrpol-Bauteile (`TIMER555`, `Q`, `M`, `J`, `OPAMP`, `COMPARATOR`, `POT`, `VREG`) vorzeichenrichtig den Strom *in* den jeweiligen Pin hinein.
+     2. In `Canvas.tsx` wird die KCL-Bilanz **pro zusammenhängender Leitungs-Komponente (Connected Component im Draht-Graphen `adj`)** gelöst: `GND`-Pins (`partId === "gnd"`) nehmen exakt den Rückstrom ihrer jeweiligen Leitungs-Insel auf, und aus dem gelösten linearen Kirchhoff-System $\sum_{v \in N(u)} (\phi(u) - \phi(v)) = I_{\text{inj}}(u)$ ergibt sich auf jedem Draht der echte physikalische Zweigstrom $I_{\text{wire}} = \Delta \phi$ in Ampere.
+     3. Die Sichtbarkeitsschwelle wird auf physikalisch sinnvolle `10 µA` (`1e-5 A`) angehoben – unterhalb von `10 µA` (Sperrströme, hochohmige Eingänge, ausgeschalteter Ausgang) steht der Stromfluss komplett still.
+
+5. **W115 — Eigener Bauteile-Editor mit Gehäuse & Pin-Zuweisung (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`, `LibraryPalette.tsx`, `MenuBar.tsx`)**:
+   - Neuer Bauteile-Editor im einheitlichen Fenster-Design:
+     - Auswahl des **Gehäuses / Footprints** (`DIP-8`, `DIP-14`, `DIP-16`, `SOIC-8`, `TO-220`, `TO-92`, `SOT-23`, `0805`, `Eigenes IC`),
+     - Interaktive **Pin-Zuweisung** (Pin-Nummer, Name, Gehäuseseite `Links`/`Rechts`/`Oben`/`Unten`, elektrische Funktion) mit **Live-Schaltzeichen- & Gehäuse-Vorschau**,
+     - Speicherung in der Bauteil-Bibliothek (`localStorage` + sofortige Registrierung in `PARTS` / `PART_MAP` unter `Eigene Bauteile`), direkt erreichbar über die Bibliothek (`+ Neues Bauteil`) und das Menü `Datei → Bauteil-Editor …`.
+
+### 36.2 Ergebnisse Runde 35 (W111–W115)
+
+- **W111 (`src/components/SettingsDialog.tsx`, `src/components/ui.tsx`)**: Alle Dialoge und Fenster (`SettingsDialog`, `Dialog`, `PartEditorDialog`, `LibraryPalette`, `Instruments`) nutzen nun dieselbe obere Fensterleiste (`h-9`, `borderBottom: 1px solid var(--border)`, Titel links, `X`-Button rechts).
+- **W112 (`src/components/ui.tsx`, `src/components/MenuBar.tsx`)**: `Menu` (`w-max min-w-[220px]`) und `MenuItem` (`whitespace-nowrap`) verhindern jeglichen Zeilenumbruch in den oberen Dropdown-Menüs.
+- **W113 (`src/components/Canvas.tsx`)**: Dezentere Ladungsträger-Perlen (`r = 2.0 px`, warme Bernsteinfarbe `#f59e0b` bzw. `#cbd5e1` mit sanfter Deckkraft `0.32..0.68` und feinem Rand `0.85 px`).
+- **W114 (`src/lib/sim/engine.ts`, `src/components/Canvas.tsx`)**:
+  - Die Totem-Pole-Ausgangsstufe des `TIMER555` speist bei `q = 1` (`HIGH`) ihren Laststrom echt aus `VCC` (`nVcc`) nach `OUT` (`nOut`) und zieht bei `q = 0` (`LOW`) `OUT` direkt nach `GND` (`0 V`). Dadurch ist der Strom durch die LED bei ausgeschaltetem Ausgang exakt `0 A`.
+  - In `Canvas.tsx` wird das Kirchhoff-System pro zusammenhängender Leitungs-Insel (Connected Component im Draht-Graphen `adj`) gelöst; `GND`-Symbole nehmen exakt den Rückstrom ihrer jeweiligen Leitungs-Insel auf, und hochohmige Steuereingänge (`TRIG`, `THR`, `RST`, `IN+`, `IN-`, `Gate`) erhalten keinen künstlichen Ausgleichsstrom.
+  - Die Anzeigeschwelle liegt bei `10 µA` (`1e-5 A`), sodass Leck-/Sperrströme unterdrückt werden.
+- **W115 (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`, `src/components/LibraryPalette.tsx`, `src/components/MenuBar.tsx`, `src/components/Workbench.tsx`)**:
+  - Vollständiger Bauteile-Editor mit Gehäuse-Vorlagen (`DIP-8`, `SOIC-8`, `DIP-14`, `DIP-16`, `TO-220`, `SOT-23`, `0805`), frei konfigurierbarer Pin-Zuweisung (Name, Seite, elektrische Funktion), Live-Schaltzeichen- & Gehäuse-Vorschau und Speicherung in der Bibliothek.
+
+---
+
+## §37 — Runde 36: Kompakte Inline-Textfelder mit Einheit, edles Notiz-Design & Windows-Desktop-App-Workflow mit rahmenlosen Multi-Fenstern (W116–W118)
+
+### 37.1 Ursachenanalyse & Plan (W116–W118)
+
+1. **W116 — Inline-Textfelder auf dem Canvas (Widerstandswert, Netzname, Notiz) nicht mehr über die volle Bildschirmbreite & mit Einheit (`Canvas.tsx`, `globals.css`)**:
+   - **Ursache**: Die globale CSS-Klasse `.input` in `src/app/globals.css` setzt `width: 100%` außerhalb von `@layer utilities` und überschrieb dadurch in Tailwind v4 die Klasse `w-48` des Inline-Editors in `Canvas.tsx`. Zudem fehlten beim Bearbeiten eines Bauteilwerts das Bauteil-Label (`R1`, `C1` …) und die physikalische Einheit (`Ω`, `F`, `H`, `V`, `A`, `Hz`).
+   - **Lösung**:
+     - Das Inline-Editor-Popover auf dem Canvas erhält eine feste, kompakte Breite (`width: auto` mit expliziter `style={{ width: ... }}`), ein solides, abgedunkeltes Panel-Design mit warmem Bernstein-Fokusrahmen (`var(--wire-sel)`), links das Bauteil-/Typ-Badge (`R1`, `NET`, `NOTIZ`), rechts direkt im Feld das **Einheiten-Badge** (`Ω`, `F`, `H`, `V`, `A`, `Hz`) und einen Bestätigungs-Button (`↵`).
+
+2. **W117 — Neues, hochwertiges Notiz-Design auf dem Schaltplan (`Canvas.tsx`)**:
+   - **Ursache**: Notizen (`doc.notes`) wurden bisher nur als nackter grauer Text (`ctx.fillText`) ohne Karte, ohne Akzent und ohne mehrzeilige Darstellung auf den Hintergrund gezeichnet; auch die Vorschau und die Trefferfläche waren rudimentär.
+   - **Lösung**:
+     - Notizen werden als technische **Laborbuch-Callout-Karten** gezeichnet: abgerundetes Kärtchen (`var(--panel-solid)` mit feinem Rahmen `var(--border-strong)` und sanftem Schatten), links ein **3 px breiter warmer Bernstein-Akzentstreifen** (`#f59e0b`), oben links ein dezentes `NOTIZ`-Kopf-Badge + Pin-Ankerpunkt, klare Typografie (`var(--text)`) und Unterstützung für mehrzeiligen Text (`\n` bzw. Wortumbruch).
+     - Sowohl die Platzier-Vorschau (`tool === "text"`) als auch der Klick-/Doppelklick-Hit-Test prüfen die gesamte Kartenfläche.
+
+3. **W118 — Zusätzlicher GitHub-Workflow & Electron-Shell für Windows-Desktop-App mit rahmenlosen iTunes-Stil-Fenstern (`.github/workflows/windows-app.yml`, `desktop/`, `Workbench.tsx`, `Instruments.tsx`, `LibraryPalette.tsx`)**:
+   - **Anforderung (`ask_user` bestätigt)**:
+     - Web-App bleibt 100 % wie bisher.
+     - Zusätzliche Workflow-Datei `.github/workflows/windows-app.yml`, die auf `windows-latest` aus dem Projekt eine echte Windows-Desktop-App (Portable `.exe` + NSIS-Installer `.exe`) baut und als GitHub-Artifact bereitstellt.
+     - Sowohl das **Hauptfenster** als auch die **Messgeräte / Inspector** und die **Bibliothek** laufen unter Windows als **eigene rahmenlose Windows-Fenster (`frame: false`)** ohne Standard-Windows-Titelleiste, stattdessen mit einer eigens designten, ziehbaren Custom-Window-Bar im **iTunes-für-Windows-Stil** (gebürsteter/ dunkler Studio-Header mit integrierten Fenster-Buttons Minimieren/Maximieren/Schließen).
+     - Live-Synchronisation zwischen Hauptfenster und ausgelagerten Geräte-/Bibliotheksfenstern über `BroadcastChannel("multispice-desktop-sync")` + Electron-IPC.
+
+### 37.2 Umsetzung & Verifikation (`W116–W118`)
+
+- **`W116` (`src/components/Canvas.tsx`)**:
+  - Das nackte `<input className="input mono absolute z-40 w-48">` (das wegen `.input { width: 100% }` über die gesamte Bildschirmbreite gestreckt wurde) wurde durch ein kompaktes, schwebendes **Inline-Popover-Kärtchen** (`width: 196 px` für Bauteilwerte/Netznamen bzw. `248 px` für Notizen) ersetzt.
+  - Oben links zeigt ein Kontext-Badge den Bauteil-Bezeichner (`R1`, `C1`, `V1` …) bzw. `NET` oder `NOTIZ`, rechts daneben den Parameternamen (z. B. `Widerstand`, `Kapazität`, `Netzname`).
+  - Im Eingabefeld selbst wird rechtsbündig direkt die **physikalische Einheit (`Ω`, `F`, `H`, `V`, `A`, `Hz`)** als festes Einheiten-Badge eingeblendet.
+- **`W117` (`src/components/Canvas.tsx`)**:
+  - Notizen (`doc.notes`) werden als hochwertige **Laborbuch-Notizkarten** gezeichnet: abgerundetes Kärtchen (`var(--panel-solid)` mit feinem Schatten und Rahmen), links ein **3,5 px breiter warmer Bernstein-Akzentstreifen (`#f59e0b`)**, oben ein dezentes `NOTIZ`-Kopf-Badge und darunter klar lesbarer ein- oder mehrzeiliger Notiztext (`var(--text)`).
+  - Sowohl die Live-Vorschau beim Platzieren (`tool === "text"`) als auch `getNoteBounds` / `hitTestNote` verwenden exakt die neue Kartengeometrie.
+- **`W118` (`src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`, `src/components/Instruments.tsx`, `src/components/LibraryPalette.tsx`, `desktop/main.cjs`, `desktop/preload.cjs`, `.github/workflows/windows-app.yml`)**:
+  - Web-App bleibt zu 100 % unverändert.
+  - In der Windows-Desktop-App (Electron) öffnen das **Hauptfenster**, alle **Messgeräte / Inspector** (`StandaloneInstrumentView`) und die **Bauteile-Bibliothek** (`LibraryPalette standalone`) als echte, eigenständige **rahmenlose Windows-OS-Fenster (`frame: false`)** ohne Standard-Windows-Titelleiste.
+  - Jedes Fenster besitzt oben die maßgeschneiderte **`DesktopTitleBar`** im Stil von **iTunes für Windows** (gebürstete dunkle Metall-Optik, ziehbar per `-webkit-app-region: drag`, integriertes LCD-Statusfenster im Hauptfenster und eigene Minimieren-/Maximieren-/Schließen-Buttons).
+  - `.github/workflows/windows-app.yml` baut auf `windows-latest` den statischen Next.js-Export (`out/`) und paketiert mit `electron-builder` sowohl die **Portable `.exe`** als auch den **NSIS-Installer `.exe`** als GitHub-Actions-Artefakt (`MultiSpice-Windows-App`).
+
+---
+
+## §38 — Runde 37 (`W119–W123`): Windows-Workflow-Überwachung & Umfangreiches Bauteil-Studio (Transistor-Innenschaltung, Symbol-Zeicheneditor, Gehäuse & Pin-Mapping)
+
+### 38.1 Analyse & Plan (`W119–W123`)
+
+1. **`W119` — Windows-App GitHub-Actions-Workflow reparieren & per Check-Annotations überwachen (`.github/workflows/windows-app.yml`, `desktop/package.json`)**:
+   - **Ursache des Fehlers in Run `37038326578`**: In `electron-builder` ist `${target}` in `win.artifactName` keine gültige Substitutions-Variable (`Unknown substitution: target`); `artifactName` muss pro Target (`portable.artifactName` und `nsis.artifactName`) definiert werden. Zudem legen wir eine saubere, statische `desktop/package.json` im Repository ab statt sie in PowerShell per `ConvertTo-Json` zu serialisieren.
+   - **Überwachung per Annotations/Kommentar**: Da die Sandbox den Zip-Download von `results-receiver.actions.githubusercontent.com` blockiert, gibt der Workflow Baufortschritt, etwaige Fehlermeldungen und die erzeugten `.exe`-Artefakte samt Dateigröße als GitHub-Actions-Annotations (`::notice title=...::` / `::error title=...::`) aus, die direkt über `gh run view` ausgelesen werden können.
+
+2. **`W120` — Umfangreiche Transistor-/Subcircuit-Innenschaltung im Bauteil-Studio (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`)**:
+   - Eigene Bauteile können eine vollständige **Innenschaltung (Subcircuit / Makromodell)** aus Transistoren (`NPN`, `PNP`, `NMOS`, `PMOS`), Dioden (`Diode`, `Zener`), Komparatoren/OpAmps, Widerständen (`R`), Kondensatoren (`C`), Spulen (`L`) und Quellen (`V`, `I`) besitzen.
+   - **Drei Wege zum Aufbau**:
+     1. **Vom aktuellen Schaltplan übernehmen**: Liest alle Bauteile, Leitungen und Netzlabels vom Canvas ein und wandelt Netzlabels automatisch in Ein-/Ausgangs-Pins um.
+     2. **Interaktiver Innenschaltungs-Baukasten**: Direktes Hinzufügen/Bearbeiten interner Transistoren, Widerstände usw. samt Knoten-Verbindungen und Live-Topologie-Schaltbild.
+     3. **Fertige Transistor-Innenschaltungs-Vorlagen**: u. a. **NE555 mit 3× 5 kΩ-Spannungsteiler, Komparatoren, Flip-Flop, NPN-Entladetransistor (`DISCH`) und Push-Pull-Transistor-Endstufe (`OUT`)**, **Diskreter Operationsverstärker (NPN/PNP-Differenzstufe)**, **CMOS-Inverter (PMOS + NMOS)**, **Darlington-Transistorstufe** und **Transistor-Konstantstromquelle**.
+   - **Echte MNA-Simulation**: `compileSubcircuitToDevices` expandiert die Innenschaltung für jede platzierte Instanz mit isolierten internen Knoten (`${inst.id}__sub_${node}`) und direkt angebundenen Außen-Pins in echte Simulator-Devices.
+
+3. **`W121` — Interaktiver Symbol-Zeicheneditor (`SymbolCanvasEditor` in `src/components/PartEditorDialog.tsx`)**:
+   - Grafische Zeichenfläche mit Raster zum **selber Zeichnen und Beschriften** von Schaltsymbolen:
+     - Werkzeuge für **Auswählen/Verschieben**, **Linie/Polylinie (Dreieck/Pfeil)**, **Rechteck (gefüllt/ungefüllt, abgerundet)**, **Kreis**, **Bogen**, **freie Text-Beschriftung** (Größe & Ausrichtung) sowie **freies Platzieren/Verschieben der Ein- und Ausgangspins**.
+     - Schnellgeneratoren (Standard-IC-Block, Transistor-Kreis, Verstärker-Dreieck, Leeres Blatt) als Startpunkt.
+
+4. **`W122` — Ein-/Ausgangs-Pins & Gehäuse-Editor (`src/components/PartEditorDialog.tsx`)**:
+   - Jeder Pin besitzt Name, Pin-Nummer, elektrische Rolle (`IN`, `OUT`, `I/O`, `VCC`, `GND`, `PASSIVE`), optionale Symbol-Markierung (`Invertiert ○`, `Takteingang ▷`), Position/Seite und den **zugeordneten Knoten der Innenschaltung**.
+   - Interaktive Gehäuse-Draufsicht (`DIP-8`, `DIP-14`, `DIP-16`, `SOIC-8`, `TO-220`, `TO-92`, `SOT-23`, `QFP-16`, `Custom`) mit Pin-1-Markierung und Pin-Zuordnung.
+
+5. **`W123` — Bauteil-Verwaltung, Nachbearbeiten, JSON-Import/Export & Inspector-Integration**:
+   - Bestehende eigene Bauteile können jederzeit im Bauteil-Studio geladen, geändert, dupliziert, gelöscht oder als JSON exportiert/importiert werden.
+   - Direkt aus dem Inspector kann ein ausgewähltes eigenes Bauteil im Bauteil-Studio geöffnet werden.
+
+### 38.2 Umsetzung & Verifikation (`W119–W123`)
+
+- **`W119` (`desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+  - Statische `desktop/package.json` mit getrennten `portable.artifactName` (`${productName}-${version}-Portable.${ext}`) und `nsis.artifactName` (`${productName}-${version}-Setup.${ext}`) angelegt (behebt den `Unknown substitution: target`-Fehler in `electron-builder`).
+  - Workflow gibt Baufortschritt, Fehler-Logs und die erzeugten `.exe`-Artefakte samt Dateigröße als GitHub-Actions-Annotations (`::notice::` / `::error::`) aus, sodass der Lauf direkt über `gh run view` überwacht werden kann.
+- **`W120–W123` (`src/lib/library/customParts.ts`, `src/components/PartEditorDialog.tsx`, `src/components/Inspector.tsx`, `src/components/Workbench.tsx`)**:
+  - **4-Tab-Bauteil-Studio**:
+    1. **Innenschaltung (Transistoren & Knoten)**: Interaktiver Subcircuit-Baukasten (`NPN`, `PNP`, `NMOS`, `PMOS`, `R`, `C`, `L`, `Diode`, `Zener`, `Komparator`, `OPV`, `Quellen`) mit Live-Topologie-Vorschau, direktem Import vom Haupt-Schaltplan (*„Vom Schaltplan übernehmen“*) und 4 kompletten Transistor-Innenschaltungs-Vorlagen (darunter **NE555 Timer mit 3× 5 kΩ-Spannungsteiler, NPN-Darlington-Threshold, PNP-Trigger/Reset, NPN-Open-Collector-Entladetransistor Q14 an DIS und Totem-Pole-Transistor an OUT**).
+    2. **Schaltsymbol zeichnen & beschriften**: Interaktiver Vektor-Zeicheneditor (`SymbolCanvasEditor`) auf dem 10-px/5-px-Raster für Linien, Rechtecke, Kreise, Bögen, freie Beschriftungen und ziehbare Pin-Ankerpunkte.
+    3. **Ein-/Ausgangs-Pins & Gehäuse**: Pin-Konfigurator mit elektrischer Rolle (`IN`, `OUT`, `I/O`, `VCC`, `GND`), Pin-Markierungen (`Invertiert ○`, `Takt ▷`), Gehäuseseite, Knoten-Mapping zur Innenschaltung und physischer Gehäuse-Draufsicht (`PackageTopView` für `DIP-8`, `SOIC-8`, `DIP-14`, `DIP-16`, `TO-220`, `TO-92`, `0805`).
+    4. **Parameter & Verwaltung**: Eigene Bauteil-Parameter, JSON-Export/Import und direkter Sprung aus dem Inspector (*„Im Bauteil-Studio bearbeiten“*).
+
+---
+
+## §39 — Runde 38 (`W124–W129`): Puristische Fensterleiste, Widerstand-Doppelklick nur auf Wert, Windows-Bibliotheksfenster-Fix, Library-Aufräumen, Dock-Entfernung & Windows-Favicon/Ladeanimation
+
+### 39.1 Analyse & Plan (`W124–W129`)
+
+1. **`W124` — Fensterbalken (`DesktopTitleBar.tsx`) komplett ohne Icon & ohne Text, minimal vom Rest abhebend (macOS-Stil)**:
+   - **Anforderung**: „Einmal soll nichts im Fenstertitel stehen. Kein Icon, kein Text. Und der fensterbalken soll sich nicht so sehr vom Rest abheben. maximal minimal. Wie bei macos.“
+   - **Lösung**:
+     - `DesktopTitleBar.tsx` enthält keinerlei Icon, keinen Titeltext und kein Statusdisplay mehr, sondern nur noch die ziehbare Fläche (`-webkit-app-region: drag`) und rechts die dezenten Fenstersteuerung-Buttons (`Minimieren`, `Maximieren`, `Schließen`).
+     - Die Hintergrundfarbe ist `var(--panel-solid)` mit einer hauchdünnen `1px solid var(--border)`-Unterkante (ohne metallischen Farbverlauf), sodass sie nahtlos mit dem Fenster verschmilzt.
+
+2. **`W125` — Doppelklick auf Widerstandskörper (nicht auf den Wert) darf nicht das Wertefenster öffnen (`src/components/Canvas.tsx`)**:
+   - **Ursache**: In `onDoubleClick` (und beim Touch-Doppeltipp in `onPointerDown`) wurde `const hit = hitTestInstance(...) ?? findInstanceByValueLabel(...)` ausgewertet und für jedes getroffene Bauteil mit numerischem Hauptwert das Inline-Wertefeld (`setEditing({ kind: "value", ... })`) geöffnet.
+   - **Lösung**:
+     - Nur ein Doppelklick **gezielt auf das Wert-/Bezeichner-Label unterhalb des Bauteils** (`findInstanceByValueLabel(st.doc, world)`) öffnet das Inline-Wertefeld (`setEditing({ kind: "value", ... })`).
+     - Ein Doppelklick auf das **Bauteilsymbol selbst** (`hitTestInstance(st.doc, world.x, world.y)`) öffnet dagegen den Inspector (`openInstrument("inspector")`) bzw. bei Oszilloskop/Funktionsgenerator das jeweilige Messgerät.
+
+3. **`W126` — Windows-App: Bibliothek-Fenster schließt sich nicht mehr sofort wieder & zeigt kein Hauptfenster-Aufblitzen (`src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`, `desktop/main.cjs`, `desktop/preload.cjs`)**:
+   - **Ursache**:
+     1. Beim Öffnen des Kindfensters `/?desktopWindow=library` lieferte `useSyncExternalStore` im ersten SSR-Hydrations-Tick den Server-Snapshot `""` (`role === "main"`). Dadurch lief `useDesktopMultiWindowSync("main")` im Kindfenster an, sah `libraryOpen === false` und rief `bridge.closeChildWindow("library")` auf – das Kindfenster schloss sich selbst sofort wieder!
+     2. Zudem zeigte `out/index.html` bis zur Client-Hydration kurzzeitig das vor-gerenderte Hauptfenster.
+   - **Lösung**:
+     - `preload.cjs` und `DesktopTitleBar.tsx` lesen `window.location.search` direkt aus; `useDesktopMultiWindowSync` prüft `window.location.search` synchron in jedem Effect und ruft `closeChildWindow("library")` nur noch auf, wenn `libraryOpen` im Hauptfenster von `true` auf `false` wechselt (`wasLibraryOpenRef.current && !libraryOpen`).
+     - `desktop/main.cjs` akzeptiert `open-child` / `close-child` ausschließlich vom `mainWindow` (`event.sender.id === mainWindow.webContents.id`) und zeigt Kindfenster erst nach `multispice:child-ready` (sobald `LibraryPalette` bzw. `StandaloneInstrumentView` gemountet ist), sodass niemals das Hauptfenster aufblitzt.
+
+4. **`W127` — Bibliothek (`src/components/LibraryPalette.tsx`): Listen/Grid-Umschalter oben rechts & Anfasser-Icon (`Grip`) oben links entfernen**:
+   - `<Grip size={12} />` oben links sowie der funktionslose Listen-/Grid-Umschalter-Button oben rechts werden komplett aus `LibraryPalette.tsx` entfernt.
+
+5. **`W128` — Fenster-ins-Dock-Einrasten überall entfernen (`src/components/Instruments.tsx`, `src/state/editor.ts`)**:
+   - Der Dock-Button (`PanelBottom`) in der Titelleiste aller Gerätefenster sowie die untere Dock-Leiste in `InstrumentLayer` werden vollständig entfernt; alle Fenster bleiben immer freie, unabhängige Fenster.
+
+6. **`W129` — Schnellerer Start der Portable-Version, Repo-Favicon statt Standard-Logo & minimalistische Ladeanimation (`desktop/package.json`, `desktop/main.cjs`, `.github/workflows/windows-app.yml`)**:
+   - `portable` erhält `"compression": "store"` (bzw. schnelles Entpacken ohne schwere LZMA-Dekomprimierung beim Start).
+   - Das Repo-Favicon (`public/favicon.png`, `512×512`) wird als Windows-App- und Fenster-Icon (`icon.png` in `build.win.icon` und `BrowserWindow({ icon })`) eingebunden.
+   - Beim Start zeigt `desktop/main.cjs` sofort eine minimalistische Ladeansicht mit dem Repo-Favicon und einem feinen Ladebalken auf `#0d1017`, bis die App bereit ist.
+
+### 39.2 Umsetzung & Verifikation (`W124–W129`)
+
+- **`W124` (`src/components/DesktopTitleBar.tsx`)**:
+  - Kein Icon, kein Text und kein mittleres Display mehr in der Titelleiste; Hintergrund `var(--panel-solid)` mit einer hauchdünnen `1px solid var(--border)`-Unterkante (minimal vom Rest abhebend wie bei macOS) und dezenten Fensterbuttons rechts.
+- **`W125` (`src/components/Canvas.tsx`)**:
+  - `onDoubleClick` unterscheidet strikt zwischen `bodyHit = hitTestInstance(...)` und `valueLabelHit = findInstanceByValueLabel(...)`: Nur ein Doppelklick gezielt auf den Wert unter dem Widerstand öffnet das Inline-Wertefeld; ein Doppelklick auf den Widerstandskörper selbst öffnet den Inspector.
+- **`W126` (`src/components/DesktopTitleBar.tsx`, `desktop/main.cjs`, `desktop/preload.cjs`)**:
+  - Kindfenster (`?desktopWindow=library` / `?desktopWindow=instrument`) lösen beim ersten SSR-Hydrations-Tick niemals `closeChildWindow("library")` aus (`wasLibraryOpenRef` + strikte URL-/Sender-Prüfung `event.sender.id === mainWindow.webContents.id`) und werden erst nach `multispice:child-ready` sichtbar geschaltet.
+- **`W127` (`src/components/LibraryPalette.tsx`)**:
+  - Anfasser-Icon (`Grip`) oben links und der Listen-/Grid-Umschalter oben rechts entfernt.
+- **`W128` (`src/components/Instruments.tsx`)**:
+  - Dock-Button (`PanelBottom`) und untere Dock-Leiste komplett entfernt.
+- **`W129` (`desktop/main.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+  - `public/favicon.png` (`512×512`) als Windows-`.exe`- und Fenster-Icon eingebunden, `"compression": "store"` für verzögerungsfreien Start der Portable-Version aktiviert und sofortiges minimalistisches Splash-Fenster (`createSplashWindow`) mit Repo-Favicon und feiner Ladeanimation beim Programmstart ergänzt.
+
+---
+
+## §40 — Runde 39 (`W130–W136`): Echtes Datei-Speichern mit Auto-Save nach Erstspeicherung, Vektor-Druck & PDF-Export, Bibliotheks-Klickverhalten, echtes Klicken-Halten-Ziehen, blitzfreie Kindfenster, proportionale Gerätefenster & sofortiger Portable-Splash
+
+### 40.1 Analyse & Plan (`W130–W136`)
+
+1. **`W130` — Echtes Datei-Speichern, Öffnen & automatisches Nachspeichern nach dem ersten Speichern (Windows & Browser)**:
+   - **Ursache**:
+     - Bisher schrieb `Datei → Lokal speichern (⌘S)` nur in `localStorage` (`multispice.project.v1`), erzeugte aber keine echte Datei auf der Festplatte.
+     - Zudem lauschte der lokale HTTP-Server in `desktop/main.cjs` auf `server.listen(0, "127.0.0.1")` (zufälliger Port pro Start), wodurch sich der `localStorage`-Origin bei jedem Neustart der Windows-App änderte.
+   - **Lösung**:
+     - **Fester Port + native AppData-Persistenz unter Windows**: `desktop/main.cjs` nutzt einen festen Vorzugsport (`17531`, Fallback `17532..17545`) und spiegelt den Arbeitsstand zusätzlich nach `app.getPath("userData")/workspace-state.json`.
+     - **Echtes Speichern & Speichern unter (`Strg+S` / `Strg+Umschalt+S`)**:
+       - Beim **ersten Speichern** (`Strg+S` oder `Datei → Speichern`) öffnet sich unter Windows der native Windows-Speicherdialog (`dialog.showSaveDialog`, `.msx.json`) bzw. im Browser die File System Access API (`window.showSaveFilePicker`, mit `.msx.json`-Download-Fallback).
+       - Sobald die Datei **einmal gespeichert** (oder über `Datei → Öffnen …` geöffnet) wurde, merkt sich MultiSpice den Dateipfad (`currentFilePath` in Windows) bzw. das Datei-Handle (`activeBrowserFileHandle` im Browser).
+       - **Ab diesem Moment speichert der Auto-Save (`scheduleAutosave`) jede Änderung automatisch direkt in diese Datei nach** (zusätzlich zum Arbeitskopie-Speicher), und ein erneutes `Strg+S` schreibt sofort ohne erneuten Dialog in dieselbe Datei. `Speichern unter …` (`Strg+Umschalt+S`) fragt jederzeit nach einem neuen Speicherort.
+
+2. **`W131` — Drucken (`Strg+P`) & PDF-/Datei-Export in Browser und Windows-App reparieren**:
+   - **Ursache**:
+     - `PrintSheet` in `Workbench.tsx` versuchte kurz vor `window.print()` per `c.toDataURL("image/png")` einen Screenshot des (oft dunklen) Canvas in ein `<img>` zu laden, das beim Öffnen der Druckvorschau oft noch nicht dekodiert war.
+     - `exportPdf` in `src/lib/export/sheet.ts` rief `window.open("", "_blank")` auf – in Electron (`desktop/main.cjs`) blockierte `setWindowOpenHandler(() => ({ action: "deny" }))` jedes `about:blank`-Popup komplett!
+   - **Lösung**:
+     - `PrintSheet` rendert das gestochen scharfe, papierweiße Vektor-Schaltblatt (`docToSvg(doc, { frame: false })`) **synchron als Inline-SVG** direkt im DOM – sofort bereit für `Strg+P` und `window.print()`.
+     - In der Windows-App (`desktop/main.cjs`) erzeugt `Export PDF` über `webContents.printToPDF({ landscape: true, pageSize: "A4", printBackground: true })` + nativen Speicherdialog eine echte `.pdf`-Datei direkt auf der Festplatte, und `Drucken …` öffnet über ein sauberes Vektor-Druckfenster verlässlich den nativen Windows-Druckdialog.
+
+3. **`W132` — Bibliothek schließt sich nicht beim einfachen Klick auf ein Bauteil, sondern nur beim Klicken & Ziehen oder über den „Platzieren“-Button (`src/components/LibraryPalette.tsx`)**:
+   - Ein einfacher Klick auf eine Bauteilzeile (`PartRow`) wählt das Bauteil aus (Detailansicht rechts + Platzier-Vorbereitung), **lässt die Bibliothek aber offen**.
+   - Erst ein Klick auf den **„Als … platzieren (Enter)“-Button** (oder `Enter` / Doppelklick) oder das **Klicken, Gedrückthalten und Herausziehen** eines Bauteils auf den Schaltplan schließt die Bibliothek.
+
+4. **`W133` — Echtes „Klicken, gedrückt halten und Ziehen“ (Click-Hold-Drag) ohne Zwischendurch-Loslassen (`src/components/LibraryPalette.tsx`, `src/components/ComponentStrip.tsx`, `src/components/Instruments.tsx`, `src/components/Canvas.tsx`, `src/components/oszi2/Oscilloscope.tsx`, `src/components/fg2/FunctionGenerator.tsx`)**:
+   - **Bauteile aus Bibliothek, Schnellleiste (`R`, `C`, `L`, `VDC`, `GND`) und Geräteleiste (`Oszi`, `FG`)**: Drückt man die Maustaste auf ein Bauteil, hält sie gedrückt und zieht auf den Canvas (> 5 px), hängt das Bauteil sofort als Live-Schaltzeichen-Vorschau am Zeiger (die Bibliothek schließt sich dabei automatisch) und wird beim **Loslassen der Maustaste auf dem Canvas** direkt platziert!
+   - **Leitungen auf dem Canvas**: Drückt man auf einen Bauteil-Pin, hält die Maustaste gedrückt, zieht zu einem anderen Pin/Netz und lässt los, wird die Leitung sofort beim Loslassen fertig verbunden (ein kurzer Klick ohne Ziehen startet weiterhin das schrittweise Eckpunkt-Verlegen).
+   - **BNC-Tastköpfe (Oszi) & Ausgangskabel (FG-2500)**: Reagieren bereits bei `onPointerDown`, sodass man ein Kabel anklicken, gedrückt halten, direkt auf Klemme/Schaltplan ziehen und beim Loslassen anschließen kann.
+   - **Gerätefenster ziehen**: `data-no-drag` auf dem äußeren Gehäuse-Container von Oszi & FG entfernt, zodat man Gerätefenster im Browser überall am freien Gehäuse sofort per Klicken-Halten-Ziehen bewegen kann.
+
+5. **`W134` — Windows-App: Kein kurzes Aufblitzen des MultiSpice-Hauptfensters beim Öffnen neuer Kindfenster (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`)**:
+   - **Ursache**: `out/index.html` enthält das vor-gerenderte HTML des Hauptfensters (`role === "main"`), und der 450-ms-Fallback in `main.cjs` blendete das Kindfenster bereits ein, bevor React `?desktopWindow=...` fertig hydriert hatte.
+   - **Lösung**:
+     - Der HTTP-Server in `desktop/main.cjs` injiziert in `<head>` ein synchrones Inline-Skript/Style: Sobald `location.search` `desktopWindow=` enthält, bleibt `body` auf `opacity: 0` (`background: #0d1017`), bis die Kind-Ansicht (`LibraryPalette` / `StandaloneInstrumentView`) in React gemountet ist, das Attribut entfernt und `multispice:child-ready` sendet. Zudem wird der frühe 450-ms-Fallback durch einen reinen Sicherheits-Timeout (3500 ms) ersetzt.
+
+6. **`W135` — Geräte nie im Vollbild öffnen (außer vom User angepasst) & beim Skalieren immer proportional (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Instruments.tsx`, `src/components/DeviceFit.tsx`)**:
+   - **Startgröße**: Geräte öffnen sich unter Windows niemals maximiert/vollbildartig, sondern in einer kompakten, freischwebenden Größe (max. ~62 % der Bildschirmbreite/-höhe unter exakter Wahrung des Seitenverhältnisses), sofern der Nutzer das Fenster zuvor nicht selbst vergrößert oder maximiert hat (Benutzer-Fenstergrößen werden pro Gerätetyp in `userData` gespeichert).
+   - **Proportionale Skalierung**: Sowohl im Browser (`Instruments.tsx`) als auch unter Windows (`desktop/main.cjs` via `setAspectRatio` + `will-resize`-Handler sowie `DeviceFit` in `StandaloneInstrumentView`) behalten Geräte beim Skalieren immer exakt ihr Seitenverhältnis bei.
+
+7. **`W136` — Windows Portable: Sofortiger Ladebildschirm beim Doppelklick (`desktop/make-splash-bmp.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+   - **Ursache**: Der NSIS-Wrapper der Portable-`.exe` entpackt vor dem Start von `MultiSpice.exe` das Archiv nach `%TEMP%`; erst danach startete `main.cjs`.
+   - **Lösung**:
+     - `desktop/make-splash-bmp.cjs` erzeugt beim Build eine native 24-Bit-BMP-Grafik (`splash.bmp`) im dunklen MultiSpice-Design mit dem Repo-Favicon und Ladebalken.
+     - Über `portable.splashImage: "splash.bmp"` und `portable.unpackDirName: "MultiSpice-1.0.0-Runtime"` in `desktop/package.json` zeigt Windows **sofort beim Doppelklick (< 50 ms)** auf win32-Ebene den Ladebildschirm an, noch während die Portable-Laufzeit vorbereitet wird, und übergibt danach nahtlos an das animierte Splash-Fenster in `main.cjs`.
+
+### 40.2 Umsetzung & Verifikation (`W130–W136`)
+
+- **`W130` (`desktop/main.cjs`, `desktop/preload.cjs`, `src/lib/storage.ts`, `src/lib/schematic/openFile.ts`, `src/state/editor.ts`, `src/components/MenuBar.tsx`)**:
+  - Fester lokaler Port (`17531..17535`) + native `%APPDATA%/MultiSpice/workspace-state.json`-Spiegelung (`saveAppData` / `loadAppDataSync`) für Arbeitskopie, Projektliste, Favoriten und eigene Bauteile.
+  - Echte Datei-Speicherung (`saveProjectToFile` & `autoSaveToBoundFile`) per nativem Windows-Dialog (`window.multispiceDesktop.saveFile`) bzw. File System Access API (`window.showSaveFilePicker` / Blob-Download-Fallback) im Browser.
+  - Sobald eine Datei einmal gespeichert oder geöffnet wurde (`activeDesktopFilePath` bzw. `activeBrowserFileHandle`), speichert `scheduleAutosave()` jede Änderung automatisch nach 1,5 s direkt in diese Datei nach.
+- **`W131` (`src/lib/export/sheet.ts`, `src/components/Workbench.tsx`, `src/components/MenuBar.tsx`, `src/components/ui.tsx`, `desktop/main.cjs`)**:
+  - `PrintSheet` rendert synchron ein papierweißes Vektor-SVG (`docToSvg(doc, { frame: false, paperColor: "#ffffff" })`) statt eines asynchronen Canvas-Screenshots.
+  - `exportPdf` und `printSchematicSheet` nutzen unter Windows `multispice:print-svg` (`webContents.printToPDF` bzw. nativer Windows-Druckdialog) und im Browser ein synchrones Vektor-Druckblatt.
+  - `downloadText` und `downloadBlob` nutzen unter Windows den nativen Speicherdialog und geben im Browser `ObjectURL`s erst nach 1500 ms frei.
+- **`W132` (`src/components/LibraryPalette.tsx`, `src/components/DesktopTitleBar.tsx`)**:
+  - Einfacher Klick auf eine Bauteilzeile (`onSelectPart`) wählt das Bauteil lediglich zur Vorschau in der Bibliothek aus und schließt die Bibliothek **nicht**.
+  - Erst der Klick auf „Als … platzieren (Enter)“, die `Enter`-Taste oder das direkte Klicken-und-Ziehen (`onStartDragPart`) schließt die Bibliothek und startet die Platzierung.
+- **`W133` (`src/components/Canvas.tsx`, `src/components/LibraryPalette.tsx`, `src/components/ComponentStrip.tsx`, `src/components/Instruments.tsx`, `src/components/OsziScope.tsx`, `src/components/FgScope.tsx`, `src/components/oszi2/Oscilloscope.tsx`, `src/components/fg2/Bnc.tsx`)**:
+  - Echtes Klicken, gedrückt halten, Ziehen und Loslassen (`pointerdown` → `pointermove` > 5 px → `pointerup`) für Bauteile aus Bibliothek, Schnellleiste und Geräteleiste direkt auf den Schaltplan.
+  - Im Auswahlmodus (`select`) greift der Pin-Magnet nur eng am Pin-Anschluss (`7 px`), sodass der gesamte Bauteilkörper frei zum direkten Klicken-Halten-Ziehen bleibt; zieht man von einem Pin mit gedrückter Maustaste zu einem Ziel-Pin/Netz, verbindet sich die Leitung sofort beim Loslassen.
+  - BNC-Buchsen an Oszilloskop und Funktionsgenerator nehmen Tastköpfe/Kabel direkt bei `onPointerDown` auf und schließen sie beim Loslassen (`onPointerUp`) auf Klemme oder Schaltplan an.
+  - `data-no-drag` auf dem äußeren Gehäuse von Oszi und FG entfernt, damit freie Gehäuseflächen das Fenster sofort ziehen.
+- **`W134` (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`)**:
+  - Synchroner `<head>`-Boot-Shield (`CHILD_BOOT_SHIELD`, `data-ms-child-boot="1"`) hält Kindfenster unsichtbar, bis React die Kind-Ansicht gemountet hat und `notifyChildReady()` aufruft – kein kurzes Aufblitzen des Hauptfensters mehr.
+- **`W135` (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Instruments.tsx`, `src/components/DeviceFit.tsx`, `src/components/OsziScope.tsx`, `src/components/FgScope.tsx`)**:
+  - Geräte öffnen unter Windows niemals im Vollbild (außer vom Nutzer zuvor so skaliert/maximiert; Fenstergrößen werden pro Gerät in `userData` persistiert) und skalieren in Browser wie Windows immer streng proportional (`setAspectRatio` + `will-resize` + `DeviceFit`).
+- **`W136` (`desktop/make-splash-bmp.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+  - Nativer 24-Bit-BMP-Splash (`portable.splashImage: "splash.bmp"`) + persistentes Laufzeitverzeichnis (`portable.unpackDirName: "MultiSpice-1.0.0-Runtime"`) für sofortigen Ladebildschirm direkt beim Doppelklick auf die Portable-`.exe`.
+
+---
+
+## §41 — Runde 40 (`W137–W140`): Einziger animierter Taskbar-Splash mit humorvollen Statusmeldungen (sofort ab Doppelklick), echte Windows-Fenstertitel in der Taskleiste & bereinigter Schaltungs-Assistent ohne AI-Slop
+
+### 41.1 Analyse & Plan (`W137–W140`)
+
+1. **`W137` — Ein einziger, animierter Ladebildschirm im Taskbar (sofort ab Doppelklick, ohne doppeltes Aufpoppen) & humorvolle Textmeldungen statt Ladebalken (`desktop/portable-launcher.cs`, `desktop/main.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+   - **Ursache**:
+     - `electron-builder`s `portable.splashImage` zeigte zuerst ein statisches, nicht animiertes NSIS-BMP ohne Taskleiste, und danach öffnete `desktop/main.cjs` (`createSplashWindow`) ein zweites Ladefenster (`skipTaskbar: true`) mit Ladebalken.
+   - **Lösung**:
+     - `portable.splashImage` wird entfernt.
+     - Für die **Portable-`.exe`** baut der Workflow einen nativen Win32/.NET-Starter (`desktop/portable-launcher.cs` via `csc.exe`, auf jedem Windows 10/11 ohne Zusatz-Abhängigkeiten lauffähig), der **sofort beim Doppelklick (< 50 ms)** als echtes Fenster in der Windows-Taskleiste (`ShowInTaskbar = true`, Titel `"MultiSpice"`, mit App-Icon) erscheint, einen sanft rotierenden Amber-Ring um das MultiSpice-Logo animiert und **ohne Ladebalken** alle ~1,2 s humorvolle Labor-Statusmeldungen durchwechselt (z. B. *„Lötkolben wird auf 350 °C vorgeheizt …“*, *„Magischen Rauch in die ICs füllen …“*, *„Oszilloskop-Strahl entknoten …“*, *„Widerstände nach Farbringen sortieren …“*, *„Kirchhoffsche Knotenregeln höflich durchsetzen …“*).
+     - Im Hintergrund entpackt der Starter beim Erststart das unkomprimierte App-Archiv nach `%LOCALAPPDATA%\MultiSpice\Runtime-1.0.0` und startet `MultiSpice.exe --portable-splash-pid=<PID>`.
+     - Erkennt `desktop/main.cjs` `--portable-splash-pid=<PID>`, öffnet es **kein zweites Splash-Fenster**, sondern beendet den Starter-Splash exakt in der Millisekunde, in der das MultiSpice-Hauptfenster sichtbar wird (`mainWindow.show()`).
+     - Wird `MultiSpice.exe` direkt gestartet (z. B. aus dem NSIS-Installer `Setup.exe`), zeigt `createSplashWindow()` in `desktop/main.cjs` denselben einzigen, animierten, in der Taskleiste sichtbaren (`skipTaskbar: false`) Ladebildschirm mit denselben humorvollen Textmeldungen (ohne Ladebalken).
+
+2. **`W138` — Eigene Windows-Fenstertitel für alle geöffneten Geräte- und Werkzeugfenster in der Taskleiste (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`)**:
+   - **Ursache**: Sobald ein Electron-`BrowserWindow` `out/index.html` lud, überschrieb Chromium den in `new BrowserWindow({ title })` gesetzten Fenstertitel automatisch mit `<title>MultiSpice</title>` aus `index.html`.
+   - **Lösung**:
+     - In `desktop/main.cjs` unterbindet `win.on("page-title-updated", (e) => e.preventDefault())` das Überschreiben durch das statische HTML-Tag und hält den echten Fenstertitel (`"Oszilloskop"`, `"Funktionsgenerator"`, `"Digitalmultimeter"`, `"Bode-Plotter"`, `"Logikanalysator"`, `"Wattmeter"`, `"Frequenzzähler"`, `"Bauteil-Bibliothek"`, `"Inspector"`, `"Bauteil-Studio"`) fest; zusätzlich erlaubt der IPC-Kanal `multispice:set-title` dynamische Titel-Updates.
+     - In `src/components/DesktopTitleBar.tsx` setzt jedes Fenster `document.title` und `window.multispiceDesktop?.setWindowTitle(...)` passend zu seiner Rolle (z. B. `"Oszilloskop"`, `"Bauteil-Bibliothek"`, bzw. im Hauptfenster `"MultiSpice – <Projektname>"`).
+
+3. **`W139` — Schaltungs-Assistent (`src/components/WizardsDialog.tsx`) komplett von AI-Slop, Emojis, „wie Multisim“ und „MVP“-Texten befreien & vollständig verdrahtete Schaltungen erzeugen**:
+   - Alle Emojis (`⏰`, `✨`, `📉` usw.), sämtliche „wie Multisim“- und „Multisim hat 20+ Wizards. Für MVP...“-Texte sowie die überladenen Untertitel in der linken Seitenleiste werden restlos entfernt.
+   - Klare, sachliche deutsche Oberfläche (`Schaltungs-Assistent`), gegliedert in übersichtliche Kategorien, mit präziser Live-Berechnung der Bauteilwerte (`R1`, `R2`, `C`, `f`, `Verstärkung`, `U_aus`) und Generierung sauber verdrahteter, direkt simulierbarer Schaltungen (mit echten Parameter-Schlüsseln `r`, `c`, `l`, `v`, `freq`, `amp` und orthogonalen Leitungen).
+
+4. **`W140` — Weitere sichtbare „Multisim“-/„MVP“-Reste und Emojis in UI-Komponenten bereinigen (`src/components/Canvas.tsx`, `src/components/Inspector.tsx`, `src/components/Instruments.tsx`, `src/components/ProbeTable.tsx`, `src/components/LibraryPalette.tsx`)**:
+   - Alle verbleibenden sichtbaren Textstellen wie `„Probe setzen – Multisim“`, `„Multisim Style“`, `„Multisim Hinweis“`, `„Wie in Multisim“`, `„Für MVP zeigt AC-Kurve“` in `Canvas.tsx`, `Inspector.tsx`, `Instruments.tsx` und `ProbeTable.tsx` werden durch klare, professionelle deutsche Fachbegriffe ersetzt.
+
+### 41.2 Umsetzung & Verifikation (`W137–W140`)
+
+- **`W137` (`desktop/portable-launcher.cs`, `desktop/pack-portable.cjs`, `desktop/main.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+  - `portable.splashImage` (`splash.bmp`) entfernt, sodass niemals ein zweites Ladefenster nach dem ersten aufpoppt.
+  - Die Portable-`.exe` besitzt einen nativen Win32/.NET-Starter (`portable-launcher.cs`), der **sofort beim Doppelklick (< 40 ms)** als echtes Fenster in der Windows-Taskleiste (`ShowInTaskbar = true`, Titel `"MultiSpice"`, App-Icon) erscheint, einen sanft rotierenden Amber-Ring um das MultiSpice-Logo animiert und **ohne Ladebalken** alle ~1,2 s humorvolle deutsche Labor-Statusmeldungen anzeigt.
+  - Der Starter übergibt `--portable-splash-pid=<PID>` an `MultiSpice.exe`; `desktop/main.cjs` überspringt in diesem Fall sein eigenes Splash-Fenster und schließt den Starter-Splash exakt beim Einblenden des Hauptfensters (`mainWindow.show()`).
+  - Beim direkten Start der installierten Version (`Setup.exe`) zeigt `createSplashWindow()` in `desktop/main.cjs` denselben einzigen, animierten Taskbar-Ladebildschirm (`skipTaskbar: false`) mit humorvollen Textmeldungen ohne Ladebalken.
+- **`W138` (`desktop/main.cjs`, `desktop/preload.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`)**:
+  - `lockWindowTitle(win, title)` (`page-title-updated` -> `preventDefault()`) und `multispice:set-title` sorgen dafür, dass jedes geöffnete Windows-Fenster in der Taskleiste beim Hovern seinen echten Namen zeigt (`"Oszilloskop"`, `"Funktionsgenerator"`, `"Digitalmultimeter"`, `"Bauteil-Bibliothek"`, `"Inspector"` bzw. `"<Schaltplanname> – MultiSpice"`).
+- **`W139` (`src/components/WizardsDialog.tsx`)**:
+  - Komplett überarbeiteter **„Schaltungs-Assistent“** ohne Emojis, ohne „wie Multisim“, ohne „MVP“-Hinweise und ohne überladene Seitenleisten-Beschreibungen; erzeugt vollständig verdrahtete, direkt simulierbare Schaltungen mit exakter Live-Dimensionierung.
+- **`W140` (`src/components/Canvas.tsx`, `src/components/Inspector.tsx`, `src/components/Instruments.tsx`, `src/components/ProbeTable.tsx`, `src/components/LibraryPalette.tsx`)**:
+  - Alle sichtbaren „Multisim“-/„MVP“-Texte und Emojis in Kontextmenüs, Inspector, Messpunkt-Tabelle und Geräte-Hinweisen bereinigt.
+
+
+
+
+

@@ -22,18 +22,37 @@ import {
   straightenWirePoints,
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
-import { contactKeep, normalizeDocGeometry } from "@/lib/schematic/netdraw";
+import {
+  cleanOrphanJunctions,
+  contactKeep,
+  dragWireCornerOrtho,
+  dragWireSegmentOrtho,
+  insertComponentIntoWires,
+  isPinnedWireEnd,
+  nearestWireFoot,
+  normalizeDocGeometry,
+} from "@/lib/schematic/netdraw";
 import { orthoFollow } from "@/lib/schematic/ortho";
 import { RealtimeEngine } from "@/lib/sim/realtime";
 import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
-import { loadLibraryLocal, loadProjectLocal, saveLibraryLocal, saveProjectLocal } from "@/lib/storage";
+import {
+  autoSaveToBoundFile,
+  clearActiveSaveTarget,
+  getActiveSaveTargetLabel,
+  hasActiveSaveTarget,
+  loadLibraryLocal,
+  loadProjectLocal,
+  saveLibraryLocal,
+  saveProjectLocal,
+  saveProjectToFile,
+} from "@/lib/storage";
 import { IntegrationMethod } from "@/lib/sim/engine";
 import { BENCH_PAD } from "@/lib/windows/geometry";
 import { DEFAULT_MCU_SKETCH } from "@/lib/sim/digital";
 
-/* Auto-Save: 2 s nach der letzten Schaltplan-Änderung in den localStorage.
-   Still bei Erfolg, ehrlich bei Fehler (Quota, Privatmodus) – das Produkt
-   hält sein Versprechen aus dem Menü, statt es nur zu behaupten. */
+/* Auto-Save: 1.5 s nach der letzten Schaltplan-Änderung in den localStorage /
+   Windows-AppData UND – sobald der Nutzer die Datei das erste Mal gespeichert
+   oder geöffnet hat (W130) – automatisch direkt in die gebundene Datei! */
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleAutosave() {
   if (typeof window === "undefined") return;
@@ -43,9 +62,10 @@ function scheduleAutosave() {
     autosaveTimer = null;
     const { doc, instruments, log } = useEditor.getState();
     const { ok } = saveProjectLocal(doc, instruments);
+    void autoSaveToBoundFile(doc, instruments);
     useEditor.setState({ savePending: false, ...(ok ? { lastSavedAt: Date.now() } : {}) });
     if (!ok) log("warn", "Auto-Save fehlgeschlagen (Speicher voll?) — Projekt bitte per Export JSON sichern.");
-  }, 2000);
+  }, 1500);
 }
 
 export const engine = new RealtimeEngine();
@@ -132,6 +152,9 @@ export interface EditorState {
   hoverNet: string | null;
   tool: Tool;
   placingPartId: string | null;
+  /** W75: Drehung & Spiegelung des Bauteils in der Hand vor dem Absetzen. */
+  placingRot: Rotation;
+  placingMirror: boolean;
   view: { x: number; y: number; zoom: number };
   theme: ThemePref;
   symbolStyle: SymbolStylePref;
@@ -185,12 +208,15 @@ export interface EditorState {
   /* actions */
   setDoc: (doc: SchematicDoc, pushHistory?: boolean) => void;
   commit: (mutator: (doc: SchematicDoc) => void, label?: string) => void;
+  /** W79: Fasst eine laufende Maus-Ziehgeste zu genau einem Undo-Schritt zusammen. */
+  beginGesture: () => void;
+  endGesture: () => void;
   undo: () => void;
   redo: () => void;
   setTool: (t: Tool) => void;
   setPlacing: (partId: string | null) => void;
   setPlacingProbe: (kind: import("@/lib/schematic/model").ProbeKind | null) => void;
-  addInstance: (partId: string, x: number, y: number) => string | null;
+  addInstance: (partId: string, x: number, y: number, opts?: { rot?: Rotation; mirror?: boolean; autoWire?: boolean }) => string | null;
   deleteSelection: () => void;
   rotateSelection: (dir?: 1 | -1) => void;
   mirrorSelection: () => void;
@@ -202,9 +228,14 @@ export interface EditorState {
   duplicateSelection: () => void;
   setParam: (instanceId: string, key: string, value: number | string | boolean) => void;
   setInstanceText: (instanceId: string, text: string) => void;
+  /** W81: Netzlabel umbenennen & Textnotiz bearbeiten. */
+  updateLabel: (id: string, name: string) => void;
+  updateNote: (id: string, text: string) => void;
   addWire: (w: Wire) => void;
-  /** W54: ein Segment einer Leitung senkrecht verschieben (Basis = Ursprungsform). */
+  /** W54/W78: ein Segment einer Leitung senkrecht verschieben (ohne Pin-Abriss). */
   setWireSegmentOffset: (wireId: string, segIdx: number, orig: Array<{ x: number; y: number }>, dx: number, dy: number) => void;
+  /** W78: einen Eck-/Endpunkt einer Leitung streng orthogonal verschieben. */
+  setWireCornerPosition: (wireId: string, pointIdx: number, orig: Array<{ x: number; y: number }>, target: { x: number; y: number }) => void;
   /** W55: ausgewählte Bauteile ausrichten (links/rechts/oben/unten/mitte). */
   alignSelection: (mode: "left" | "right" | "top" | "bottom" | "centerH" | "centerV") => void;
   /** W55: ausgewählte Bauteile mit gleichem Abstand verteilen. */
@@ -267,9 +298,11 @@ export interface EditorState {
   openSheet: (id: string) => void;
   /** W72: Blattname in der Dateileiste nachführen (Umbenennen im Inspector). */
   renameSheet: (id: string, name: string) => void;
+  /** W98c: Reihenfolge der Blätter in der Dateileiste per Drag & Drop ändern. */
+  reorderSheets: (fromId: string, toId: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
-  saveProject: (name?: string) => void;
+  saveProject: (name?: string, opts?: { saveAs?: boolean }) => Promise<void>;
   restoreLocalProject: () => void;
   markFavorite: (partId: string) => void;
   refreshNets: () => void;
@@ -314,6 +347,67 @@ const clone = (doc: SchematicDoc): SchematicDoc => JSON.parse(JSON.stringify(doc
 
 /** W55: Zähler für die Einfüge-Kaskade (mehrfaches Einfügen staffelt sich). */
 let pasteCascade = 0;
+
+/** W79: Bündelt alle Änderungen innerhalb einer Zieh-Geste zu einem einzigen Undo-Schritt. */
+let gestureActive = false;
+let gesturePushed = false;
+
+/** W81: Findet den nächstgelegenen Netzpunkt (auch mitten auf einem Leitungssegment). */
+function resolveNearestNetPoint(
+  doc: SchematicDoc,
+  nr: NetlistBuildResult,
+  x: number,
+  y: number,
+  maxDist = 30,
+): { net: string; x: number; y: number } | null {
+  let bestNet: string | undefined;
+  let bestD = maxDist;
+  let bestPt: { x: number; y: number } | null = null;
+
+  for (const net of nr.nets) {
+    for (const pt of net.points) {
+      const d = Math.hypot(pt.x - x, pt.y - y);
+      if (d < bestD) {
+        bestD = d;
+        bestNet = net.name;
+        bestPt = pt;
+      }
+    }
+  }
+
+  const wf = nearestWireFoot(doc, { x, y }, maxDist);
+  if (wf && wf.dist <= bestD + 1) {
+    const w = doc.wires.find((item) => item.id === wf.wireId);
+    if (w && w.points.length) {
+      const p0 = w.points[0];
+      const key0 = `${Math.round(p0.x)},${Math.round(p0.y)}`;
+      const netFromMap = nr.pointNets[key0];
+      const netFromList =
+        netFromMap ??
+        nr.nets.find((n) => n.points.some((pt) => Math.hypot(pt.x - p0.x, pt.y - p0.y) < 1))?.name;
+      if (netFromList) {
+        bestNet = netFromList;
+        bestPt = { x: wf.x, y: wf.y };
+        bestD = wf.dist;
+      }
+    }
+  }
+
+  if (bestNet && bestPt) return { net: bestNet, x: bestPt.x, y: bestPt.y };
+  return null;
+}
+
+/** W99: Erkennt die Leitungsrichtung (0° waagerecht, 90° senkrecht) an einem Messpunkt. */
+export function inferWireAngleAt(doc: SchematicDoc, x: number, y: number): Rotation {
+  const wf = nearestWireFoot(doc, { x, y }, 18);
+  if (wf) {
+    const w = doc.wires.find((item) => item.id === wf.wireId);
+    const a = w?.points[wf.segIdx];
+    const b = w?.points[wf.segIdx + 1];
+    if (a && b && Math.abs(a.x - b.x) < Math.abs(a.y - b.y)) return 90;
+  }
+  return 0;
+}
 
 const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
@@ -517,6 +611,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   hoverNet: null,
   tool: "select",
   placingPartId: null,
+  placingRot: 0,
+  placingMirror: false,
   view: { x: 60, y: 20, zoom: 1 },
   theme: "light",
   symbolStyle: "auto",
@@ -571,11 +667,29 @@ export const useEditor = create<EditorState>((set, get) => ({
     const prev = get().doc;
     const next = clone(prev);
     mutator(next);
-    set((s) => ({ doc: next, past: [...s.past.slice(-49), prev], future: [] }));
+    const shouldPush = !gestureActive || !gesturePushed;
+    if (gestureActive) gesturePushed = true;
+    set((s) => ({
+      doc: next,
+      past: shouldPush ? [...s.past.slice(-49), prev] : s.past,
+      future: shouldPush ? [] : s.future,
+    }));
     get().refreshNets();
   },
 
+  beginGesture: () => {
+    gestureActive = true;
+    gesturePushed = false;
+  },
+
+  endGesture: () => {
+    gestureActive = false;
+    gesturePushed = false;
+  },
+
   undo: () => {
+    gestureActive = false;
+    gesturePushed = false;
     const { past, doc, future } = get();
     if (!past.length) return;
     const prev = past[past.length - 1];
@@ -585,6 +699,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   redo: () => {
+    gestureActive = false;
+    gesturePushed = false;
     const { future, doc, past } = get();
     if (!future.length) return;
     const next = future[0];
@@ -593,11 +709,35 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().log("info", "Wiederholen");
   },
 
-  setTool: (t) => set({ tool: t, placingPartId: t === "place" ? get().placingPartId : null, placingProbeKind: t.startsWith("probe") ? get().placingProbeKind : null }),
-  setPlacing: (partId) => set({ placingPartId: partId, tool: partId ? "place" : "select", placingProbeKind: null }),
-  setPlacingProbe: (kind) => set({ placingProbeKind: kind, tool: kind ? (`probe_${kind}` as Tool) : "select", placingPartId: null }),
+  setTool: (t) => {
+    if (t !== "wire") useHud.getState().cancelNetDrawing();
+    set({
+      tool: t,
+      placingPartId: t === "place" ? get().placingPartId : null,
+      placingProbeKind: t.startsWith("probe") ? get().placingProbeKind : null,
+    });
+  },
+  setPlacing: (partId) => {
+    useHud.getState().cancelNetDrawing();
+    set((s) => ({
+      placingPartId: partId,
+      placingRot: 0,
+      placingMirror: false,
+      tool: partId ? "place" : "select",
+      placingProbeKind: null,
+      libraryOpen: partId ? false : s.libraryOpen,
+    }));
+  },
+  setPlacingProbe: (kind) => {
+    useHud.getState().cancelNetDrawing();
+    set({
+      placingProbeKind: kind,
+      tool: kind ? (`probe_${kind}` as Tool) : "select",
+      placingPartId: null,
+    });
+  },
 
-  addInstance: (partId, x, y) => {
+  addInstance: (partId, x, y, opts) => {
     const part = PART_MAP[partId];
     if (!part) return null;
     const id = "i_" + Math.random().toString(36).slice(2, 10);
@@ -605,21 +745,34 @@ export const useEditor = create<EditorState>((set, get) => ({
     // Koordinaten waren die Ursache für Leitungen, die neben dem Pin enden.
     const gx = Math.round(x / GRID) * GRID;
     const gy = Math.round(y / GRID) * GRID;
+    const rot = opts?.rot ?? (get().placingPartId === partId ? get().placingRot : 0);
+    const mirror = opts?.mirror ?? (get().placingPartId === partId ? get().placingMirror : false);
     const inst: Instance = {
       id,
       partId,
       x: gx,
       y: gy,
-      rot: 0,
+      rot,
+      ...(mirror ? { mirror: true } : {}),
       label: nextLabel(get().doc, part),
       params: defaultParams(part),
       text: part.interactive === "mcu" ? DEFAULT_MCU_SKETCH : undefined,
     };
+    let wireStats = { split: 0, connected: 0 };
     get().commit((d) => {
       d.instances.push(inst);
+      if (opts?.autoWire) {
+        wireStats = insertComponentIntoWires(d, id);
+      }
     });
     get().markFavorite(partId);
-    get().log("ok", `${part.name} als ${inst.label} platziert`);
+    if (wireStats.split > 0) {
+      get().log("ok", `${part.name} (${inst.label}) in Leitung eingesetzt`);
+    } else if (wireStats.connected > 0) {
+      get().log("ok", `${part.name} (${inst.label}) platziert & ${wireStats.connected} Pin${wireStats.connected > 1 ? "s" : ""} verbunden`);
+    } else {
+      get().log("ok", `${part.name} als ${inst.label} platziert`);
+    }
     set({ selection: [id] });
     return id;
   },
@@ -627,16 +780,24 @@ export const useEditor = create<EditorState>((set, get) => ({
   deleteSelection: () => {
     const sel = new Set(get().selection);
     if (!sel.size) return;
+    const removedProbeNets = new Set(
+      get().doc.probes.filter((pr) => sel.has(pr.id) && pr.net).map((pr) => pr.net as string),
+    );
     get().commit((d) => {
       d.instances = d.instances.filter((i) => !sel.has(i.id));
       d.wires = d.wires.filter((w) => !sel.has(w.id));
       d.labels = d.labels.filter((l) => !sel.has(l.id));
       d.notes = d.notes.filter((n) => !sel.has(n.id));
       d.probes = d.probes.filter((pr) => !sel.has(pr.id));
+      cleanOrphanJunctions(d);
     });
+    const remainingProbeNets = new Set(
+      get().doc.probes.map((pr) => pr.net).filter(Boolean) as string[],
+    );
     // W29: an gelöschte Instanzen gebundene Gerätefenster (Oszi/FG) schließen.
     set((s) => ({
       selection: [],
+      probes: s.probes.filter((n) => !removedProbeNets.has(n) || remainingProbeNets.has(n)),
       instruments: s.instruments.filter((w) => !(w.instanceId && sel.has(w.instanceId))),
       // Runde 19: hängt eine Messleitung an der gelöschten Instanz, fällt sie mit weg.
       leadArmed: s.leadArmed && sel.has(s.leadArmed.instanceId) ? null : s.leadArmed,
@@ -645,6 +806,11 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   rotateSelection: (dir = 1) => {
     const st0 = get();
+    // W75: Wenn ein Bauteil zur Platzierung an der Maus hängt, dreht R die Vorschau!
+    if (st0.tool === "place" && st0.placingPartId) {
+      set({ placingRot: ((((st0.placingRot + dir * 90) % 360) + 360) % 360) as Rotation });
+      return;
+    }
     const sel = new Set(st0.selection);
     if (!sel.size) return;
     // W52: Pin-Positionen vor dem Drehen festhalten (siehe reattachWiresToPins).
@@ -662,6 +828,11 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   mirrorSelection: () => {
     const st0 = get();
+    // W75: Wenn ein Bauteil zur Platzierung an der Maus hängt, spiegelt M die Vorschau!
+    if (st0.tool === "place" && st0.placingPartId) {
+      set({ placingMirror: !st0.placingMirror });
+      return;
+    }
     const sel = new Set(st0.selection);
     if (!sel.size) return;
     const before = collectPins(st0.doc, sel);
@@ -704,31 +875,55 @@ export const useEditor = create<EditorState>((set, get) => ({
         i.x += dx;
         i.y += dy;
       }
+
+      // W80: Alte Segmente komplett verschobener Leitungen merken, damit T-Abzweige
+      // (und deren Verbindungspunkte) auf diesen Leitungen mitwandern.
+      const wholeMovedWireIds = new Set<string>();
+      const wholeMovedSegs: Array<[number, number, number, number]> = [];
       for (const w of d.wires) {
-        if (sel.has(w.id)) {
+        if (w.points.length < 2) continue;
+        const first = w.points[0];
+        const last = w.points[w.points.length - 1];
+        if (sel.has(w.id) || (movedPins.length > 0 && onMovedPin(first) && onMovedPin(last))) {
+          wholeMovedWireIds.add(w.id);
+          for (let k = 0; k + 1 < w.points.length; k++) {
+            wholeMovedSegs.push([w.points[k].x, w.points[k].y, w.points[k + 1].x, w.points[k + 1].y]);
+          }
+        }
+      }
+      const onMovedWireSeg = (p: { x: number; y: number }) =>
+        wholeMovedSegs.some(([ax, ay, bx, by]) => pointOnSegment(p.x, p.y, ax, ay, bx, by));
+
+      for (const w of d.wires) {
+        if (wholeMovedWireIds.has(w.id)) {
           w.points = w.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
           continue;
         }
-        if (!movedPins.length || w.points.length < 2) continue;
+        if (w.points.length < 2) continue;
         const first = w.points[0];
         const last = w.points[w.points.length - 1];
-        const fHit = onMovedPin(first);
-        const lHit = onMovedPin(last);
+        const fHit = onMovedPin(first) || onMovedWireSeg(first);
+        const lHit = onMovedPin(last) || onMovedWireSeg(last);
         if (fHit && lHit) {
-          // Beide Enden an bewegten Bauteilen → ganze Leitung wandert.
           w.points = w.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
         } else if (fHit || lHit) {
           const pts = w.points.map((p) => ({ x: p.x, y: p.y }));
           const idx = fHit ? 0 : pts.length - 1;
           pts[idx] = { x: pts[idx].x + dx, y: pts[idx].y + dy };
-          // W26: rechtwinklig nachziehen – Knicke neu positionieren statt
-          // aufzustapeln, L-Variante ohne Schnitt mit fremden Bauteilen.
           orthoFollow(pts, idx, obstacles);
           w.points = pts;
         }
       }
+      if (d.junctions?.length && wholeMovedSegs.length) {
+        for (const j of d.junctions) {
+          if (onMovedWireSeg(j)) {
+            j.x += dx;
+            j.y += dy;
+          }
+        }
+      }
       for (const l of d.labels) {
-        if (sel.has(l.id) || onMovedPin(l)) {
+        if (sel.has(l.id) || onMovedPin(l) || onMovedWireSeg(l)) {
           l.x += dx;
           l.y += dy;
         }
@@ -738,9 +933,24 @@ export const useEditor = create<EditorState>((set, get) => ({
         n.y += dy;
       }
       for (const pr of d.probes) {
-        if (sel.has(pr.id) || onMovedPin(pr)) {
+        const ax = typeof pr.anchorX === "number" ? pr.anchorX : pr.x;
+        const ay = typeof pr.anchorY === "number" ? pr.anchorY : pr.y;
+        const anchorOnMoved = onMovedPin({ x: ax, y: ay }) || onMovedWireSeg({ x: ax, y: ay });
+        if (anchorOnMoved) {
+          // W87: Wandert das Bauteil oder die Leitung unter der Messspitze mit,
+          // folgt die gesamte Probe (Spitze + Anzeigekästchen).
           pr.x += dx;
           pr.y += dy;
+          if (typeof pr.anchorX === "number") pr.anchorX += dx;
+          if (typeof pr.anchorY === "number") pr.anchorY += dy;
+        } else if (sel.has(pr.id)) {
+          // W87: Zieht der Nutzer das Anzeigekästchen der Probe selbst, bleibt
+          // die Messspitze (anchorX/anchorY) wie in NI Multisim fest auf ihrer
+          // Leitung verankert und nur das Kästchen (x/y) wandert!
+          pr.x += dx;
+          pr.y += dy;
+          if (typeof pr.anchorX === "number") pr.offsetX = pr.x - pr.anchorX;
+          if (typeof pr.anchorY === "number") pr.offsetY = pr.y - pr.anchorY;
         }
       }
     });
@@ -829,7 +1039,14 @@ export const useEditor = create<EditorState>((set, get) => ({
     }));
     const freshLabels: NetLabel[] = cb.labels.map((src) => ({ ...cloneJson(src), id: newId("l"), x: src.x + DX, y: src.y + DY }));
     const freshNotes: TextNote[] = cb.notes.map((src) => ({ ...cloneJson(src), id: newId("n"), x: src.x + DX, y: src.y + DY }));
-    const freshProbes = cb.probes.map((src) => ({ ...cloneJson(src), id: newId("pr"), x: src.x + DX, y: src.y + DY }));
+    const freshProbes = cb.probes.map((src) => ({
+      ...cloneJson(src),
+      id: newId("pr"),
+      x: src.x + DX,
+      y: src.y + DY,
+      anchorX: typeof src.anchorX === "number" ? src.anchorX + DX : undefined,
+      anchorY: typeof src.anchorY === "number" ? src.anchorY + DY : undefined,
+    }));
     const freshJunctions = (cb.junctions ?? []).map((src) => ({ ...cloneJson(src), id: newId("jnc"), x: src.x + DX, y: src.y + DY }));
     get().commit((d) => {
       d.instances.push(...freshInstances);
@@ -870,6 +1087,25 @@ export const useEditor = create<EditorState>((set, get) => ({
     engine.sim?.mcuStates.delete(instanceId);
     engine.sim?.mcuPrograms.delete(instanceId);
     if (get().sim.running) engine.rebuild(get().doc);
+  },
+
+  updateLabel: (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    get().commit((d) => {
+      const lbl = d.labels.find((l) => l.id === id);
+      if (lbl) lbl.name = trimmed;
+    });
+    if (get().sim.running) engine.rebuild(get().doc);
+  },
+
+  updateNote: (id, text) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    get().commit((d) => {
+      const note = d.notes.find((n) => n.id === id);
+      if (note) note.text = trimmed;
+    });
   },
 
   addWire: (w) => {
@@ -932,12 +1168,18 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   setWireSegmentOffset: (wireId, segIdx, orig, dx, dy) => {
-    if (dx === 0 && dy === 0) return;
     get().commit((d) => {
       const w = d.wires.find((x) => x.id === wireId);
       if (!w || segIdx < 0 || segIdx + 1 >= orig.length) return;
-      const pts = orig.map((p, i) => (i === segIdx || i === segIdx + 1 ? { x: p.x + dx, y: p.y + dy } : { x: p.x, y: p.y }));
-      w.points = cleanWirePoints(pts);
+      w.points = dragWireSegmentOrtho(orig, segIdx, dx, dy, isPinnedWireEnd(d, wireId));
+    });
+  },
+
+  setWireCornerPosition: (wireId, pointIdx, orig, target) => {
+    get().commit((d) => {
+      const w = d.wires.find((x) => x.id === wireId);
+      if (!w || pointIdx < 0 || pointIdx >= orig.length) return;
+      w.points = dragWireCornerOrtho(orig, pointIdx, target, isPinnedWireEnd(d, wireId));
     });
   },
 
@@ -949,31 +1191,39 @@ export const useEditor = create<EditorState>((set, get) => ({
       get().log("warn", "Ausrichten braucht mindestens zwei ausgewählte Bauteile");
       return;
     }
-    const boxes = insts.map((i) => ({ i, b: instanceBounds(i) }));
-    const left = Math.min(...boxes.map((x) => x.b.x));
-    const right = Math.max(...boxes.map((x) => x.b.x + x.b.w));
-    const top = Math.min(...boxes.map((x) => x.b.y));
-    const bottom = Math.max(...boxes.map((x) => x.b.y + x.b.h));
-    const move = (x: (inst: Instance, b: { x: number; y: number; w: number; h: number }) => number,
-                  y: (inst: Instance, b: { x: number; y: number; w: number; h: number }) => number) => {
-      get().commit((d) => {
-        for (const { i, b } of boxes) {
-          const inst = d.instances.find((k) => k.id === i.id);
-          if (!inst) continue;
-          inst.x += x(inst, b);
-          inst.y += y(inst, b);
-        }
-      });
-    };
+    // W83: Auf dem Schaltplan-Raster (GRID = 10) nach Bauteil-Ursprüngen/Pins
+    // ausrichten statt nach krummen Grafik-Bounding-Boxen, damit Pins aller
+    // ausgerichteten Bauteile exakt auf derselben Rasterlinie liegen.
+    const snapG = (v: number) => Math.round(v / GRID) * GRID;
+    const xs = insts.map((i) => i.x);
+    const ys = insts.map((i) => i.y);
+    const left = snapG(Math.min(...xs));
+    const right = snapG(Math.max(...xs));
+    const top = snapG(Math.min(...ys));
+    const bottom = snapG(Math.max(...ys));
+    const midX = snapG((left + right) / 2);
+    const midY = snapG((top + bottom) / 2);
+    const prevSel = [...st0.selection];
+    get().beginGesture();
+    for (const i of insts) {
+      const cur = get().doc.instances.find((k) => k.id === i.id);
+      if (!cur) continue;
+      const tx = mode === "left" ? left : mode === "right" ? right : mode === "centerH" ? midX : cur.x;
+      const ty = mode === "top" ? top : mode === "bottom" ? bottom : mode === "centerV" ? midY : cur.y;
+      const dx = snapG(tx - cur.x);
+      const dy = snapG(ty - cur.y);
+      if (dx !== 0 || dy !== 0) {
+        set({ selection: [cur.id] });
+        get().moveSelection(dx, dy);
+      }
+    }
+    set({ selection: prevSel });
+    get().endGesture();
     const label: Record<typeof mode, string> = {
       left: "links", right: "rechts", top: "oben", bottom: "unten",
       centerH: "waagerecht mittig", centerV: "senkrecht mittig",
     };
-    move(
-      (inst, b) => (mode === "left" ? left - b.x : mode === "right" ? right - (b.x + b.w) : mode === "centerH" ? (left + right) / 2 - (b.x + b.w / 2) : 0),
-      (inst, b) => (mode === "top" ? top - b.y : mode === "bottom" ? bottom - (b.y + b.h) : mode === "centerV" ? (top + bottom) / 2 - (b.y + b.h / 2) : 0),
-    );
-    get().log("ok", `${insts.length} Bauteile ${label[mode]} ausgerichtet`);
+    get().log("ok", `${insts.length} Bauteile ${label[mode]} auf dem Raster ausgerichtet`);
   },
 
   distributeSelection: (axis) => {
@@ -984,24 +1234,30 @@ export const useEditor = create<EditorState>((set, get) => ({
       get().log("warn", "Verteilen braucht mindestens drei ausgewählte Bauteile");
       return;
     }
-    const boxes = insts.map((i) => ({ i, b: instanceBounds(i), c: axis === "h" ? instanceBounds(i).x + instanceBounds(i).w / 2 : instanceBounds(i).y + instanceBounds(i).h / 2 }));
-    boxes.sort((a, b) => a.c - b.c);
-    const first = boxes[0];
-    const last = boxes[boxes.length - 1];
-    const step = (last.c - first.c) / (boxes.length - 1);
+    const snapG = (v: number) => Math.round(v / GRID) * GRID;
+    const sorted = [...insts].sort((a, b) => (axis === "h" ? a.x - b.x : a.y - b.y));
+    const first = axis === "h" ? sorted[0].x : sorted[0].y;
+    const last = axis === "h" ? sorted[sorted.length - 1].x : sorted[sorted.length - 1].y;
+    const step = (last - first) / (sorted.length - 1);
+    const prevSel = [...st0.selection];
     let n = 0;
-    get().commit((d) => {
-      boxes.forEach(({ i }, k) => {
-        if (k === 0 || k === boxes.length - 1) return;
-        const inst = d.instances.find((x) => x.id === i.id);
-        if (!inst) return;
-        const target = first.c + step * k;
-        if (axis === "h") inst.x += target - (instanceBounds(inst).x + instanceBounds(inst).w / 2);
-        else inst.y += target - (instanceBounds(inst).y + instanceBounds(inst).h / 2);
+    get().beginGesture();
+    sorted.forEach((i, k) => {
+      if (k === 0 || k === sorted.length - 1) return;
+      const cur = get().doc.instances.find((x) => x.id === i.id);
+      if (!cur) return;
+      const target = snapG(first + step * k);
+      const dx = axis === "h" ? target - cur.x : 0;
+      const dy = axis === "v" ? target - cur.y : 0;
+      if (dx !== 0 || dy !== 0) {
+        set({ selection: [cur.id] });
+        get().moveSelection(dx, dy);
         n++;
-      });
+      }
     });
-    get().log("ok", `${n} Bauteile gleichmäßig verteilt (${axis === "h" ? "waagerecht" : "senkrecht"})`);
+    set({ selection: prevSel });
+    get().endGesture();
+    get().log("ok", `${n} Bauteile gleichmäßig auf dem Raster verteilt (${axis === "h" ? "waagerecht" : "senkrecht"})`);
   },
 
   straightenSelection: () => {
@@ -1114,24 +1370,38 @@ export const useEditor = create<EditorState>((set, get) => ({
       digital: { show: { vdc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },
     };
     const def = defaults[kind] ?? defaults.voltage;
-    // auto-assign net from current netResult if possible
+    // W81/W85: auto-assign net from current netResult (inkl. Leitungssegment-Fußpunkt!)
+    const snapG = (v: number) => Math.round(v / GRID) * GRID;
     let autoNet: string | undefined;
-    let anchorX = x, anchorY = y;
+    let anchorX = snapG(x);
+    let anchorY = snapG(y);
     try {
-      const nr = get().netResult;
-      // find nearest net point
-      let best: string | undefined, bestD = 30*30;
-      let bestPt: {x:number,y:number} | null = null;
-      for (const net of nr.nets) for (const pt of net.points) {
-        const d = (pt.x - x)**2 + (pt.y - y)**2;
-        if (d < bestD) { bestD = d; best = net.name; bestPt = pt; }
+      const hit = resolveNearestNetPoint(get().doc, get().netResult, x, y, 30);
+      if (hit) {
+        autoNet = hit.net;
+        anchorX = snapG(hit.x);
+        anchorY = snapG(hit.y);
       }
-      autoNet = best;
-      if (bestPt) { anchorX = bestPt.x; anchorY = bestPt.y; }
     } catch {}
-    // V2: body offset from anchor (like Multisim magnifier)
-    const offsetX = 32, offsetY = -28;
-    const probe = { id, kind, x: anchorX+offsetX, y: anchorY+offsetY, anchorX, anchorY, offsetX, offsetY, leader: "arrow" as const, net: autoNet, ref: "0", ...def } as import("@/lib/schematic/model").MeasurementProbe;
+    // W85/W93: Anzeigekästchen-Offset exakt auf dem GRID=10-Raster (+40, -40)
+    const offsetX = 40;
+    const offsetY = -40;
+    const autoRot = inferWireAngleAt(get().doc, anchorX, anchorY);
+    const probe = {
+      id,
+      kind,
+      x: anchorX + offsetX,
+      y: anchorY + offsetY,
+      anchorX,
+      anchorY,
+      offsetX,
+      offsetY,
+      leader: "arrow" as const,
+      net: autoNet,
+      ref: "0",
+      ...def,
+      rotation: autoRot,
+    } as import("@/lib/schematic/model").MeasurementProbe;
     if (!probe.name) probe.name = `${kind.charAt(0).toUpperCase()}${get().doc.probes.filter(p=>p.kind===kind).length+1}`;
     get().commit((d) => {
       d.probes.push(probe);
@@ -1148,7 +1418,19 @@ export const useEditor = create<EditorState>((set, get) => ({
   updateMeasurementProbe: (id, patch) => {
     get().commit((d) => {
       const pr = d.probes.find((p) => p.id === id);
-      if (pr) Object.assign(pr, patch);
+      if (!pr) return;
+      Object.assign(pr, patch);
+      // W81/W87: Wenn der Anker verschoben wurde, automatisch auf das neue Netz
+      // (oder undefined, falls kein Netz in Reichweite ist) aktualisieren.
+      if ((patch.anchorX !== undefined || patch.anchorY !== undefined) && !("net" in patch)) {
+        const ax = pr.anchorX ?? pr.x;
+        const ay = pr.anchorY ?? pr.y;
+        const hit = resolveNearestNetPoint(d, get().netResult, ax, ay, 24);
+        pr.net = hit ? hit.net : undefined;
+        if (!("rotation" in patch)) {
+          pr.rotation = inferWireAngleAt(d, ax, ay);
+        }
+      }
     });
     // Auto-add to legacy probes for grapher (Transient/AC)
     const pr = get().doc.probes.find((p) => p.id === id);
@@ -1158,17 +1440,24 @@ export const useEditor = create<EditorState>((set, get) => ({
         set((s) => ({ probes: [...s.probes, net].slice(-12) }));
       }
     }
-    // If probe is REF, propagate its net to dependent probes? No-op, resolved at render
     if (patch.kind) {
       get().log("info", `Probe ${id.slice(0,6)} Typ → ${patch.kind}`);
     }
   },
 
   removeMeasurementProbe: (id) => {
+    const target = get().doc.probes.find((p) => p.id === id);
+    const removedNet = target?.net;
     get().commit((d) => {
       d.probes = d.probes.filter((p) => p.id !== id);
     });
-    set((s) => ({ selection: s.selection.filter((sid) => sid !== id) }));
+    const stillUsed = removedNet
+      ? get().doc.probes.some((p) => p.net === removedNet)
+      : false;
+    set((s) => ({
+      selection: s.selection.filter((sid) => sid !== id),
+      probes: removedNet && !stillUsed ? s.probes.filter((n) => n !== removedNet) : s.probes,
+    }));
   },
 
   setView: (v) => set((s) => ({ view: { ...s.view, ...v } })),
@@ -1407,15 +1696,23 @@ export const useEditor = create<EditorState>((set, get) => ({
     const preset = PRESETS.find((p) => p.id === id);
     if (!preset) return;
     engine.running = false;
+    clearActiveSaveTarget();
+    const prevId = get().doc.id;
     const doc = preset.build();
+    const sheetIdx = sheets.findIndex((s2) => s2.id === prevId);
+    if (sheetIdx >= 0) {
+      sheets[sheetIdx] = { id: doc.id, name: doc.name, doc };
+    }
     set((s) => ({ doc, past: [...s.past, s.doc], future: [], selection: [], sim: { ...s.sim, running: false } }));
     get().refreshNets();
+    engine.reset(doc);
     get().log("ok", `Vorlage geladen: ${preset.name}`);
   },
 
   newDocument: () => {
     // W72: „+" legt ein neues leeres Schaltblatt an und öffnet es als Reiter.
     engine.running = false;
+    clearActiveSaveTarget();
     // Das offene Blatt bleibt als Reiter erhalten (auch wenn es noch nicht in
     // der Liste steht) – „+" öffnet ein zusätzliches Blatt, keine Ersetzung.
     const aktuell = get().doc;
@@ -1448,6 +1745,20 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (entry) entry.name = name;
   },
 
+  reorderSheets: (fromId, toId) => {
+    if (fromId === toId) return;
+    const curDoc = get().doc;
+    if (!sheets.some((s2) => s2.id === curDoc.id)) {
+      sheets.unshift({ id: curDoc.id, name: curDoc.name, doc: curDoc });
+    }
+    const fromIdx = sheets.findIndex((s2) => s2.id === fromId);
+    const toIdx = sheets.findIndex((s2) => s2.id === toId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+    const [moved] = sheets.splice(fromIdx, 1);
+    sheets.splice(toIdx, 0, moved);
+    set((s) => ({ sim: { ...s.sim, tick: s.sim.tick + 1 } }));
+  },
+
   setAnalysis: (a) => set((s) => ({ analysis: { ...s.analysis, ...a } })),
 
   runAnalysis: async (kind, payload = {}) => {
@@ -1469,16 +1780,35 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  saveProject: (name) => {
+  saveProject: async (name, opts) => {
     const { doc } = get();
     const next = name && name !== doc.name ? { ...doc, name } : doc;
     if (next !== doc) get().setDoc(next, false);
     const { ok, bytes } = saveProjectLocal(next, get().instruments);
     if (ok) {
       set({ lastSavedAt: Date.now(), savePending: false });
+    }
+    const wasBound = hasActiveSaveTarget();
+    const fileRes = await saveProjectToFile(next, get().instruments, { saveAs: opts?.saveAs });
+    if (fileRes.ok) {
+      const label = fileRes.targetName ?? getActiveSaveTargetLabel() ?? `${next.name}.msx.json`;
+      if (!wasBound || opts?.saveAs) {
+        get().log("ok", `Datei „${label}“ gespeichert — zukünftige Änderungen werden automatisch gespeichert`);
+      } else {
+        get().log("ok", `Datei „${label}“ aktualisiert (${(bytes / 1024).toFixed(1)} KB, Auto-Save aktiv)`);
+      }
+      return;
+    }
+    if (fileRes.canceled) {
+      if (ok) {
+        get().log("info", `Arbeitskopie lokal gesichert (${(bytes / 1024).toFixed(1)} KB)`);
+      }
+      return;
+    }
+    if (ok) {
       get().log("ok", `Projekt lokal gespeichert (${(bytes / 1024).toFixed(1)} KB)`);
     } else {
-      get().log("error", "Lokal speichern fehlgeschlagen (Speicher voll?) — sichere dein Projekt per Export (JSON).");
+      get().log("error", "Speichern fehlgeschlagen — bitte Projekt per Export JSON sichern.");
     }
   },
 
@@ -1492,6 +1822,28 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!Array.isArray(doc.probes)) doc.probes = [];
       // W72: Der wiederhergestellte Stand ist das erste Blatt in der Dateileiste.
       const restored = stored.doc as SchematicDoc;
+      normalizeDocGeometry(restored);
+      // W98d: Falls im localStorage noch ein durch das frühere straightenWirePoints
+      // kurzgeschlossenes Standard-Beispiel (z. B. "555 Blinker") liegt, wird es
+      // automatisch auf die intakte Vorlage aktualisiert (Probes bleiben erhalten).
+      const builtRestored = buildNets(restored);
+      const hasShortedPart = builtRestored.netlist.devices.some(
+        (dev) =>
+          (dev.type === "R" || dev.type === "C" || dev.type === "V" || dev.type === "LED") &&
+          dev.nodes.length >= 2 &&
+          dev.nodes[0] === dev.nodes[1],
+      );
+      if (hasShortedPart) {
+        const matchingPreset = PRESETS.find((p) => {
+          const pd = p.build();
+          return pd.name === restored.name && pd.instances.length === restored.instances.length;
+        });
+        if (matchingPreset) {
+          const fresh = matchingPreset.build();
+          fresh.probes = restored.probes ?? [];
+          Object.assign(restored, fresh);
+        }
+      }
       if (sheets.length) sheets[0] = { id: restored.id, name: restored.name, doc: restored };
       else sheets.push({ id: restored.id, name: restored.name, doc: restored });
       set({
@@ -1553,13 +1905,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     let changed = false;
     const nextDoc = { ...st.doc, probes: st.doc.probes.map(pr=>{
       if (pr.net && result.nets.some(n=>n.name===pr.net)) return pr;
-      // find nearest net point
-      let best: string | undefined, bestD = 28*28;
-      for (const net of result.nets) for (const pt of net.points) {
-        const d = (pt.x - pr.x)**2 + (pt.y - pr.y)**2;
-        if (d < bestD) { bestD = d; best = net.name; }
-      }
-      if (best && best!==pr.net) { changed = true; return { ...pr, net: best }; }
+      const ax = pr.anchorX ?? pr.x;
+      const ay = pr.anchorY ?? pr.y;
+      const hit = resolveNearestNetPoint(st.doc, result, ax, ay, 28);
+      if (hit && hit.net !== pr.net) { changed = true; return { ...pr, net: hit.net }; }
       return pr;
     }) };
     if (changed) {
@@ -1573,14 +1922,26 @@ export const useEditor = create<EditorState>((set, get) => ({
 }));
 
 /**
- * HUD-State (Cursor …) als eigener Store: wird bei jeder Mausbewegung
- * geschrieben, aber nur die Statusleiste hört zu — der Editor-Store
- * (und damit alle Panels) rendert dadurch nicht neu.
+ * HUD-State (Cursor, laufendes Netzzeichnen …) als eigener Store: wird bei
+ * jeder Mausbewegung geschrieben, aber nur die Statusleiste / Werkzeugleiste
+ * hört zu — der Editor-Store rendert dadurch nicht neu.
  */
-export const useHud = create<{ cursor: { x: number; y: number }; viewport: { w: number; h: number }; dragPart: string | null }>(() => ({
+export const useHud = create<{
+  cursor: { x: number; y: number };
+  viewport: { w: number; h: number };
+  dragPart: string | null;
+  /** W73: true, solange auf dem Canvas aktiv ein Netz gezeichnet wird (`sr.netDraft`). */
+  netDrawing: boolean;
+  /** W73: Zähler zum Abbrechen eines laufenden Netzes aus der Werkzeugleiste. */
+  netCancelSeq: number;
+  cancelNetDrawing: () => void;
+}>((set) => ({
   cursor: { x: 0, y: 0 },
   viewport: { w: 0, h: 0 },
   dragPart: null,
+  netDrawing: false,
+  netCancelSeq: 0,
+  cancelNetDrawing: () => set((s) => ({ netDrawing: false, netCancelSeq: s.netCancelSeq + 1 })),
 }));
 
 /** Utility used by canvas hit tests. */

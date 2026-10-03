@@ -1,10 +1,11 @@
 /**
- * W65 (Runde 25): Zeiger, die zur Tätigkeit passen.
+ * W65 (Runde 25) / W89 (Runde 29): Zeiger, die zur Tätigkeit passen.
  *
  * Ein Fadenkreuz sagt nichts darüber aus, was gerade passiert. Beim Zeichnen
  * eines Netzes zeigt deshalb ein Stift (Spitze am Anschlusspunkt), wo die
- * Leitung entsteht; wer eine Messleitung in der Hand hält, sieht einen
- * Bananenstecker. Damit ist der Zeiger selbst die Rückmeldung.
+ * Leitung entsteht; beim Löschen zeigt ein Radiergummi (Reibekante am
+ * Zeigerpunkt), was entfernt wird; wer eine Messleitung in der Hand hält,
+ * sieht einen Bananenstecker.
  */
 
 /** Stift – beim Netz zeichnen (Spitze auf 3/27, also am Zeiger). */
@@ -17,6 +18,20 @@ export const PEN_CURSOR = (() => {
     '<path d="M22.2 7.8 l1.6-1.6 4.4 4.4-1.6 1.6z" fill="#0f172a"/>' +
     '</svg>';
   return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") 3 27, default`;
+})();
+
+/** Radiergummi – beim Löschen-Werkzeug (vordere Radierkante auf 5/25). */
+export const ERASER_CURSOR = (() => {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">' +
+    '<g transform="rotate(-45 15 15)">' +
+    '<rect x="5" y="10" width="11" height="10" rx="2" fill="#f472b6" stroke="#0f172a" stroke-width="1.2"/>' +
+    '<rect x="14" y="10" width="10" height="10" rx="1.8" fill="#e2e8f0" stroke="#0f172a" stroke-width="1.2"/>' +
+    '<line x1="14" y1="10.5" x2="14" y2="19.5" stroke="#0f172a" stroke-width="1.1"/>' +
+    '</g>' +
+    '<circle cx="5" cy="25" r="1.6" fill="#f43f5e" stroke="#ffffff" stroke-width="0.8"/>' +
+    '</svg>';
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") 5 25, pointer`;
 })();
 
 /** Bananenstecker – wenn eine Messleitung aufgenommen ist und ein Ziel sucht. */

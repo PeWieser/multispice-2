@@ -207,6 +207,28 @@ export function attachWireEnd(pts: WPt[], idx: number, target: WPt): void {
  * Gerade**; sonst bleibt genau **ein** Knick. Vorher blieb jeder Stützpunkt als
  * Zacke stehen.
  */
+/**
+ * W98: Bringt alle Punkte einer Leitung aufs Raster und macht schräge Segmente
+ * rechtwinklig, OHNE bestehende orthogonale Umwege/Ecken zu löschen oder L-Knicke
+ * umzudrehen (damit Umleitungen um Bauteil-Pins in Beispielen und Projekten
+ * niemals Nachbar-Pins kurzschließen!).
+ */
+export function orthogonalizeWirePoints(pts: WPt[], grid = GRID, keepPoint?: (p: WPt) => boolean): WPt[] {
+  const snap = (v: number) => Math.round(v / grid) * grid;
+  let out = cleanProtected(pts.map((p) => ({ x: snap(p.x), y: snap(p.y) })), keepPoint);
+  if (out.length < 2) return out;
+  for (let i = 0; i + 1 < out.length; i++) {
+    const a = out[i];
+    const b = out[i + 1];
+    if (a.x === b.x || a.y === b.y) continue;
+    const prev = out[i - 1];
+    const bend = prev && prev.x === a.x ? { x: b.x, y: a.y } : { x: a.x, y: b.y };
+    out.splice(i + 1, 0, bend);
+    out = cleanProtected(out, keepPoint);
+  }
+  return out;
+}
+
 export function straightenWirePoints(pts: WPt[], grid = GRID, keepPoint?: (p: WPt) => boolean): WPt[] {
   const snap = (v: number) => Math.round(v / grid) * grid;
   let out = cleanProtected(pts.map((p) => ({ x: snap(p.x), y: snap(p.y) })), keepPoint);

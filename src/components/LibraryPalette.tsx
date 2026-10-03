@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Search, Star, X, Grip, FileText, ExternalLink, Zap, LayoutGrid, List, Command, Clock } from "lucide-react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
@@ -124,11 +124,13 @@ function searchAdvanced(query: string): PartDef[] {
 // --- Part Row V2 ---
 const PartRow = React.memo(function PartRow({
   part,
-  onPick,
+  onSelect,
+  onStartDrag,
   selected,
 }: {
   part: PartDef;
-  onPick: (id: string) => void;
+  onSelect: (id: string) => void;
+  onStartDrag: (id: string) => void;
   selected?: boolean;
 }) {
   const placing = useEditor((s) => s.placingPartId);
@@ -139,21 +141,36 @@ const PartRow = React.memo(function PartRow({
 
   return (
     <div
-      className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)] cursor-pointer"
+      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)] cursor-pointer"
       style={
         active || selected
           ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }
           : { border: "1px solid transparent" }
       }
-      onClick={() => onPick(part.id)}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/multispice-part", part.id);
-        e.dataTransfer.effectAllowed = "copy";
-        useHud.setState({ dragPart: part.id });
+      onClick={() => onSelect(part.id)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        if ((e.target as HTMLElement)?.closest("button,a")) return;
+        const sx = e.clientX;
+        const sy = e.clientY;
+        let started = false;
+        const onMove = (ev: PointerEvent) => {
+          if (!started && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 5) {
+            started = true;
+            onStartDrag(part.id);
+          }
+        };
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
       }}
-      onDragEnd={() => useHud.setState({ dragPart: null })}
-          >
+      onDragStart={(e) => {
+        e.preventDefault();
+      }}
+    >
       <SymbolPreview part={part} size={36} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
@@ -248,8 +265,15 @@ function CatNode({
   );
 }
 
-export default function LibraryPalette() {
-  const open = useEditor((s) => s.libraryOpen);
+export default function LibraryPalette({
+  onPartEditor,
+  standalone = false,
+}: {
+  onPartEditor?: () => void;
+  standalone?: boolean;
+} = {}) {
+  const openStore = useEditor((s) => s.libraryOpen);
+  const open = standalone ? true : openStore;
   const pos = useEditor((s) => s.libraryPos);
   const size = useEditor((s) => s.librarySize);
   const setPos = useEditor((s) => s.setLibraryPos);
@@ -262,17 +286,28 @@ export default function LibraryPalette() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"all" | "fav" | "recent">("all");
   const [selected, setSelected] = useState<PartDef | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [selCat, setSelCat] = useState<string | null>(null);
+  const [customRev, setCustomRev] = useState(0);
   const activeTab = tab === "fav" ? "favorites" : tab === "recent" ? "recent" : "all";
   // Prevent re-render of list during drag – memoize results
 
+  useEffect(() => {
+    const onCustom = () => setCustomRev((v) => v + 1);
+    window.addEventListener("multispice-custom-parts", onCustom);
+    return () => window.removeEventListener("multispice-custom-parts", onCustom);
+  }, []);
 
   const detailPart = selected;  // W6: Detail folgt dem Klick, nicht der Maus
 
-  const tree = useMemo(() => buildCategoryTree(PARTS), []);
-  const results = useMemo(() => (query ? searchAdvanced(query) : []), [query]);
+  const tree = useMemo(() => {
+    void customRev;
+    return buildCategoryTree(PARTS);
+  }, [customRev]);
+  const results = useMemo(() => {
+    void customRev;
+    return query ? searchAdvanced(query) : [];
+  }, [query, customRev]);
   // Runde 12 (W22): Dreispalter – Spalte 2 zeigt die Teile der gewählten Kategorie
   const groups = useMemo(() => {
     const flat = (n: CategoryNode): PartDef[] => [...n.parts, ...n.children.flatMap(flat)];
@@ -395,11 +430,51 @@ export default function LibraryPalette() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, toggle]);
 
-  const onPick = (id: string) => {
-    const current = useEditor.getState().placingPartId;
+  // W132: Einfacher Klick auf ein Bauteil wählt es in der Bibliothek aus
+  // (Vorschau, Datenblatt, Pins), schließt die Bibliothek aber NICHT und startet
+  // noch nicht das Platzieren – das passiert erst beim Klick auf den
+  // „Platzieren“-Button oder beim Klicken-und-Ziehen!
+  const onSelectPart = (id: string) => {
     const part = PART_MAP[id];
     if (part) setSelected(part);
-    setPlacing(current === id ? null : id);
+  };
+
+  // W132 & W133: Nur beim Klick auf den „Platzieren“-Button (bzw. Enter) oder
+  // beim Klicken-und-Ziehen eines Bauteils schließt sich die Bibliothek.
+  const onConfirmPlace = useCallback(
+    (id: string) => {
+      const part = PART_MAP[id];
+      if (part) setSelected(part);
+      setPlacing(id);
+      useEditor.setState({ libraryOpen: false });
+      if (standalone && typeof window !== "undefined") {
+        try {
+          const bc = new BroadcastChannel("multispice-desktop-sync");
+          bc.postMessage({ type: "pick-part", partId: id });
+          bc.close();
+        } catch {}
+        window.multispiceDesktop?.sendSync({ type: "pick-part", partId: id });
+        window.multispiceDesktop?.windowControl("close");
+      }
+    },
+    [setPlacing, standalone],
+  );
+
+  const onStartDragPart = (id: string) => {
+    const part = PART_MAP[id];
+    if (part) setSelected(part);
+    setPlacing(id);
+    useHud.setState({ dragPart: id });
+    useEditor.setState({ libraryOpen: false });
+    if (standalone && typeof window !== "undefined") {
+      try {
+        const bc = new BroadcastChannel("multispice-desktop-sync");
+        bc.postMessage({ type: "pick-part", partId: id });
+        bc.close();
+      } catch {}
+      window.multispiceDesktop?.sendSync({ type: "pick-part", partId: id });
+      window.multispiceDesktop?.windowControl("close");
+    }
   };
 
   // Keyboard navigation – arrow keys + enter to place, like Multisim
@@ -410,41 +485,61 @@ export default function LibraryPalette() {
       if (tag === "INPUT" && e.key !== "Escape" && e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIdx((i: number) => i + 1);
+        setSelectedIdx((i: number) => {
+          const next = Math.min(visibleList.length - 1, i + 1);
+          if (visibleList[next]) setSelected(visibleList[next]);
+          return Math.max(0, next);
+        });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedIdx((i: number) => Math.max(0, i - 1));
+        setSelectedIdx((i: number) => {
+          const next = Math.max(0, i - 1);
+          if (visibleList[next]) setSelected(visibleList[next]);
+          return next;
+        });
       } else if (e.key === "Enter") {
         e.preventDefault();
-        // Place selected
+        // Place selected & auto-close library
         const list = visibleList;
-        const part = list[selectedIdx] ?? list[0];
+        const part = selected ?? list[selectedIdx] ?? list[0];
         if (part) {
-          useEditor.getState().setPlacing(part.id);
-          useEditor.getState().log("info", `${part.name} zum Platzieren gewählt – Klick auf Canvas`);
+          onConfirmPlace(part.id);
+          useEditor.getState().log("info", `${part.name} zum Platzieren gewählt – Klick auf Canvas (R = drehen, M = spiegeln)`);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, selectedIdx, query, tab, results, visibleList]);
+  }, [open, selected, selectedIdx, query, tab, results, visibleList, onConfirmPlace]);
 
   if (!open) return null;
+  if (!standalone && typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
+    return null;
+  }
 
   return (
     <div
       ref={paletteRef}
-      className="fixed z-40 flex flex-col overflow-hidden rounded-xl will-change-transform"
-      style={{
-        left: pos.x,
-        top: pos.y,
-        width: size.w,
-        height: size.h,
-        background: "var(--panel-solid)",
-        border: "1px solid var(--border-strong)",
-        boxShadow: "var(--shadow)",
-      }}
+      className={
+        standalone
+          ? "flex h-full w-full flex-col overflow-hidden"
+          : "fixed z-40 flex flex-col overflow-hidden rounded-xl will-change-transform"
+      }
+      style={
+        standalone
+          ? { background: "var(--panel-solid)" }
+          : {
+              left: pos.x,
+              top: pos.y,
+              width: size.w,
+              height: size.h,
+              background: "var(--panel-solid)",
+              border: "1px solid var(--border-strong)",
+              boxShadow: "var(--shadow)",
+            }
+      }
     >
+      {!standalone && (
       <div
         className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3"
         style={{ borderBottom: "1px solid var(--border)" }}
@@ -452,7 +547,6 @@ export default function LibraryPalette() {
           dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y, w: paletteRef.current?.offsetWidth ?? 420 };
         }}
       >
-        <Grip size={12} className="text-mute" />
         <span className="text-[12px] font-medium flex items-center gap-1.5">
           <LayoutGrid size={12} /> Bibliothek
         </span>
@@ -460,19 +554,24 @@ export default function LibraryPalette() {
           <Command size={9} />K
         </span>
         <div className="flex-1" />
-        <div className="flex items-center gap-1">
-          <button
-            className="grid h-6 w-6 place-items-center rounded-md hover:bg-[var(--panel-2)]"
-            onClick={() => setViewMode((m) => (m === "list" ? "grid" : "list"))}
-            title={viewMode === "list" ? "Grid Ansicht" : "Listen Ansicht"}
-          >
-            {viewMode === "list" ? <LayoutGrid size={12} /> : <List size={12} />}
-          </button>
+        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+          {onPartEditor && (
+            <button
+              type="button"
+              className="btn h-6 gap-1 px-2 text-[11px]"
+              onClick={onPartEditor}
+              title="Eigenes Bauteil mit Gehäuse & Pinbelegung erstellen"
+            >
+              <Plus size={11} />
+              <span>Bauteil-Editor</span>
+            </button>
+          )}
           <button className="btn px-1 py-0.5 h-6" onClick={toggle} title="Schließen (Esc)">
             <X size={13} />
           </button>
         </div>
       </div>
+      )}
 
       <div className="p-2.5 space-y-2">
         <div className="relative">
@@ -550,45 +649,21 @@ export default function LibraryPalette() {
               <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute flex items-center gap-1.5">
                 <Command size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
               </div>
-              {viewMode === "grid" ? (
-                <div className="grid grid-cols-2 gap-1.5 p-1">
-                  {results.map((p, idx) => (
-                    <div
-                      key={p.id}
-                      className="rounded-lg p-2 border cursor-pointer hover:bg-[var(--panel-2)]"
-                      style={{ borderColor: idx===selectedIdx ? "var(--accent)" : "var(--border)", background: idx===selectedIdx ? "var(--accent-soft)" : "var(--panel)", boxShadow: idx===selectedIdx ? "0 0 0 2px var(--accent-soft)" : "none" }}
-                      onClick={() => { setSelectedIdx(idx); onPick(p.id); }}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/multispice-part", p.id);
-                        e.dataTransfer.effectAllowed = "copy";
-                        useHud.setState({ dragPart: p.id });
-                      }}
-                      onDragEnd={() => useHud.setState({ dragPart: null })}
-                    >
-                      <div className="flex justify-center mb-1.5">
-                        <SymbolPreview part={p} size={48} />
-                      </div>
-                      <div className="text-[11px] font-medium truncate">{p.name}</div>
-                      <div className="text-[9px] text-mute truncate">{p.ref} · {p.category.split("/").slice(-1)[0]}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                results.map((p, idx) => <PartRow key={p.id} part={p} onPick={onPick} selected={selected?.id === p.id || idx===selectedIdx} />)
-              )}
+              {results.map((p, idx) => (
+                <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id || idx === selectedIdx} />
+              ))}
             </div>
           ) : activeTab === "favorites" ? (
             <div>
               {favorites.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onPick={onPick} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
               ))}
               {!favorites.length && <div className="p-6 text-center text-[12px] text-mute">Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit</div>}
             </div>
           ) : activeTab === "recent" ? (
             <div>
               {recent.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onPick={onPick} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
               ))}
               {!recent.length && <div className="p-6 text-center text-[12px] text-mute">Noch nichts verwendet – platziere Bauteile</div>}
             </div>
@@ -603,7 +678,7 @@ export default function LibraryPalette() {
                     </div>
                   )}
                   {g.parts.map((p) => (
-                    <PartRow key={p.id} part={p} onPick={onPick} selected={selected?.id === p.id} />
+                    <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id} />
                   ))}
                 </div>
               ))}
@@ -706,16 +781,15 @@ export default function LibraryPalette() {
               )}
 
               <div className="rounded-lg p-2 text-[10.5px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
-                <div className="font-medium text-[11px] mb-1">💡 Tipp</div>
-                Klick zum Platzieren, nochmal klicken zum Abbrechen. Rechtsklick → Favorit. Drag & Drop: Bauteil direkt auf die Fläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
+                <div className="font-medium text-[11px] mb-1">Hinweis</div>
+                Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
               </div>
 
               <button
-                className="w-full rounded-lg py-2 text-[12px] font-medium border"
-                style={{ background: "var(--panel)", borderColor: "var(--border)", color: "var(--text)" }}
-                onClick={() => onPick(detailPart.id)}
+                className="btn btn-primary w-full justify-center py-2 text-[12px] font-medium"
+                onClick={() => onConfirmPlace(detailPart.id)}
               >
-                {useEditor.getState().placingPartId === detailPart.id ? "Platzieren abbrechen" : `Als ${detailPart.ref} platzieren (Enter)`}
+                {`Als ${detailPart.ref} platzieren (Enter)`}
               </button>
             </div>
           </div>

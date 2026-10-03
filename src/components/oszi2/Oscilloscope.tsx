@@ -620,7 +620,16 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
                     <span className="text-[12px] font-bold text-[#333]">{k + 1}</span>
                     <span className="h-[3px] w-8 rounded" style={{ background: CH_COLORS[k] }} />
                   </div>
-                  <div className="bnc cursor-pointer" onClick={() => onPickProbe(k)} title={title}>
+                  <div
+                    className="bnc cursor-pointer"
+                    onPointerDown={(e) => {
+                      if (e.button === 0) {
+                        e.stopPropagation();
+                        onPickProbe(k);
+                      }
+                    }}
+                    title={title}
+                  >
                     {plugged && (
                       <>
                         {/* probe plug */}
@@ -657,6 +666,9 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
                     <div key={id} className="flex flex-col items-center">
                       <button
                         onClick={() => onTargetClick(id)}
+                        onPointerUp={() => {
+                          if (heldProbe !== null) onTargetClick(id);
+                        }}
                         className="relative h-[26px] w-[14px] rounded-sm"
                         title={id === 'comp' ? 'Abgleichsignal 5V / 1kHz' : 'Masse'}
                         style={{ background: 'linear-gradient(90deg,#8b8f94,#f2f3f4 50%,#8b8f94)', boxShadow: heldColor ? `0 0 0 2px ${heldColor}, 0 0 8px ${heldColor}` : '0 2px 3px rgba(0,0,0,.5)' }}

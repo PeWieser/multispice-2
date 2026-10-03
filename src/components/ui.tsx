@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { formatValue, parseValue } from "@/lib/library/catalog";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
@@ -10,13 +10,29 @@ import { adaptShortcut, useIsApple } from "@/lib/platform";
 /* ------------------------------------------------------------------ */
 
 export function downloadText(name: string, content: string, type = "text/plain") {
-  const blob = new Blob([content], { type });
+  if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
+    const ext = name.split(".").pop()?.toLowerCase() || "txt";
+    void window.multispiceDesktop.saveFile({
+      defaultName: name,
+      content,
+      title: `Datei speichern (${name})`,
+      filters: [
+        { name: `${ext.toUpperCase()}-Datei (*.${ext})`, extensions: [ext] },
+        { name: "Alle Dateien (*.*)", extensions: ["*"] },
+      ],
+    });
+    return;
+  }
+  const blob = new Blob([content], { type: `${type};charset=utf-8` });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 export function downloadBlob(name: string, blob: Blob) {
@@ -24,8 +40,11 @@ export function downloadBlob(name: string, blob: Blob) {
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 export function safeName(name: string): string {
@@ -91,7 +110,7 @@ export function Menu({
       {open && (
         <div
           role="menu"
-          className="rise absolute left-0 top-[calc(100%+6px)] z-50 min-w-[248px] rounded-lg p-1"
+          className="rise absolute left-0 top-[calc(100%+6px)] z-50 w-max min-w-[220px] rounded-lg p-1"
           style={{ background: "var(--panel-solid)", border: "1px solid var(--border)", boxShadow: "var(--shadow)" }}
           onClick={() => onOpenChange(false)}
         >
@@ -128,17 +147,17 @@ export function MenuItem({
   return (
     <button
       role="menuitem"
-      className="group/item relative flex h-[25px] w-full items-center justify-between gap-8 rounded-[4px] px-2 text-left text-[12px] text-[var(--text)] hover:bg-[var(--accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--text)]"
+      className="group/item relative flex h-[26px] w-full items-center justify-between gap-6 whitespace-nowrap rounded-[4px] px-2 text-left text-[12px] text-[var(--text)] hover:bg-[var(--accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--text)]"
       style={danger ? { color: "var(--err)" } : undefined}
       onClick={onClick}
       disabled={disabled}
       title={disabled ? disabledReason : tooltipText}
     >
-      <span className="flex min-w-0 items-center gap-2">
+      <span className="flex min-w-0 items-center gap-2 whitespace-nowrap">
         <span className="grid w-4 shrink-0 place-items-center">{checked ? <Check size={13} /> : null}</span>
-        <span className="flex min-w-0 items-center gap-2">{childrenText}</span>
+        <span className="whitespace-nowrap">{childrenText}</span>
       </span>
-      <span className="flex items-center gap-2">
+      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
         {hintText && <span className="mono shrink-0 text-[10.5px] text-mute group-hover/item:text-white/80">{hintText}</span>}
       </span>
       {tooltipText && (
@@ -201,13 +220,27 @@ export function Dialog({
         aria-modal="true"
         aria-label={title}
         className="rise flex max-h-[86vh] w-full flex-col overflow-hidden rounded-xl"
-        style={{ maxWidth: wide ? 560 : 440, background: "var(--panel-solid)", border: "1px solid var(--border)", boxShadow: "var(--shadow)" }}
+        style={{ maxWidth: wide ? 560 : 440, background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }}
       >
-        <div className="shrink-0 px-4 pb-3 pt-4">
-          <div className="text-[14px] font-semibold tracking-tight">{title}</div>
-          {subtitle && <div className="mt-0.5 text-[12px] text-mute">{subtitle}</div>}
+        <div
+          className="flex h-9 shrink-0 items-center justify-between gap-2 px-3"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <span className="truncate text-[12px] font-medium">{title}</span>
+          <button
+            type="button"
+            className="btn h-6 px-1 py-0.5"
+            onClick={onClose}
+            title="Schließen (Esc)"
+            aria-label="Schließen"
+          >
+            <X size={13} />
+          </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">{children}</div>
+        {subtitle && (
+          <div className="shrink-0 px-4 pt-3 text-[11.5px] text-mute">{subtitle}</div>
+        )}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-3">{children}</div>
         <div className="flex shrink-0 items-center justify-end gap-2 px-4 py-3" style={{ borderTop: "1px solid var(--border)" }}>
           {actions}
         </div>

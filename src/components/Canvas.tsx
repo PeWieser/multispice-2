@@ -13,19 +13,34 @@ import {
   pinPosition,
   rotatePoint,
 } from "@/lib/schematic/model";
-import { findNetTarget, netClick, previewNetPath, type NetTarget } from "@/lib/schematic/netdraw";
-import { engine, hitTestInstance, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
+import {
+  findNetTarget,
+  finishNetDraft,
+  nearestWireFoot,
+  netClick,
+  previewNetPath,
+  type NetDraft,
+  type NetPathOptions,
+  type NetTarget,
+} from "@/lib/schematic/netdraw";
+import { engine, hitTestInstance, inferWireAngleAt, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
 import { LEGACY_PROBE_COLORS, PROBE_CSSVAR, PROBE_HEX } from "@/lib/probe-style";
-import { Library as LibIcon, Sparkles } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
-import { PEN_CURSOR } from "@/components/cursors";
+import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
 
 interface Pt { x: number; y: number; }
+
+let wireIdSeq = 0;
+function makeWireId(): string {
+  wireIdSeq += 1;
+  return `w_${Date.now().toString(36)}_${wireIdSeq.toString(36)}`;
+}
 
 const css = (name: string, fallback: string) => {
   if (typeof window === "undefined") return fallback;
@@ -75,31 +90,121 @@ type CtxTarget =
   | { kind: "empty"; net: string | null }
   | { kind: "instance"; id: string; net: string | null }
   | { kind: "wire"; id: string; net: string | null }
-  | { kind: "probe"; id: string; probe: MeasurementProbe; net: string | null };
+  | { kind: "probe"; id: string; probe: MeasurementProbe; net: string | null }
+  | { kind: "label"; id: string; net: string | null }
+  | { kind: "note"; id: string; net: string | null };
+
+function getNetObstacles(doc: SchematicDoc): Array<{ x: number; y: number; w: number; h: number }> {
+  return doc.instances.map((inst) => {
+    const b = instanceBounds(inst);
+    return { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 };
+  });
+}
+
+function hitTestLabel(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").NetLabel | null {
+  for (let i = doc.labels.length - 1; i >= 0; i--) {
+    const l = doc.labels[i];
+    const w = Math.max(28, (l.name?.length ?? 3) * 7 + 14);
+    if (
+      (Math.hypot(p.x - l.x, p.y - l.y) <= 8) ||
+      (p.x >= l.x + 6 && p.x <= l.x + 8 + w && p.y >= l.y - 22 && p.y <= l.y - 2)
+    ) {
+      return l;
+    }
+  }
+  return null;
+}
+
+function getNoteBounds(n: import("@/lib/schematic/model").TextNote): { x: number; y: number; w: number; h: number } {
+  const sz = n.size ?? 11;
+  const raw = n.text && n.text.trim().length > 0 ? n.text : "Notiz";
+  const lines = raw.split(/\r?\n/);
+  const maxChars = Math.max(6, ...lines.map((l) => l.length));
+  const lineH = sz + 5;
+  const w = Math.max(96, Math.ceil(maxChars * (sz * 0.58) + 26));
+  const h = 18 + lines.length * lineH + 8;
+  return { x: n.x, y: n.y - 18, w, h };
+}
+
+function hitTestNote(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").TextNote | null {
+  for (let i = doc.notes.length - 1; i >= 0; i--) {
+    const n = doc.notes[i];
+    const b = getNoteBounds(n);
+    if (p.x >= b.x - 4 && p.x <= b.x + b.w + 4 && p.y >= b.y - 4 && p.y <= b.y + b.h + 4) {
+      return n;
+    }
+  }
+  return null;
+}
+
+function hitTestInstanceValueLabel(inst: Instance, p: Pt): boolean {
+  const b = instanceBounds(inst);
+  const cx = inst.x;
+  const topY = b.y + b.h + 4;
+  const botY = b.y + b.h + 34;
+  return Math.abs(p.x - cx) <= Math.max(28, b.w * 0.55) && p.y >= topY && p.y <= botY;
+}
+
+function findInstanceByValueLabel(doc: SchematicDoc, p: Pt): Instance | null {
+  for (let i = doc.instances.length - 1; i >= 0; i--) {
+    const inst = doc.instances[i];
+    if (hitTestInstanceValueLabel(inst, p)) return inst;
+  }
+  return null;
+}
 
 export default function Canvas() {
   const apple = useIsApple();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const editInputRef = useRef<HTMLInputElement | null>(null);
+  const editingOpenedAt = useRef<number>(0);
   const [cursor, setCursor] = useState<Pt>({ x: 0, y: 0 });
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[]; spark?: number[] | null } | null>(null);
-  const [editing, setEditing] = useState<{ kind: "label" | "text" | "value"; x: number; y: number; sx: number; sy: number; instId?: string; initial?: string } | null>(null);
+  const [editing, setEditing] = useState<{ kind: "label" | "text" | "value"; x: number; y: number; sx: number; sy: number; instId?: string; itemId?: string; initial?: string } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; wx: number; wy: number; target: CtxTarget } | null>(null);
+  const [isTouchActive, setIsTouchActive] = useState(false);
+  const lastTouchTimeRef = useRef<number>(0);
+  const lastTouchTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const editingDone = useRef(false);
   const spaceDown = useRef(false);
+
+  useEffect(() => {
+    if (!editing) return;
+    editingOpenedAt.current = performance.now();
+    const t = setTimeout(() => {
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }, 16);
+    return () => clearTimeout(t);
+  }, [editing]);
   const stateRef = useRef({
     dragging: false,
     panning: false,
     marquee: null as null | { x0: number; y0: number; x1: number; y1: number },
     dragStart: { x: 0, y: 0 },
     moved: false,
-    // W63: Netzmodus. Anker + bereits gesetzte Ecken; null = kein Netz in Arbeit.
-    netDraft: null as null | { anchor: Pt; corners: Pt[] },
+    // W63/W77: Netzmodus. Anker + bereits gesetzte Ecken; null = kein Netz in Arbeit.
+    netDraft: null as null | NetDraft,
     // W64: Ziel unter dem Zeiger (Pin/Verbindungspunkt/Leitung) für den Magneten.
     netHover: null as null | NetTarget,
     lastMouse: { x: 0, y: 0 },
     duplicated: false,
   });
+
+  const syncNetDraft = useCallback((draft: NetDraft | null) => {
+    stateRef.current.netDraft = draft;
+    if (!draft) stateRef.current.netHover = null;
+    if (useHud.getState().netDrawing !== Boolean(draft)) {
+      useHud.setState({ netDrawing: Boolean(draft) });
+    }
+  }, []);
+
+  const netCancelSeq = useHud((s) => s.netCancelSeq);
+  useEffect(() => {
+    stateRef.current.netDraft = null;
+    stateRef.current.netHover = null;
+  }, [netCancelSeq]);
 
   const toWorld = useCallback((sx: number, sy: number): Pt => {
     const { view } = useEditor.getState();
@@ -139,15 +244,44 @@ export default function Canvas() {
 
   const hitTestProbe = useCallback((doc: SchematicDoc, p: Pt, radius?: number): MeasurementProbe | null => {
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    const r = radius ?? (isMobile ? 26 : 16);
-    const radiusFinal = r;
-    let best: MeasurementProbe | null = null;
-    let bestD = radiusFinal * radiusFinal;
-    for (const pr of doc.probes) {
-      const d = (pr.x - p.x) ** 2 + (pr.y - p.y) ** 2;
-      if (d < bestD) { bestD = d; best = pr; }
+    const zoom = useEditor.getState().view.zoom;
+    const iz = 1 / Math.max(zoom, 0.25);
+    const r = (radius ?? (isMobile ? 24 : 14)) * iz;
+    for (let i = doc.probes.length - 1; i >= 0; i--) {
+      const pr = doc.probes[i];
+      // W87/W93: Trifft das gesamte vergrößerte Multisim-Anzeigekästchen (ab pr.x nach rechts,
+      // vertikal zentriert um pr.y) sowie den Bereich direkt um (pr.x, pr.y).
+      const boxW = 158 * iz;
+      const boxH = 58 * iz;
+      if (
+        p.x >= pr.x - 8 * iz &&
+        p.x <= pr.x + boxW + 6 * iz &&
+        p.y >= pr.y - boxH / 2 - 6 * iz &&
+        p.y <= pr.y + boxH / 2 + 6 * iz
+      ) {
+        return pr;
+      }
+      if ((pr.x - p.x) ** 2 + (pr.y - p.y) ** 2 <= r * r) {
+        return pr;
+      }
     }
-    return best;
+    return null;
+  }, []);
+
+  const hitTestProbeAnchor = useCallback((doc: SchematicDoc, p: Pt, touchExpand = false): MeasurementProbe | null => {
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    const zoom = useEditor.getState().view.zoom;
+    const iz = 1 / Math.max(zoom, 0.25);
+    const hitR = (touchExpand || isMobile ? 18 : 11) * iz;
+    for (let i = doc.probes.length - 1; i >= 0; i--) {
+      const pr = doc.probes[i];
+      const ax = pr.anchorX ?? pr.x;
+      const ay = pr.anchorY ?? pr.y;
+      if (Math.hypot(ax - p.x, ay - p.y) <= hitR) {
+        return pr;
+      }
+    }
+    return null;
   }, []);
 
   // ---- drawing ----
@@ -185,14 +319,17 @@ export default function Canvas() {
     const x1 = view.x + w / view.zoom, y1 = view.y + h / view.zoom;
 
     if (showGrid) {
-      const step = view.zoom < 0.45 ? GRID * 10 : view.zoom < 1.1 ? GRID * 5 : GRID;
+      // W84: Ab normaler Ansicht (zoom >= 0.45) immer das echte GRID=10-Raster
+      // zeichnen, damit 1 sichtbares Kästchen exakt 1 Bewegungsschritt (10 px)
+      // entspricht; jede 5. Linie (50 px) als Hauptlinie.
+      const step = view.zoom < 0.45 ? GRID * 5 : GRID;
       ctx.lineWidth = 1 / view.zoom;
       ctx.strokeStyle = css("--grid", "rgba(255,255,255,.05)");
       ctx.beginPath();
       for (let x = Math.floor(x0 / step) * step; x < x1; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
       for (let y = Math.floor(y0 / step) * step; y < y1; y += step) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
       ctx.stroke();
-      const big = step * 10;
+      const big = step * 5;
       ctx.strokeStyle = css("--grid-strong", "rgba(255,255,255,.1)");
       ctx.beginPath();
       for (let x = Math.floor(x0 / big) * big; x < x1; x += big) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
@@ -256,21 +393,54 @@ export default function Canvas() {
     }
 
     // ── W1: Flussrichtung aus KCL statt Raten ──────────────────────────
-    // Pro Netz: Einspeisepins (konventioneller Strom fließt INTO the net) als
-    // BFS-Quellen; Richtung pro Leitung = entlang wachsender BFS-Distanz.
-    // Default-Anzeige: Elektronenfluss (− → +), umschaltbar auf konventionell.
-    const flowByWire = new Map<string, { dir: number; mag: number }>();
+    // ── W1 / W105–W107: Physikalisch konsistente, sprungfreie Stromanimation ──
+    // 1. Konstante Ladungsträgerdichte im Leiter (fester Punktabstand SPACING = 22 px);
+    //    die Stromstärke I bestimmt die Driftgeschwindigkeit v(I).
+    // 2. Kontinuierliche Phasen-Integration pro Leitung (phase_k+1 = phase_k + v * dt):
+    //    kehrt sich der Stromfluss um, wechselt nur das Vorzeichen von v * dt —
+    //    die Elektronen bremsen ab und laufen ohne jeden Sprung zurück!
+    // 3. T-Abzweige und Mehrpol-Bauteile (NE555, OPV, BJT, MOSFET) werden über
+    //    Segment-Splitting und KCL-Bilanz vollständig berücksichtigt.
+    const FLOW_SPACING = 22;
+    const flowByWire = new Map<string, { dir: number; mag: number; phase: number }>();
     const flowState = stateRef.current as any;
+    if (!flowState._wirePhases) {
+      flowState._wirePhases = new Map<string, number>();
+    }
+    const wirePhases: Map<string, number> = flowState._wirePhases;
     const flowLive = showCurrentFlow && live && (sim.running || live.time > 0);
     if (flowLive) {
-      // Phase läuft NUR im Run auf – Pause friert ein, Stopp zeigt nichts.
-      if (sim.running) {
-        const dtms = flowState._flowLast ? now - flowState._flowLast : 0;
-        flowState._flowPhase = (flowState._flowPhase ?? 0) + Math.min(Math.max(dtms, 0), 100);
-      }
+      const dtms = sim.running && flowState._flowLast ? Math.min(Math.max(now - flowState._flowLast, 0), 80) : 0;
+      const dtSec = dtms / 1000;
       flowState._flowLast = now;
+
       if (flowState._flowDoc !== doc || flowState._flowNets !== netResult) {
+        // Alle relevanten Knotenpunkte (Leitungseckpunkte, Pins, Junctions) sammeln,
+        // damit auch T-Abzweige mitten auf einem Leitungssegment im Graphen verbunden sind.
+        const specialPts: Array<{ x: number; y: number; key: string }> = [];
+        const seenKeys = new Set<string>();
+        const regPt = (x: number, y: number) => {
+          const rx = Math.round(x);
+          const ry = Math.round(y);
+          const key = `${rx},${ry}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            specialPts.push({ x: rx, y: ry, key });
+          }
+        };
+        for (const w of doc.wires) for (const p of w.points) regPt(p.x, p.y);
+        for (const j of netResult.junctions) regPt(j.x, j.y);
+        for (const inst of doc.instances) {
+          const part = PART_MAP[inst.partId];
+          if (!part) continue;
+          for (let idx = 0; idx < part.pins.length; idx++) {
+            const pos = pinPosition(inst, idx);
+            regPt(pos.x, pos.y);
+          }
+        }
+
         const adj = new Map<string, Set<string>>();
+        const wireChains = new Map<string, Array<{ a: string; b: string; len: number }>>();
         const addE = (a: string, b: string) => {
           if (a === b) return;
           let sa = adj.get(a);
@@ -280,76 +450,218 @@ export default function Canvas() {
           if (!sb) adj.set(b, (sb = new Set()));
           sb.add(a);
         };
-        for (const w of doc.wires)
-          for (let i = 0; i + 1 < w.points.length; i++)
-            addE(
-              `${Math.round(w.points[i].x)},${Math.round(w.points[i].y)}`,
-              `${Math.round(w.points[i + 1].x)},${Math.round(w.points[i + 1].y)}`,
-            );
+        for (const w of doc.wires) {
+          const chain: Array<{ a: string; b: string; len: number }> = [];
+          for (let i = 0; i + 1 < w.points.length; i++) {
+            const ax = Math.round(w.points[i].x);
+            const ay = Math.round(w.points[i].y);
+            const bx = Math.round(w.points[i + 1].x);
+            const by = Math.round(w.points[i + 1].y);
+            const segLen = Math.hypot(bx - ax, by - ay);
+            if (segLen < 0.5) continue;
+            // Alle Punkte finden, die exakt auf diesem Segment liegen (inkl. T-Knoten)
+            const onSeg: Array<{ key: string; t: number }> = [];
+            for (const sp of specialPts) {
+              const d1 = Math.hypot(sp.x - ax, sp.y - ay);
+              const d2 = Math.hypot(bx - sp.x, by - sp.y);
+              if (Math.abs(d1 + d2 - segLen) < 0.75) {
+                onSeg.push({ key: sp.key, t: d1 / segLen });
+              }
+            }
+            onSeg.sort((u, v) => u.t - v.t);
+            for (let k = 0; k + 1 < onSeg.length; k++) {
+              addE(onSeg[k].key, onSeg[k + 1].key);
+              const subLen = (onSeg[k + 1].t - onSeg[k].t) * segLen;
+              if (subLen > 0.1) {
+                chain.push({ a: onSeg[k].key, b: onSeg[k + 1].key, len: subLen });
+              }
+            }
+          }
+          wireChains.set(w.id, chain);
+        }
         flowState._flowDoc = doc;
         flowState._flowNets = netResult;
         flowState._flowAdj = adj;
+        flowState._wireChains = wireChains;
       }
+
       const adj: Map<string, Set<string>> = flowState._flowAdj;
-      const pinsByNet = new Map<string, Array<{ key: string; entering: number }>>();
-      const netMag = new Map<string, number>();
+      const wireChains: Map<string, Array<{ a: string; b: string; len: number }>> = flowState._wireChains;
+
+      // W114: Pin-Einspeisungen sammeln und nach Typ klassifizieren:
+      //  - "gnd": Masse-Referenzsymbol (nimmt in seiner Leitungs-Insel exakt den KCL-Rückstrom auf)
+      //  - "twopin": Zweipol mit exakt bekanntem Zweigstrom aus der MNA-Lösung
+      //  - "multipin": Mehrpol-Pin (isHighZ = true für hochohmige Steuereingänge wie TRIG/THR/IN+/IN-/Gate)
+      interface PinEntry {
+        key: string;
+        entering: number;
+        kind: "gnd" | "twopin" | "multipin";
+        isHighZ?: boolean;
+      }
+      const pinsAtNode = new Map<string, PinEntry[]>();
+      const pushPin = (entry: PinEntry) => {
+        let arr = pinsAtNode.get(entry.key);
+        if (!arr) pinsAtNode.set(entry.key, (arr = []));
+        arr.push(entry);
+      };
+
       for (const inst of doc.instances) {
         const part = PART_MAP[inst.partId];
-        if (!part || part.pins.length !== 2) continue;
-        const I = live.currents[inst.label] ?? 0;
-        if (!Number.isFinite(I) || Math.abs(I) < 1e-12) continue;
-        for (let idx = 0; idx < 2; idx++) {
-          const net = netResult.pinNets[`${inst.id}:${idx}`];
-          if (!net) continue;
-          const pos = pinPosition(inst, idx);
+        if (!part) continue;
+        if (inst.partId === "gnd" || part.pins.length === 1) {
+          const pos = pinPosition(inst, 0);
           const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
-          // deviceCurrent: positiv = node0 → node1 INS Gerät. Ins Netz am
-          // node1-Pin fließen +I, am node0-Pin −I (konventionell).
-          const entering = idx === 0 ? -I : I;
-          let arr = pinsByNet.get(net);
-          if (!arr) pinsByNet.set(net, (arr = []));
-          arr.push({ key: k, entering });
-          if (entering > 0) netMag.set(net, (netMag.get(net) ?? 0) + entering);
-        }
-      }
-      const dist = new Map<string, number>();
-      const netSign = new Map<string, number>();
-      for (const [net, pins] of pinsByNet) {
-        const sources = pins.filter((p) => p.entering > 1e-12).map((p) => p.key);
-        const sinks = pins.filter((p) => p.entering < -1e-12).map((p) => p.key);
-        const seeds = sources.length ? sources : sinks;
-        if (!seeds.length) continue;
-        netSign.set(net, sources.length ? 1 : -1);
-        if (!netMag.has(net)) {
-          let m = 0;
-          for (const p of pins) if (p.entering < 0) m += -p.entering;
-          netMag.set(net, m);
-        }
-        const q: Array<[string, number]> = seeds.map((k) => [k, 0]);
-        for (let qi = 0; qi < q.length; qi++) {
-          const [k, dk] = q[qi];
-          const prev = dist.get(k);
-          if (prev !== undefined && prev <= dk) continue;
-          dist.set(k, dk);
-          for (const nb of adj.get(k) ?? []) {
-            if (netResult.pointNets[nb] !== net) continue;
-            if ((dist.get(nb) ?? Infinity) > dk + 1) q.push([nb, dk + 1]);
+          pushPin({ key: k, entering: 0, kind: "gnd" });
+        } else if (part.pins.length === 2) {
+          const I = live.currents[inst.label] ?? 0;
+          if (!Number.isFinite(I)) continue;
+          for (let idx = 0; idx < 2; idx++) {
+            const pos = pinPosition(inst, idx);
+            const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
+            // deviceCurrent: positiv = technischer Strom von Pin 0 durch das Bauteil zu Pin 1.
+            // Ins Leitungsnetz fließt am Pin 0 der Strom −I, am Pin 1 der Strom +I.
+            const entering = idx === 0 ? -I : I;
+            pushPin({ key: k, entering, kind: "twopin" });
+          }
+        } else {
+          const dev = engine.netlist.devices.find((d) => d.id === inst.label);
+          for (let idx = 0; idx < part.pins.length; idx++) {
+            const pos = pinPosition(inst, idx);
+            const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
+            let pinEnter = 0;
+            if (dev && engine.sim) {
+              // pinCurrent ist positiv in das Bauteil hinein -> ins Leitungsnetz also negativ
+              pinEnter = -engine.sim.pinCurrent(dev, idx);
+            }
+            const devType = dev?.type ?? "";
+            const isHighZ =
+              (devType === "TIMER555" && (idx === 1 || idx === 3 || idx === 5)) ||
+              ((devType === "OPAMP" || devType === "COMPARATOR") && (idx === 0 || idx === 1)) ||
+              ((devType === "M" || devType === "J") && idx === 1);
+            pushPin({ key: k, entering: pinEnter, kind: "multipin", isHighZ });
           }
         }
       }
+
+      // W114: KCL-Bilanz und exakte Kirchhoff-Lösung pro zusammenhängender Leitungs-Insel
+      // (Connected Component im Draht-Graphen adj). Dadurch beeinflussen sich getrennte
+      // GND-Zweige (z. B. V1− nach GND1 vs. D1 nach GND4) niemals gegenseitig.
+      const phi = new Map<string, number>();
+      const visited = new Set<string>();
+      for (const startKey of adj.keys()) {
+        if (visited.has(startKey)) continue;
+        const compNodes: string[] = [];
+        const compSet = new Set<string>();
+        const q: string[] = [startKey];
+        visited.add(startKey);
+        compSet.add(startKey);
+        while (q.length > 0) {
+          const u = q.pop()!;
+          compNodes.push(u);
+          for (const v of adj.get(u) ?? []) {
+            if (!visited.has(v)) {
+              visited.add(v);
+              compSet.add(v);
+              q.push(v);
+            }
+          }
+        }
+
+        const compPins: PinEntry[] = [];
+        for (const u of compNodes) {
+          const ps = pinsAtNode.get(u);
+          if (ps) compPins.push(...ps);
+        }
+        if (compPins.length === 0) continue;
+
+        const gndPins = compPins.filter((p) => p.kind === "gnd");
+        const activeMultiPins = compPins.filter((p) => p.kind === "multipin" && !p.isHighZ);
+        let knownSum = 0;
+        for (const p of compPins) {
+          if (p.kind !== "gnd") knownSum += p.entering;
+        }
+
+        if (gndPins.length > 0) {
+          // Masse-Symbole in dieser Leitungs-Insel nehmen exakt den KCL-Rückstrom auf
+          const share = -knownSum / gndPins.length;
+          for (const gp of gndPins) gp.entering = share;
+        } else if (activeMultiPins.length > 0 && Math.abs(knownSum) > 1e-12) {
+          // Falls kein GND-Symbol in der Insel liegt, gleichen aktive IC-Treiberpins die Bilanz aus
+          const corr = -knownSum / activeMultiPins.length;
+          for (const mp of activeMultiPins) mp.entering += corr;
+        }
+
+        const inject = new Map<string, number>();
+        let maxAbsInj = 0;
+        for (const p of compPins) {
+          const nextVal = (inject.get(p.key) ?? 0) + p.entering;
+          inject.set(p.key, nextVal);
+        }
+        for (const val of inject.values()) {
+          if (Math.abs(val) > maxAbsInj) maxAbsInj = Math.abs(val);
+        }
+        if (maxAbsInj < 1e-6) continue;
+
+        // Löse L * phi = inject auf der Leitungs-Insel (mit phi(compNodes[0]) = 0 als Referenz).
+        // Dann gilt auf jeder Teilkante (a -> b): Zweigstrom I(a->b) = phi(a) - phi(b) in Ampere!
+        for (const u of compNodes) phi.set(u, 0);
+        const nNodes = compNodes.length;
+        const iters = Math.min(80, Math.max(24, nNodes * 8));
+        for (let iter = 0; iter < iters; iter++) {
+          for (let ni = 1; ni < nNodes; ni++) {
+            const u = compNodes[ni];
+            const nbs = adj.get(u);
+            if (!nbs || nbs.size === 0) continue;
+            let sumNb = 0;
+            let deg = 0;
+            for (const v of nbs) {
+              if (!compSet.has(v)) continue;
+              sumNb += phi.get(v) ?? 0;
+              deg++;
+            }
+            if (deg > 0) {
+              const target = (sumNb + (inject.get(u) ?? 0)) / deg;
+              const prev = phi.get(u) ?? 0;
+              phi.set(u, prev + 1.35 * (target - prev));
+            }
+          }
+        }
+      }
+
       const electron = st.currentFlowDirection !== "conventional";
+      const timeScaleFactor = Math.max(0.25, Math.min(3.5, Math.pow(sim.timeScale || 1, 0.35)));
+      // W114: Erst ab 10 µA (1e-5 A) Stromfluss animieren – unterdrückt Sperr-/Leckströme
+      // (z. B. an gesperrter LED bei ausgeschaltetem 555-Ausgang oder hochohmigen Eingängen).
+      const MIN_FLOW_CURRENT = 1e-5;
       for (const w of doc.wires) {
-        if (w.points.length < 2) continue;
-        const k0 = `${Math.round(w.points[0].x)},${Math.round(w.points[0].y)}`;
-        const k1 = `${Math.round(w.points[w.points.length - 1].x)},${Math.round(w.points[w.points.length - 1].y)}`;
-        const net = netResult.pointNets[k0] ?? netResult.pointNets[k1];
-        if (!net) continue;
-        const d0 = dist.get(k0);
-        const d1 = dist.get(k1);
-        const sign = netSign.get(net);
-        if (d0 === undefined || d1 === undefined || d0 === d1 || !sign) continue;
-        const conv = (d1 > d0 ? 1 : -1) * sign;
-        flowByWire.set(w.id, { dir: electron ? -conv : conv, mag: netMag.get(net) ?? 0 });
+        const chain = wireChains.get(w.id);
+        if (!chain || chain.length === 0) continue;
+        let weightedCurrent = 0;
+        let totalLen = 0;
+        for (const seg of chain) {
+          const pa = phi.get(seg.a);
+          const pb = phi.get(seg.b);
+          if (pa === undefined || pb === undefined) continue;
+          // Technischer Zweigstrom von seg.a nach seg.b ist (pa - pb) in Ampere
+          weightedCurrent += (pa - pb) * seg.len;
+          totalLen += seg.len;
+        }
+        if (totalLen < 1) continue;
+        const iWire = weightedCurrent / totalLen;
+        const mag = Math.abs(iWire);
+        if (mag < MIN_FLOW_CURRENT) continue;
+        const convDir = iWire > 0 ? 1 : -1;
+        const dir = electron ? -convDir : convDir;
+        // Gedämpfte logarithmische Driftgeschwindigkeit (px/s):
+        // ~20 px/s bei 10 µA, ~56 px/s bei 1 mA, ~80 px/s bei 10 mA, max 110 px/s
+        const speedPxPerSec =
+          Math.min(110, Math.max(18, 20 + Math.max(0, Math.log10(mag / MIN_FLOW_CURRENT)) * 18)) * timeScaleFactor;
+        const prevPhase = wirePhases.get(w.id) ?? 0;
+        const nextPhase = sim.running
+          ? (((prevPhase + dir * speedPxPerSec * dtSec) % FLOW_SPACING) + FLOW_SPACING) % FLOW_SPACING
+          : prevPhase;
+        wirePhases.set(w.id, nextPhase);
+        flowByWire.set(w.id, { dir, mag, phase: nextPhase });
       }
     }
 
@@ -489,8 +801,8 @@ export default function Canvas() {
         for (let s = 0; s < wire.points.length - 1; s++) {
           const a = wire.points[s];
           const b = wire.points[s+1];
-          const mx = (a.x + b.x) / 2;
-          const my = (a.y + b.y) / 2;
+          const mx = Math.round(((a.x + b.x) / 2) / GRID) * GRID;
+          const my = Math.round(((a.y + b.y) / 2) / GRID) * GRID;
           const isHoveredMid = hoveredHandle && hoveredHandle.wireId === wire.id && hoveredHandle.isMid && hoveredHandle.segIdx === s;
           // Only show mid handle when hovered wire or always when selected but subtle
           if (!isHovered && !isHoveredMid) continue; // show only on hover to reduce clutter, but always if hovered mid
@@ -527,26 +839,32 @@ export default function Canvas() {
         // W13: Der Endpunkt-Marker genügt – kein Glow-Streifen.
       }
 
-      // W15: Dezente matte Punkte aus echter Flussrichtung – keine Pfeile,
-      // kein Neon. Phase nur im Run lebendig (W1).
+      // W15 / W105–W107 / W113: Dezentere, sprungfreie Ladungsträger-Perlen
+      // mit konstantem Abstand (FLOW_SPACING = 22 px) und kontinuierlich
+      // integrierter Phase pro Leitung.
       const flow = flowByWire.get(wire.id);
-      if (flow && flow.mag > 1e-9 && wire.points.length > 1) {
-        const absI = flow.mag;
+      if (flow && flow.mag >= 1e-5 && wire.points.length > 1) {
         const totalLen = polyLength(wire.points);
-        if (totalLen > 2) {
-          const speed = Math.min(400, Math.max(20, Math.log10(absI + 1e-9) * 40 + 80));
-          const dir = flow.dir;
-          const offset = (((flowState._flowPhase ?? 0) * speed * 0.001 * dir) % totalLen + totalLen) % totalLen;
-          const count = Math.max(1, Math.floor(totalLen / 60));
-          ctx.fillStyle = css("--text-mute", "#94a3b8");
-          for (let d = 0; d < count; d++) {
-            const pos = (offset + (d * totalLen) / count) % totalLen;
+        if (totalLen >= 6) {
+          const iz = 1 / Math.max(view.zoom, 0.45);
+          // Dezente Deckkraft (0.32 bei 10 µA bis max. 0.68 ab 10 mA)
+          const intensity = Math.min(0.68, Math.max(0.32, 0.32 + (Math.log10(flow.mag / 1e-5) / 3) * 0.36));
+          const rDot = 2.0 * iz;
+          const isElectron = st.currentFlowDirection !== "conventional";
+          ctx.save();
+          ctx.globalAlpha = intensity;
+          ctx.fillStyle = isElectron ? "#f59e0b" : "#cbd5e1";
+          ctx.strokeStyle = "rgba(15, 23, 42, 0.45)";
+          ctx.lineWidth = 0.85 * iz;
+          for (let pos = flow.phase; pos <= totalLen; pos += FLOW_SPACING) {
             const pt = pointAtLength(wire.points, pos);
             if (!pt) continue;
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 2 / Math.max(view.zoom, 0.5), 0, Math.PI * 2);
+            ctx.arc(pt.x, pt.y, rDot, 0, Math.PI * 2);
             ctx.fill();
+            ctx.stroke();
           }
+          ctx.restore();
         }
       }
     }
@@ -816,21 +1134,77 @@ export default function Canvas() {
 
     ctx.font = "600 11px ui-sans-serif, system-ui";
     for (const label of doc.labels) {
-      const name = netResult.pointNets[`${Math.round(label.x)},${Math.round(label.y)}`] ?? label.name;
-      const txt = name || label.name;
+      // W91: Der vom Nutzer vergebene Name hat immer Vorrang vor einem generischen Netznamen
+      const txt = label.name || netResult.pointNets[`${Math.round(label.x)},${Math.round(label.y)}`] || "NET";
       const tw = ctx.measureText(txt).width;
+      const isSel = selection.includes(label.id);
       ctx.fillStyle = css("--panel-2", "#151a25");
       roundRect(ctx, label.x + 8, label.y - 20, tw + 12, 16, 4); ctx.fill();
-      ctx.strokeStyle = css("--border-strong", "#333"); ctx.lineWidth = 1 / view.zoom; ctx.stroke();
-      ctx.fillStyle = css("--accent-2", "#22d3ee"); ctx.textAlign = "left"; ctx.fillText(txt, label.x + 14, label.y - 8);
-      ctx.fillStyle = css("--accent-2", "#22d3ee"); ctx.beginPath(); ctx.arc(label.x, label.y, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = isSel ? css("--wire-sel", "#c77a16") : css("--border-strong", "#333");
+      ctx.lineWidth = (isSel ? 1.8 : 1) / view.zoom;
+      ctx.stroke();
+      ctx.fillStyle = isSel ? css("--wire-sel", "#c77a16") : css("--accent-2", "#22d3ee");
+      ctx.textAlign = "left";
+      ctx.fillText(txt, label.x + 14, label.y - 8);
+      ctx.beginPath(); ctx.arc(label.x, label.y, 2.5, 0, Math.PI * 2); ctx.fill();
     }
 
+    // W117: Edle Laborbuch-Notizkarten (Callout-Cards mit warmem Bernstein-Akzentstreifen)
     ctx.textAlign = "left";
     for (const note of doc.notes) {
-      ctx.fillStyle = css("--text-mute", "#64708c");
-      ctx.font = `${note.size ?? 11}px ui-sans-serif, system-ui`;
-      ctx.fillText(note.text, note.x, note.y);
+      const sz = note.size ?? 11;
+      const isSel = selection.includes(note.id);
+      const lines = (note.text || "Notiz").split(/\r?\n/);
+      const lineH = sz + 5;
+      ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
+      let maxTw = 48;
+      for (const ln of lines) {
+        const wLn = ctx.measureText(ln).width;
+        if (wLn > maxTw) maxTw = wLn;
+      }
+      const cardX = note.x;
+      const cardY = note.y - 18;
+      const cardW = Math.max(96, Math.ceil(maxTw + 24));
+      const cardH = 18 + lines.length * lineH + 8;
+
+      ctx.save();
+      // Sanfter Kartenschatten
+      ctx.fillStyle = "rgba(0, 0, 0, 0.24)";
+      roundRect(ctx, cardX + 1.5, cardY + 2, cardW, cardH, 6);
+      ctx.fill();
+
+      // Kartenkörper
+      ctx.fillStyle = css("--panel-solid", "#161b26");
+      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      ctx.fill();
+
+      // Linker Akzentstreifen (3.5 px)
+      ctx.save();
+      ctx.beginPath();
+      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      ctx.clip();
+      ctx.fillStyle = css("--wire-sel", "#f59e0b");
+      ctx.fillRect(cardX, cardY, 3.5, cardH);
+      ctx.restore();
+
+      // Rahmen (hervorgehoben bei Auswahl)
+      ctx.strokeStyle = isSel ? css("--wire-sel", "#f59e0b") : css("--border-strong", "#334155");
+      ctx.lineWidth = (isSel ? 1.8 : 1.1) / Math.max(view.zoom, 0.35);
+      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      ctx.stroke();
+
+      // Kopfzeile "NOTIZ"
+      ctx.font = "700 8px ui-monospace, monospace";
+      ctx.fillStyle = css("--wire-sel", "#f59e0b");
+      ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
+
+      // Notiztext (ein- oder mehrzeilig)
+      ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
+      ctx.fillStyle = css("--text", "#e2e8f0");
+      for (let li = 0; li < lines.length; li++) {
+        ctx.fillText(lines[li], cardX + 10, cardY + 16 + (li + 1) * lineH - 4);
+      }
+      ctx.restore();
     }
 
     for (const probe of doc.probes) {
@@ -838,7 +1212,12 @@ export default function Canvas() {
       drawProbe(ctx, probe, isSel, view.zoom, live, netResult, netCurrentMap);
     }
 
+    // W85: Legacy-Netzmarker (st.probes) nur dann zeichnen, wenn auf diesem Netz
+    // nicht bereits eine echte MeasurementProbe (doc.probes) sitzt – verhindert
+    // den doppelten lila Geisterkreis am anderen Ende des Netzes.
+    const measuredNets = new Set(doc.probes.map((pr) => pr.net).filter(Boolean));
     for (const probeName of st.probes) {
+      if (measuredNets.has(probeName)) continue;
       const net = netResult.nets.find((n) => n.name === probeName);
       if (!net || !net.points.length) continue;
       const p = net.points[0];
@@ -863,17 +1242,22 @@ export default function Canvas() {
       ctx.beginPath(); ctx.arc(j.x, j.y, 2.6 / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
-    // W63/W64: Netz in Arbeit – gesetzte Ecken stehen fest, der Rest läuft als
+    // W63/W64/W77: Netz in Arbeit – gesetzte Ecken stehen fest, der Rest läuft als
     // gestrichelte Vorschau bis zum Zeiger bzw. exakt auf das Magnet-Ziel.
     if (sr.netDraft) {
       const draft = sr.netDraft;
       const ref = draft.corners.length ? draft.corners[draft.corners.length - 1] : draft.anchor;
       const hover = sr.netHover;
       const magnetHit = hover && Math.hypot(hover.x - ref.x, hover.y - ref.y) > 0.01 ? { x: hover.x, y: hover.y } : null;
-      const preview = previewNetPath(draft.anchor, draft.corners, magnetHit ?? { x: cursor.x, y: cursor.y });
+      const pathOpts: NetPathOptions = {
+        preferDir: draft.corners.length === 0 ? draft.preferDir : undefined,
+        flipBend: draft.flipBend,
+        obstacles: getNetObstacles(doc),
+      };
+      const preview = previewNetPath(draft.anchor, draft.corners, magnetHit ?? { x: cursor.x, y: cursor.y }, pathOpts);
       const zLine = 2 / Math.max(view.zoom, 0.3);
       // fester Teil (Anker + gesetzte Ecken)
-      ctx.strokeStyle = css("--accent", "#5b8cff"); ctx.lineWidth = zLine;
+      ctx.strokeStyle = css("--wire-sel", "#c77a16"); ctx.lineWidth = zLine;
       ctx.beginPath();
       ctx.moveTo(draft.anchor.x, draft.anchor.y);
       for (const c of draft.corners) ctx.lineTo(c.x, c.y);
@@ -885,7 +1269,7 @@ export default function Canvas() {
       for (let i = 1; i < preview.length; i++) ctx.lineTo(preview[i].x, preview[i].y);
       ctx.stroke(); ctx.setLineDash([]);
       // Anker- und Eckpunkte sichtbar machen
-      ctx.fillStyle = css("--accent", "#5b8cff");
+      ctx.fillStyle = css("--wire-sel", "#c77a16");
       for (const p of [draft.anchor, ...draft.corners]) {
         ctx.beginPath(); ctx.arc(p.x, p.y, 3 / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.fill();
       }
@@ -907,10 +1291,25 @@ export default function Canvas() {
       const partId = st.placingPartId ?? useHud.getState().dragPart;
       const part = PART_MAP[partId ?? ""];
       if (part) {
-        // Ghost: halbtransparent, ohne Schatteneffekte (W13)
+        // W13/W75: Ghost zeigt die aktuelle Drehung & Spiegelung (R / ⇧R / M)
         ctx.save();
         ctx.globalAlpha = 0.65;
-        drawInstance(ctx, { id: "ghost", partId: part.id, x: cursor.x, y: cursor.y, rot: 0, label: part.ref + "?", params: {} }, false, view.zoom, null);
+        drawInstance(
+          ctx,
+          {
+            id: "ghost",
+            partId: part.id,
+            x: cursor.x,
+            y: cursor.y,
+            rot: st.placingRot ?? 0,
+            mirror: st.placingMirror ?? false,
+            label: part.ref + "?",
+            params: {},
+          },
+          false,
+          view.zoom,
+          null,
+        );
         ctx.restore();
         // Snap indicator
         const snapped = snap(cursor);
@@ -928,59 +1327,108 @@ export default function Canvas() {
       }
     }
     if (st.tool.startsWith("probe") && st.placingProbeKind) {
+      // W86/W93: Vorschau-Ghost rastet wie beim Klick per Magnet auf der nächsten
+      // Leitung / dem nächsten Pin ein und zeigt die Messspitze (anchorX/anchorY)
+      // plus das Kästchen im Rasterabstand (+40, -40).
+      const target = findNetTarget(doc, cursor, 24 / Math.max(view.zoom, 0.25));
+      const ax = target ? Math.round(target.x / GRID) * GRID : cursor.x;
+      const ay = target ? Math.round(target.y / GRID) * GRID : cursor.y;
+      const gNet = nearestNetName({ x: ax, y: ay }, 24);
+      const nextNum = doc.probes.filter((p) => p.kind === st.placingProbeKind).length + 1;
+      const ghostName = `${st.placingProbeKind.charAt(0).toUpperCase()}${nextNum}`;
       ctx.save();
-      ctx.globalAlpha = 0.7;
-      drawProbe(ctx, { id: "ghost", kind: st.placingProbeKind, x: cursor.x, y: cursor.y } as MeasurementProbe, false, view.zoom, live, netResult, netCurrentMap);
+      ctx.globalAlpha = 0.85;
+      drawProbe(
+        ctx,
+        {
+          id: "ghost",
+          kind: st.placingProbeKind,
+          name: ghostName,
+          x: ax + 40,
+          y: ay - 40,
+          anchorX: ax,
+          anchorY: ay,
+          offsetX: 40,
+          offsetY: -40,
+          leader: "arrow",
+          net: gNet ?? undefined,
+          show: { vdc: true, idc: true, power: true },
+        } as MeasurementProbe,
+        false,
+        view.zoom,
+        live,
+        netResult,
+        netCurrentMap,
+      );
       ctx.restore();
-      // Live-Vorschau: Ring zeigt das Netz, dessen Wert der Ghost bereits anzeigt
-      const gNet = nearestNetName(cursor, 18);
       if (gNet) {
         ctx.save();
         ctx.strokeStyle = css("--accent-2", "#22d3ee");
-        ctx.lineWidth = 1.5 / Math.max(view.zoom, 0.3);
+        ctx.lineWidth = 1.6 / Math.max(view.zoom, 0.3);
         ctx.beginPath();
-        ctx.arc(cursor.x, cursor.y, 7 / Math.max(view.zoom, 0.3), 0, Math.PI * 2);
+        ctx.arc(ax, ay, 7 / Math.max(view.zoom, 0.3), 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
     }
 
+    // W91: Live-Vorschau beim Platzieren eines Netznamens (label) oder einer Notiz (text)
+    if ((st.tool === "label" || st.tool === "text") && !editing) {
+      ctx.save();
+      ctx.globalAlpha = 0.78;
+      if (st.tool === "label") {
+        const target = findNetTarget(doc, cursor, 24 / Math.max(view.zoom, 0.25));
+        const lx = target ? Math.round(target.x / GRID) * GRID : cursor.x;
+        const ly = target ? Math.round(target.y / GRID) * GRID : cursor.y;
+        const previewTxt = "NETZ…";
+        ctx.font = "600 11px ui-sans-serif, system-ui";
+        const tw = ctx.measureText(previewTxt).width;
+        ctx.fillStyle = css("--panel-2", "#151a25");
+        roundRect(ctx, lx + 8, ly - 20, tw + 12, 16, 4);
+        ctx.fill();
+        ctx.strokeStyle = css("--wire-sel", "#c77a16");
+        ctx.lineWidth = 1.4 / Math.max(view.zoom, 0.3);
+        ctx.stroke();
+        ctx.fillStyle = css("--wire-sel", "#c77a16");
+        ctx.textAlign = "left";
+        ctx.fillText(previewTxt, lx + 14, ly - 8);
+        ctx.beginPath();
+        ctx.arc(lx, ly, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const cardX = cursor.x;
+        const cardY = cursor.y - 18;
+        const cardW = 136;
+        const cardH = 42;
+        ctx.fillStyle = css("--panel-solid", "#161b26");
+        roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+        ctx.fill();
+        ctx.fillStyle = css("--wire-sel", "#f59e0b");
+        ctx.fillRect(cardX, cardY + 3, 3.5, cardH - 6);
+        ctx.strokeStyle = css("--wire-sel", "#f59e0b");
+        ctx.lineWidth = 1.3 / Math.max(view.zoom, 0.35);
+        roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+        ctx.stroke();
+        ctx.font = "700 8px ui-monospace, monospace";
+        ctx.fillStyle = css("--wire-sel", "#f59e0b");
+        ctx.textAlign = "left";
+        ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
+        ctx.font = "500 11px ui-sans-serif, system-ui";
+        ctx.fillStyle = css("--text", "#e2e8f0");
+        ctx.fillText("Notiz platzieren …", cardX + 10, cardY + 30);
+      }
+      ctx.restore();
+    }
+
     if (sr.marquee) {
       const m = sr.marquee;
-      ctx.fillStyle = "color-mix(in srgb, " + css("--accent", "#5b8cff") + " 14%, transparent)";
-      ctx.strokeStyle = css("--accent", "#5b8cff"); ctx.lineWidth = 1.2 / view.zoom;
-      ctx.setLineDash([6,4]);
+      ctx.fillStyle = "color-mix(in srgb, " + css("--wire-sel", "#fbbf24") + " 12%, transparent)";
+      ctx.strokeStyle = css("--wire-sel", "#fbbf24");
+      ctx.lineWidth = 1.2 / view.zoom;
+      ctx.setLineDash([6 / view.zoom, 4 / view.zoom]);
       ctx.fillRect(m.x0, m.y0, m.x1 - m.x0, m.y1 - m.y0);
       ctx.strokeRect(m.x0, m.y0, m.x1 - m.x0, m.y1 - m.y0);
       ctx.setLineDash([]);
-      // Count badge – delightful
-      const w = Math.abs(m.x1 - m.x0);
-      const h = Math.abs(m.y1 - m.y0);
-      const cx = (m.x0 + m.x1)/2;
-      const cy = (m.y0 + m.y1)/2;
-      if (w > 20 && h > 20) {
-        ctx.save();
-        ctx.scale(1/view.zoom, 1/view.zoom);
-        const sx = cx * view.zoom;
-        const sy = cy * view.zoom;
-        ctx.fillStyle = "var(--panel-solid)";
-        ctx.strokeStyle = "var(--border-strong)";
-        ctx.lineWidth = 1;
-        const txt = `${Math.round(w)}×${Math.round(h)}`;
-        ctx.font = "11px ui-sans-serif";
-        const tw = ctx.measureText(txt).width;
-        const pad = 8;
-        ctx.beginPath();
-        // @ts-ignore
-        if (ctx.roundRect) ctx.roundRect(sx - tw/2 - pad, sy - 10, tw + pad*2, 18, 6);
-        else ctx.rect(sx - tw/2 - pad, sy - 10, tw + pad*2, 18);
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = "var(--text)";
-        ctx.textAlign = "center";
-        ctx.fillText(txt, sx, sy+2);
-        ctx.restore();
-      }
     }
 
     ctx.restore();
@@ -1027,7 +1475,7 @@ export default function Canvas() {
       ctx.strokeStyle = css("--border", "#cfccc5");
       ctx.strokeRect(0.5, 0.5, R - 1, R - 1);
     }
-  }, [cursor, snap]);
+  }, [cursor, snap, editing]);
 
   useEffect(() => {
     let raf = 0, last = performance.now(), frames = 0, fpsTime = last;
@@ -1083,7 +1531,15 @@ export default function Canvas() {
       const net = (probe as any).net ?? nearestNetName(world);
       return { kind: "probe", id: probe.id, probe, net };
     }
-    const inst = hitTestInstance(st.doc, world.x, world.y);
+    const lbl = hitTestLabel(st.doc, world);
+    if (lbl) {
+      return { kind: "label", id: lbl.id, net: lbl.name };
+    }
+    const note = hitTestNote(st.doc, world);
+    if (note) {
+      return { kind: "note", id: note.id, net: null };
+    }
+    const inst = hitTestInstance(st.doc, world.x, world.y) ?? findInstanceByValueLabel(st.doc, world);
     if (inst) {
       const net = nearestNetName(world);
       return { kind: "instance", id: inst.id, net };
@@ -1096,65 +1552,188 @@ export default function Canvas() {
     return { kind: "empty", net: nearestNetName(world) };
   };
 
-  // Touch handling state
-  const touchState = useRef<{ lastDist: number; lastMid: Pt | null; longPressTimer: any; startPt: Pt | null } | null>(null);
+  // Touch handling state (W100: unterstützt alle Touch-Geräte inkl. iPad/Tablet/Touch-Notebook)
+  const touchState = useRef<{
+    lastDist: number;
+    lastMid: Pt | null;
+    longPressTimer: ReturnType<typeof setTimeout> | null;
+    startPt: Pt | null;
+    startScreen: Pt | null;
+    pinching?: boolean;
+  } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent) => {
-    // Mobile long press for context menu / Alt tooltip
-    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    if (isMobile) {
-      const world = toWorld(e.clientX, e.clientY);
-      (touchState.current as any) = { startPt: world, lastDist: 0, lastMid: null, longPressTimer: null };
-      // Long press 500ms -> context menu + Alt tooltip
-      (touchState.current as any).longPressTimer = setTimeout(() => {
-        const st = useEditor.getState();
-        const hit = hitTestInstance(st.doc, world.x, world.y);
-        const probe = hitTestProbe(st.doc, world);
-        const net = nearestNetName(world, 24);
-        let target: CtxTarget;
-        if (probe) target = { kind: "probe", id: probe.id, probe, net };
-        else if (hit) target = { kind: "instance", id: hit.id, net };
-        else {
-          const wireId = hitWire(st.doc, world);
-          if (wireId) target = { kind: "wire", id: wireId, net };
-          else target = { kind: "empty", net };
-        }
-        setCtxMenu({ x: e.clientX, y: e.clientY, wx: world.x, wy: world.y, target });
-        // Haptic feedback
-        try { (navigator as any).vibrate?.(20); } catch {}
-      }, 500);
+    const isTouch = e.pointerType === "touch";
+    if (isTouch) {
+      lastTouchTimeRef.current = performance.now();
+      if (!isTouchActive) setIsTouchActive(true);
+    } else if (e.pointerType === "mouse" && performance.now() - lastTouchTimeRef.current > 600) {
+      if (isTouchActive) setIsTouchActive(false);
     }
+
+    // W100: Während einer aktiven 2-Finger-Pinch-Geste keine 1-Finger-Klicks ausführen
+    if (touchState.current?.pinching) return;
 
     const st = useEditor.getState();
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
     sr.dragStart = world; sr.moved = false; sr.duplicated = false;
+    sr.lastMouse = { x: e.clientX, y: e.clientY };
 
     if (ctxMenu) { setCtxMenu(null); return; }
 
-    // W63/W64: Netzmodus wie in Multisim – hat Vorrang, solange gezeichnet
-    // wird. Pin anklicken öffnet den Modus, Klick ins Leere setzt einen
-    // Eckpunkt, Klick auf Pin/Verbindungspunkt/Leitung schließt exakt an und
-    // beendet ihn (Esc verwirft die angefangene Leitung).
-    const magnet = 14 / Math.max(st.view.zoom, 0.25);
-    if (st.tool !== "junction") {
-      // (Im Knotenpunkt-Werkzeug darf ein Klick nahe einem Pin kein Netz beginnen.)
-      const res = netClick(st.doc, sr.netDraft, world, sp, { magnet, allowStartOnEmpty: st.tool === "wire", startOnWire: st.tool === "wire" });
+    // W100: Long-Press (500 ms ohne Bewegung > 10 px) öffnet auf jedem Touch-Gerät
+    // das Kontextmenü und bricht ein evtl. gestartetes Ziehen/Schwenken sauber ab.
+    if (isTouch) {
+      if (touchState.current?.longPressTimer) {
+        clearTimeout(touchState.current.longPressTimer);
+      }
+      const clientX = e.clientX;
+      const clientY = e.clientY;
+      touchState.current = {
+        startPt: world,
+        startScreen: { x: clientX, y: clientY },
+        lastDist: 0,
+        lastMid: { x: clientX, y: clientY },
+        pinching: false,
+        longPressTimer: setTimeout(() => {
+          if (touchState.current?.pinching) return;
+          sr.dragging = false;
+          sr.panning = false;
+          sr.marquee = null;
+          (sr as any).wireSegDrag = null;
+          (sr as any).wirePointDrag = null;
+          (sr as any).probeAnchorDrag = null;
+          useEditor.getState().endGesture();
+          const target = getTargetAt(world);
+          setCtxMenu({ x: clientX, y: clientY, wx: world.x, wy: world.y, target });
+          try { (navigator as any).vibrate?.(20); } catch {}
+        }, 500),
+      };
+    }
+
+    // W91: Bei aktivem Label-/Notiz-Werkzeug sofort das Eingabefeld öffnen,
+    // OHNE setPointerCapture auf dem Canvas (damit das Loslassen der Maustaste
+    // dem neuen <input> nicht sofort wieder den Fokus per onBlur entzieht!).
+    if (e.button === 0 && (st.tool === "label" || st.tool === "text")) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = canvasRef.current?.getBoundingClientRect();
+      editingDone.current = false;
+      editingOpenedAt.current = performance.now();
+      if (st.tool === "label") {
+        const existingLbl = hitTestLabel(st.doc, world);
+        if (existingLbl) {
+          setEditing({
+            kind: "label",
+            itemId: existingLbl.id,
+            x: existingLbl.x,
+            y: existingLbl.y,
+            sx: e.clientX - (rect?.left ?? 0),
+            sy: e.clientY - (rect?.top ?? 0),
+            initial: existingLbl.name,
+          });
+          return;
+        }
+        const target = findNetTarget(st.doc, world, 24 / Math.max(st.view.zoom, 0.25));
+        const lx = target ? Math.round(target.x / GRID) * GRID : sp.x;
+        const ly = target ? Math.round(target.y / GRID) * GRID : sp.y;
+        setEditing({
+          kind: "label",
+          x: lx,
+          y: ly,
+          sx: e.clientX - (rect?.left ?? 0),
+          sy: e.clientY - (rect?.top ?? 0),
+          initial: "",
+        });
+      } else {
+        const existingNote = hitTestNote(st.doc, world);
+        if (existingNote) {
+          setEditing({
+            kind: "text",
+            itemId: existingNote.id,
+            x: existingNote.x,
+            y: existingNote.y,
+            sx: e.clientX - (rect?.left ?? 0),
+            sy: e.clientY - (rect?.top ?? 0),
+            initial: existingNote.text,
+          });
+          return;
+        }
+        setEditing({
+          kind: "text",
+          x: sp.x,
+          y: sp.y,
+          sx: e.clientX - (rect?.left ?? 0),
+          sy: e.clientY - (rect?.top ?? 0),
+          initial: "",
+        });
+      }
+      return;
+    }
+
+    if (e.detail < 2) {
+      try {
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {}
+    }
+
+    // W63/W64/W77/W87/W101: Netzmodus wie in Multisim – hat Vorrang, solange aktiv
+    // gezeichnet wird (`sr.netDraft`) oder das Stift-Werkzeug (`wire`) aktiv ist.
+    // Im `select`-Modus (`sr.netDraft === null`) darf ein Klick auf eine bestehende
+    // Probe (Kästchen oder Messspitze) oder auf einen ausgewählten Leitungsgriff
+    // jedoch NICHT versehentlich ein neues Netz starten!
+    const magnet = (isTouch ? 22 : 14) / Math.max(st.view.zoom, 0.25);
+    const blockingSelectHit =
+      st.tool === "select" &&
+      !sr.netDraft &&
+      Boolean(
+        hitTestProbeAnchor(st.doc, world, isTouch) ||
+          hitTestProbe(st.doc, world, isTouch ? 24 : undefined) ||
+          hitWireHandle(st.doc, world, st.view.zoom, true, isTouch ? 20 : 12),
+      );
+    if (
+      e.button === 0 &&
+      !blockingSelectHit &&
+      st.tool !== "junction" &&
+      st.tool !== "erase" &&
+      st.tool !== "label" &&
+      st.tool !== "text" &&
+      st.tool !== "place" &&
+      !st.tool.startsWith("probe")
+    ) {
+      // Beim 2. Klick eines Doppelklicks auf eine Leitung nicht schon hier einen
+      // Punkt setzen, sondern onDoubleClick den Abzweig/Abschluss behandeln lassen.
+      if (e.detail >= 2 && sr.netDraft) return;
+      // W133: Im Auswahlmodus (ohne laufendes Netz) nur direkt am Pin-Anschluss
+      // (7 px) ein Netz starten, damit man Bauteile überall am Gehäuse sofort
+      // anklicken, gedrückt halten und ziehen kann!
+      const effectiveMagnet =
+        sr.netDraft || st.tool === "wire"
+          ? magnet
+          : (isTouch ? 12 : 7) / Math.max(st.view.zoom, 0.25);
+      const res = netClick(st.doc, sr.netDraft, world, sp, {
+        magnet: effectiveMagnet,
+        allowStartOnEmpty: st.tool === "wire",
+        startOnWire: st.tool === "wire",
+        obstacles: getNetObstacles(st.doc),
+      });
       if (res) {
         if (res.kind === "start") {
-          sr.netDraft = res.draft;
-          sr.netHover = null;
+          (sr as any).netStartScreen = { x: e.clientX, y: e.clientY };
+          syncNetDraft(res.draft);
           if (canvasRef.current) canvasRef.current.style.cursor = PEN_CURSOR;
-          st.log("info", `Netz von (${Math.round(res.draft.anchor.x)}, ${Math.round(res.draft.anchor.y)}): Klick setzt Ecken, Klick auf Pin/Leitung verbindet, Esc bricht ab`);
+          st.log("info", `Netz von (${Math.round(res.draft.anchor.x)}, ${Math.round(res.draft.anchor.y)}): Ziehen & Loslassen oder Klick setzt Ecken, Klick auf Pin/Leitung verbindet`);
         } else if (res.kind === "corner") {
-          sr.netDraft = res.draft;
-          st.log("info", `Eckpunkt gesetzt (${Math.round(sp.x)}, ${Math.round(sp.y)}) – weiter zeichnen, Esc bricht ab`);
+          (sr as any).netStartScreen = null;
+          syncNetDraft(res.draft);
+          st.log("info", `Eckpunkt gesetzt (${Math.round(sp.x)}, ${Math.round(sp.y)}) – weiter zeichnen, Doppelklick beendet, Esc bricht ab`);
         } else {
+          (sr as any).netStartScreen = null;
           st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: res.points });
           st.log("ok", `Netz angeschlossen – ${res.target.label}`);
-          sr.netDraft = null; sr.netHover = null;
+          syncNetDraft(null);
           st.setTool("select");
         }
         return;
@@ -1173,48 +1752,55 @@ export default function Canvas() {
       }
     }
 
-    // Wire point drag – GENIAL handles with mid-point add (Steve Jobs: wow moment)
-    if (st.tool === "select") {
-      const handle = hitWireHandle(st.doc, world, st.view.zoom, true);
-      if (handle) {
-        if (handle.isMid) {
-          // Insert new point at mid, then drag it – delightful!
-          st.commit((d)=>{
-            const w = d.wires.find(x=>x.id===handle.wireId);
-            if (w) {
-              const a = w.points[handle.segIdx!];
-              const b = w.points[handle.segIdx!+1];
-              const mx = (a.x + b.x)/2;
-              const my = (a.y + b.y)/2;
-              w.points.splice(handle.pointIdx, 0, { x: mx, y: my });
-            }
-          });
-          (sr as any).wirePointDrag = { wireId: handle.wireId, pointIdx: handle.pointIdx };
-          st.log("info", `Punkt an Leitung hinzugefügt`);
-          return;
-        } else {
-          (sr as any).wirePointDrag = { wireId: handle.wireId, pointIdx: handle.pointIdx };
-          return;
-        }
-      }
-      // Probe anchor drag
-      const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-      const hitRadius = isMobile ? 18 : 10;
-      for (const prId of st.selection) {
-        const pr = st.doc.probes.find(p=>p.id===prId);
-        if (!pr || pr.anchorX===undefined || pr.anchorY===undefined) continue;
-        const d2a = (pr.anchorX-world.x)**2 + (pr.anchorY-world.y)**2;
-        if (d2a < hitRadius*hitRadius) {
-          (sr as any).probeAnchorDrag = { probeId: prId };
-          return;
-        }
-      }
-      // Also allow dragging any wire handle even if wire not selected – auto-select
-      const anyHandle = hitWireHandle(st.doc, world, st.view.zoom, false);
-      if (anyHandle && !anyHandle.isMid) {
-        if (!st.selection.includes(anyHandle.wireId)) st.setSelection([anyHandle.wireId]);
-        (sr as any).wirePointDrag = { wireId: anyHandle.wireId, pointIdx: anyHandle.pointIdx };
+    // W77/W78/W87/W101: Leitungs-Griffe und Probe-Messspitze im Auswahlmodus
+    if (st.tool === "select" && e.button === 0 && e.detail < 2) {
+      // W87: Messspitze (Anker) einer Probe direkt greifbar – auch ohne dass
+      // die Probe vorher ausgewählt sein musste!
+      const anchorProbe = hitTestProbeAnchor(st.doc, world, isTouch);
+      if (anchorProbe) {
+        if (!st.selection.includes(anchorProbe.id)) st.setSelection([anchorProbe.id]);
+        st.beginGesture();
+        (sr as any).probeAnchorDrag = { probeId: anchorProbe.id };
         return;
+      }
+      const handle = hitWireHandle(st.doc, world, st.view.zoom, true, isTouch ? 20 : 12);
+      if (handle) {
+        const segWire = st.doc.wires.find((x) => x.id === handle.wireId);
+        if (segWire) {
+          st.beginGesture();
+          if (handle.isMid && handle.segIdx !== undefined) {
+            // W78: Ziehen am mittleren +-Griff zieht das Segment streng orthogonal
+            // als 90°-Stufe heraus (statt ein schräges Dreieck zu spleißen).
+            (sr as any).wireSegDrag = {
+              wireId: handle.wireId,
+              segIdx: handle.segIdx,
+              orig: segWire.points.map((p) => ({ x: p.x, y: p.y })),
+              applied: { dx: 0, dy: 0 },
+            };
+            return;
+          }
+          (sr as any).wirePointDrag = {
+            wireId: handle.wireId,
+            pointIdx: handle.pointIdx,
+            orig: segWire.points.map((p) => ({ x: p.x, y: p.y })),
+          };
+          return;
+        }
+      }
+      // Also allow dragging any wire corner handle even if wire not selected – auto-select
+      const anyHandle = hitWireHandle(st.doc, world, st.view.zoom, false, isTouch ? 20 : 12);
+      if (anyHandle && !anyHandle.isMid) {
+        const segWire = st.doc.wires.find((x) => x.id === anyHandle.wireId);
+        if (segWire) {
+          if (!st.selection.includes(anyHandle.wireId)) st.setSelection([anyHandle.wireId]);
+          st.beginGesture();
+          (sr as any).wirePointDrag = {
+            wireId: anyHandle.wireId,
+            pointIdx: anyHandle.pointIdx,
+            orig: segWire.points.map((p) => ({ x: p.x, y: p.y })),
+          };
+          return;
+        }
       }
     }
 
@@ -1224,60 +1810,28 @@ export default function Canvas() {
     }
 
     if (e.button === 2) {
+      if (sr.netDraft) {
+        syncNetDraft(null);
+        return;
+      }
       const target = getTargetAt(world);
-      // If right-click on unselected instance/wire/probe, select it first (like Figma)
-      if (target.kind === "instance" && !st.selection.includes(target.id)) st.setSelection([target.id]);
-      if (target.kind === "wire" && !st.selection.includes(target.id)) st.setSelection([target.id]);
-      if (target.kind === "probe" && !st.selection.includes(target.id)) st.setSelection([target.id]);
+      if (target.kind !== "empty" && !st.selection.includes(target.id)) {
+        st.setSelection([target.id]);
+      }
       setCtxMenu({ x: e.clientX, y: e.clientY, wx: world.x, wy: world.y, target });
       return;
     }
 
-    // Placing with fast autoconnect – if placed between two wires, auto-connect
+    // W75/W76: Bauteil platzieren – übernimmt Drehung/Spiegelung der Vorschau,
+    // trennt durchgehende Leitungen automatisch auf (In-Line-Split) und verbindet
+    // nahe Pins orthogonal in einem einzigen Undo-Schritt.
     if (st.tool === "place" && st.placingPartId) {
       if (e.button === 0) {
-        const id = st.addInstance(st.placingPartId, sp.x, sp.y);
-        // Fast autoconnect: check if new instance pins are near existing wires, if so, create small wire segments to connect
-        if (id) {
-          const part = PART_MAP[st.placingPartId];
-          if (part) {
-            const doc = useEditor.getState().doc;
-            const inst = doc.instances.find(i=>i.id===id);
-            if (inst) {
-              for (let pi=0; pi<part.pins.length; pi++) {
-                const pp = pinPosition(inst, pi);
-                // Find nearest wire point within 20px
-                for (const w of doc.wires) {
-                  for (let si=0; si<w.points.length-1; si++) {
-                    const a = w.points[si];
-                    const b = w.points[si+1];
-                    // distance from point to segment
-                    const dx = b.x - a.x;
-                    const dy = b.y - a.y;
-                    const len2 = dx*dx + dy*dy;
-                    if (len2 < 1) continue;
-                    const t = Math.max(0, Math.min(1, ((pp.x - a.x)*dx + (pp.y - a.y)*dy)/len2));
-                    const proj = { x: a.x + t*dx, y: a.y + t*dy };
-                    const dist = Math.hypot(pp.x - proj.x, pp.y - proj.y);
-                    if (dist < 20) {
-                      // Auto-connect: create wire from pin to projection
-                      st.commit((d)=>{
-                        d.wires.push({ id: "w_" + Math.random().toString(36).slice(2,8), points: [ { x: pp.x, y: pp.y }, { x: proj.x, y: proj.y } ] });
-                        // W61: Das neue Leitungsende sitzt auf einer bestehenden
-                        // Leitung → Verbindungspunkt wie in Multisim setzen.
-                        if (!Array.isArray(d.junctions)) d.junctions = [];
-                        if (!d.junctions.some((j) => Math.hypot(j.x - proj.x, j.y - proj.y) < 0.5)) {
-                          d.junctions.push({ id: "jnc_" + Math.random().toString(36).slice(2,8), x: proj.x, y: proj.y });
-                        }
-                      });
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        st.addInstance(st.placingPartId, sp.x, sp.y, {
+          rot: st.placingRot,
+          mirror: st.placingMirror,
+          autoWire: true,
+        });
         if (!e.shiftKey) st.setPlacing(null);
       } else {
         st.setPlacing(null);
@@ -1287,9 +1841,12 @@ export default function Canvas() {
 
     if (st.tool.startsWith("probe") && st.placingProbeKind) {
       if (e.button === 0) {
-        const net = nearestNetName(world);
-        const id = st.addMeasurementProbe(st.placingProbeKind, sp.x, sp.y);
-        if (id && net) st.updateMeasurementProbe(id, { net });
+        // W86: Exakt dieselbe Magnet-Fang-Logik wie in der Ghost-Vorschau nutzen;
+        // addMeasurementProbe löst das Netz (inkl. Segment-Fußpunkt) bereits selbst auf.
+        const target = findNetTarget(st.doc, world, 24 / Math.max(st.view.zoom, 0.25));
+        const tx = target ? Math.round(target.x / GRID) * GRID : sp.x;
+        const ty = target ? Math.round(target.y / GRID) * GRID : sp.y;
+        st.addMeasurementProbe(st.placingProbeKind, tx, ty);
         if (!e.shiftKey) st.setPlacingProbe(null);
       } else {
         st.setPlacingProbe(null);
@@ -1297,36 +1854,33 @@ export default function Canvas() {
       return;
     }
 
-
     if (st.tool === "junction") {
-      // W68: Knotenpunkt-Werkzeug – setzt bzw. entfernt einen Verbindungspunkt
-      // an der nächsten Kreuzung zweier Leitungen (W61: nur mit Punkt leitend).
       st.toggleJunction(world.x, world.y);
       return;
     }
 
-    if (st.tool === "label" || st.tool === "text") {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      editingDone.current = false;
-      setEditing({ kind: st.tool, x: sp.x, y: sp.y, sx: e.clientX - (rect?.left ?? 0), sy: e.clientY - (rect?.top ?? 0) });
+    const probeHit = hitTestProbe(st.doc, world);
+    if (probeHit && st.tool !== "erase") {
+      if (e.shiftKey || e.metaKey || e.ctrlKey) st.setSelection([...new Set([...st.selection, probeHit.id])]);
+      else if (!st.selection.includes(probeHit.id)) st.setSelection([probeHit.id]);
+      if (e.detail >= 2) return;
+      st.beginGesture();
+      sr.dragging = true;
       return;
     }
 
-    const probeHit = hitTestProbe(st.doc, world);
-    if (probeHit) {
-      if (e.shiftKey || e.metaKey || e.ctrlKey) st.setSelection([...new Set([...st.selection, probeHit.id])]);
-      else if (!st.selection.includes(probeHit.id)) st.setSelection([probeHit.id]);
-      sr.dragging = true; return;
-    }
-
-    const hit = hitTestInstance(st.doc, world.x, world.y);
+    const labelHit = hitTestLabel(st.doc, world);
+    const noteHit = !labelHit ? hitTestNote(st.doc, world) : null;
+    const hit = hitTestInstance(st.doc, world.x, world.y) ?? findInstanceByValueLabel(st.doc, world);
 
     if (st.tool === "erase") {
       if (hit) { st.setSelection([hit.id]); st.deleteSelection(); }
+      else if (labelHit) { st.setSelection([labelHit.id]); st.deleteSelection(); }
+      else if (noteHit) { st.setSelection([noteHit.id]); st.deleteSelection(); }
       else {
         const wireHit = hitWire(st.doc, world);
         if (wireHit) { st.setSelection([wireHit]); st.deleteSelection(); }
-        else { const ph = hitTestProbe(st.doc, world); if (ph) { st.setSelection([ph.id]); st.deleteSelection(); } }
+        else if (probeHit) { st.setSelection([probeHit.id]); st.deleteSelection(); }
       }
       return;
     }
@@ -1334,6 +1888,21 @@ export default function Canvas() {
     if (st.tool === "probe") {
       const netName = nearestNetName(world);
       if (netName) { st.toggleProbe(netName); st.log("info", `Sonde ${netName}`); }
+      return;
+    }
+
+    if (labelHit || noteHit) {
+      const itemId = (labelHit ?? noteHit)!.id;
+      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        const sel = new Set(st.selection);
+        if (sel.has(itemId)) sel.delete(itemId); else sel.add(itemId);
+        st.setSelection([...sel]);
+      } else if (!st.selection.includes(itemId)) {
+        st.setSelection([itemId]);
+      }
+      if (e.detail >= 2) return;
+      st.beginGesture();
+      sr.dragging = true;
       return;
     }
 
@@ -1360,19 +1929,24 @@ export default function Canvas() {
       } else if (!st.selection.includes(hit.id)) {
         st.setSelection([hit.id]);
       }
+      if (e.detail >= 2) return;
+      st.beginGesture();
       sr.dragging = true;
     } else {
-      const wireHit = hitWire(st.doc, world);
+      const wireHit = hitWire(st.doc, world, isTouch ? 12 : 6);
       if (wireHit) {
         if (e.shiftKey || e.metaKey || e.ctrlKey) st.setSelection([...new Set([...st.selection, wireHit])]);
         else if (!st.selection.includes(wireHit)) st.setSelection([wireHit]);
-        // W54: Ein Segment lässt sich senkrecht verschieben; Alt zieht wie bisher
-        // die ganze Auswahl (Leitung bzw. Leitung + Bauteile) mit.
-        const seg = e.altKey ? null : hitWireSegment(st.doc, world.x, world.y);
+        // W54/W78: Ein Segment lässt sich senkrecht verschieben (ohne Pin-Abriss!);
+        // Alt zieht wie bisher die ganze Auswahl mit. Bei Doppelklick (e.detail >= 2)
+        // kein Segment-Ziehen starten, damit onDoubleClick einen Abzweig startet.
+        if (e.detail >= 2) return;
+        const seg = e.altKey ? null : hitWireSegment(st.doc, world.x, world.y, isTouch ? 14 : 8);
         const multi = st.selection.length > 1 && st.selection.some((id) => st.doc.instances.some((i) => i.id === id));
         if (seg && !multi) {
           const segWire = st.doc.wires.find((x) => x.id === seg.wireId);
           if (segWire) {
+            st.beginGesture();
             (sr as any).wireSegDrag = {
               wireId: seg.wireId,
               segIdx: seg.segIdx,
@@ -1382,10 +1956,17 @@ export default function Canvas() {
             return;
           }
         }
+        st.beginGesture();
         sr.dragging = true;
       } else {
         if (!e.shiftKey && !e.metaKey && !e.ctrlKey) st.setSelection([]);
-        sr.marquee = { x0: world.x, y0: world.y, x1: world.x, y1: world.y };
+        // W100 (pan_on_touch): Mit einem Finger auf freiem Hintergrund schwenkt
+        // der Schaltplan (Pan); mit der Maus bleibt es wie gewohnt der Auswahlrahmen (Marquee).
+        if (isTouch) {
+          sr.panning = true;
+        } else {
+          sr.marquee = { x0: world.x, y0: world.y, x1: world.x, y1: world.y };
+        }
       }
     }
   };
@@ -1411,16 +1992,40 @@ export default function Canvas() {
         return;
       }
       if (cur.kind === "label") {
-        st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, name: clean }));
-        st.log("ok", `Netzname „${clean}“`);
+        if (cur.itemId) {
+          st.updateLabel(cur.itemId, clean);
+          st.log("ok", `Netzname geändert in „${clean}“`);
+        } else {
+          st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, name: clean }));
+          st.log("ok", `Netzname „${clean}“`);
+        }
       } else {
-        st.commit((d) => d.notes.push({ id: "n_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, text: clean }));
-        st.log("ok", "Notiz");
+        if (cur.itemId) {
+          st.updateNote(cur.itemId, clean);
+          st.log("ok", "Notiz aktualisiert");
+        } else {
+          st.commit((d) => d.notes.push({ id: "n_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, text: clean }));
+          st.log("ok", "Notiz");
+        }
       }
     }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    const isTouch = e.pointerType === "touch";
+    if (isTouch) {
+      lastTouchTimeRef.current = performance.now();
+    } else if (
+      e.pointerType === "mouse" &&
+      (e.movementX !== 0 || e.movementY !== 0) &&
+      performance.now() - lastTouchTimeRef.current > 600 &&
+      isTouchActive
+    ) {
+      setIsTouchActive(false);
+    }
+
+    if (touchState.current?.pinching) return;
+
     const st = useEditor.getState();
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
@@ -1429,14 +2034,13 @@ export default function Canvas() {
 
     // Track hovered wire handle for delightful UX – show larger handle + tooltip
     if (st.tool === "select" && !(sr as any).wirePointDrag) {
-      const hovered = hitWireHandle(st.doc, world, st.view.zoom, true) || hitWireHandle(st.doc, world, st.view.zoom, false);
+      const hovered =
+        hitWireHandle(st.doc, world, st.view.zoom, true, isTouch ? 20 : 12) ||
+        hitWireHandle(st.doc, world, st.view.zoom, false, isTouch ? 20 : 12);
       const prev = (sr as any)._hoveredHandle;
       if ((hovered?.wireId !== prev?.wireId) || (hovered?.pointIdx !== prev?.pointIdx) || (hovered?.isMid !== prev?.isMid)) {
         (sr as any)._hoveredHandle = hovered;
-        // Trigger redraw by bumping cursor (no state change)
-        // We use hud cursor already updated
       }
-      // Cursor feedback
       const canvas = canvasRef.current;
       if (canvas) {
         if (hovered) {
@@ -1445,41 +2049,52 @@ export default function Canvas() {
           canvas.style.cursor = "grabbing";
         }
       }
+    } else if ((sr as any)._hoveredHandle) {
+      (sr as any)._hoveredHandle = null;
     }
 
-    // Clear long press if moved >10px
-    if (touchState.current?.startPt) {
-      const dx = world.x - touchState.current.startPt.x;
-      const dy = world.y - touchState.current.startPt.y;
-      if (Math.hypot(dx,dy) > 10 && touchState.current.longPressTimer) {
+    // Clear long press if moved > 10 screen px (or > 10 world units)
+    if (touchState.current?.longPressTimer) {
+      const scrDist = touchState.current.startScreen
+        ? Math.hypot(e.clientX - touchState.current.startScreen.x, e.clientY - touchState.current.startScreen.y)
+        : 0;
+      const worldDist = touchState.current.startPt
+        ? Math.hypot(world.x - touchState.current.startPt.x, world.y - touchState.current.startPt.y)
+        : 0;
+      if (scrDist > 10 || worldDist > 10) {
         clearTimeout(touchState.current.longPressTimer);
         touchState.current.longPressTimer = null;
       }
     }
 
-    // Pinch zoom handling – if 2 pointers active (we track via pointer events? Simplified: if e has 2 touches via native event)
-    // For pointer events, we need to handle touch events separately – we add onTouchMove below
-
-
     if (sr.panning) {
       const dx = (e.clientX - (sr.lastMouse.x || e.clientX)) / st.view.zoom;
       const dy = (e.clientY - (sr.lastMouse.y || e.clientY)) / st.view.zoom;
+      if (Math.hypot(e.clientX - (sr.lastMouse.x || e.clientX), e.clientY - (sr.lastMouse.y || e.clientY)) > 2) {
+        sr.moved = true;
+      }
       st.setView({ x: st.view.x - dx, y: st.view.y - dy });
+      sr.lastMouse = { x: e.clientX, y: e.clientY };
+      if (isTouch) return;
     }
     sr.lastMouse = { x: e.clientX, y: e.clientY };
 
-    // W54: Segment verschieben – senkrecht zur Segmentrichtung, Raster-Snap.
+    // W54/W83/W98a: Segment verschieben – senkrecht zur Segmentrichtung, die neue
+    // Segmentposition rastet direkt auf die Rasterlinie sp.y / sp.x (GRID=10) ein.
+    // Während des Ziehens einer Leitung darf NIEMALS der Stift-Cursor erscheinen!
     if ((sr as any).wireSegDrag) {
+      sr.netHover = null;
       const seg = (sr as any).wireSegDrag as { wireId: string; segIdx: number; orig: Array<{ x: number; y: number }>; applied: { dx: number; dy: number } };
       const sa = seg.orig[seg.segIdx];
       const sb = seg.orig[seg.segIdx + 1];
       const horizontal = Math.abs(sb.x - sa.x) >= Math.abs(sb.y - sa.y);
+      if (canvasRef.current) {
+        canvasRef.current.style.cursor = horizontal ? "ns-resize" : "ew-resize";
+      }
       let dx = 0;
       let dy = 0;
-      if (horizontal) dy = Math.round((sp.y - sr.dragStart.y) / GRID) * GRID;
-      else dx = Math.round((sp.x - sr.dragStart.x) / GRID) * GRID;
-      if (Math.abs(dx) < GRID / 2) dx = 0;
-      if (Math.abs(dy) < GRID / 2) dy = 0;
+      if (horizontal) dy = sp.y - sa.y;
+      else dx = sp.x - sa.x;
       if (dx !== seg.applied.dx || dy !== seg.applied.dy) {
         st.setWireSegmentOffset(seg.wireId, seg.segIdx, seg.orig, dx, dy);
         seg.applied = { dx, dy };
@@ -1488,11 +2103,16 @@ export default function Canvas() {
       return;
     }
 
-    // Wire point drag – with alignment guides and snap, delightful
+    // W78/W98a: Eck- oder Endpunkt einer Leitung streng orthogonal verschieben
     if ((sr as any).wirePointDrag) {
-
-      const { wireId, pointIdx } = (sr as any).wirePointDrag;
-      // Alignment guides: find nearby pins or other wire points aligned horizontally/vertically within 12px
+      sr.netHover = null;
+      if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
+      const { wireId, pointIdx, orig } = (sr as any).wirePointDrag as {
+        wireId: string;
+        pointIdx: number;
+        orig: Array<{ x: number; y: number }>;
+      };
+      // Alignment guides: find nearby pins or other wire points aligned horizontally/vertically
       let guideX: number | null = null;
       let guideY: number | null = null;
       const threshold = 10;
@@ -1501,109 +2121,106 @@ export default function Canvas() {
         for (const inst of doc.instances) {
           const part = (PART_MAP as any)[inst.partId];
           if (!part) continue;
-          for (const pin of part.pins) {
-            const px = inst.x + (inst.rot===90? -pin.y : inst.rot===180? -pin.x : inst.rot===270? pin.y : pin.x);
-            const py = inst.y + (inst.rot===90? pin.x : inst.rot===180? -pin.y : inst.rot===270? -pin.x : pin.y);
-            if (Math.abs(px - sp.x) < threshold) guideX = px;
-            if (Math.abs(py - sp.y) < threshold) guideY = py;
+          for (let idx = 0; idx < part.pins.length; idx++) {
+            const p = pinPosition(inst, idx);
+            if (Math.abs(p.x - sp.x) < threshold) guideX = Math.round(p.x / GRID) * GRID;
+            if (Math.abs(p.y - sp.y) < threshold) guideY = Math.round(p.y / GRID) * GRID;
           }
         }
         for (const w of doc.wires) {
           if (w.id === wireId) continue;
           for (const pt of w.points) {
-            if (Math.abs(pt.x - sp.x) < threshold) guideX = pt.x;
-            if (Math.abs(pt.y - sp.y) < threshold) guideY = pt.y;
+            if (Math.abs(pt.x - sp.x) < threshold) guideX = Math.round(pt.x / GRID) * GRID;
+            if (Math.abs(pt.y - sp.y) < threshold) guideY = Math.round(pt.y / GRID) * GRID;
           }
         }
       } catch {}
       const finalPt = { x: guideX !== null ? guideX : sp.x, y: guideY !== null ? guideY : sp.y };
       (sr as any)._alignGuides = { x: guideX, y: guideY };
-      st.commit((d)=>{
-        const w = d.wires.find(x=>x.id===wireId);
-        if (w && w.points[pointIdx]) {
-          w.points[pointIdx] = finalPt;
-        }
-      });
+      st.setWireCornerPosition(wireId, pointIdx, orig, finalPt);
       sr.moved = true;
       (sr as any)._wasDraggingHandle = true;
-      // Show tooltip with coordinates and delta
-      const orig = (sr as any)._dragOrig;
-      if (orig) {
-        const dx = finalPt.x - orig.x;
-        const dy = finalPt.y - orig.y;
+      const dragOrig = (sr as any)._dragOrig;
+      if (dragOrig) {
+        const dx = finalPt.x - dragOrig.x;
+        const dy = finalPt.y - dragOrig.y;
         const len = Math.hypot(dx, dy);
-        const ang = Math.atan2(dy, dx) * 180 / Math.PI;
-        setTooltip({ x: e.clientX - (wrapRef.current?.getBoundingClientRect().left ?? 0) + 16, y: e.clientY - (wrapRef.current?.getBoundingClientRect().top ?? 0) + 16, lines: [`Punkt ${pointIdx}: ${finalPt.x.toFixed(0)}, ${finalPt.y.toFixed(0)}`, `Δ ${dx>=0?"+":""}${dx.toFixed(0)}, ${dy>=0?"+":""}${dy.toFixed(0)} • ${len.toFixed(1)}px`, `Winkel ${ang.toFixed(0)}° ${Math.abs(ang)%90<5||Math.abs(ang%90-90)<5?"(90°)":Math.abs(ang%45)<5?"(45°)":""}`, guideX!==null||guideY!==null ? `🧲 Ausrichtung an ${guideX!==null?"X":""}${guideX!==null&&guideY!==null?"+":""}${guideY!==null?"Y":""}` : ""] });
+        setTooltip({
+          x: e.clientX - (wrapRef.current?.getBoundingClientRect().left ?? 0) + 16,
+          y: e.clientY - (wrapRef.current?.getBoundingClientRect().top ?? 0) + 16,
+          lines: [
+            `Ecke ${pointIdx}: ${finalPt.x.toFixed(0)}, ${finalPt.y.toFixed(0)}`,
+            `Δ ${dx >= 0 ? "+" : ""}${dx.toFixed(0)}, ${dy >= 0 ? "+" : ""}${dy.toFixed(0)} • ${len.toFixed(0)} px (90° orthogonal)`,
+            guideX !== null || guideY !== null
+              ? `Ausrichtung an ${guideX !== null ? "X" : ""}${guideX !== null && guideY !== null ? "+" : ""}${guideY !== null ? "Y" : ""}`
+              : "",
+          ].filter(Boolean),
+        });
       } else {
         (sr as any)._dragOrig = { ...finalPt };
       }
       return;
     }
     if ((sr as any).probeAnchorDrag) {
+      sr.netHover = null;
+      if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
       const { probeId } = (sr as any).probeAnchorDrag;
-      st.updateMeasurementProbe(probeId, { anchorX: sp.x, anchorY: sp.y });
+      // W87: Messspitze (Anker) rastet beim Ziehen per Magnet auf nahen Pins,
+      // Verbindungspunkten oder Leitungssegmenten ein (sonst auf dem Raster sp).
+      const target = findNetTarget(st.doc, world, 16 / Math.max(st.view.zoom, 0.25));
+      const ax = target ? Math.round(target.x / GRID) * GRID : sp.x;
+      const ay = target ? Math.round(target.y / GRID) * GRID : sp.y;
+      st.updateMeasurementProbe(probeId, { anchorX: ax, anchorY: ay });
       sr.moved = true;
       return;
     }
 
     if (sr.dragging && st.selection.length) {
+      sr.netHover = null;
+      if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
       if ((e.ctrlKey || e.metaKey) && !sr.duplicated && !sr.moved) {
         st.duplicateSelection();
         sr.duplicated = true;
       }
-      // Alignment guides for instances – like Figma/Multisim, show when aligned
+      const selIds = new Set(st.selection);
+      let dx = sp.x - Math.round(sr.dragStart.x / GRID) * GRID;
+      let dy = sp.y - Math.round(sr.dragStart.y / GRID) * GRID;
+
+      // W83: Falls ein gezogenes Bauteil (oder eine gezogene Probe) aus einem
+      // Altstand noch auf einer krummen Koordinate saß, rastet es beim Ziehen
+      // sofort exakt auf ein Vielfaches von GRID = 10 ein!
+      const anchorInst = st.doc.instances.find((i) => selIds.has(i.id));
+      const anchorProbe = !anchorInst ? st.doc.probes.find((p) => selIds.has(p.id)) : undefined;
+      if (anchorInst && (dx !== 0 || dy !== 0)) {
+        dx = Math.round((anchorInst.x + dx) / GRID) * GRID - anchorInst.x;
+        dy = Math.round((anchorInst.y + dy) / GRID) * GRID - anchorInst.y;
+      } else if (anchorProbe && (dx !== 0 || dy !== 0)) {
+        dx = Math.round((anchorProbe.x + dx) / GRID) * GRID - anchorProbe.x;
+        dy = Math.round((anchorProbe.y + dy) / GRID) * GRID - anchorProbe.y;
+      }
+
+      // W83: Visuelle Ausrichtungslinien (_alignGuides) prüfen nur echte
+      // Raster-Ursprünge (other.x / other.y) und Pin-Positionen, NIEMALS krumme
+      // Grafik-Bounding-Box-Kanten, und verbiegen dx/dy niemals vom Raster weg!
       let guideX: number | null = null;
       let guideY: number | null = null;
-      const threshold = 8;
-      const selIds = new Set(st.selection);
-      // Find bounds of selection
-      let selMinX = Infinity, selMaxX = -Infinity, selMinY = Infinity, selMaxY = -Infinity;
-      for (const id of st.selection) {
-        const inst = st.doc.instances.find(i=>i.id===id);
-        if (!inst) continue;
-        const b = instanceBounds(inst);
-        selMinX = Math.min(selMinX, b.x);
-        selMaxX = Math.max(selMaxX, b.x + b.w);
-        selMinY = Math.min(selMinY, b.y);
-        selMaxY = Math.max(selMaxY, b.y + b.h);
-      }
-      // Check against other instances
-      for (const other of st.doc.instances) {
-        if (selIds.has(other.id)) continue;
-        const b = instanceBounds(other);
-        const candidatesX = [b.x, b.x + b.w/2, b.x + b.w];
-        const candidatesY = [b.y, b.y + b.h/2, b.y + b.h];
-        for (const cx of candidatesX) {
-          if (Math.abs((selMinX + (sp.x - sr.dragStart.x)) - cx) < threshold) guideX = cx;
-          if (Math.abs((selMaxX + (sp.x - sr.dragStart.x)) - cx) < threshold) guideX = cx;
-          if (Math.abs(((selMinX+selMaxX)/2 + (sp.x - sr.dragStart.x)) - cx) < threshold) guideX = cx;
-        }
-        for (const cy of candidatesY) {
-          if (Math.abs((selMinY + (sp.y - sr.dragStart.y)) - cy) < threshold) guideY = cy;
-          if (Math.abs((selMaxY + (sp.y - sr.dragStart.y)) - cy) < threshold) guideY = cy;
-          if (Math.abs(((selMinY+selMaxY)/2 + (sp.y - sr.dragStart.y)) - cy) < threshold) guideY = cy;
+      if (anchorInst) {
+        const nextX = anchorInst.x + dx;
+        const nextY = anchorInst.y + dy;
+        for (const other of st.doc.instances) {
+          if (selIds.has(other.id)) continue;
+          if (Math.abs(other.x - nextX) < 0.5) guideX = other.x;
+          if (Math.abs(other.y - nextY) < 0.5) guideY = other.y;
         }
       }
       (sr as any)._alignGuides = { x: guideX, y: guideY };
-      let dx = sp.x - Math.round(sr.dragStart.x / GRID) * GRID;
-      let dy = sp.y - Math.round(sr.dragStart.y / GRID) * GRID;
-      // Snap to guides if present
-      if (guideX !== null) {
-        const curMinX = selMinX + dx;
-        const snapDx = guideX - curMinX;
-        // Only snap if close
-        if (Math.abs(snapDx) < threshold*2) dx += snapDx;
-      }
-      if (guideY !== null) {
-        const curMinY = selMinY + dy;
-        const snapDy = guideY - curMinY;
-        if (Math.abs(snapDy) < threshold*2) dy += snapDy;
-      }
+
       if (dx || dy) {
         st.moveSelection(dx, dy);
-        sr.dragStart = { x: sr.dragStart.x + dx, y: sr.dragStart.y + dy };
+        sr.dragStart = { x: Math.round(sr.dragStart.x / GRID) * GRID + dx, y: Math.round(sr.dragStart.y / GRID) * GRID + dy };
         sr.moved = true;
       }
+      return;
     }
 
     if (sr.marquee) { sr.marquee.x1 = world.x; sr.marquee.y1 = world.y; }
@@ -1622,20 +2239,58 @@ export default function Canvas() {
       (sr as any).junctionHover = null;
     }
 
-    // W64: Anschluss-Magnet. Das beste Ziel (Pin → Verbindungspunkt → Leitung)
-    // wird gemerkt, die Vorschau springt exakt dorthin – Klicks müssen nicht
-    // mehr pixelgenau treffen, Anschlüsse gehen nicht mehr verloren.
-    const magnet = 14 / Math.max(st.view.zoom, 0.25);
-    sr.netHover = findNetTarget(st.doc, world, magnet);
+    // W64/W89/W98a/W101/W133: Anschluss-Magnet nur in Modi, in denen tatsächlich Leitungen
+    // gezeichnet oder Labels gesetzt werden. Im Auswahlmodus (`select` ohne `netDraft`)
+    // darf der Magnet-Ring nur eng am Bauteil-Pin (`selectPinMagnet = 7px`) anspringen,
+    // damit der Bauteilkörper frei zum direkten Klicken-Halten-Ziehen bleibt!
+    const magnet = (isTouch ? 22 : 14) / Math.max(st.view.zoom, 0.25);
+    const selectPinMagnet = (isTouch ? 12 : 7) / Math.max(st.view.zoom, 0.25);
+    if (st.tool === "wire" || st.tool === "label" || Boolean(sr.netDraft)) {
+      sr.netHover = findNetTarget(st.doc, world, magnet);
+    } else if (st.tool === "select") {
+      const rawTarget = findNetTarget(st.doc, world, selectPinMagnet);
+      sr.netHover = rawTarget?.kind === "pin" ? rawTarget : null;
+    } else {
+      sr.netHover = null;
+    }
 
-    // W65: kein Fadenkreuz mehr. Beim Zeichnen (und über einem möglichen
-    // Anschluss) zeigt der Stift, dass hier ein Netz entsteht. Andere Zeiger
-    // (Leitungsgriff „copy/grab", Pan, Löschen) bleiben unangetastet.
+    // W65/W89/W98a: Saubere Cursor-Steuerung pro Werkzeug.
+    // - Der Radiergummi zeigt IMMER das Radiergummi-Icon (ERASER_CURSOR).
+    // - Beim Überfahren oder Verschieben einer Leitung im Auswahlmodus erscheint
+    //   NIEMALS der Stift (PEN_CURSOR), sondern der Segment-Verschiebe-Cursor.
     const canvasEl = canvasRef.current;
     if (canvasEl && !(sr as any)._hoveredHandle) {
-      const drawing = (Boolean(sr.netDraft) || st.tool === "wire" || sr.netHover !== null) && st.tool !== "junction";
-      if (drawing) canvasEl.style.cursor = PEN_CURSOR;
-      else if (!spaceDown.current && !sr.panning && !sr.dragging) canvasEl.style.cursor = st.tool === "erase" ? "not-allowed" : st.tool === "pan" ? "grab" : "default";
+      if (spaceDown.current || sr.panning) {
+        canvasEl.style.cursor = "grabbing";
+      } else if (st.tool === "erase") {
+        canvasEl.style.cursor = ERASER_CURSOR;
+      } else if (st.tool === "pan") {
+        canvasEl.style.cursor = "grab";
+      } else if (st.tool === "label" || st.tool === "text") {
+        canvasEl.style.cursor = "text";
+      } else if (
+        Boolean(sr.netDraft) ||
+        st.tool === "wire" ||
+        (st.tool === "select" &&
+          sr.netHover?.kind === "pin" &&
+          !hitTestProbe(st.doc, world) &&
+          !hitTestProbeAnchor(st.doc, world))
+      ) {
+        canvasEl.style.cursor = PEN_CURSOR;
+      } else if (st.tool === "select" && !sr.dragging) {
+        const hoverSeg = hitWireSegment(st.doc, world.x, world.y);
+        if (hoverSeg) {
+          const hw = st.doc.wires.find((x) => x.id === hoverSeg.wireId);
+          const ha = hw?.points[hoverSeg.segIdx];
+          const hb = hw?.points[hoverSeg.segIdx + 1];
+          const isHoriz = ha && hb ? Math.abs(hb.x - ha.x) >= Math.abs(hb.y - ha.y) : true;
+          canvasEl.style.cursor = isHoriz ? "ns-resize" : "ew-resize";
+        } else {
+          canvasEl.style.cursor = "default";
+        }
+      } else if (!sr.dragging) {
+        canvasEl.style.cursor = "default";
+      }
     }
 
     // Human Design: Tooltips everywhere – explain how to edit, no flicker
@@ -1727,13 +2382,56 @@ export default function Canvas() {
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
+    const isTouch = e.pointerType === "touch";
+    const wasPinching = Boolean(touchState.current?.pinching);
+    const startScr = touchState.current?.startScreen ?? null;
     if (touchState.current?.longPressTimer) {
       clearTimeout(touchState.current.longPressTimer);
       touchState.current.longPressTimer = null;
     }
-    touchState.current = null;
+    if (!wasPinching) {
+      touchState.current = null;
+    }
     const st = useEditor.getState(); const sr = stateRef.current;
+    const wasMoved = sr.moved;
+    st.endGesture();
+
+    // W133: Klicken, gedrückt halten und Ziehen beim Leitungszeichnen:
+    // Hat der Nutzer auf einem Pin gedrückt, die Maustaste gedrückt gehalten,
+    // zu einem anderen Pin/Leitung/Knoten gezogen (> 14 px) und dort losgelassen,
+    // wird die Leitung sofort beim Loslassen fertig angeschlossen!
+    const netStartScr = (sr as any).netStartScreen as { x: number; y: number } | null;
+    (sr as any).netStartScreen = null;
+    if (sr.netDraft && netStartScr && Math.hypot(e.clientX - netStartScr.x, e.clientY - netStartScr.y) > 14) {
+      const worldUp = toWorld(e.clientX, e.clientY);
+      const spUp = snap(worldUp);
+      const magnetUp = (isTouch ? 22 : 14) / Math.max(st.view.zoom, 0.25);
+      const resUp = netClick(st.doc, sr.netDraft, worldUp, spUp, {
+        magnet: magnetUp,
+        allowStartOnEmpty: false,
+        startOnWire: true,
+        obstacles: getNetObstacles(st.doc),
+      });
+      if (resUp && resUp.kind === "finish") {
+        st.addWire({ id: makeWireId(), points: resUp.points });
+        st.log("ok", `Netz angeschlossen – ${resUp.target.label}`);
+        syncNetDraft(null);
+        st.setTool("select");
+      }
+    }
+
+    // W133: Klicken, gedrückt halten und Ziehen einer Messleitung (Oszi / FG) auf den Canvas:
+    if (st.leadArmed && e.button === 0) {
+      const worldUp = toWorld(e.clientX, e.clientY);
+      const tgt = probeTarget(st.doc, worldUp);
+      if (tgt) {
+        st.connectProbeWire(st.leadArmed.instanceId, st.leadArmed.pinIndex, tgt);
+        st.setLeadArmed(null);
+        click("plug");
+      }
+    }
+
     (sr as any).wirePointDrag = null;
     (sr as any).probeAnchorDrag = null;
     (sr as any)._alignGuides = null;
@@ -1753,11 +2451,10 @@ export default function Canvas() {
         }).map((i) => i.id);
         const wireIds = st.doc.wires.filter((w) => w.points.every((p) => p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1)).map((w) => w.id);
         const probeIds = st.doc.probes.filter((pr) => pr.x >= x0 && pr.x <= x1 && pr.y >= y0 && pr.y <= y1).map((pr) => pr.id);
-        const newSel = [...ids, ...wireIds, ...probeIds];
-        // Shift adds
+        const labelIds = st.doc.labels.filter((l) => l.x >= x0 && l.x <= x1 && l.y >= y0 && l.y <= y1).map((l) => l.id);
+        const noteIds = st.doc.notes.filter((n) => n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1).map((n) => n.id);
+        const newSel = [...ids, ...wireIds, ...probeIds, ...labelIds, ...noteIds];
         const cur = useEditor.getState().selection;
-        // Actually we already handled shift earlier – if shift held, add, else replace
-        // We check if shift was held during marquee start? We stored? For simplicity, if shift key currently down, add
         const isAdditive = (window as any)._lastShift ?? false;
         if (isAdditive) st.setSelection([...new Set([...cur, ...newSel])]);
         else st.setSelection(newSel);
@@ -1765,77 +2462,203 @@ export default function Canvas() {
       sr.marquee = null;
     }
     sr.dragging = false; sr.panning = false; (sr as any).wireSegDrag = null;
-    if (sr.moved && st.sim.running) engine.rebuild(st.doc);
+    if (wasMoved && st.sim.running) engine.rebuild(st.doc);
+
+    // W100: Zuverlässiger Touch-Doppeltipp (< 320 ms, < 26 px) für Inline-Werteingabe,
+    // Stromrichtungs-Umkehr, Leitungsabzweig und freies Beenden eines Netzes.
+    if (isTouch && !wasPinching && !wasMoved && !ctxMenu && st.tool !== "place") {
+      const now = e.timeStamp;
+      const tapDist = startScr ? Math.hypot(e.clientX - startScr.x, e.clientY - startScr.y) : 0;
+      if (tapDist < 12) {
+        const prevTap = lastTouchTapRef.current;
+        if (
+          prevTap &&
+          now - prevTap.time < 320 &&
+          Math.hypot(e.clientX - prevTap.x, e.clientY - prevTap.y) < 26
+        ) {
+          lastTouchTapRef.current = null;
+          onDoubleClick({
+            clientX: e.clientX,
+            clientY: e.clientY,
+            shiftKey: e.shiftKey,
+          } as React.MouseEvent);
+        } else {
+          lastTouchTapRef.current = { time: now, x: e.clientX, y: e.clientY };
+        }
+      }
+    }
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
     const sr = stateRef.current;
-    // W63: Doppelklick beendet den Netzmodus (die angefangene Leitung wird verworfen).
-    if (sr.netDraft) { sr.netDraft = null; sr.netHover = null; return; }
     const st = useEditor.getState();
     const world = toWorld(e.clientX, e.clientY);
-    // Double-click on wire handle deletes point (if >2 points) – delightful editing
+    const sp = snap(world);
+    // W77: Doppelklick im freien Raum beendet das angefangene Netz an der
+    // aktuellen Position (statt es zu verwerfen – verworfen wird per Esc / Rechtsklick).
+    if (sr.netDraft) {
+      const pts = finishNetDraft(sr.netDraft, sp, {
+        preferDir: sr.netDraft.corners.length === 0 ? sr.netDraft.preferDir : undefined,
+        flipBend: sr.netDraft.flipBend,
+        obstacles: getNetObstacles(st.doc),
+      });
+      if (pts) {
+        st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: pts });
+        st.log("ok", `Netz im freien Raum abgeschlossen (${Math.round(sp.x)}, ${Math.round(sp.y)})`);
+      }
+      syncNetDraft(null);
+      st.setTool("select");
+      return;
+    }
+
+    // W81: Doppelklick auf Netzlabel oder Textnotiz öffnet den Inline-Editor
+    const lblHit = hitTestLabel(st.doc, world);
+    if (lblHit) {
+      const scr = toScreen({ x: lblHit.x, y: lblHit.y });
+      editingDone.current = false;
+      setEditing({ kind: "label", itemId: lblHit.id, x: lblHit.x, y: lblHit.y, sx: scr.x, sy: scr.y, initial: lblHit.name });
+      return;
+    }
+    const noteHit = hitTestNote(st.doc, world);
+    if (noteHit) {
+      const scr = toScreen({ x: noteHit.x, y: noteHit.y });
+      editingDone.current = false;
+      setEditing({ kind: "text", itemId: noteHit.id, x: noteHit.x, y: noteHit.y, sx: scr.x, sy: scr.y, initial: noteHit.text });
+      return;
+    }
+
+    // Double-click on wire corner handle deletes point (if >2 points)
     const handle = hitWireHandle(st.doc, world, st.view.zoom, true);
     if (handle && !handle.isMid) {
-      const wire = st.doc.wires.find(w=>w.id===handle.wireId);
+      const wire = st.doc.wires.find((w) => w.id === handle.wireId);
       if (wire && wire.points.length > 2) {
-        st.commit((d)=>{
-          const w = d.wires.find(x=>x.id===handle.wireId);
+        st.commit((d) => {
+          const w = d.wires.find((x) => x.id === handle.wireId);
           if (w) w.points.splice(handle.pointIdx, 1);
         });
-        st.log("info", `Punkt ${handle.pointIdx} gelöscht – Leitung hat jetzt ${wire.points.length-1} Punkte (Undo)`);
+        st.log("info", `Punkt ${handle.pointIdx} gelöscht – Leitung hat jetzt ${wire.points.length - 1} Punkte (Undo)`);
         return;
       }
     }
-    const hit = hitTestInstance(st.doc, world.x, world.y);
+    const bodyHit = hitTestInstance(st.doc, world.x, world.y);
+    const valueLabelHit = !bodyHit ? findInstanceByValueLabel(st.doc, world) : null;
+    const hit = bodyHit ?? valueLabelHit;
     if (hit) {
       st.setSelection([hit.id]);
       const part = PART_MAP[hit.partId];
       if (part?.id === "oscilloscope") {
-        // W29: Doppelklick auf das Oszi-Symbol öffnet das gebundene
-        // Gerätefenster (Kanäle kommen aus der Verdrahtung an CH1…CH4/GND).
         useEditor.getState().openInstrument("scope", { instanceId: hit.id, title: `Oszilloskop ${hit.label}` });
         return;
       }
       if (part?.id === "funcgen") {
-        // W18: Doppelklick auf den FG-2500 öffnet das gebundene Gerät
-        // (Ausgänge OUT1/OUT2/SYNC werden im Schaltplan verdrahtet).
         useEditor.getState().openInstrument("funcgen", { instanceId: hit.id, title: `Funktionsgenerator ${hit.label}` });
         return;
       }
-      const key = part?.params[0]?.key;
-      if (key && e.altKey) {
-        // Alt+Doppelklick: Inline-Wertedit direkt auf der Fläche (Direct Manipulation).
+      const main = part?.params[0];
+      // W125: Nur ein Doppelklick gezielt auf den Wert/Bezeichner unter dem Bauteil
+      // (valueLabelHit) öffnet das Inline-Wertefeld; ein Doppelklick auf das Bauteil
+      // selbst (bodyHit) öffnet den Inspector.
+      if (valueLabelHit && main && main.type === "number" && !e.shiftKey) {
         const scr = toScreen({ x: hit.x, y: hit.y });
-        setEditing({ kind: "value", instId: hit.id, x: hit.x, y: hit.y, sx: scr.x, sy: scr.y, initial: String(hit.params[key] ?? "") });
+        const rawVal = Number(hit.params[main.key] ?? main.def);
+        const formatted = Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : String(hit.params[main.key] ?? "");
+        editingDone.current = false;
+        editingOpenedAt.current = performance.now();
+        setEditing({
+          kind: "value",
+          instId: hit.id,
+          x: hit.x,
+          y: hit.y,
+          sx: scr.x,
+          sy: scr.y + 18,
+          initial: formatted,
+        });
       } else {
-        // W10: Doppelklick öffnet den Inspector als Fenster.
         useEditor.getState().openInstrument("inspector");
       }
-    }
-    else {
-      const probe = hitTestProbe(st.doc, world);
+    } else {
+      const probe = hitTestProbe(st.doc, world) ?? hitTestProbeAnchor(st.doc, world);
       if (probe) {
-        st.setSelection([probe.id]); useEditor.getState().openInstrument("inspector");
+        st.setSelection([probe.id]);
+        // W99: Doppelklick auf eine Strom-/Leistungs-/V·A-Sonde kehrt sofort die
+        // Strommessrichtung um (Shift + Doppelklick öffnet den Inspector).
+        if (
+          !e.shiftKey &&
+          (probe.kind === "current" || probe.kind === "voltage_current" || probe.kind === "power")
+        ) {
+          const nextDir = probe.direction ? 0 : 1;
+          st.updateMeasurementProbe(probe.id, { direction: nextDir });
+          st.log("info", `Strommessrichtung von ${probe.name ?? "Sonde"} umgekehrt`);
+        } else {
+          useEditor.getState().openInstrument("inspector");
+        }
       } else {
-        // W67: Doppelklick auf eine Leitung zieht von dort ein neues Netz
-        // (Multisim: „Leitung abzweigen"). Der Anker liegt exakt auf der
-        // Leitung; der Abzweig erhält beim Anschließen einen Verbindungspunkt.
+        // W67/W77: Doppelklick auf eine Leitung zieht von dort ein neues Netz
+        // (Multisim: „Leitung abzweigen").
         const wireId = hitWire(st.doc, world);
         if (wireId) {
           const target = findNetTarget(st.doc, world, 14 / Math.max(st.view.zoom, 0.25));
-          const anchor = target?.kind === "wire" || target?.kind === "junction"
-            ? { x: target.x, y: target.y }
-            : snap(world);
-          sr.netDraft = { anchor, corners: [] };
-          sr.netHover = null;
+          const anchor =
+            target?.kind === "wire" || target?.kind === "junction"
+              ? { x: target.x, y: target.y }
+              : sp;
+          syncNetDraft({ anchor, corners: [], flipBend: false });
           if (canvasRef.current) canvasRef.current.style.cursor = PEN_CURSOR;
-          st.log("info", `Abzweig ab (${Math.round(anchor.x)}, ${Math.round(anchor.y)}) – Klick setzt Ecken, Klick auf Pin/Leitung verbindet, Esc bricht ab`);
+          st.log("info", `Abzweig ab (${Math.round(anchor.x)}, ${Math.round(anchor.y)}) – Klick setzt Ecken, Klick auf Pin/Leitung verbindet, Doppelklick beendet, Esc bricht ab`);
           return;
         }
       }
     }
   };
+
+  // W133: Echtes Klicken, gedrückt halten und Ziehen eines Bauteils aus
+  // LibraryPalette, ComponentStrip oder DeviceBar direkt auf den Schaltplan:
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const dragPartId = useHud.getState().dragPart;
+      if (!dragPartId) return;
+      const el = canvasRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const st = useEditor.getState();
+      const world = {
+        x: (e.clientX - r.left - st.view.x) / st.view.zoom,
+        y: (e.clientY - r.top - st.view.y) / st.view.zoom,
+      };
+      const sp = snap(world);
+      setCursor(sp);
+      useHud.setState({ cursor: sp });
+    };
+    const onUp = (e: PointerEvent) => {
+      const dragPartId = useHud.getState().dragPart;
+      if (!dragPartId) return;
+      useHud.setState({ dragPart: null });
+      const el = canvasRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+        const st = useEditor.getState();
+        const world = {
+          x: (e.clientX - r.left - st.view.x) / st.view.zoom,
+          y: (e.clientY - r.top - st.view.y) / st.view.zoom,
+        };
+        const sp = snap(world);
+        const newId = st.addInstance(dragPartId, sp.x, sp.y, {
+          rot: st.placingRot,
+          mirror: st.placingMirror,
+          autoWire: true,
+        });
+        if (newId) st.setSelection([newId]);
+        if (!e.shiftKey) st.setPlacing(null);
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [snap]);
 
   // keyboard
   useEffect(() => {
@@ -1849,7 +2672,7 @@ export default function Canvas() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault(); if (e.shiftKey) st.redo(); else st.undo();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); st.redo(); }
-      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void st.saveProject(); }
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void st.saveProject(undefined, { saveAs: e.shiftKey }); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") { e.preventDefault(); st.copySelection(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") { e.preventDefault(); st.pasteClipboard(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); st.duplicateSelection(); }
@@ -1860,16 +2683,24 @@ export default function Canvas() {
       else if (e.key.toLowerCase() === "r") st.rotateSelection(e.shiftKey ? -1 : 1);
       else if (e.key.toLowerCase() === "m") st.mirrorSelection();
       else if (e.key.toLowerCase() === "w") st.setTool("wire");
+      else if (e.key.toLowerCase() === "j") st.setTool("junction");
       else if (e.key === "Escape") {
-        // W66: Esc verlässt jeden Modus. Die angefangene Leitung wird verworfen
-        // (wie am echten Editor), Platzieren/Proben/Messleitungs-Pick ebenso.
+        // W66: Esc verlässt jeden Modus. Die angefangene Leitung wird verworfen.
         const sr = stateRef.current;
-        sr.netDraft = null; sr.netHover = null;
-        sr.marquee = null; (sr as any).wireSegDrag = null;
+        syncNetDraft(null);
+        sr.marquee = null; (sr as any).wireSegDrag = null; (sr as any).wirePointDrag = null;
+        st.endGesture();
         useEditor.getState().setLeadArmed(null);
         st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null); setCtxMenu(null);
-      } else if (e.key.toLowerCase() === "v") st.setPlacingProbe("voltage");
-      else if (e.key.toLowerCase() === "a") st.setPlacingProbe("current");
+      } else if (e.key.toLowerCase() === "v") {
+        // W90: V schaltet konsistent zu A die Spannungs-Probe (Volt) ein/aus;
+        // für das Auswahl-Werkzeug dient Esc.
+        syncNetDraft(null);
+        st.setPlacingProbe(st.placingProbeKind === "voltage" ? null : "voltage");
+      } else if (e.key.toLowerCase() === "a") {
+        syncNetDraft(null);
+        st.setPlacingProbe(st.placingProbeKind === "current" ? null : "current");
+      }
       else if (e.key.toLowerCase() === "g") {
         if (e.shiftKey) useEditor.setState({ snap: !st.snap });
         else useEditor.setState({ showGrid: !st.showGrid });
@@ -1880,26 +2711,53 @@ export default function Canvas() {
       else if (e.key.toLowerCase() === "t") st.setTool("text");
       else if (e.key.toLowerCase() === "e") st.setTool("erase");
       else if (e.key.toLowerCase() === "h") st.setTool("pan");
-      else if (e.key === " ") { e.preventDefault(); if (st.sim.running) st.pauseSim(); else st.startSim(); }
+      else if (e.key === " ") {
+        e.preventDefault();
+        // W77: Während ein Netz gezeichnet wird, wendet die Leertaste die
+        // Knick-Orientierung (Horizontal↔Vertikal) statt die Simulation zu starten!
+        const sr = stateRef.current;
+        if (sr.netDraft) {
+          sr.netDraft = { ...sr.netDraft, flipBend: !sr.netDraft.flipBend };
+        } else {
+          if (st.sim.running) st.pauseSim(); else st.startSim();
+        }
+      }
       else if (e.key === "f") st.fitView();
     };
     const onKeyUp = (e: KeyboardEvent) => { (window as any)._lastShift = e.shiftKey; if (e.code === "Space") spaceDown.current = false; };
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); };
-  }, []);
+  }, [syncNetDraft]);
 
   useEffect(() => { const t = setTimeout(() => useEditor.getState().fitView(), 120); return () => clearTimeout(t); }, []);
 
 
   const tool = useEditor((s) => s.tool);
+  const placingPartId = useEditor((s) => s.placingPartId);
+  const placingProbeKind = useEditor((s) => s.placingProbeKind);
+  const selection = useEditor((s) => s.selection);
+  const netDrawing = useHud((s) => s.netDrawing);
+  const selDoc = useEditor((s) => s.doc);
+  const selId0 = selection[0];
+  const selInst0 = selection.length === 1 ? selDoc.instances.find((i) => i.id === selId0) : undefined;
+  const selProbe0 = selection.length === 1 ? selDoc.probes.find((p) => p.id === selId0) : undefined;
+  const selLabel0 = selection.length === 1 ? selDoc.labels.find((l) => l.id === selId0) : undefined;
+  const selNote0 = selection.length === 1 ? selDoc.notes.find((n) => n.id === selId0) : undefined;
+  const isCurrentProbe0 = Boolean(
+    selProbe0 &&
+      (selProbe0.kind === "current" || selProbe0.kind === "power" || selProbe0.kind === "voltage_current"),
+  );
+  const mainParam0 = selInst0 ? PART_MAP[selInst0.partId]?.params[0] : undefined;
+  const canInlineEdit0 = Boolean((selInst0 && mainParam0?.type === "number") || selLabel0 || selNote0);
 
   // W66: Werkzeugwechsel beendet ein angefangenes Netz – kein Zustand, der
   // unsichtbar weiterläuft, wenn der Nutzer z. B. auf „Auswahl" umschaltet.
   useEffect(() => {
-    const sr = stateRef.current;
-    if (tool !== "wire") { sr.netDraft = null; sr.netHover = null; }
-  }, [tool]);
+    if (tool !== "wire" && tool !== "select") {
+      syncNetDraft(null);
+    }
+  }, [tool, syncNetDraft]);
   const leadArmed = useEditor((s) => s.leadArmed);
   // Runde 19 (W36): Quelle der aufgenommenen Messleitung markieren (Oszi-Pin
   // CH1–CH4 bzw. FG-Pin OUT1/OUT2) – man sieht, wo das Kabel herkommt.
@@ -1929,7 +2787,7 @@ export default function Canvas() {
         className="block h-full w-full touch-none"
         aria-label="Schaltplan Zeichenfläche"
         tabIndex={0}
-        style={{ cursor: spaceDown.current || stateRef.current.panning ? "grabbing" : tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? "not-allowed" : "default" }}
+        style={{ cursor: tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -1938,11 +2796,13 @@ export default function Canvas() {
         onContextMenu={(e) => {
           e.preventDefault();
           // W63: Rechtsklick bricht das Zeichnen ab (Multisim-Verhalten).
-          if (stateRef.current.netDraft) { stateRef.current.netDraft = null; stateRef.current.netHover = null; }
+          if (stateRef.current.netDraft) {
+            syncNetDraft(null);
+          }
         }}
         onDragOver={(e) => {
           const types = Array.from(e.dataTransfer.types);
-          if (types.includes("text/multispice-part") || types.includes("Files")) {
+          if (types.includes("text/multispice-part") || types.includes("text/partId") || types.includes("Files")) {
             e.preventDefault();
             e.dataTransfer.dropEffect = "copy";
             const w = snap(toWorld(e.clientX, e.clientY));
@@ -1957,54 +2817,75 @@ export default function Canvas() {
             void openFileInEditor(e.dataTransfer.files[0]);
             return;
           }
-          const id = e.dataTransfer.getData("text/multispice-part");
+          const id = e.dataTransfer.getData("text/multispice-part") || e.dataTransfer.getData("text/partId");
           useHud.setState({ dragPart: null });
           if (id && PART_MAP[id]) {
             e.preventDefault();
             const stt = useEditor.getState();
             const w = snap(toWorld(e.clientX, e.clientY));
-            const newId = stt.addInstance(id, w.x, w.y);
+            const newId = stt.addInstance(id, w.x, w.y, { autoWire: true });
             if (newId) stt.setSelection([newId]);
-            stt.log("ok", `${PART_MAP[id].name} per Drag & Drop platziert`);
           }
         }}
         onDragLeave={() => useHud.setState({ dragPart: null })}
         onTouchStart={(e) => {
-          if (e.touches.length === 2) {
+          lastTouchTimeRef.current = performance.now();
+          if (!isTouchActive) setIsTouchActive(true);
+          if (e.touches.length >= 2) {
+            if (touchState.current?.longPressTimer) {
+              clearTimeout(touchState.current.longPressTimer);
+            }
+            // W100: Beim Aufsetzen des 2. Fingers (Pinch-to-Zoom / 2-Finger-Pan)
+            // werden laufende 1-Finger-Aktionen sofort sauber abgebrochen.
+            const sr = stateRef.current;
+            sr.dragging = false;
+            sr.panning = false;
+            sr.marquee = null;
+            (sr as any).wireSegDrag = null;
+            (sr as any).wirePointDrag = null;
+            (sr as any).probeAnchorDrag = null;
+            useEditor.getState().endGesture();
             const dx = e.touches[0].clientX - e.touches[1].clientX;
             const dy = e.touches[0].clientY - e.touches[1].clientY;
             const dist = Math.hypot(dx, dy);
-            const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
-            const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
-            (touchState.current as any) = { lastDist: dist, lastMid: { x: mx, y: my }, longPressTimer: null, startPt: null };
+            const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            touchState.current = {
+              lastDist: dist,
+              lastMid: { x: mx, y: my },
+              longPressTimer: null,
+              startPt: null,
+              startScreen: null,
+              pinching: true,
+            };
           }
         }}
         onTouchMove={(e) => {
-          if (e.touches.length === 2 && touchState.current) {
+          if (e.touches.length >= 2 && touchState.current) {
             e.preventDefault();
             const dx = e.touches[0].clientX - e.touches[1].clientX;
             const dy = e.touches[0].clientY - e.touches[1].clientY;
             const dist = Math.hypot(dx, dy);
-            const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
-            const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
+            const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
             const lastDist = touchState.current.lastDist || dist;
             const lastMid = touchState.current.lastMid;
-            const scale = dist / lastDist;
+            const scale = dist / Math.max(lastDist, 1);
             const st = useEditor.getState();
-            const zooming = Math.abs(scale - 1) > 0.005;
+            const zooming = Math.abs(scale - 1) > 0.004;
             const panDx = lastMid ? mx - lastMid.x : 0;
             const panDy = lastMid ? my - lastMid.y : 0;
-            // R12: Pinch zoomt UND der Mittelpunkt schwenkt – eine Geste, eine Bewegung.
-            if (zooming || Math.hypot(panDx, panDy) > 1) {
+            // R12/W100: Pinch zoomt UND der Mittelpunkt schwenkt – eine Geste, eine Bewegung.
+            if (zooming || Math.hypot(panDx, panDy) > 0.5) {
               const rect = canvasRef.current?.getBoundingClientRect();
               let newZoom = st.view.zoom;
               let nx = st.view.x;
               let ny = st.view.y;
               if (zooming) {
-                newZoom = Math.max(0.15, Math.min(4, st.view.zoom * scale));
+                newZoom = Math.max(0.12, Math.min(6, st.view.zoom * scale));
                 const worldMid = toWorld(mx, my);
-                nx = worldMid.x - (mx - (rect?.left ?? 0))/newZoom;
-                ny = worldMid.y - (my - (rect?.top ?? 0))/newZoom;
+                nx = worldMid.x - (mx - (rect?.left ?? 0)) / newZoom;
+                ny = worldMid.y - (my - (rect?.top ?? 0)) / newZoom;
               }
               nx -= panDx / newZoom;
               ny -= panDy / newZoom;
@@ -2012,26 +2893,16 @@ export default function Canvas() {
             }
             touchState.current.lastDist = dist;
             touchState.current.lastMid = { x: mx, y: my };
-          } else if (e.touches.length === 1) {
-            // single finger pan if tool pan
-            const st = useEditor.getState();
-            if (st.tool === "pan") {
-              const touch = e.touches[0];
-              const last = touchState.current?.lastMid;
-              if (last) {
-                const dx = (touch.clientX - last.x)/st.view.zoom;
-                const dy = (touch.clientY - last.y)/st.view.zoom;
-                st.setView({ x: st.view.x - dx, y: st.view.y - dy });
-              }
-              if (touchState.current) touchState.current.lastMid = { x: touch.clientX, y: touch.clientY };
-            }
           }
         }}
         onTouchEnd={(e) => {
           if (touchState.current?.longPressTimer) {
             clearTimeout(touchState.current.longPressTimer);
+            touchState.current.longPressTimer = null;
           }
-          touchState.current = null;
+          if (e.touches.length === 0) {
+            touchState.current = null;
+          }
         }}
       />
       {tooltip && (
@@ -2042,41 +2913,121 @@ export default function Canvas() {
           {tooltip.spark && tooltip.spark.length > 8 && <Sparkline data={tooltip.spark} />}
         </div>
       )}
-      {editing && (
-        <input autoFocus className="input mono absolute z-40 w-44" style={{ left: editing.sx + 8, top: editing.sy - 13, boxShadow: "var(--shadow)" }}
-          key={`${editing.kind}_${editing.instId ?? ""}`}
-          defaultValue={editing.initial}
-          placeholder={editing.kind === "label" ? "Netzname …" : editing.kind === "value" ? "Wert … z. B. 10k, 4u7" : "Notiz …"}
-          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") commitEditing((e.target as HTMLInputElement).value); else if (e.key === "Escape") commitEditing(null); }}
-          onBlur={(e) => commitEditing(e.target.value)} />
-      )}
-      {ctxMenu && (
-        <ContextMenu menu={ctxMenu} onClose={() => setCtxMenu(null)} />
-      )}
-      {/* Empty state – delightful onboarding */}
-      {(() => {
-        const doc = useEditor.getState().doc;
-        if (doc.instances.length === 0 && doc.wires.length === 0) {
-          return (
-            <div className="pointer-events-none absolute inset-0 grid place-items-center">
-              <div className="pointer-events-auto rounded-2xl p-6 text-center shadow-2xl backdrop-blur-xl max-w-[380px]" style={{ background: "color-mix(in srgb, var(--panel-solid) 92%, transparent)", border: "1px solid var(--border-strong)" }}>
-                <div className="mx-auto mb-3 h-12 w-12 rounded-xl grid place-items-center" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)", color: "var(--accent)" }}>
-                  <Sparkles size={20} />
-                </div>
-                <div className="text-[14px] font-semibold">Leere Leinwand – los geht’s!</div>
-                <div className="mt-1 text-[12px] text-mute">Drücke <kbd className="kbd">{adaptShortcut("⌘K", apple)}</kbd> für die Bauteil-Bibliothek oder ziehe Bauteile aus der Seitenleiste.</div>
-                <div className="mt-3 flex flex-wrap gap-1.5 justify-center">
-                  <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => useEditor.setState({ libraryOpen: true })}><LibIcon size={12} /> Bibliothek öffnen</button>
-                  <button className="btn h-7 px-3 text-[11px]" onClick={() => { const id = useEditor.getState().addInstance("resistor", 0, 0); if (id) useEditor.getState().setSelection([id]); }}>+ R Widerstand</button>
-                  <button className="btn h-7 px-3 text-[11px]" onClick={() => useEditor.getState().setPlacingProbe("voltage")}>∿ Probe</button>
-                </div>
-                <div className="mt-3 text-[10px] text-mute">Tipps: <span className="mono">W</span> Wire • <span className="mono">R</span> Drehen • <span className="mono">F</span> Fit • <span className="mono">Leertaste</span> Simulieren • <span className="mono">?</span> Hilfe</div>
-              </div>
+      {editing && (() => {
+        const editInst = editing.instId
+          ? selDoc.instances.find((i) => i.id === editing.instId)
+          : null;
+        const editPart = editInst ? PART_MAP[editInst.partId] : null;
+        const editMainParam = editPart?.params[0];
+        const unitLabel = editing.kind === "value" ? (editMainParam?.unit ?? "") : "";
+        const badgeLabel =
+          editing.kind === "value"
+            ? (editInst?.label ?? "WERT")
+            : editing.kind === "label"
+              ? "NET"
+              : "NOTIZ";
+        const boxWidth = editing.kind === "text" ? 248 : 196;
+        const vp = useHud.getState().viewport;
+        const vw = vp.w > 0 ? vp.w : 800;
+        const vh = vp.h > 0 ? vp.h : 600;
+        const leftPos = Math.max(8, Math.min(vw - boxWidth - 12, editing.sx - 20));
+        const topPos = Math.max(8, Math.min(vh - 70, editing.sy - 16));
+
+        return (
+          <div
+            key={`${editing.kind}_${editing.instId ?? editing.itemId ?? `${editing.x}_${editing.y}`}`}
+            className="absolute z-40 flex flex-col rounded-xl p-2 shadow-2xl"
+            style={{
+              left: leftPos,
+              top: topPos,
+              width: boxWidth,
+              background: "var(--panel-solid)",
+              border: "1.5px solid var(--wire-sel, #f59e0b)",
+              boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="mb-1.5 flex items-center justify-between gap-1.5 px-0.5">
+              <span
+                className="mono rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase"
+                style={{
+                  background: "color-mix(in srgb, var(--wire-sel, #f59e0b) 18%, transparent)",
+                  color: "var(--wire-sel, #f59e0b)",
+                }}
+              >
+                {badgeLabel}
+              </span>
+              <span className="text-[10px] text-mute">
+                {editing.kind === "value"
+                  ? editMainParam?.label ?? "Wert"
+                  : editing.kind === "label"
+                    ? "Netzname"
+                    : "Schaltplan-Notiz"}
+              </span>
             </div>
-          );
-        }
-        return null;
+            <div
+              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1"
+              style={{
+                background: "var(--bg)",
+                borderColor: "var(--border-strong)",
+              }}
+            >
+              <input
+                ref={editInputRef}
+                autoFocus
+                type="text"
+                className="mono min-w-0 flex-1 bg-transparent text-[12.5px] font-medium text-[var(--text)] outline-none"
+                defaultValue={editing.initial}
+                placeholder={
+                  editing.kind === "label"
+                    ? "z. B. IN, VCC"
+                    : editing.kind === "value"
+                      ? "z. B. 10k, 4,7k"
+                      : "Notiztext …"
+                }
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") commitEditing((e.target as HTMLInputElement).value);
+                  else if (e.key === "Escape") commitEditing(null);
+                }}
+                onBlur={(e) => {
+                  // W91: Schutz gegen sofortiges onBlur durch das Loslassen der Maustaste
+                  // unmittelbar nach dem Öffnen des Eingabefelds.
+                  if (performance.now() - editingOpenedAt.current < 280) {
+                    e.target.focus();
+                    return;
+                  }
+                  commitEditing(e.target.value);
+                }}
+              />
+              {unitLabel && (
+                <span
+                  className="mono shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold"
+                  style={{
+                    background: "var(--panel-2)",
+                    color: "var(--text-dim)",
+                    border: "1px solid var(--border)",
+                  }}
+                  title={`Einheit: ${unitLabel} (Präfixe k, m, u/µ, n, p, M erlaubt)`}
+                >
+                  {unitLabel}
+                </span>
+              )}
+            </div>
+          </div>
+        );
       })()}
+      {ctxMenu && (
+        <ContextMenu
+          menu={ctxMenu}
+          onClose={() => setCtxMenu(null)}
+          onEdit={(item) => {
+            editingDone.current = false;
+            editingOpenedAt.current = performance.now();
+            setEditing(item);
+          }}
+        />
+      )}
       {showHelp && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={()=>setShowHelp(false)}>
           <div className="rounded-2xl p-5 w-full max-w-[560px] max-h-[80vh] overflow-auto" style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} onClick={e=>e.stopPropagation()}>
@@ -2145,6 +3096,239 @@ export default function Canvas() {
           </span>
         </div>
       )}
+      {/* W102: Kontextsensitive Touch-Schnellaktionsleiste (touch_only).
+          Erscheint ausschließlich nach Touch-Bedienung für Aktionen, die am Desktop
+          über Tastenkürzel (R, M, Leertaste, Entf, Esc) laufen. */}
+      {isTouchActive &&
+        (Boolean(tool === "place" && placingPartId) ||
+          Boolean(tool.startsWith("probe") && placingProbeKind) ||
+          netDrawing ||
+          tool === "wire" ||
+          selection.length > 0) && (
+          <div
+            className="absolute bottom-3 left-1/2 z-30 flex max-w-[calc(100vw-110px)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto no-scrollbar rounded-xl border px-2 py-1.5 text-[11.5px] font-medium shadow-xl backdrop-blur-md"
+            style={{
+              background: "color-mix(in srgb, var(--panel-solid) 94%, transparent)",
+              borderColor: "var(--border-strong)",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.38)",
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {tool === "place" && placingPartId ? (
+              <>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().rotateSelection(1)}
+                >
+                  ↻ 90°
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().rotateSelection(-1)}
+                >
+                  ↺ -90°
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().mirrorSelection()}
+                >
+                  ⇆ Spiegeln
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  style={{ color: "var(--err)" }}
+                  onClick={() => useEditor.getState().setPlacing(null)}
+                >
+                  ✕ Abbrechen
+                </button>
+              </>
+            ) : tool.startsWith("probe") && placingProbeKind ? (
+              <>
+                <span className="px-1.5 text-[11px] text-dim">Leitung oder Pin antippen</span>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().setPlacingProbe(null)}
+                >
+                  ✕ Fertig
+                </button>
+              </>
+            ) : netDrawing || tool === "wire" ? (
+              <>
+                {netDrawing ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                      onClick={() => {
+                        const sr = stateRef.current;
+                        if (sr.netDraft) {
+                          sr.netDraft = { ...sr.netDraft, flipBend: !sr.netDraft.flipBend };
+                        }
+                      }}
+                    >
+                      ↱ Knick wenden
+                    </button>
+                    <button
+                      type="button"
+                      className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                      style={{ color: "var(--ok)" }}
+                      onClick={() => {
+                        const sr = stateRef.current;
+                        const st = useEditor.getState();
+                        if (sr.netDraft) {
+                          const pts = finishNetDraft(sr.netDraft, cursor, {
+                            preferDir: sr.netDraft.corners.length === 0 ? sr.netDraft.preferDir : undefined,
+                            flipBend: sr.netDraft.flipBend,
+                            obstacles: getNetObstacles(st.doc),
+                          });
+                          if (pts) {
+                            st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: pts });
+                          }
+                          syncNetDraft(null);
+                          st.setTool("select");
+                        }
+                      }}
+                    >
+                      ✓ Hier beenden
+                    </button>
+                  </>
+                ) : (
+                  <span className="px-1.5 text-[11px] text-dim">Pin oder Leitung antippen</span>
+                )}
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  style={{ color: "var(--err)" }}
+                  onClick={() => {
+                    syncNetDraft(null);
+                    useEditor.getState().setTool("select");
+                  }}
+                >
+                  ✕ Abbrechen
+                </button>
+              </>
+            ) : (
+              <>
+                {!selProbe0 && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                      onClick={() => useEditor.getState().rotateSelection(1)}
+                    >
+                      ↻ 90°
+                    </button>
+                    <button
+                      type="button"
+                      className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                      onClick={() => useEditor.getState().mirrorSelection()}
+                    >
+                      ⇆ Spiegeln
+                    </button>
+                  </>
+                )}
+                {isCurrentProbe0 && selProbe0 && (
+                  <button
+                    type="button"
+                    className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                    onClick={() =>
+                      useEditor
+                        .getState()
+                        .updateMeasurementProbe(selProbe0.id, { direction: selProbe0.direction ? 0 : 1 })
+                    }
+                  >
+                    ⇄ Richtung
+                  </button>
+                )}
+                {canInlineEdit0 && (
+                  <button
+                    type="button"
+                    className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                    onClick={() => {
+                      editingDone.current = false;
+                      editingOpenedAt.current = performance.now();
+                      if (selInst0 && mainParam0) {
+                        const scr = toScreen({ x: selInst0.x, y: selInst0.y });
+                        const rawVal = Number(selInst0.params[mainParam0.key] ?? mainParam0.def);
+                        const formatted = Number.isFinite(rawVal)
+                          ? formatValue(rawVal, "").trim()
+                          : String(selInst0.params[mainParam0.key] ?? "");
+                        setEditing({
+                          kind: "value",
+                          instId: selInst0.id,
+                          x: selInst0.x,
+                          y: selInst0.y,
+                          sx: scr.x,
+                          sy: scr.y + 18,
+                          initial: formatted,
+                        });
+                      } else if (selLabel0) {
+                        const scr = toScreen({ x: selLabel0.x, y: selLabel0.y });
+                        setEditing({
+                          kind: "label",
+                          itemId: selLabel0.id,
+                          x: selLabel0.x,
+                          y: selLabel0.y,
+                          sx: scr.x,
+                          sy: scr.y,
+                          initial: selLabel0.name,
+                        });
+                      } else if (selNote0) {
+                        const scr = toScreen({ x: selNote0.x, y: selNote0.y });
+                        setEditing({
+                          kind: "text",
+                          itemId: selNote0.id,
+                          x: selNote0.x,
+                          y: selNote0.y,
+                          sx: scr.x,
+                          sy: scr.y,
+                          initial: selNote0.text,
+                        });
+                      }
+                    }}
+                  >
+                    ✎ Wert
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().openInstrument("inspector")}
+                >
+                  Inspector
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  onClick={() => useEditor.getState().duplicateSelection()}
+                >
+                  Kopie
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                  style={{ color: "var(--err)" }}
+                  onClick={() => useEditor.getState().deleteSelection()}
+                >
+                  Löschen
+                </button>
+                <button
+                  type="button"
+                  className="btn h-8 shrink-0 px-2 text-[11.5px]"
+                  onClick={() => useEditor.getState().setSelection([])}
+                  title="Auswahl aufheben"
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+        )}
       {/* W71: Die Geräteleiste ist 44 px breit (Instruments.tsx DeviceBar) –
           das Zoom-Feld sitzt links daneben und verschwindet nicht mehr darunter. */}
       <div className="absolute bottom-3 right-[52px] flex flex-col gap-1.5">
@@ -2154,13 +3338,20 @@ export default function Canvas() {
   );
 }
 
-function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: number; wy: number; target: CtxTarget }; onClose: () => void }) {
+function ContextMenu({
+  menu,
+  onClose,
+  onEdit,
+}: {
+  menu: { x: number; y: number; wx: number; wy: number; target: CtxTarget };
+  onClose: () => void;
+  onEdit?: (item: { kind: "label" | "text" | "value"; x: number; y: number; sx: number; sy: number; instId?: string; itemId?: string; initial?: string }) => void;
+}) {
   const apple = useIsApple();
   const st = useEditor.getState();
   const { target, wx, wy } = menu;
   const netLabel = target.net ? ` – ${target.net}` : "";
   const doc = st.doc;
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
   const addProbe = (k: ProbeKind) => {
     const id = st.addMeasurementProbe(k, wx, wy);
@@ -2188,12 +3379,13 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
       role="menu"
     >
       {target.kind === "instance" && (() => {
-        const inst = doc.instances.find(i=>i.id===target.id);
-        const part = inst ? (require("@/lib/library/catalog").PART_MAP as any)[inst.partId] : null;
+        const inst = doc.instances.find((i) => i.id === target.id);
+        const part = inst ? PART_MAP[inst.partId] : null;
+        const curFault = String(inst?.params.__fault ?? "");
         return (
           <>
             <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
-              <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>🔧</div>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[11px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>{inst?.label?.slice(0, 3) ?? "B"}</div>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold truncate">{part?.name ?? "Bauteil"} {inst?.label}</div>
                 <div className="text-[10px] text-mute truncate">{part?.category ?? ""}{netLabel}</div>
@@ -2235,7 +3427,29 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
                 </>
               );
             })()}
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Probe auf Netz{netLabel} – Multisim Style</div>
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Fehlersimulation (Faults)</div>
+            <div className="grid grid-cols-2 gap-1">
+              {[
+                ["", "Kein Fehler"],
+                ["open", "Open (Unterbruch)"],
+                ["short", "Short (Kurzschluss)"],
+                ["leaky", "Leaky (Leckstrom)"],
+              ].map(([f, label]) => (
+                <button
+                  key={f || "none"}
+                  className="row text-[11px]"
+                  data-active={curFault === f}
+                  onClick={() => {
+                    st.setParam(target.id, "__fault", f);
+                    onClose();
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="sep" />
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Messpunkt auf Netz{netLabel}</div>
             <div className="grid grid-cols-2 gap-1">
               {([
                 ["voltage","V","#fbbf24"],
@@ -2247,7 +3461,65 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               ))}
             </div>
             <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>🗑 Löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
+            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
+          </>
+        );
+      })()}
+      {target.kind === "label" && (() => {
+        const lbl = doc.labels.find((l) => l.id === target.id);
+        return (
+          <>
+            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[10px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>NET</div>
+              <div className="min-w-0">
+                <div className="text-[12px] font-semibold truncate">Netzlabel „{lbl?.name ?? ""}“</div>
+                <div className="text-[10px] text-mute truncate">Position ({lbl?.x ?? 0}, {lbl?.y ?? 0})</div>
+              </div>
+            </div>
+            <button
+              className="row"
+              onClick={() => {
+                if (lbl && onEdit) {
+                  onEdit({ kind: "label", itemId: lbl.id, x: lbl.x, y: lbl.y, sx: menu.x, sy: menu.y, initial: lbl.name });
+                }
+                onClose();
+              }}
+            >
+              <span>Netzname ändern…</span>
+              <span className="ml-auto text-[10px] text-mute">Doppelklick</span>
+            </button>
+            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
+            <div className="sep" />
+            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Label löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
+          </>
+        );
+      })()}
+      {target.kind === "note" && (() => {
+        const note = doc.notes.find((n) => n.id === target.id);
+        return (
+          <>
+            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[10px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>TXT</div>
+              <div className="min-w-0">
+                <div className="text-[12px] font-semibold truncate">Textnotiz</div>
+                <div className="text-[10px] text-mute truncate">{note?.text ?? ""}</div>
+              </div>
+            </div>
+            <button
+              className="row"
+              onClick={() => {
+                if (note && onEdit) {
+                  onEdit({ kind: "text", itemId: note.id, x: note.x, y: note.y, sx: menu.x, sy: menu.y, initial: note.text });
+                }
+                onClose();
+              }}
+            >
+              <span>Notiz bearbeiten…</span>
+              <span className="ml-auto text-[10px] text-mute">Doppelklick</span>
+            </button>
+            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
+            <div className="sep" />
+            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Notiz löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
           </>
         );
       })()}
@@ -2264,10 +3536,8 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               </div>
               <div className="ml-auto h-2 w-2 rounded-full" style={{ background: "#22d3ee", boxShadow: "0 0 6px #22d3ee" }} />
             </div>
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Bearbeiten – Wow Handles</div>
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Bearbeiten</div>
             {(() => {
-              // W61: Multisim – Kreuzung ist nur mit Punkt leitend. Der Eintrag
-              // erscheint genau dann, wenn hier zwei Leitungen aufeinandertreffen.
               let near = false;
               let verbunden = false;
               for (const c of wireJunctionCandidates(doc)) {
@@ -2278,27 +3548,15 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               if (!near) return null;
               return (
                 <button className="row" onClick={() => { st.toggleJunction(wx, wy); onClose(); }} data-active={verbunden}>
-                  <span>{verbunden ? "⭕ Verbindungspunkt entfernen" : "🔗 Verbindungspunkt setzen (Kreuzung verbinden)"}</span>
+                  <span>{verbunden ? "Verbindungspunkt entfernen" : "Verbindungspunkt setzen (Kreuzung verbinden)"}</span>
                 </button>
               );
             })()}
             <button className="row" onClick={() => {
-              // W55: begradigt wirklich – Stützpunkte aufs Raster, rechte Winkel,
-              // Enden zurück auf die Pins (statt Mittelpunkte wegzuwerfen).
               st.setSelection([target.id]);
               st.straightenSelection();
               onClose();
-            }}><span>📐 Leitung begradigen (Raster + rechte Winkel)</span></button>
-            <button className="row" onClick={() => {
-              const w = doc.wires.find(x=>x.id===target.id);
-              if (!w) return;
-              const mid = Math.floor(w.points.length/2);
-              st.commit((d)=>{
-                const ww = d.wires.find(x=>x.id===target.id);
-                if (ww) ww.points.splice(mid,0,{ x: wx, y: wy });
-              });
-              onClose();
-            }}><span>➕ Punkt hier hinzufügen</span></button>
+            }}><span>Leitung begradigen (Raster + rechte Winkel)</span></button>
             <div className="sep" />
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Leitungsfarbe</div>
             <button className="row" onClick={() => {
@@ -2309,7 +3567,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
                 if (ww) ww.isBus = !ww.isBus;
               });
               onClose();
-            }}><span>🚌 { (doc.wires.find(x=>x.id===target.id) as any)?.isBus ? "Bus → normale Leitung" : "Als Bus markieren (dicker, digital)"}</span></button>
+            }}><span>{ (doc.wires.find(x=>x.id===target.id) as any)?.isBus ? "Bus → normale Leitung" : "Als Bus markieren"}</span></button>
             <div className="flex gap-1 flex-wrap px-1">
               {[
                 [null, "Auto", "var(--wire)"],
@@ -2335,27 +3593,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               ))}
             </div>
             <div className="sep" />
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Faults – Troubleshooting Lehre</div>
-            <div className="grid grid-cols-2 gap-1">
-              {[
-                ["none", "Kein Fault"],
-                ["open", "Open – Unterbrechung"],
-                ["short", "Short – Kurzschluss"],
-                ["leakage", "Leakage – Leckstrom"],
-              ].map(([f, label])=> {
-                const curInst = doc.instances.find(x=>x.id===target.id) as any;
-                return (
-                <button key={f} className="row" data-active={curInst?.fault === f || (!curInst?.fault && f==="none")} onClick={()=>{
-                  st.commit((d)=>{
-                    const ii = d.instances.find(x=>x.id===target.id) as any;
-                    if (ii) ii.fault = f as any;
-                  });
-                  onClose();
-                }}>{label}</button>
-              )})}
-            </div>
-            <div className="sep" />
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Probe setzen – Multisim</div>
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Messpunkt setzen</div>
             <div className="grid grid-cols-2 gap-1">
               {([
                 ["voltage","V – Spannung","#fbbf24"],
@@ -2370,7 +3608,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               ))}
             </div>
             <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>🗑 Leitung löschen</span></button>
+            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Leitung löschen</span></button>
           </>
         );
       })()}
@@ -2391,11 +3629,11 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
           <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Typ ändern</div>
           <div className="grid grid-cols-1 gap-0.5">
           {([
-            ["voltage","V – Voltage – misst gegen GND/REF","#fbbf24"],
-            ["current","A – Current – Stromrichtung Pfeil","#22d3ee"],
+            ["voltage","V – Spannung (gegen GND/REF)","#fbbf24"],
+            ["current","A – Strom","#22d3ee"],
             ["voltage_current","V·A – Kombi","#f59e0b"],
-            ["power","W – Power V·I","#a78bfa"],
-            ["diff","ΔV – Differential","#f472b6"],
+            ["power","W – Leistung V·I","#a78bfa"],
+            ["diff","ΔV – Differenzspannung","#f472b6"],
             ["ref","REF – Referenz","#94a3b8"],
             ["digital","D – Digital 0/1","#4ade80"],
           ] as const).map(([k, desc, col]) => (
@@ -2412,7 +3650,7 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
           <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Anzeige</div>
           <button className="row" onClick={()=> { st.updateMeasurementProbe(target.id,{periodic:!target.probe.periodic}); onClose(); }}><span>{target.probe.periodic?"☐ Periodic aus – nur DC":"☑ Periodic an – RMS/Vpp/Freq"}</span></button>
           <div className="sep" />
-          <button className="row danger" onClick={() => { st.removeMeasurementProbe(target.id); onClose(); }}><span>🗑 Probe löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
+          <button className="row danger" onClick={() => { st.removeMeasurementProbe(target.id); onClose(); }}><span>Probe löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
         </>
       )}
       {target.kind === "empty" && (
@@ -2424,11 +3662,11 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
               <div className="text-[10px] text-mute">Netz {target.net ?? "–"} • {doc.instances.length} Bauteile</div>
             </div>
           </div>
-          {st.clipboard && <button className="row" onClick={() => { st.pasteClipboard(); onClose(); }}><span>⎘ Einfügen</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘V", apple)}</span></button>}
-          <button className="row" onClick={() => { st.setTool("label" as any); onClose(); }}><span>🏷️ Netzname hinzufügen</span><span className="ml-auto text-[10px] text-mute">L</span></button>
-          <button className="row" onClick={() => { st.setTool("text" as any); onClose(); }}><span>📝 Notiz hinzufügen</span><span className="ml-auto text-[10px] text-mute">T</span></button>
+          {st.clipboard && <button className="row" onClick={() => { st.pasteClipboard(); onClose(); }}><span>Einfügen</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘V", apple)}</span></button>}
+          <button className="row" onClick={() => { st.setTool("label" as any); onClose(); }}><span>Netzname hinzufügen</span><span className="ml-auto text-[10px] text-mute">L</span></button>
+          <button className="row" onClick={() => { st.setTool("text" as any); onClose(); }}><span>Notiz hinzufügen</span><span className="ml-auto text-[10px] text-mute">T</span></button>
           <div className="sep" />
-          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Messpunkt setzen – Multisim</div>
+          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Messpunkt setzen</div>
           <div className="grid grid-cols-2 gap-1">
           {([
             ["voltage","V","#fbbf24"],
@@ -2470,14 +3708,59 @@ function ContextMenu({ menu, onClose }: { menu: { x: number; y: number; wx: numb
   );
 }
 
+/**
+ * W74 (Runde 27): Vertikal geteiltes Zoom-Menü unten rechts:
+ *  · Oben: kompakte Box mit exakt zentrierten [+] / [−] Icons und feiner Trennlinie
+ *  · Unten: optisch abgesetzter [FIT]-Button
+ */
 function ZoomButtons({ onFit }: { onFit: () => void }) {
   const view = useEditor((s) => s.view);
   const setView = useEditor((s) => s.setView);
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg text-xs" style={{ background: "var(--panel-solid)", border: "1px solid var(--border)" }}>
-      <button className="btn rounded-none" onClick={() => setView({ zoom: Math.min(6, view.zoom * 1.25) })} title="Vergrößern">+</button>
-      <button className="btn rounded-none" onClick={() => setView({ zoom: Math.max(0.12, view.zoom / 1.25) })} title="Verkleinern">−</button>
-      <button className="btn rounded-none text-[10px]" onClick={onFit} title="Einpassen (F)">FIT</button>
+    <div className="flex flex-col items-center gap-1.5 select-none" role="group" aria-label="Zoom-Steuerung">
+      <div
+        className="flex flex-col overflow-hidden rounded-lg shadow-sm backdrop-blur-md"
+        style={{
+          background: "color-mix(in srgb, var(--panel-solid) 94%, transparent)",
+          border: "1px solid var(--border-strong)",
+        }}
+      >
+        <button
+          type="button"
+          className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-[var(--panel-2)] active:bg-[var(--elev)]"
+          style={{ color: "var(--text)" }}
+          onClick={() => setView({ zoom: Math.min(6, view.zoom * 1.25) })}
+          title="Vergrößern (+)"
+          aria-label="Vergrößern"
+        >
+          <Plus size={15} strokeWidth={2} />
+        </button>
+        <div className="h-px w-full" style={{ background: "var(--border)" }} />
+        <button
+          type="button"
+          className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-[var(--panel-2)] active:bg-[var(--elev)]"
+          style={{ color: "var(--text)" }}
+          onClick={() => setView({ zoom: Math.max(0.12, view.zoom / 1.25) })}
+          title="Verkleinern (−)"
+          aria-label="Verkleinern"
+        >
+          <Minus size={15} strokeWidth={2} />
+        </button>
+      </div>
+      <button
+        type="button"
+        className="w-8 h-7 rounded-lg shadow-sm backdrop-blur-md flex items-center justify-center font-mono text-[9.5px] font-semibold tracking-wider transition-colors hover:bg-[var(--panel-2)] active:bg-[var(--elev)]"
+        style={{
+          background: "color-mix(in srgb, var(--panel-solid) 94%, transparent)",
+          border: "1px solid var(--border-strong)",
+          color: "var(--text-dim)",
+        }}
+        onClick={onFit}
+        title="Schaltplan einpassen (F)"
+        aria-label="Einpassen"
+      >
+        FIT
+      </button>
     </div>
   );
 }
@@ -2526,12 +3809,13 @@ function hitWireSegment(doc: SchematicDoc, x: number, y: number, tol = 8): { wir
   return best;
 }
 
-function hitWire(doc: SchematicDoc, p: Pt): string | null {
+function hitWire(doc: SchematicDoc, p: Pt, tol = 6): string | null {
+  const tol2 = tol * tol;
   for (const w of doc.wires) for (let i=0;i+1<w.points.length;i++) {
     const a=w.points[i], b=w.points[i+1]; const dx=b.x-a.x, dy=b.y-a.y; const len2=dx*dx+dy*dy||1;
     let t=((p.x-a.x)*dx+(p.y-a.y)*dy)/len2; t=Math.max(0,Math.min(1,t));
     const cx=a.x+t*dx, cy=a.y+t*dy;
-    if ((cx-p.x)**2+(cy-p.y)**2<36) return w.id;
+    if ((cx-p.x)**2+(cy-p.y)**2 < tol2) return w.id;
   }
   return null;
 }
@@ -2571,10 +3855,11 @@ function probeTarget(doc: SchematicDoc, p: Pt): Pt | null {
   if (endBest) return { x: endBest.x, y: endBest.y };
   return segBest ? { x: segBest.x, y: segBest.y } : null;
 }
-function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = true): { wireId: string; pointIdx: number; isMid?: boolean; segIdx?: number; dist: number } | null {
+function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = true, baseRadius = 12): { wireId: string; pointIdx: number; isMid?: boolean; segIdx?: number; dist: number } | null {
   const st = useEditor.getState();
   const sel = onlySelected ? st.selection : doc.wires.map(w=>w.id);
-  const hitRadius = 12 / Math.max(zoom, 0.3); // generous hit for delightful grabbing
+  const hitRadius = baseRadius / Math.max(zoom, 0.3); // generous hit for delightful grabbing
+  const midBase = Math.max(10, baseRadius - 2);
   let best: any = null;
   let bestDist = Infinity;
   for (const wireId of sel) {
@@ -2593,10 +3878,10 @@ function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = tr
     for (let s=0; s<wire.points.length-1; s++) {
       const a = wire.points[s];
       const b = wire.points[s+1];
-      const mx = (a.x + b.x)/2;
-      const my = (a.y + b.y)/2;
+      const mx = Math.round(((a.x + b.x)/2) / GRID) * GRID;
+      const my = Math.round(((a.y + b.y)/2) / GRID) * GRID;
       const d = Math.hypot(mx - p.x, my - p.y);
-      const midRadius = 10 / Math.max(zoom, 0.3);
+      const midRadius = midBase / Math.max(zoom, 0.3);
       if (d < midRadius && d < bestDist) {
         bestDist = d;
         best = { wireId, pointIdx: s+1, isMid: true, segIdx: s, dist: d };
@@ -2609,10 +3894,10 @@ function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = tr
       for (let s=0; s<wire.points.length-1; s++) {
         const a = wire.points[s];
         const b = wire.points[s+1];
-        const mx = (a.x + b.x)/2;
-        const my = (a.y + b.y)/2;
+        const mx = Math.round(((a.x + b.x)/2) / GRID) * GRID;
+        const my = Math.round(((a.y + b.y)/2) / GRID) * GRID;
         const d = Math.hypot(mx - p.x, my - p.y);
-        const midRadius = 10 / Math.max(zoom, 0.3);
+        const midRadius = midBase / Math.max(zoom, 0.3);
         if (d < midRadius && d < bestDist) {
           bestDist = d;
           best = { wireId: wire.id, pointIdx: s+1, isMid: true, segIdx: s, dist: d };
@@ -2627,6 +3912,15 @@ function nearestNetName(p: Pt, radius=14): string | null {
   for (const net of st.netResult.nets) for (const pt of net.points) {
     const d=(pt.x-p.x)**2+(pt.y-p.y)**2; if (d<bestD){ bestD=d; best=net.name; }
   }
+  const foot = nearestWireFoot(st.doc, p, radius);
+  if (foot && foot.dist * foot.dist <= bestD) {
+    const w = st.doc.wires.find((x) => x.id === foot.wireId);
+    const a = w?.points[foot.segIdx];
+    if (a) {
+      const segNet = st.netResult.pointNets[`${Math.round(a.x)},${Math.round(a.y)}`];
+      if (segNet) return segNet;
+    }
+  }
   if (best) return best;
   const wireId=hitWire(st.doc,p);
   if (wireId) {
@@ -2636,244 +3930,398 @@ function nearestNetName(p: Pt, radius=14): string | null {
   return null;
 }
 function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selected:boolean, zoom:number, live:any, netResult:any, netCurrentMap:Map<string,number>) {
-  // Runde 12: ruhige Token-Palette; Legacy-Neon in Altdokumenten gilt als „Auto"
+  // W85: NI-Multisim-Stil für Messpunkte (Probes).
+  // Jede Sonde besitzt:
+  //  1. Messspitze / Kontaktpunkt (ax, ay) auf der Leitung oder am Bauteil-Pin
+  //     (bei Strom-/Leistungssonde zusätzlich einen Richtungspfeil entlang der Leitung).
+  //  2. Ein permanent sichtbares Anzeigekästchen bei (bx, by) mit farbigem
+  //     Header (Typ-Badge + Name + Netz) und den Messwerten (im Live-Betrieb
+  //     echte Messwerte, vor Simulationsstart ruhige Bereitschaftsanzeige).
+  //  3. Eine durchgehende Führungs-Linie (Leader) vom nächstgelegenen Randpunkt
+  //     des Anzeigekästchens exakt zur Messspitze (ax, ay).
   const col = (probe.color && !LEGACY_PROBE_COLORS.has(probe.color as string))
     ? (probe.color as string)
     : css(PROBE_CSSVAR[probe.kind] ?? "--warn", PROBE_HEX[probe.kind] ?? "#a87a12");
-  const rot = (probe.rotation ?? 0) * Math.PI/180;
-  const dir = probe.direction ?? 0;
-
-  // V2: anchor (on wire) and body (offset) – like Multisim magnifier/arrow pointing to wire
   const ax = probe.anchorX ?? probe.x;
   const ay = probe.anchorY ?? probe.y;
   const bx = probe.x;
   const by = probe.y;
-  const hasLeader = (probe.anchorX !== undefined && probe.anchorY !== undefined) || probe.leader;
-  const iz = 1 / Math.max(zoom, 0.15); // inverse zoom for constant screen size
+  const iz = 1 / Math.max(zoom, 0.2);
 
-  ctx.save();
-  ctx.translate(bx, by);
-  ctx.rotate(rot);
+  const st = useEditor.getState();
+  const autoWireDeg = inferWireAngleAt(st.doc, ax, ay);
+  const baseDeg = probe.rotation !== undefined ? probe.rotation : autoWireDeg;
+  const dir = probe.direction ?? 0;
+  const effectiveDeg = (((baseDeg + (dir ? 180 : 0)) % 360) + 360) % 360;
+  const effectiveRad = (effectiveDeg * Math.PI) / 180;
+  const dirArrow =
+    effectiveDeg === 90 ? "↓" : effectiveDeg === 180 ? "←" : effectiveDeg === 270 ? "↑" : "→";
 
-  // ---- leader line from body to anchor (arrow pointing to wire) – world coords, constant screen thickness ----
-  if (hasLeader) {
-    const dx = ax - bx;
-    const dy = ay - by;
-    const angle = Math.atan2(dy, dx);
-    ctx.save();
-    ctx.rotate(-rot); // leader in world coords (unrotate)
-    ctx.strokeStyle = col+"AA";
-    ctx.lineWidth = 1 * iz;
-    ctx.setLineDash(probe.leader==="magnifier" ? [3*iz,3*iz] : []);
-    ctx.beginPath();
-    ctx.moveTo(0,0);
-    ctx.lineTo(dx, dy);
-    ctx.stroke();
-    // arrow head at anchor – constant screen size
-    ctx.save();
-    ctx.translate(dx, dy);
-    ctx.rotate(angle);
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    // arrow size constant screen: 6px screen -> world 6*iz
-    const as = 4.5 * iz;
-    ctx.moveTo(0,0);
-    ctx.lineTo(-as, -as*0.5);
-    ctx.lineTo(-as, as*0.5);
-    ctx.closePath();
-    ctx.fill();
-    // small dot at anchor – constant screen
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.arc(0,0,1.8*iz,0,Math.PI*2);
-    ctx.fill();
-    ctx.restore();
-    ctx.setLineDash([]);
-    ctx.restore();
+  const netName = probe.net ?? nearestNetName({ x: ax, y: ay }, 20);
+  let refNetName: string | null = null;
+  if (probe.ref) {
+    if (probe.ref.startsWith("pr_")) {
+      const rp = st.doc.probes.find((p) => p.id === probe.ref);
+      refNetName = rp?.net ?? rp?.ref ?? null;
+    } else {
+      refNetName = probe.ref;
+    }
   }
 
-  // ---- reference line for diff/ref (dashed to REF) – world, constant thickness ----
-  if (probe.kind==="diff" || (probe.kind==="voltage" && probe.ref && probe.ref!=="0")) {
+  const v = live && netName ? (live.nets[netName] ?? 0) : 0;
+  const refV = live && refNetName ? (live.nets[refNetName] ?? 0) : 0;
+
+  // W99: Gerichteter Zweigstrom in Pfeilrichtung (effectiveRad) am Messpunkt (ax, ay)
+  // nach dem Kirchhoffschen Knotensatz (KCL). Für 2-polige Bauteile fließt
+  // live.currents[inst.label] von Pin 0 (Senke aus dem Netz) nach Pin 1 (Quelle in das Netz).
+  let i = 0;
+  if (live && netName) {
+    const ux = Math.cos(effectiveRad);
+    const uy = Math.sin(effectiveRad);
+    let forwardSinkSum = 0;
+    let backwardSinkSum = 0;
+    let forwardCount = 0;
+    let backwardCount = 0;
+    for (const inst of st.doc.instances) {
+      const part = PART_MAP[inst.partId];
+      if (!part) continue;
+      const devCurrent = live.currents[inst.label] ?? 0;
+      for (let pIdx = 0; pIdx < part.pins.length; pIdx++) {
+        const pNet = netResult.pinNets[`${inst.id}:${pIdx}`];
+        if (pNet !== netName) continue;
+        const pos = pinPosition(inst, pIdx);
+        const dot = (pos.x - ax) * ux + (pos.y - ay) * uy;
+        // Wie viel Strom nimmt dieser Pin aus dem Netz auf?
+        let pinSink = 0;
+        if (part.pins.length === 2) {
+          pinSink = pIdx === 0 ? devCurrent : -devCurrent;
+        } else {
+          pinSink = pIdx === 0 ? devCurrent : -devCurrent / Math.max(1, part.pins.length - 1);
+        }
+        if (dot >= 0) {
+          forwardSinkSum += pinSink;
+          forwardCount++;
+        } else {
+          backwardSinkSum += pinSink;
+          backwardCount++;
+        }
+      }
+    }
+    if (forwardCount > 0 && backwardCount > 0) {
+      i = forwardSinkSum;
+    } else if (forwardCount > 0) {
+      i = forwardSinkSum;
+    } else if (backwardCount > 0) {
+      i = -backwardSinkSum;
+    }
+    if (Math.abs(i) < 1e-12) {
+      const fallbackMag = netCurrentMap.get(netName) ?? 0;
+      i = dir ? -fallbackMag : fallbackMag;
+    }
+  }
+
+  let vrms = 0, vpp = 0, vavg = 0, irms = 0, ipp = 0, freq = 0;
+  if (live && probe.periodic && netName) {
+    try {
+      const ch = engine.channel(netName, 2048);
+      if (ch.v.length > 8) {
+        vavg = mean(ch.v);
+        vrms = rms(ch.v);
+        vpp = peakToPeak(ch.v);
+        freq = estimateFrequency(ch.t, ch.v);
+        irms = Math.abs(i) * 0.707;
+        ipp = Math.abs(i) * 2;
+      }
+    } catch {}
+  }
+
+  const show = probe.show ?? { vdc: true, idc: true, power: true };
+  const glyphMap: Record<string, string> = {
+    voltage: "V",
+    current: "I",
+    voltage_current: "V/I",
+    power: "W",
+    diff: "ΔV",
+    ref: "REF",
+    digital: "D",
+  };
+  const glyph = glyphMap[probe.kind] ?? "V";
+  const hasCurrentDir =
+    probe.kind === "current" || probe.kind === "power" || probe.kind === "voltage_current";
+  const titleName = probe.name || glyph;
+  const headerText = `${titleName}${hasCurrentDir ? ` ${dirArrow}` : ""}  ${netName ? `(${netName})` : "(—)"}`;
+
+  const valueLines: string[] = [];
+  let digCol: string | null = null;
+  if (!netName) {
+    valueLines.push("Nicht verbunden");
+  } else if (!live) {
+    if (probe.kind === "voltage") valueLines.push("V(dc): — V");
+    else if (probe.kind === "current") valueLines.push(`I(${dirArrow}): — A`);
+    else if (probe.kind === "voltage_current") valueLines.push(`V: — V · I(${dirArrow}): — A`);
+    else if (probe.kind === "power") valueLines.push(`P(${dirArrow}): — W`);
+    else if (probe.kind === "diff") valueLines.push("ΔV: — V");
+    else if (probe.kind === "ref") valueLines.push(`Bezug: ${netName}`);
+    else if (probe.kind === "digital") valueLines.push("Logik: —");
+  } else {
+    if (probe.kind === "voltage") {
+      const dv = refNetName ? v - refV : v;
+      if (show.vdc !== false) valueLines.push(`V(dc): ${formatValue(dv, "V")}`);
+      if (probe.periodic) {
+        if (show.vrms) valueLines.push(`V(rms): ${formatValue(vrms, "V")}`);
+        if (show.vpp) valueLines.push(`V(p-p): ${formatValue(vpp, "V")}`);
+        if (show.vavg) valueLines.push(`V(avg): ${formatValue(vavg, "V")}`);
+        if (show.freq) valueLines.push(`f: ${freq.toFixed(1)} Hz`);
+      }
+      if (refNetName && refNetName !== "0") valueLines.push(`Ref ${refNetName}: ${formatValue(refV, "V")}`);
+    } else if (probe.kind === "current") {
+      if (show.idc !== false) valueLines.push(`I(${dirArrow}): ${formatValue(i, "A")}`);
+      if (probe.periodic) {
+        if (show.irms) valueLines.push(`I(rms): ${formatValue(irms, "A")}`);
+        if (show.ipp) valueLines.push(`I(p-p): ${formatValue(ipp, "A")}`);
+      }
+    } else if (probe.kind === "voltage_current") {
+      const dv = refNetName ? v - refV : v;
+      valueLines.push(`V: ${formatValue(dv, "V")}`);
+      valueLines.push(`I(${dirArrow}): ${formatValue(i, "A")}`);
+      if (probe.periodic && show.vrms) valueLines.push(`Vrms ${formatValue(vrms, "V")} · Irms ${formatValue(irms, "A")}`);
+    } else if (probe.kind === "power") {
+      const dv = refNetName ? v - refV : v;
+      const pwr = dv * i;
+      valueLines.push(`P: ${formatValue(pwr, "W")}`);
+      if (show.vdc !== false) valueLines.push(`${formatValue(dv, "V")} · I(${dirArrow}) ${formatValue(i, "A")}`);
+    } else if (probe.kind === "diff") {
+      const dv = v - refV;
+      valueLines.push(`ΔV: ${formatValue(dv, "V")}`);
+      if (probe.periodic) valueLines.push(`${formatValue(v, "V")} − ${formatValue(refV, "V")}`);
+    } else if (probe.kind === "ref") {
+      valueLines.push(`REF: ${formatValue(v, "V")}`);
+    } else if (probe.kind === "digital") {
+      const low = probe.thresholds?.low ?? 0.8;
+      const high = probe.thresholds?.high ?? 2.0;
+      const lvl = v > high ? "HIGH (1)" : v < low ? "LOW (0)" : "UNDEF (X)";
+      digCol = v > high ? css("--ok", "#2e7a4f") : v < low ? css("--err", "#b3372c") : css("--warn", "#a87a12");
+      valueLines.push(`${lvl} · ${formatValue(v, "V")}`);
+    }
+  }
+  if (!valueLines.length) valueLines.push(formatValue(v, "V"));
+
+  ctx.save();
+
+  // ---- 1. Kästchen-Maße in Screen-Einheiten (* iz in Welt-Einheiten) berechnen (W93: groß & klar lesbar!) ----
+  ctx.font = `700 12px ui-monospace, monospace`;
+  const headerW = ctx.measureText(headerText).width + 38;
+  ctx.font = `600 13px ui-monospace, monospace`;
+  const maxValW = Math.max(...valueLines.map((l) => ctx.measureText(l).width));
+  const padX = 11;
+  const headerH = 24;
+  const lineH = 18;
+  const boxScreenW = Math.max(132, Math.ceil(Math.max(headerW, maxValW + padX * 2)));
+  const boxScreenH = headerH + valueLines.length * lineH + 9;
+
+  const boxW = boxScreenW * iz;
+  const boxH = boxScreenH * iz;
+  const boxX0 = bx;
+  const boxY0 = by - boxH / 2;
+
+  // ---- 2. Gestrichelte Referenzlinie für Diff-/Ref-Sonden ----
+  if (probe.kind === "diff" || (probe.kind === "voltage" && probe.ref && probe.ref !== "0")) {
     let refX = 0, refY = 0, hasRef = false;
     if (probe.ref && probe.ref.startsWith("pr_")) {
-      const st = useEditor.getState();
-      const refProbe = st.doc.probes.find(p=>p.id===probe.ref);
-      if (refProbe) { refX = refProbe.x - bx; refY = refProbe.y - by; hasRef = true; }
-    } else if (probe.ref && probe.ref!=="0") {
-      const st = useEditor.getState();
-      const refNet = st.netResult.nets.find(n=>n.name===probe.ref);
+      const refProbe = st.doc.probes.find((p) => p.id === probe.ref);
+      if (refProbe) {
+        refX = refProbe.anchorX ?? refProbe.x;
+        refY = refProbe.anchorY ?? refProbe.y;
+        hasRef = true;
+      }
+    } else if (probe.ref && probe.ref !== "0") {
+      const refNet = st.netResult.nets.find((n) => n.name === probe.ref);
       if (refNet && refNet.points.length) {
-        const pt = refNet.points[0];
-        refX = pt.x - bx; refY = pt.y - by; hasRef = true;
+        refX = refNet.points[0].x;
+        refY = refNet.points[0].y;
+        hasRef = true;
       }
     }
     if (hasRef) {
       ctx.save();
-      ctx.rotate(-rot);
-      ctx.strokeStyle = col+"66";
-      ctx.setLineDash([4*iz,3*iz]);
-      ctx.lineWidth = 1 * iz;
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(refX, refY); ctx.stroke();
+      ctx.strokeStyle = col + "88";
+      ctx.setLineDash([4 * iz, 3 * iz]);
+      ctx.lineWidth = 1.1 * iz;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(refX, refY);
+      ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
     }
   }
 
-  // ---- probe body – kleines Fähnchen statt Neon-Badge (Ref-2-Stil, Runde 12) ----
-  ctx.save();
-  ctx.scale(iz, iz); // Screen-Pixel relativ zum Körper
-  ctx.strokeStyle = selected ? css("--wire-sel", "#c77a16") : col;
-  ctx.lineWidth = selected ? 1.6 : 1;
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
+  // ---- 3. Durchgehende Leader-Linie vom nächsten Rand des Kästchens zur Messspitze (ax, ay) ----
+  const attachX = Math.max(boxX0, Math.min(boxX0 + boxW, ax));
+  const attachY = Math.max(boxY0, Math.min(boxY0 + boxH, ay));
+  const distToAnchor = Math.hypot(ax - attachX, ay - attachY);
 
-  if (probe.kind === "current" || probe.kind === "power") {
-    // Richtungspfeil entlang der Leitung
-    const ang = dir ? Math.PI : 0;
+  if (distToAnchor > 2 * iz) {
+    const angle = Math.atan2(ay - attachY, ax - attachX);
     ctx.save();
-    ctx.rotate(ang);
-    ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(4, 0); ctx.stroke();
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(3, -2.5); ctx.lineTo(3, 2.5); ctx.closePath(); ctx.fill();
-    ctx.restore();
-    if (probe.kind === "power") {
-      ctx.fillStyle = col;
-      ctx.font = `600 7px ui-monospace, monospace`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("W", 0, -9);
+    ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+    ctx.lineWidth = (selected ? 1.5 : 1.15) * iz;
+    if (!netName || probe.leader === "magnifier") {
+      ctx.setLineDash([3.5 * iz, 2.5 * iz]);
     }
-  } else {
-    // Fähnchen am Draht (Ref-2-Pfad), dünne Kontur, 18 % Füllung
     ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(4, -6); ctx.lineTo(12, -6); ctx.lineTo(12, -14); ctx.lineTo(4, -14); ctx.lineTo(4, -6);
+    ctx.moveTo(attachX, attachY);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Pfeilspitze am Messpunkt (ax, ay)
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(angle);
+    ctx.fillStyle = selected ? css("--wire-sel", "#d97706") : col;
+    const as = 5.5 * iz;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-as, -as * 0.52);
+    ctx.lineTo(-as, as * 0.52);
     ctx.closePath();
-    ctx.fillStyle = col + "2E";
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  // ---- 4. Messspitze / Kontaktpunkt auf der Leitung (ax, ay) + W99 Stromzange & Richtungspfeil ----
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.scale(iz, iz);
+
+  if (hasCurrentDir) {
+    const strokeCol = selected ? css("--wire-sel", "#d97706") : col;
+    ctx.save();
+    ctx.rotate(effectiveRad);
+
+    // 4a) Stromzangen-Hülse (Current Clamp Ring) um die Leitung bei (0, 0)
+    ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = selected ? 2.2 : 1.7;
+    roundRect(ctx, -4.5, -7.5, 9, 15, 4);
     ctx.fill();
     ctx.stroke();
-    const glyph: Record<string, string> = { voltage: "V", voltage_current: "V", diff: "Δ", ref: "R", digital: "D" };
-    ctx.fillStyle = col;
-    ctx.font = `600 6.5px ui-monospace, monospace`;
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(glyph[probe.kind] ?? "V", 8, -10);
+
+    // 4b) Kontrastreiches Richtungs-Pfeil-Schild ("I ━━▶") parallel zur Leitung
+    const badgeY = -18;
+    ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = selected ? 2.0 : 1.5;
+    roundRect(ctx, -18, badgeY - 7.5, 36, 15, 7.5);
+    ctx.fill();
+    ctx.stroke();
+
+    // Kräftiger Richtungspfeil im Schild + direkt auf der Leitung
+    ctx.strokeStyle = strokeCol;
+    ctx.fillStyle = strokeCol;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(-11, badgeY);
+    ctx.lineTo(6, badgeY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(13, badgeY);
+    ctx.lineTo(4.5, badgeY - 4.5);
+    ctx.lineTo(4.5, badgeY + 4.5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Zusätzlich direkter Richtungspfeil unmittelbar auf der Leitung vor der Stromzange
+    ctx.beginPath();
+    ctx.moveTo(13, 0);
+    ctx.lineTo(5.5, -4.5);
+    ctx.lineTo(5.5, 4.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
-  if (selected) {
-    ctx.strokeStyle = css("--accent", "#1f5fd0");
-    ctx.setLineDash([3, 2]);
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(4, -7, 12, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
-  }
-  ctx.restore(); // end constant screen body
+  // Kontaktpunkt auf der Leitung
+  ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+  ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.lineWidth = selected ? 1.8 : 1.4;
+  ctx.beginPath();
+  ctx.arc(0, 0, selected ? 4.2 : 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.beginPath();
+  ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 
-  ctx.rotate(-rot);
+  // ---- 5. Permanentes Multisim-Anzeigekästchen bei (boxX0, boxY0) (W93: groß & kontrastreich) ----
+  ctx.save();
+  ctx.translate(boxX0, boxY0);
+  ctx.scale(iz, iz);
 
-  // ---- live values - permanent box like Multisim – constant screen size ----
-  if (live) {
-    const netName=probe.net ?? nearestNetName({x:ax,y:ay},24);
-    const st = useEditor.getState();
-    let refNetName: string | null = null;
-    if (probe.ref) {
-      if (probe.ref.startsWith("pr_")) {
-        const rp = st.doc.probes.find(p=>p.id===probe.ref);
-        refNetName = rp?.net ?? rp?.ref ?? null;
-      } else {
-        refNetName = probe.ref;
-      }
-    }
+  // Kästchen-Hintergrund & Rahmen
+  ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
+  ctx.fill();
 
-    let v = netName ? (live.nets[netName] ?? 0) : 0;
-    let refV = refNetName ? (live.nets[refNetName] ?? 0) : 0;
-    let i = netName ? (netCurrentMap.get(netName) ?? 0) : 0;
-    if (dir) i = -i;
+  // Farbige Kopfzeile im Kästchen
+  ctx.save();
+  roundRect(ctx, 0, 0, boxScreenW, headerH, 7);
+  ctx.clip();
+  ctx.fillStyle = col + "28";
+  ctx.fillRect(0, 0, boxScreenW, headerH);
+  ctx.restore();
 
-    let lines: string[] = [];
-    const show = probe.show ?? { vdc: true };
-    const namePrefix = probe.name ? `${probe.name} ` : "";
+  // Trennlinie unter dem Header
+  ctx.strokeStyle = col + "55";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, headerH);
+  ctx.lineTo(boxScreenW, headerH);
+  ctx.stroke();
 
-    let vrms=0, vpp=0, vavg=0, irms=0, ipp=0, freq=0;
-    if (probe.periodic && netName) {
-      try {
-        const ch = engine.channel(netName, 2048);
-        if (ch.v.length>8) {
-          vavg = mean(ch.v);
-          vrms = rms(ch.v);
-          vpp = peakToPeak(ch.v);
-          freq = estimateFrequency(ch.t, ch.v);
-          irms = Math.abs(i)*0.707;
-          ipp = Math.abs(i)*2;
-        }
-      } catch {}
-    }
+  // Außenrahmen (hervorgehoben bei Auswahl)
+  ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.lineWidth = selected ? 2.2 : 1.4;
+  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
+  ctx.stroke();
 
-    if (probe.kind==="voltage") {
-      if (show.vdc) {
-        const dv = refNetName ? v - refV : v;
-        lines.push(`${namePrefix}${formatValue(dv,"V")}`);
-      }
-      if (probe.periodic) {
-        if (show.vrms) lines.push(`Vrms ${formatValue(vrms,"V")}`);
-        if (show.vpp) lines.push(`Vpp ${formatValue(vpp,"V")}`);
-        if (show.vavg) lines.push(`Vavg ${formatValue(vavg,"V")}`);
-        if (show.freq) lines.push(`${freq.toFixed(1)} Hz`);
-      }
-      if (refNetName && refNetName!=="0") lines.push(`ref ${refNetName}: ${formatValue(refV,"V")}`);
-    } else if (probe.kind==="current") {
-      if (show.idc) lines.push(`${namePrefix}${formatValue(i,"A")}`);
-      if (probe.periodic) {
-        if (show.irms) lines.push(`Irms ${formatValue(irms,"A")}`);
-        if (show.ipp) lines.push(`Ipp ${formatValue(ipp,"A")}`);
-      }
-    } else if (probe.kind==="voltage_current") {
-      const dv = refNetName ? v - refV : v;
-      lines.push(`${namePrefix}${formatValue(dv,"V")} · ${formatValue(i,"A")}`);
-      if (probe.periodic && show.vrms) lines.push(`Vrms ${formatValue(vrms,"V")} Irms ${formatValue(irms,"A")}`);
-    } else if (probe.kind==="power") {
-      const pwr = (refNetName ? (v - refV) : v) * i;
-      lines.push(`${namePrefix}${formatValue(pwr,"W")}`);
-      if (show.vdc) lines.push(`${formatValue(refNetName ? v - refV : v,"V")} · ${formatValue(i,"A")}`);
-    } else if (probe.kind==="diff") {
-      const dv = v - refV;
-      lines.push(`${namePrefix}Δ ${formatValue(dv,"V")}`);
-      if (probe.periodic) lines.push(`${formatValue(v,"V")} - ${formatValue(refV,"V")}`);
-    } else if (probe.kind==="ref") {
-      lines.push(`${namePrefix}REF ${formatValue(v,"V")}`);
-    } else if (probe.kind==="digital") {
-      const low = probe.thresholds?.low ?? 0.8;
-      const high = probe.thresholds?.high ?? 2.0;
-      const lvl = v > high ? "H" : v < low ? "L" : "X";
-      const colLvl = v > high ? css("--ok", "#2e7a4f") : v < low ? css("--err", "#b3372c") : css("--warn", "#a87a12");
-      lines.push(`${namePrefix}${lvl} ${formatValue(v,"V")}`);
-      // colored dot – constant screen
-      ctx.save();
-      ctx.scale(iz, iz);
-      ctx.fillStyle=colLvl; ctx.beginPath(); ctx.arc(16, -12, 4, 0, Math.PI*2); ctx.fill();
-      ctx.restore();
-    }
+  // Typ-Badge + Header-Text
+  ctx.fillStyle = col;
+  roundRect(ctx, 6, 4, 22, 16, 4);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `700 10.5px ui-monospace, monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(glyph.slice(0, 2), 17, 12.2);
 
-    if (lines.length) {
-      // draw box in constant screen coords
-      ctx.save();
-      ctx.scale(iz, iz);
-      ctx.font=`500 9.5px ui-monospace, monospace`;
-      ctx.textAlign="left"; ctx.textBaseline="top";
-      const maxW = Math.max(...lines.map(l=> ctx.measureText(l).width));
-      const lineH = 12;
-      const padX = 6, padY=3;
-      const boxW = maxW + padX*2;
-      const boxH = lines.length*lineH + padY*2;
-      const bxOff = 16, byOff = -boxH/2;
-      ctx.fillStyle=css("--panel-solid","#1a1f2e");
-      roundRect(ctx,bxOff,byOff,boxW,boxH,5); ctx.fill();
-      ctx.strokeStyle=col+"55"; ctx.lineWidth=1; ctx.stroke();
-      ctx.fillStyle=css("--text","#e2e8f0");
-      lines.forEach((ln, idx)=> {
-        ctx.fillText(ln, bxOff+padX, byOff+padY+idx*lineH);
-      });
-      ctx.restore();
-    }
+  ctx.fillStyle = css("--text", "#e2e8f0");
+  ctx.font = `700 12px ui-monospace, monospace`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(headerText, 34, 12.2);
+
+  if (digCol) {
+    ctx.fillStyle = digCol;
+    ctx.beginPath();
+    ctx.arc(boxScreenW - 11, 12, 4.2, 0, Math.PI * 2);
+    ctx.fill();
   }
 
+  // Messwert-Zeilen
+  ctx.font = `600 13px ui-monospace, monospace`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = !netName || !live ? css("--text-mute", "#94a3b8") : css("--text", "#e2e8f0");
+  valueLines.forEach((ln, idx) => {
+    ctx.fillText(ln, padX, headerH + 5 + idx * lineH);
+  });
+
+  ctx.restore();
   ctx.restore();
 }
 
@@ -3018,12 +4466,30 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     ctx.save(); ctx.translate(inst.x, inst.y);
     const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;
     ctx.font="600 10.5px ui-sans-serif, system-ui"; ctx.textAlign="center";
-    ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--text-dim","#9aa5bd"); ctx.fillText(inst.label,0,dy);
+    ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--text-dim","#9aa5bd");
+    ctx.fillText(inst.label,0,dy);
     const main=part.params[0];
-    if (main && main.type==="number"){ const val=Number(inst.params[main.key]??main.def); ctx.fillStyle=css("--text-mute","#64708c"); ctx.font="10px ui-monospace, monospace"; ctx.fillText(formatValue(val,main.unit??""),0,dy+12); }
+    if (main && main.type==="number"){
+      const val=Number(inst.params[main.key]??main.def);
+      // W92: Wenn das Bauteil ausgewählt ist, wird auch sein Wert darunter
+      // optisch in der Auswahlfarbe (--wire-sel) hervorgehoben!
+      ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--text-mute","#64708c");
+      ctx.font=selected?"600 10.5px ui-monospace, monospace":"10px ui-monospace, monospace";
+      ctx.fillText(formatValue(val,main.unit??""),0,dy+12);
+    }
     ctx.restore();
   }
-  if (selected){ const b=instanceBounds(inst); ctx.strokeStyle=css("--accent","#5b8cff"); ctx.setLineDash([4,3]); ctx.lineWidth=1; ctx.strokeRect(b.x-6,b.y-6,b.w+12,b.h+12); ctx.setLineDash([]); }
+  if (selected){
+    const b=instanceBounds(inst);
+    const hasValueLabel = zoom>0.42 && part.mount!=="virtual";
+    const main=part.params[0];
+    const extraBottom = hasValueLabel ? (main && main.type==="number" ? 30 : 18) : 6;
+    ctx.strokeStyle=css("--wire-sel","#fbbf24");
+    ctx.setLineDash([4,3]);
+    ctx.lineWidth=1.1;
+    ctx.strokeRect(b.x-6, b.y-6, b.w+12, b.h+6+extraBottom);
+    ctx.setLineDash([]);
+  }
 }
 function drawPrim(ctx: CanvasRenderingContext2D, prim: SymbolPrim) {
   switch(prim.t){

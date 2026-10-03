@@ -71,10 +71,7 @@ export default function ProbeTable() {
       <div className="p-6 text-center">
         <div className="text-[13px] font-medium">Keine Messpunkte</div>
         <div className="mt-1 text-[11px] text-mute leading-snug">
-          Mindestens 1 Probe empfohlen (Multisim Hinweis).<br />
-          Platziere V Probe via Toolbar (gelb) oder Rechtsklick auf Leitung → Probe.
-          <br />
-          Probes werden automatisch zu Transient/AC Grapher hinzugefügt.
+          Platziere eine Spannungs- oder Stromsonde über die Werkzeugleiste oder per Rechtsklick auf eine Leitung.
         </div>
         <div className="mt-3 flex justify-center gap-2">
           <button className="btn text-[11px]" onClick={() => useEditor.getState().addMeasurementProbe("voltage", 200, 200)}>
@@ -93,7 +90,7 @@ export default function ProbeTable() {
 
   return (
     <div className="h-full overflow-auto" role="region" aria-label="Messpunkte Tabelle – permanente Anzeige aller Probes">
-      <table className="sr-only"><caption>Probes Messwerte – Name, Typ, Netz, REF, Vdc, Vrms, Vpp, Vavg, Frequenz. Wie in Multisim permanente Anzeige neben Spannung.</caption></table>
+      <table className="sr-only"><caption>Messwerte der Sonden – Name, Typ, Netz, Bezugspunkt, Vdc, Vrms, Vpp, Vavg und Frequenz.</caption></table>
       <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 text-[10px] uppercase tracking-wide text-mute" style={{ background: "var(--panel)", borderBottom: "1px solid var(--border)" }}>
         <span>Messpunkte</span>
         <span className="ml-auto mono">{rows.length} Probes</span>
@@ -158,9 +155,6 @@ export default function ProbeTable() {
           ))}
         </tbody>
       </table>
-      <div className="p-2 text-[10px] text-mute leading-snug">
-        Wie in Multisim: Voltage misst gegen GND oder REF-Probe, Differential ΔV = V+ - Vref, Power W = V·I. Periodic Checkbox in Inspector aktiviert Vrms/Vpp/Freq. Alt+Hover über Leitung zeigt Messwerte im Run-Modus.
-      </div>
     </div>
   );
 }

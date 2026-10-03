@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, FlaskConical, ListTree, Radio, Table2, Terminal } from "lucide-react";
+import { AlertTriangle, ChevronDown, FlaskConical, ListTree, Radio, Table2, Terminal } from "lucide-react";
 import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
 import { fromLtspiceAsc, fromSpiceNetlist, isLtspiceAsc } from "@/lib/schematic/importers";
 import { formatValue } from "@/lib/library/catalog";
@@ -57,14 +57,17 @@ export default function BottomPanel() {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+
+  // W96: Im geschlossenen Zustand überhaupt keine eigene Leiste rendern –
+  // das Panel erscheint nur bei Bedarf (Menü Ansicht/Analysen oder Prüfungs-Button).
+  if (!bottomOpen) return null;
+
   return (
-    <div className="relative flex flex-col" style={{ background: "var(--panel)", borderTop: "1px solid var(--border)", height: bottomOpen ? openH : 34 }}>
-      {bottomOpen && (
-        <div onPointerDown={startResize} className="absolute -top-1 left-0 right-0 z-10 h-2 cursor-ns-resize" title="Ziehen: Panel-Höhe" />
-      )}
-      <div className="flex h-[34px] shrink-0 items-center gap-0.5 px-2">
+    <div className="relative flex flex-col" style={{ background: "var(--panel)", borderTop: "1px solid var(--border)", height: openH }}>
+      <div onPointerDown={startResize} className="absolute -top-1 left-0 right-0 z-10 h-2 cursor-ns-resize" title="Ziehen: Panel-Höhe" />
+      <div className="flex h-[34px] shrink-0 items-center gap-0.5 px-2" style={{ borderBottom: "1px solid var(--border)" }}>
         {TABS.map(([id, label, icon]) => (
-          <button key={id} className="tab" data-active={bottomTab === id && bottomOpen} onClick={() => setBottomTab(id as TabId)}>
+          <button key={id} className="tab" data-active={bottomTab === id} onClick={() => setBottomTab(id as TabId)}>
             <span className="flex items-center gap-1.5">
               {icon}
               {label}
@@ -72,13 +75,12 @@ export default function BottomPanel() {
           </button>
         ))}
         <div className="flex-1" />
-        <button className="btn px-1.5" onClick={toggleBottom} title={bottomOpen ? "Leiste einklappen" : "Leiste ausklappen"}>
-          {bottomOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        <button className="btn px-1.5" onClick={toggleBottom} title="Panel schließen">
+          <ChevronDown size={14} />
         </button>
       </div>
 
-      {bottomOpen && (
-        <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
           {bottomTab === "console" && (
             <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-[11.5px] leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
               {logs.map((l) => (
@@ -219,7 +221,6 @@ export default function BottomPanel() {
             </div>
           )}
         </div>
-      )}
     </div>
   );
 }

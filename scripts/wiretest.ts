@@ -20,10 +20,23 @@ import {
   type SchematicDoc,
 } from "../src/lib/schematic/model";
 import { PART_MAP } from "../src/lib/library/catalog";
+import { SUBCIRCUIT_TEMPLATES, registerCustomPart, extractSubcircuitFromSchematic } from "../src/lib/library/customParts";
 import { PRESETS, routeOrthogonal } from "../src/lib/schematic/tools";
-import { collectPins, reattachWiresToPins, sheets, useEditor, wireJunctionCandidates } from "../src/state/editor";
-import { isValidProjectDoc, normalizeProjectDoc } from "../src/lib/storage";
-import { buildNetPath, findNetTarget, needsJunction, netClick, normalizeDocGeometry } from "../src/lib/schematic/netdraw";
+import { collectPins, reattachWiresToPins, sheets, useEditor, useHud, wireJunctionCandidates } from "../src/state/editor";
+import { isValidProjectDoc, normalizeProjectDoc, setActiveDesktopFilePath, getActiveDesktopFilePath } from "../src/lib/storage";
+import { docToSvg } from "../src/lib/export/sheet";
+import {
+  buildNetPath,
+  cleanOrphanJunctions,
+  dragWireCornerOrtho,
+  dragWireSegmentOrtho,
+  findNetTarget,
+  finishNetDraft,
+  insertComponentIntoWires,
+  needsJunction,
+  netClick,
+  normalizeDocGeometry,
+} from "../src/lib/schematic/netdraw";
 
 let failed = 0;
 function check(name: string, ok: boolean, info = "") {
@@ -517,6 +530,505 @@ const netAt = (doc: SchematicDoc, x: number, y: number) => buildNets(doc).pointN
   check("W72 Netzprüfung läuft nach dem Wechsel (Netze vorhanden)", res.nets.length > 0, `${res.nets.length} Netze`);
   check("W72 Undo-Verlauf startet beim Blatt neu", useEditor.getState().past.length === 0);
 }
+
+/* ---------------- Runde 27 (W73–W81) · Multisim-Perfektion ---------------- */
+{
+  // W73: HUD netDrawing-Synchronisation & Abbruch über setTool / cancelNetDrawing
+  useHud.setState({ netDrawing: true });
+  const seq0 = useHud.getState().netCancelSeq;
+  useEditor.getState().setTool("select");
+  check("W73 setTool('select') bricht laufendes Netzzeichnen im HUD ab", !useHud.getState().netDrawing && useHud.getState().netCancelSeq === seq0 + 1);
+}
+
+{
+  // W75: Bauteil-Vorschau vor dem Absetzen drehen & spiegeln (ohne Hintergrund-Auswahl zu verdrehen)
+  const st = useEditor.getState();
+  st.setDoc({
+    id: "w75",
+    name: "w75",
+    instances: [{ id: "r_bg", partId: "resistor", x: 100, y: 100, rot: 0, label: "R1", params: { r: 1000 } }],
+    wires: [],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+  }, false);
+  st.setSelection(["r_bg"]);
+  st.setPlacing("resistor");
+  st.rotateSelection(1);
+  st.mirrorSelection();
+  check("W75 R/M im Platzier-Modus dreht/spiegelt die Vorschau", useEditor.getState().placingRot === 90 && useEditor.getState().placingMirror === true);
+  check("W75 Hintergrund-Bauteil bleibt unberührt", useEditor.getState().doc.instances[0].rot === 0 && !useEditor.getState().doc.instances[0].mirror);
+  const newId = st.addInstance("resistor", 240, 200);
+  const placed = useEditor.getState().doc.instances.find((i) => i.id === newId)!;
+  check("W75 platziertes Bauteil übernimmt Drehung & Spiegelung der Vorschau", placed.rot === 90 && placed.mirror === true);
+  st.setPlacing(null);
+}
+
+{
+  // W76: Bauteil in eine durchgehende Leitung einsetzen trennt das Segment auf (In-Line-Split)
+  const docSplit: SchematicDoc = {
+    id: "w76",
+    name: "w76",
+    instances: [
+      { id: "v1", partId: "vdc", x: 100, y: 200, rot: 0, label: "V1", params: { v: 5 } },
+      { id: "r_inline", partId: "resistor", x: 240, y: 200, rot: 0, label: "R1", params: { r: 1000 } },
+    ],
+    // Durchgehende Leitung von x=140 bis x=360 auf Höhe y=200 (überbrückt R1 mit Pins bei 210 und 270)
+    wires: [{ id: "w_main", points: [{ x: 140, y: 200 }, { x: 360, y: 200 }] }],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+  };
+  const stats = insertComponentIntoWires(docSplit, "r_inline");
+  check("W76 In-Line-Split trennt die überbrückte Leitung", stats.split === 1 && docSplit.wires.length === 2, JSON.stringify(docSplit.wires));
+  const netRes = buildNets(docSplit);
+  check(
+    "W76 R1 liegt danach in Reihe (Pin 0 und Pin 1 in getrennten Netzen, kein Kurzschluss)",
+    Boolean(netRes.pinNets["r_inline:0"]) &&
+      Boolean(netRes.pinNets["r_inline:1"]) &&
+      netRes.pinNets["r_inline:0"] !== netRes.pinNets["r_inline:1"],
+    `${netRes.pinNets["r_inline:0"]} vs ${netRes.pinNets["r_inline:1"]}`,
+  );
+}
+
+{
+  // W77: Hindernis-Ausweichen beim Netzzeichnen, Knick-Wenden (flipBend) & Abschluss im freien Raum
+  const obstacleBox = [{ x: 180, y: 80, w: 60, h: 40 }]; // blockiert horizontalen Weg von (100,100) nach (200,100)
+  const pathAvoid = buildNetPath({ x: 100, y: 100 }, [], { x: 200, y: 200 }, { obstacles: obstacleBox });
+  check(
+    "W77 buildNetPath weicht einem Bauteil auf dem ersten Schenkel automatisch aus",
+    orth(pathAvoid) && pathAvoid[1].x === 100 && pathAvoid[1].y === 200,
+    JSON.stringify(pathAvoid),
+  );
+  const pathNormal = buildNetPath({ x: 100, y: 100 }, [], { x: 220, y: 160 });
+  const pathFlipped = buildNetPath({ x: 100, y: 100 }, [], { x: 220, y: 160 }, { flipBend: true });
+  check(
+    "W77 flipBend (Leertaste) kehrt die Knick-Orientierung H↔V um",
+    orth(pathNormal) && orth(pathFlipped) && (pathNormal[1].x !== pathFlipped[1].x || pathNormal[1].y !== pathFlipped[1].y),
+    `${JSON.stringify(pathNormal)} vs ${JSON.stringify(pathFlipped)}`,
+  );
+  const finished = finishNetDraft({ anchor: { x: 100, y: 100 }, corners: [{ x: 180, y: 100 }] }, { x: 180, y: 220 });
+  check(
+    "W77 finishNetDraft schließt offene Leitung im freien Raum rechtwinklig ab",
+    finished !== null && orth(finished) && finished[finished.length - 1].y === 220,
+    JSON.stringify(finished),
+  );
+}
+
+{
+  // W78: Streng orthogonales Ziehen an Segmenten (ohne Pin-Abriss!) und Ecken
+  const pinnedSegOrig = [{ x: 100, y: 200 }, { x: 300, y: 200 }];
+  const isPinned = (p: { x: number; y: number }) =>
+    (p.x === 100 && p.y === 200) || (p.x === 300 && p.y === 200);
+  const draggedSeg = dragWireSegmentOrtho(pinnedSegOrig, 0, 0, 40, isPinned);
+  check(
+    "W78 Segment-Ziehen hält angepinnte Leitungsenden fest am Pin (90°-Stufe statt Abriss)",
+    orth(draggedSeg) &&
+      draggedSeg.length === 4 &&
+      draggedSeg[0].x === 100 &&
+      draggedSeg[0].y === 200 &&
+      draggedSeg[draggedSeg.length - 1].x === 300 &&
+      draggedSeg[draggedSeg.length - 1].y === 200 &&
+      draggedSeg[1].y === 240 &&
+      draggedSeg[2].y === 240,
+    JSON.stringify(draggedSeg),
+  );
+
+  const lWire = [{ x: 100, y: 100 }, { x: 240, y: 100 }, { x: 240, y: 260 }];
+  const draggedCorner = dragWireCornerOrtho(lWire, 1, { x: 280, y: 140 }, (p) => p.x === 100 && p.y === 100);
+  check(
+    "W78 Eckpunkt-Ziehen hält alle Segmente streng im 90°-Winkel und schützt angepinnten Startpunkt",
+    orth(draggedCorner) && draggedCorner[0].x === 100 && draggedCorner[0].y === 100,
+    JSON.stringify(draggedCorner),
+  );
+}
+
+{
+  // W79: Eine Zieh-Geste (beginGesture .. endGesture) erzeugt genau 1 Undo-Eintrag
+  const st = useEditor.getState();
+  st.setDoc({
+    id: "w79",
+    name: "w79",
+    instances: [{ id: "r1", partId: "resistor", x: 100, y: 100, rot: 0, label: "R1", params: { r: 1000 } }],
+    wires: [],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+  }, false);
+  const pastBefore = useEditor.getState().past.length;
+  st.setSelection(["r1"]);
+  st.beginGesture();
+  for (let step = 0; step < 15; step++) {
+    st.moveSelection(20, 0);
+  }
+  st.endGesture();
+  const pastAfter = useEditor.getState().past.length;
+  check("W79 15 Zieh-Schritte in einer Geste erzeugen genau 1 Undo-Eintrag", pastAfter === pastBefore + 1, `${pastBefore} → ${pastAfter}`);
+  st.undo();
+  check("W79 Ein einziges Undo stellt die Ausgangsposition vor dem Ziehen wieder her", useEditor.getState().doc.instances[0].x === 100);
+}
+
+{
+  // W80: T-Abzweig wandert beim Verschieben der Hauptleitung mit & verwaiste Junctions verschwinden
+  const st = useEditor.getState();
+  st.setDoc({
+    id: "w80",
+    name: "w80",
+    instances: [],
+    wires: [
+      { id: "w_host", points: [{ x: 100, y: 200 }, { x: 300, y: 200 }] },
+      { id: "w_branch", points: [{ x: 200, y: 200 }, { x: 200, y: 320 }] },
+    ],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [{ id: "j1", x: 200, y: 200 }],
+  }, false);
+  st.setSelection(["w_host"]);
+  st.moveSelection(0, 40);
+  const branchAfter = useEditor.getState().doc.wires.find((w) => w.id === "w_branch")!;
+  const jncAfter = useEditor.getState().doc.junctions?.[0];
+  check(
+    "W80 T-Abzweig und Verbindungspunkt wandern beim Verschieben der Hauptleitung mit",
+    branchAfter.points[0].y === 240 && jncAfter?.y === 240 && orth(branchAfter.points),
+    JSON.stringify({ branch: branchAfter.points, jnc: jncAfter }),
+  );
+  // Löscht man den Abzweig, wird der verwaiste Verbindungspunkt automatisch entfernt
+  st.setSelection(["w_branch"]);
+  st.deleteSelection();
+  check(
+    "W80 Verwaiste Junction wird beim Löschen des Abzweigs automatisch aufgeräumt",
+    (useEditor.getState().doc.junctions?.length ?? 0) === 0,
+    JSON.stringify(useEditor.getState().doc.junctions),
+  );
+}
+
+{
+  // W81: Labels & Notizen editieren + Probe mitten auf einem langen Leitungssegment platzieren
+  const st = useEditor.getState();
+  st.setDoc({
+    id: "w81",
+    name: "w81",
+    instances: [
+      { id: "v1", partId: "vdc", x: 100, y: 200, rot: 0, label: "V1", params: { v: 5 } },
+      { id: "g1", partId: "gnd", x: 100, y: 260, rot: 0, label: "GND1", params: {} },
+    ],
+    wires: [{ id: "w_long", points: [{ x: 100, y: 170 }, { x: 400, y: 170 }] }],
+    labels: [{ id: "lbl1", x: 200, y: 170, name: "VCC" }],
+    notes: [{ id: "note1", x: 120, y: 80, text: "Test" }],
+    probes: [],
+    junctions: [],
+  }, false);
+  st.updateLabel("lbl1", "VDD_5V");
+  st.updateNote("note1", "Versorgung 5V");
+  check(
+    "W81 updateLabel & updateNote aktualisieren Netzname und Notiz",
+    useEditor.getState().doc.labels[0].name === "VDD_5V" && useEditor.getState().doc.notes[0].text === "Versorgung 5V",
+  );
+  // Probe mitten auf dem langen Segment bei x=260, y=172 platzieren (weit weg von den Endpunkten 100 und 400!)
+  const prId = st.addMeasurementProbe("voltage", 260, 172);
+  const pr = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
+  check(
+    "W81/W93 Probe mitten auf langem Leitungssegment findet das Netz und rastet den Anker auf die Leitung (Offset +40/-40)",
+    pr.net === "VDD_5V" && pr.anchorY === 170 && pr.anchorX === 260 && pr.x === 300 && pr.y === 130,
+    JSON.stringify({ net: pr.net, anchorX: pr.anchorX, anchorY: pr.anchorY, x: pr.x, y: pr.y }),
+  );
+
+  // W87: Zieht man das Anzeigekästchen der Probe selbst, bleibt die Messspitze (anchorX/Y) fest auf der Leitung
+  st.setSelection([prId!]);
+  st.moveSelection(20, -10);
+  const prMovedBox = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
+  check(
+    "W87 Ziehen des Probe-Anzeigekästchens bewegt nur (x, y) und hält die Messspitze (anchorX, anchorY) fest auf der Leitung",
+    prMovedBox.x === 320 && prMovedBox.y === 120 && prMovedBox.anchorX === 260 && prMovedBox.anchorY === 170,
+    JSON.stringify(prMovedBox),
+  );
+
+  // W87: Wird die Leitung verschoben, auf der die Messspitze sitzt, wandert die gesamte Probe mit
+  st.setSelection(["w_long"]);
+  st.moveSelection(0, 20);
+  const prMovedWithWire = useEditor.getState().doc.probes.find((p) => p.id === prId)!;
+  check(
+    "W87 Verschieben der Leitung unter der Messspitze nimmt die gesamte Probe (Spitze + Kästchen) mit",
+    prMovedWithWire.anchorX === 260 && prMovedWithWire.anchorY === 190 && prMovedWithWire.x === 320 && prMovedWithWire.y === 140,
+    JSON.stringify(prMovedWithWire),
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 19) W82–W84: OUT-Widerstand in astable555 & striktes 10er-Raster   */
+/* ------------------------------------------------------------------ */
+console.log("\n=== 19) W82–W84: OUT-Widerstand (astable555) & Raster-Konsistenz ===");
+{
+  const st = useEditor.getState();
+  st.setDoc(PRESETS[2].build(), false);
+  const doc0 = useEditor.getState().doc;
+  const r3 = doc0.instances.find((i) => i.label === "R3")!;
+  const wOut = doc0.wires.find((w) => w.points[0].x === 460 && w.points[0].y === 270)!;
+  const wLed = doc0.wires.find((w) => w.points[0].x === 650 && w.points[0].y === 270)!;
+  st.setSelection([r3.id]);
+  st.moveSelection(0, 10);
+  st.moveSelection(0, 20);
+  const docMoved = useEditor.getState().doc;
+  const wOutAfter = docMoved.wires.find((w) => w.id === wOut.id)!;
+  const wLedAfter = docMoved.wires.find((w) => w.id === wLed.id)!;
+  const netsAfter = buildNets(docMoved);
+  check(
+    "W82 Verschieben von R3 an OUT hält das Leitungsende an U1.OUT (460,270) und an R3.1 (590,300) streng orthogonal verbunden",
+    wOutAfter.points[0].x === 460 &&
+      wOutAfter.points[0].y === 270 &&
+      wOutAfter.points[wOutAfter.points.length - 1].x === 590 &&
+      wOutAfter.points[wOutAfter.points.length - 1].y === 300 &&
+      wLedAfter.points[0].x === 650 &&
+      wLedAfter.points[0].y === 300 &&
+      wLedAfter.points[wLedAfter.points.length - 1].x === 690 &&
+      wLedAfter.points[wLedAfter.points.length - 1].y === 270 &&
+      netsAfter.openEnds.length === 0,
+    JSON.stringify({ wOut: wOutAfter.points, wLed: wLedAfter.points, openEnds: netsAfter.openEnds }),
+  );
+  // Zurückschieben auf y=270 stellt wieder eine glatte 2-Punkt-Gerade her
+  st.moveSelection(0, -30);
+  const wOutBack = useEditor.getState().doc.wires.find((w) => w.id === wOut.id)!;
+  check(
+    "W82 Zurückschieben von R3 auf gleiche Höhe glättet die Leitung wieder zu 2 Punkten",
+    wOutBack.points.length === 2 && wOutBack.points[0].y === 270 && wOutBack.points[1].y === 270,
+    JSON.stringify(wOutBack.points),
+  );
+
+  // W83/W84: Alle Presets liegen mit Bauteilen, Pins, Leitungen und Labels auf dem GRID=10-Raster
+  let offGridCount = 0;
+  for (const p of PRESETS) {
+    const d = p.build();
+    for (const i of d.instances) if (i.x % GRID !== 0 || i.y % GRID !== 0) offGridCount++;
+    for (const w of d.wires) for (const pt of w.points) if (pt.x % GRID !== 0 || pt.y % GRID !== 0) offGridCount++;
+    for (const l of d.labels) if (l.x % GRID !== 0 || l.y % GRID !== 0) offGridCount++;
+  }
+  check("W84 Alle Presets (Bauteile, Leitungen, Labels) liegen exakt auf dem GRID=10-Raster", offGridCount === 0, `offGridCount=${offGridCount}`);
+
+  // W83: alignSelection zwischen Widerstand und LED hält beide exakt auf derselben Rasterlinie
+  const r3Id = useEditor.getState().doc.instances.find((i) => i.label === "R3")!.id;
+  const d1Id = useEditor.getState().doc.instances.find((i) => i.label === "D1")!.id;
+  st.setSelection([r3Id]);
+  st.moveSelection(0, 20);
+  st.setSelection([r3Id, d1Id]);
+  st.alignSelection("top");
+  const r3Aligned = useEditor.getState().doc.instances.find((i) => i.id === r3Id)!;
+  const d1Aligned = useEditor.getState().doc.instances.find((i) => i.id === d1Id)!;
+  check(
+    "W83 alignSelection richtet Widerstand und LED exakt auf derselben GRID=10-Rasterlinie aus",
+    r3Aligned.y === d1Aligned.y && r3Aligned.y % GRID === 0,
+    JSON.stringify({ r3Y: r3Aligned.y, d1Y: d1Aligned.y }),
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 20) W88–W93: Runde 29 – Werte-Parser (Ω/Komma/Infix) & Cursor      */
+/* ------------------------------------------------------------------ */
+console.log("\n=== 20) W88–W93: Runde 29 (Werte-Parser, Radiergummi-Cursor, Labels) ===");
+{
+  const { parseSpiceValue } = require("../src/lib/schematic/importers") as typeof import("../src/lib/schematic/importers");
+  const { ERASER_CURSOR, PEN_CURSOR } = require("../src/components/cursors") as typeof import("../src/components/cursors");
+  check("W89 ERASER_CURSOR ist als eigener SVG-Cursor definiert und unterscheidet sich von PEN_CURSOR", Boolean(ERASER_CURSOR) && ERASER_CURSOR !== PEN_CURSOR);
+  check("W91 parseSpiceValue akzeptiert 10k, 10kΩ, 4,7k, 4k7, 470R, 100µF",
+    Math.abs(parseSpiceValue("10k") - 10000) < 1e-9 &&
+    Math.abs(parseSpiceValue("10kΩ") - 10000) < 1e-9 &&
+    Math.abs(parseSpiceValue("4,7k") - 4700) < 1e-9 &&
+    Math.abs(parseSpiceValue("4k7") - 4700) < 1e-9 &&
+    Math.abs(parseSpiceValue("470R") - 470) < 1e-9 &&
+    Math.abs(parseSpiceValue("100µF") - 100e-6) < 1e-12,
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 21) W98–W99: Runde 31 – Vorlagen-Simulation, Tab-Reihenfolge & I   */
+/* ------------------------------------------------------------------ */
+console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Stromrichtung) ===");
+{
+  const { PRESETS } = require("../src/lib/schematic/tools") as typeof import("../src/lib/schematic/tools");
+  const { RealtimeEngine } = require("../src/lib/sim/realtime") as typeof import("../src/lib/sim/realtime");
+  const { inferWireAngleAt, sheets, useEditor } = require("../src/state/editor") as typeof import("../src/state/editor");
+
+  // W98d: Alle 8 Vorlagen haben 0 Fehler, 0 Warnungen, 0 offene Enden und 0 kurzgeschlossene Zweipole
+  let presetProblemCount = 0;
+  for (const p of PRESETS) {
+    const doc = p.build();
+    const nr = buildNets(doc);
+    const shorted = nr.netlist.devices.filter(
+      (d) => (d.type === "R" || d.type === "C" || d.type === "V") && d.nodes[0] === d.nodes[1],
+    );
+    if (nr.errors.length > 0 || nr.warnings.length > 0 || nr.openEnds.length > 0 || shorted.length > 0) {
+      presetProblemCount++;
+    }
+  }
+  check("W98d Alle 8 Vorlagen sind ERC-fehlerfrei und ohne kurzgeschlossene Bauteile", presetProblemCount === 0, `presetProblemCount=${presetProblemCount}`);
+
+  // W98d: 555-Blinker schwingt in der Echtzeit-Simulation (OUT wechselt Pegel, LED führt Strom)
+  const astableDoc = PRESETS.find((p) => p.id === "astable555")!.build();
+  const rt = new RealtimeEngine();
+  rt.reset(astableDoc);
+  rt.running = true;
+  let minOut = Infinity;
+  let maxOut = -Infinity;
+  let maxLedI = 0;
+  for (let k = 0; k < 65; k++) {
+    const st = rt.tick(0.016);
+    const vOut = st.nets["OUT"] ?? 0;
+    const iLed = Math.abs(st.currents["D1"] ?? 0);
+    if (vOut < minOut) minOut = vOut;
+    if (vOut > maxOut) maxOut = vOut;
+    if (iLed > maxLedI) maxLedI = iLed;
+  }
+  check(
+    "W98d 555-Blinker schwingt stabil in der Echtzeit-Simulation (OUT > 5 V Hub, D1-Strom > 5 mA)",
+    maxOut - minOut > 5 && maxLedI > 0.005,
+    `minOut=${minOut.toFixed(2)}, maxOut=${maxOut.toFixed(2)}, maxLedI=${(maxLedI * 1000).toFixed(2)}mA`,
+  );
+
+  // W98c: reorderSheets verschiebt Datei-Tabs zuverlässig
+  const st = useEditor.getState();
+  st.newDocument();
+  const idA = useEditor.getState().doc.id;
+  st.newDocument();
+  const idB = useEditor.getState().doc.id;
+  const beforeA = sheets.findIndex((s) => s.id === idA);
+  const beforeB = sheets.findIndex((s) => s.id === idB);
+  st.reorderSheets(idB, idA);
+  const afterA = sheets.findIndex((s) => s.id === idA);
+  const afterB = sheets.findIndex((s) => s.id === idB);
+  check(
+    "W98c reorderSheets tauscht die Reihenfolge der Schaltblatt-Reiter",
+    beforeA < beforeB && afterB < afterA,
+    JSON.stringify({ beforeA, beforeB, afterA, afterB }),
+  );
+
+  // W99: inferWireAngleAt erkennt waagerechte (0°) und senkrechte (90°) Leitungen für den Stromrichtungspfeil
+  st.loadPreset("astable555");
+  const doc555 = useEditor.getState().doc;
+  const angHoriz = inferWireAngleAt(doc555, 520, 270); // OUT-Leitung waagerecht (460,270)->(590,270)
+  const angVert = inferWireAngleAt(doc555, 290, 200); // R1->R2 senkrecht (290,190)->(290,210)
+  check(
+    "W99 inferWireAngleAt erkennt waagerechte (0°) und senkrechte (90°) Leitungssegmente",
+    angHoriz === 0 && angVert === 90,
+    `angHoriz=${angHoriz}, angVert=${angVert}`,
+  );
+
+  // W103: setPlacing schließt automatisch das Bibliothek-Panel/BottomSheet
+  useEditor.setState({ libraryOpen: true });
+  st.setPlacing("resistor");
+  check(
+    "W103 setPlacing('resistor') schließt automatisch libraryOpen (für direktes Touch-Platzieren)",
+    useEditor.getState().libraryOpen === false && useEditor.getState().placingPartId === "resistor",
+  );
+  st.setPlacing(null);
+
+  // W114: Im 555-Blinker fließt bei ausgeschaltetem Ausgang (OUT < 0.2 V) kein Strom (< 1 µA)
+  // in die LED D1, und die Spannungsquelle V1 liefert in beiden Phasen immer Strom aus dem + Pol (I_V1 < 0)
+  const p555b = PRESETS.find((x) => x.id === "astable555")!;
+  const rtB = new RealtimeEngine();
+  rtB.rebuild(p555b.build());
+  rtB.running = true;
+  let maxLedWhenLow = 0;
+  let sawLowPhase = false;
+  let v1AlwaysSourcing = true;
+  for (let k = 0; k < 65; k++) {
+    const stepState = rtB.tick(0.016);
+    const vOut = stepState.nets["OUT"] ?? 0;
+    const iLed = Math.abs(stepState.currents["D1"] ?? 0);
+    const iV1 = stepState.currents["V1"] ?? 0;
+    if (iV1 >= 0) v1AlwaysSourcing = false;
+    if (vOut < 0.2) {
+      sawLowPhase = true;
+      if (iLed > maxLedWhenLow) maxLedWhenLow = iLed;
+    }
+  }
+  check(
+    "W114 Bei ausgeschaltetem 555-Ausgang (LOW) fließt kein Strom in die LED D1 (< 1 µA) und V1 speist immer aus",
+    sawLowPhase && maxLedWhenLow < 1e-6 && v1AlwaysSourcing,
+    `sawLowPhase=${sawLowPhase}, maxLedWhenLow=${(maxLedWhenLow * 1e6).toFixed(4)}µA, v1AlwaysSourcing=${v1AlwaysSourcing}`,
+  );
+
+  // W116–W118: Hauptparameter-Einheiten für Inline-Editor (R -> Ω, C -> F, V -> V) sowie Notiz-Erstellung/Bearbeitung
+  st.newDocument();
+  const noteId = "n_test_w117";
+  st.commit((d) => {
+    d.notes.push({ id: noteId, x: 120, y: 160, text: "Messpunkt A: U_ref = 2,5 V" });
+  });
+  st.updateNote(noteId, "Messpunkt A: U_ref = 2,50 V");
+  const savedNote = useEditor.getState().doc.notes.find((n) => n.id === noteId);
+  const rUnit = PART_MAP["resistor"]?.params[0]?.unit;
+  const cUnit = PART_MAP["capacitor"]?.params[0]?.unit;
+  check(
+    "W116/W117 Inline-Editor-Einheiten (Ω, F) und Schaltplan-Notizkarte vorhanden und aktualisierbar",
+    rUnit === "Ω" && cUnit === "F" && savedNote?.text === "Messpunkt A: U_ref = 2,50 V",
+    `rUnit=${rUnit}, cUnit=${cUnit}, note=${savedNote?.text}`,
+  );
+
+  // W120–W123: Bauteil-Studio mit Transistor-Innenschaltung (NE555 aus Transistoren & 5k-Teilern),
+  // freiem Symbol-Zeichnen und Schaltplan-Import
+  const ne555Tpl = SUBCIRCUIT_TEMPLATES.find((t) => t.id === "ne555_transistor")!;
+  const customNe555Def = registerCustomPart({
+    ...ne555Tpl.spec,
+    id: "custom_ne555_test",
+    customSymbol: [
+      { t: "rect", x: -30, y: -40, w: 60, h: 80, r: 4 },
+      { t: "text", x: 0, y: 4, s: "NE555-Q", size: 9, align: "center" },
+    ],
+  });
+  const extNets = ["0", "N_TRIG", "N_RST", "N_DIS", "N_VCC", "N_THR", "N_OUT", "N_CTRL"];
+  const compiledDevs = customNe555Def.toDevices(
+    { id: "u_custom555", partId: "custom_ne555_test", params: { r_div: 5000, bf_npn: 200 } },
+    extNets,
+  );
+  const has5kDivider = compiledDevs.some(
+    (d) => d.type === "R" && d.params.r === 5000 && d.nodes[0] === "N_VCC" && d.nodes[1] === "N_CTRL",
+  );
+  const hasDisTransistor = compiledDevs.some(
+    (d) => d.type === "Q" && d.nodes[0] === "N_DIS" && d.nodes[2] === "0",
+  );
+  const extractedFromPreset = extractSubcircuitFromSchematic(PRESETS.find((p) => p.id === "ce-amp")!.build());
+  check(
+    "W120/W121 NE555-Transistor-Innenschaltung kompiliert 5kΩ-Teiler + NPN-Entladetransistor Q14 + eigenes Schaltsymbol und extrahiert Subcircuits vom Schaltplan",
+    has5kDivider &&
+      hasDisTransistor &&
+      customNe555Def.symbol.length === 2 &&
+      extractedFromPreset.subcircuit.some((e) => e.kind === "npn"),
+    `devs=${compiledDevs.length}, has5k=${has5kDivider}, hasDisQ=${hasDisTransistor}, extracted=${extractedFromPreset.subcircuit.length}`,
+  );
+
+  // W130–W133: Datei-Bindung für Auto-Save, Vektor-Druckblatt & Bauteilkörper-Klick-Ziehen
+  setActiveDesktopFilePath("C:\\Users\\Test\\Schaltung.multispice.json");
+  const boundPath = getActiveDesktopFilePath();
+  setActiveDesktopFilePath(null);
+  const svgSheet = docToSvg(PRESETS[0].build(), { frame: true });
+  const svgPrint = docToSvg(PRESETS[0].build(), { frame: false, paperColor: "#ffffff" });
+  const rDoc: SchematicDoc = {
+    id: "w133_doc",
+    name: "W133",
+    instances: [{ id: "r_drag", partId: "resistor", x: 200, y: 200, rot: 0, label: "R1", params: { r: 1000 } }],
+    wires: [],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+  };
+  // Am Widerstandskörper (x=192, also 8px links der Mitte, 22px vom Pin bei x=170 entfernt)
+  // springt selectPinMagnet=7 NICHT als Pin-Netzstart an, am Pin (x=172, 2px vom Pin bei x=170) dagegen schon:
+  const bodyHit = findNetTarget(rDoc, { x: 192, y: 200 }, 7);
+  const pinHit = findNetTarget(rDoc, { x: 172, y: 200 }, 7);
+  check(
+    "W130/W131/W133 Datei-Bindung (Auto-Save), Vektor-Druck-SVG und freier Bauteilkörper beim Klicken-Halten-Ziehen",
+    boundPath === "C:\\Users\\Test\\Schaltung.multispice.json" &&
+      svgSheet.startsWith("<svg") &&
+      svgPrint.includes("#ffffff") &&
+      bodyHit === null &&
+      pinHit?.kind === "pin",
+    `bound=${boundPath}, bodyHit=${JSON.stringify(bodyHit)}, pinHit=${pinHit?.kind}`,
+  );
+}
+
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);
 if (failed) process.exit(1);

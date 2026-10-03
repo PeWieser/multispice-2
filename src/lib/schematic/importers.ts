@@ -21,16 +21,24 @@ import { normalizeDocGeometry } from "./netdraw";
 let seq = 0;
 const uid = (p: string) => `${p}_${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-/** SPICE-Wert mit Suffix (10k, 4u7, meg, 100n …) → Zahl. */
+/** SPICE-Wert mit Suffix (10k, 4u7, meg, 100n, 10kΩ, 4,7k …) → Zahl. */
 export function parseSpiceValue(tok: string | undefined): number {
   if (!tok) return NaN;
-  let s = tok.trim().toLowerCase().replace(/(f|v|a|h|ohm)$/i, "");
-  // Infix-Suffix wie 4u7 → 4.7 µ
+  let s = tok
+    .trim()
+    .replace(/,/g, ".")
+    .replace(/[µμ]/g, "u")
+    .replace(/\s+/g, "")
+    .toLowerCase()
+    .replace(/(ohm|ω|Ω|hz|f|v|a|h|w|s)$/i, "");
+  // Infix-Suffix wie 4u7 → 4.7 µ, 4k7 → 4.7 k, 4r7 → 4.7
   let infix = 1;
-  const mid = s.match(/^(\d+)([munpk])(\d+)$/);
+  const mid = s.match(/^(\d+)([munpkr])(\d+)$/);
   if (mid) {
     s = `${mid[1]}.${mid[3]}`;
-    infix = ({ m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12, k: 1e3 } as Record<string, number>)[mid[2]];
+    infix = ({ m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12, k: 1e3, r: 1 } as Record<string, number>)[mid[2]];
+  } else if (/^\d+(\.\d+)?r$/.test(s)) {
+    s = s.slice(0, -1);
   }
   const mult: Array<[RegExp, number]> = [
     [/meg$/, 1e6],

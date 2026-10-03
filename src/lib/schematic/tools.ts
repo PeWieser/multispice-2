@@ -198,8 +198,8 @@ const PRESET_DEFS: Preset[] = [
       doc.wires.push(
         wire(200, 270, 200, 240, 290, 240),
         wire(350, 240, 420, 240, 420, 270),
-        wire(200, 330, 200, 386),
-        wire(420, 330, 420, 386),
+        wire(200, 330, 200, 380),
+        wire(420, 330, 420, 380),
       );
       doc.labels.push({ id: nid("l"), x: 420, y: 240, name: "OUT" }, { id: nid("l"), x: 200, y: 240, name: "IN" });
       return doc;
@@ -223,9 +223,9 @@ const PRESET_DEFS: Preset[] = [
         wire(180, 270, 180, 240, 290, 240),
         wire(350, 240, 430, 240, 430, 270),
         wire(430, 240, 540, 240, 540, 270),
-        wire(180, 330, 180, 386),
-        wire(430, 330, 430, 386),
-        wire(540, 330, 540, 386),
+        wire(180, 330, 180, 380),
+        wire(430, 330, 430, 380),
+        wire(540, 330, 540, 380),
       );
       doc.labels.push({ id: nid("l"), x: 430, y: 240, name: "VOUT" });
       return doc;
@@ -242,8 +242,8 @@ const PRESET_DEFS: Preset[] = [
       const r1 = inst("resistor", "R1", 300, 170, { r: 10000 }, 90);
       const r2 = inst("resistor", "R2", 300, 290, { r: 47000 }, 90);
       const c1 = inst("capacitor_elko", "C1", 300, 400, { c: 1e-5 }, 90);
-      const r3 = inst("resistor", "R3", 620, 268, { r: 470 });
-      const led = inst("led", "D1", 720, 268, { vf: 2, color: "red" });
+      const r3 = inst("resistor", "R3", 620, 270, { r: 470 });
+      const led = inst("led", "D1", 720, 270, { vf: 2, color: "red" });
       const g1 = inst("gnd", "GND1", 140, 420);
       const g2 = inst("gnd", "GND2", 300, 470);
       const g3 = inst("gnd", "GND3", 380, 420);
@@ -254,22 +254,22 @@ const PRESET_DEFS: Preset[] = [
         // W51: Die VCC-Schiene endete bei x=700 im Nichts (kein Pin, keine Leitung)
         // – neue Prüfung meldet das, jetzt sauber bis zum letzten Abzweig geführt.
         wire(140, 120, 500, 120),
-        wire(140, 330, 140, 406),
+        wire(140, 330, 140, 400),
         wire(300, 140, 300, 120),
         wire(300, 200, 300, 260),
-        wire(300, 230, 380, 230, 380, 244),
+        wire(300, 230, 380, 230, 380, 250),
         wire(300, 320, 300, 370),
-        wire(300, 370, 240, 370, 240, 292, 380, 292),
-        wire(300, 370, 540, 370, 540, 292, 460, 292),
-        wire(300, 430, 300, 456),
-        wire(380, 268, 340, 268, 340, 120),
-        wire(460, 244, 500, 244, 500, 120),
-        wire(380, 316, 380, 406),
-        wire(460, 268, 590, 268),
-        wire(650, 268, 690, 268),
-        wire(750, 268, 750, 326),
+        wire(300, 370, 240, 370, 240, 290, 380, 290),
+        wire(300, 370, 540, 370, 540, 290, 460, 290),
+        wire(300, 430, 300, 450),
+        wire(380, 270, 340, 270, 340, 120),
+        wire(460, 250, 500, 250, 500, 120),
+        wire(380, 310, 380, 400),
+        wire(460, 270, 590, 270),
+        wire(650, 270, 690, 270),
+        wire(750, 270, 750, 320),
       );
-      doc.labels.push({ id: nid("l"), x: 460, y: 268, name: "OUT" }, { id: nid("l"), x: 300, y: 370, name: "CAP" });
+      doc.labels.push({ id: nid("l"), x: 460, y: 270, name: "OUT" }, { id: nid("l"), x: 300, y: 370, name: "CAP" });
       return doc;
     },
   },
@@ -302,20 +302,20 @@ const PRESET_DEFS: Preset[] = [
         wire(340, 100, 470, 100, 470, 130),
         wire(340, 190, 340, 270, 390, 270),
         wire(340, 270, 340, 310),
-        wire(340, 370, 340, 406),
+        wire(340, 370, 340, 400),
         wire(270, 270, 340, 270),
         wire(150, 270, 210, 270),
-        wire(150, 330, 150, 386),
-        wire(140, 230, 140, 306),
+        wire(150, 330, 150, 380),
+        wire(140, 230, 140, 300),
         wire(470, 190, 470, 240),
-        wire(432, 240, 470, 240),
+        wire(440, 240, 470, 240),
         wire(470, 240, 560, 240),
         wire(620, 240, 680, 240, 680, 270),
-        wire(432, 300, 470, 300, 470, 350),
-        wire(470, 410, 470, 446),
+        wire(440, 300, 470, 300, 470, 350),
+        wire(470, 410, 470, 440),
         wire(470, 350, 560, 350),
-        wire(560, 410, 560, 446),
-        wire(680, 330, 680, 386),
+        wire(560, 410, 560, 440),
+        wire(680, 330, 680, 380),
       );
       doc.labels.push({ id: nid("l"), x: 470, y: 240, name: "VC" }, { id: nid("l"), x: 680, y: 240, name: "OUT" }, { id: nid("l"), x: 150, y: 270, name: "IN" });
       return doc;
@@ -339,18 +339,18 @@ const PRESET_DEFS: Preset[] = [
       const g4 = inst("gnd", "GND4", 660, 500);
       doc.instances.push(u, src, rf, rg, vp, vn, g1, g2, g3, g4);
       doc.wires.push(
-        wire(200, 270, 200, 245, 380, 245),
-        wire(200, 330, 200, 386),
-        wire(380, 275, 320, 275, 320, 350),
-        wire(320, 410, 320, 436),
-        wire(320, 275, 320, 150, 410, 150),
+        wire(200, 270, 200, 250, 380, 250),
+        wire(200, 330, 200, 380),
+        wire(380, 270, 320, 270, 320, 350),
+        wire(320, 410, 320, 430),
+        wire(320, 270, 320, 150, 410, 150),
         wire(470, 150, 540, 150, 540, 260, 460, 260),
         wire(420, 230, 420, 100, 660, 100),
-        wire(660, 160, 660, 186),
+        wire(660, 160, 660, 180),
         wire(420, 290, 420, 400, 660, 400),
-        wire(660, 460, 660, 486),
+        wire(660, 460, 660, 480),
       );
-      doc.labels.push({ id: nid("l"), x: 540, y: 260, name: "OUT" }, { id: nid("l"), x: 200, y: 245, name: "IN" });
+      doc.labels.push({ id: nid("l"), x: 540, y: 260, name: "OUT" }, { id: nid("l"), x: 200, y: 250, name: "IN" });
       return doc;
     },
   },
@@ -361,8 +361,8 @@ const PRESET_DEFS: Preset[] = [
     build: () => {
       const doc = emptyDoc("Arduino Co-Simulation");
       const mcu = inst("mcu_atmega328p", "MCU1", 300, 300, { vdd: 5 }, 0);
-      const r1 = inst("resistor", "R1", 520, 246, { r: 330 });
-      const led1 = inst("led", "D1", 640, 246, { vf: 2 });
+      const r1 = inst("resistor", "R1", 520, 240, { r: 330 });
+      const led1 = inst("led", "D1", 640, 240, { vf: 2 });
       const r2 = inst("resistor", "R2", 520, 340, { r: 330 });
       const led2 = inst("led", "D2", 640, 340, { vf: 2, color: "green" });
       const g1 = inst("gnd", "GND1", 760, 300);
@@ -370,15 +370,15 @@ const PRESET_DEFS: Preset[] = [
       const g2 = inst("gnd", "GND2", 120, 400);
       doc.instances.push(mcu, r1, led1, r2, led2, g1, vcc, g2);
       doc.wires.push(
-        wire(370, 246, 490, 246),
-        wire(370, 228, 440, 228, 440, 340, 490, 340),
-        wire(550, 246, 610, 246),
+        wire(370, 240, 490, 240),
+        wire(370, 220, 440, 220, 440, 340, 490, 340),
+        wire(550, 240, 610, 240),
         wire(550, 340, 610, 340),
-        wire(670, 246, 760, 246, 760, 286),
-        wire(670, 340, 760, 340, 760, 286),
-        wire(120, 270, 120, 120, 420, 120, 420, 372, 370, 372),
-        wire(120, 330, 120, 386),
-        wire(370, 390, 420, 390, 420, 430, 120, 430, 120, 386),
+        wire(670, 240, 760, 240, 760, 280),
+        wire(670, 340, 760, 340, 760, 280),
+        wire(120, 270, 120, 120, 410, 120, 410, 380, 370, 380),
+        wire(120, 330, 120, 380),
+        wire(370, 400, 430, 400, 430, 440, 120, 440, 120, 380),
       );
       doc.notes.push({ id: nid("n"), x: 200, y: 180, text: "Sketch im Inspector bearbeiten (setup/loop)", size: 11 });
       return doc;
@@ -390,27 +390,27 @@ const PRESET_DEFS: Preset[] = [
     description: "Taktgenerator, Zähler und BCD-7-Segment-Dekoder mit Anzeige.",
     build: () => {
       const doc = emptyDoc("4-Bit Zähler");
-      const clk = inst("clockgen", "CLK1", 180, 283, { freq: 4 });
+      const clk = inst("clockgen", "CLK1", 180, 280, { freq: 4 });
       const cnt = inst("counter4", "U1", 380, 300, {});
       const dec = inst("bcd7seg", "U2", 620, 300, {});
       const disp = inst("sevenseg", "DS1", 880, 300, { common: "cathode" });
       const en = inst("vcc", "VCC1", 250, 360, { dc: 5 });
-      const g = inst("gnd", "GND1", 880, 394);
+      const g = inst("gnd", "GND1", 880, 400);
       doc.instances.push(clk, cnt, dec, disp, en, g);
       doc.wires.push(
-        wire(122, 275, 100, 275, 100, 360, 300, 360, 300, 275, 322, 275),
-        wire(250, 374, 250, 307, 322, 307),
-        wire(438, 275, 500, 275, 500, 251, 562, 251),
-        wire(438, 291, 510, 291, 510, 267, 562, 267),
-        wire(438, 307, 520, 307, 520, 283, 562, 283),
-        wire(438, 323, 530, 323, 530, 299, 562, 299),
-        wire(678, 251, 700, 251, 700, 270, 830, 270),
-        wire(678, 267, 710, 267, 710, 290, 830, 290),
-        wire(678, 283, 720, 283, 720, 310, 830, 310),
-        wire(678, 299, 730, 299, 730, 330, 830, 330),
-        wire(678, 315, 740, 315, 740, 200, 990, 200, 990, 270, 930, 270),
-        wire(678, 331, 750, 331, 750, 190, 1000, 190, 1000, 290, 930, 290),
-        wire(678, 347, 760, 347, 760, 180, 1010, 180, 1010, 310, 930, 310),
+        wire(120, 270, 100, 270, 100, 220, 300, 220, 300, 270, 320, 270),
+        wire(250, 380, 250, 310, 320, 310),
+        wire(440, 270, 490, 270, 490, 240, 560, 240),
+        wire(440, 290, 500, 290, 500, 260, 560, 260),
+        wire(440, 310, 510, 310, 510, 280, 560, 280),
+        wire(440, 330, 520, 330, 520, 300, 560, 300),
+        wire(680, 240, 720, 240, 720, 270, 830, 270),
+        wire(680, 260, 710, 260, 710, 290, 830, 290),
+        wire(680, 280, 700, 280, 700, 310, 830, 310),
+        wire(680, 300, 690, 300, 690, 330, 830, 330),
+        wire(680, 320, 740, 320, 740, 200, 990, 200, 990, 270, 930, 270),
+        wire(680, 340, 750, 340, 750, 190, 1000, 190, 1000, 290, 930, 290),
+        wire(680, 360, 760, 360, 760, 180, 1010, 180, 1010, 310, 930, 310),
         wire(930, 330, 930, 380, 880, 380),
       );
       doc.notes.push({ id: nid("n"), x: 120, y: 200, text: "Taktfrequenz im Inspector oder Mustergenerator einstellen", size: 11 });
@@ -437,17 +437,17 @@ const PRESET_DEFS: Preset[] = [
       const g5 = inst("gnd", "GND5", 760, 400);
       doc.instances.push(vin, drv, m, d, l, c, rl, g1, g2, g3, g4, g5);
       doc.wires.push(
-        wire(160, 250, 160, 190, 374, 190),
-        wire(160, 310, 160, 386),
+        wire(160, 250, 160, 190, 380, 190),
+        wire(160, 310, 160, 380),
         wire(300, 390, 300, 220, 330, 220),
-        wire(300, 450, 300, 486),
-        wire(374, 250, 374, 290, 470, 290),
+        wire(300, 450, 300, 480),
+        wire(380, 250, 380, 290, 470, 290),
         wire(470, 290, 470, 250, 530, 250, 530, 220),
-        wire(470, 350, 470, 386),
+        wire(470, 350, 470, 380),
         wire(590, 220, 660, 220, 660, 270),
         wire(660, 220, 760, 220, 760, 270),
-        wire(660, 330, 660, 386),
-        wire(760, 330, 760, 386),
+        wire(660, 330, 660, 380),
+        wire(760, 330, 760, 380),
       );
       doc.labels.push({ id: nid("l"), x: 660, y: 220, name: "VOUT" }, { id: nid("l"), x: 470, y: 290, name: "SW" });
       return doc;

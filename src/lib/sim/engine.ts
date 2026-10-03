@@ -489,39 +489,100 @@ export class Simulator {
     }
   }
 
-  /** Per-pin current for a device – used for probe display and diagnostics. */
+  /** Per-pin current flowing INTO the device at `pinIdx` (positive = into pin). */
   pinCurrent(d: Device, pinIdx: number): number {
     const st = d.state;
     if (!st) return 0;
-    const nodes = d.nodes;
-    const idx = this.idx(nodes[pinIdx]);
-    if (idx < 0) return 0;
-    // For TIMER555 provide plausible bias currents
     if (d.type === "TIMER555") {
-      // Pin mapping: 0 GND,1 TRIG,2 OUT,3 RST,4 CTRL,5 THR,6 DIS,7 VCC
+      // Pin mapping: 0 GND, 1 TRIG, 2 OUT, 3 RST, 4 CTRL, 5 THR, 6 DIS, 7 VCC
       const extra = st.extra ?? {};
+      const iout = extra.iout ?? 0; // positive when sourcing OUT into external circuit
+      const idis = extra.idis ?? 0; // positive when sinking into DIS from external circuit
+      const isup = extra.isupply ?? 0; // positive when entering VCC
       switch (pinIdx) {
-        case 0: // GND – return negative sum of others (KCL)
-          return -((extra.iout ?? 0) + (extra.idis ?? 0) + (extra.isupply ?? 0) + (extra.ibias ?? 0));
-        case 1: // TRIG – input bias ~0.5uA
-          return extra.itrig ?? 0.5e-6;
-        case 2: // OUT
-          return extra.iout ?? 0;
-        case 3: // RST – ~0.1mA when low
-          return extra.irst ?? 0.1e-3;
-        case 4: // CTRL – divider current
-          return extra.ictrl ?? 0.2e-3;
-        case 5: // THR – bias ~0.25uA
-          return extra.ithr ?? 0.25e-6;
-        case 6: // DIS – discharge transistor
-          return extra.idis ?? 0;
-        case 7: // VCC – supply
-          return extra.isupply ?? 5e-3;
+        case 0: // GND – KCL return path
+          return -(isup + idis - iout);
+        case 1: // TRIG – high-Z comparator input
+          return 0;
+        case 2: // OUT – current into pin is -iout
+          return -iout;
+        case 3: // RST – high-Z control input
+          return 0;
+        case 4: { // CTRL
+          const nCtrl = this.idx(d.nodes[4]);
+          if (nCtrl < 0) return 0;
+          const vCtrl = this.vOf(nCtrl);
+          const vVcc = this.vOf(this.idx(d.nodes[7]));
+          const vGnd = this.vOf(this.idx(d.nodes[0]));
+          return (vCtrl - vGnd) / 10000 - (vVcc - vCtrl) / 5000;
+        }
+        case 5: // THR – high-Z comparator input
+          return 0;
+        case 6: // DIS – discharge transistor collector
+          return idis;
+        case 7: // VCC – positive supply pin
+          return isup;
         default:
           return 0;
       }
     }
-    // Generic fallback: for first pin return deviceCurrent, others 0
+    if (d.type === "Q") {
+      // 0: C, 1: B, 2: E
+      const ic = st.extra?.ic ?? 0;
+      const ib = st.extra?.ib ?? 0;
+      if (pinIdx === 0) return ic;
+      if (pinIdx === 1) return ib;
+      if (pinIdx === 2) return -(ic + ib);
+      return 0;
+    }
+    if (d.type === "M" || d.type === "J") {
+      // 0: D, 1: G, 2: S
+      const id = st.extra?.id ?? 0;
+      if (pinIdx === 0) return id;
+      if (pinIdx === 1) return 0;
+      if (pinIdx === 2) return -id;
+      return 0;
+    }
+    if (d.type === "OPAMP" || d.type === "COMPARATOR") {
+      // 0: IN+, 1: IN-, 2: OUT, 3: V+, 4: V-
+      const iBr = st.br >= 0 ? (this.x[st.br] ?? 0) : 0; // positive into OUT pin
+      if (pinIdx === 0 || pinIdx === 1) return 0;
+      if (pinIdx === 2) return iBr;
+      if (pinIdx === 3) return iBr < 0 ? -iBr : 0;
+      if (pinIdx === 4) return iBr > 0 ? -iBr : 0;
+      return 0;
+    }
+    if (d.type === "POT") {
+      // 0: A, 1: Wiper, 2: B
+      const va = this.vOf(this.idx(d.nodes[0]));
+      const vw = this.vOf(this.idx(d.nodes[1]));
+      const vb = this.vOf(this.idx(d.nodes[2]));
+      const total = Math.max(p(d, "r", 10000), 1e-6);
+      const pos = Math.min(0.9999, Math.max(0.0001, this.controls[d.id] ?? p(d, "pos", 0.5)));
+      const ia = (va - vw) / (total * pos);
+      const ib = (vb - vw) / (total * (1 - pos));
+      if (pinIdx === 0) return ia;
+      if (pinIdx === 2) return ib;
+      if (pinIdx === 1) return -(ia + ib);
+      return 0;
+    }
+    if (d.type === "VREG") {
+      // 0: IN, 1: OUT, 2: GND
+      const nout = this.idx(d.nodes[1]);
+      const nref = this.idx(d.nodes[2]);
+      const vout = this.vOf(nout) - this.vOf(nref);
+      const target = st.extra?.vout ?? 0;
+      const rout = Math.max(p(d, "rout", 0.05), 1e-6);
+      const iLoad = (target - vout) / rout;
+      if (pinIdx === 0) return Math.max(0, iLoad);
+      if (pinIdx === 1) return -iLoad;
+      if (pinIdx === 2) return iLoad - Math.max(0, iLoad);
+      return 0;
+    }
+    if (d.nodes.length === 2) {
+      const i = this.deviceCurrent(d);
+      return pinIdx === 0 ? i : pinIdx === 1 ? -i : 0;
+    }
     if (pinIdx === 0) return this.deviceCurrent(d);
     return 0;
   }
@@ -1180,11 +1241,19 @@ export class Simulator {
         const vcc = this.vOf(nVcc);
         const vGnd = this.vOf(nGnd);
         const q = st.extra!.q ?? 0;
-        const vOutIdeal = q ? Math.max(vcc - 1.7, 0.1) : 0.1;
-        // Output stage – Norton source with 10 ohm rout, track current
-        this.stampVoltageSoft(m, nOut, nGnd, vOutIdeal, 10);
-        const vOut = this.vOf(nOut);
-        const iout = (vOutIdeal - (vOut - vGnd)) / 10;
+        let iout = 0;
+        if (q) {
+          // High-side totem-pole output transistor sources current from VCC to OUT
+          const vDrop = Math.min(1.7, Math.max(0, vcc - vGnd - 0.1));
+          this.stampVoltageSoft(m, nOut, nVcc, -vDrop, 10);
+          const vOut = this.vOf(nOut);
+          iout = (vcc - vDrop - vOut) / 10;
+        } else {
+          // Low-side totem-pole output transistor sinks OUT directly to GND
+          this.stampConductance(m, nOut, nGnd, 1 / 10);
+          const vOut = this.vOf(nOut);
+          iout = -(vOut - vGnd) / 10;
+        }
         st.extra!.iout = iout;
         // Discharge transistor – open when q=1, closed (10 ohm to GND) when q=0
         const gd = q ? 1e-9 : 1 / 10;
@@ -1196,7 +1265,6 @@ export class Simulator {
         const gDiv = 1 / rDiv;
         // VCC - CTRL (5k)
         this.stampConductance(m, nVcc, nCtrl, gDiv);
-        // CTRL - THR node? Actually divider: VCC-5k-CTRL-5k-THR? Simplified: CTRL to GND via 10k equivalent
         // Model as CTRL to GND via 10k (two 5k in series to GND) + TRIG divider reference
         this.stampConductance(m, nCtrl, nGnd, 1 / 10000);
         // Input bias conductances for TRIG, THR, RST to GND (high impedance ~1M) to allow small bias currents
@@ -1213,9 +1281,9 @@ export class Simulator {
         st.extra!.ithr = ithr;
         st.extra!.irst = irst;
         st.extra!.ictrl = ictrl;
-        // Supply current: divider + output + bias
+        // Supply current: divider + high-side output current + quiescent
         const iDiv = (vcc - vGnd) / 15000;
-        st.extra!.isupply = iDiv + Math.abs(iout) * 0.1 + 0.003; // ~3mA quiescent + load
+        st.extra!.isupply = iDiv + Math.max(0, iout) + 0.003;
         st.extra!.ibias = itrig + ithr + irst;
         // Internal divider currents for stability
         this.stampConductance(m, nVcc, nGnd, 1 / 15000);

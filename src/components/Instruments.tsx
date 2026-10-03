@@ -2,17 +2,16 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, BarChart3, Binary, Gauge, LineChart, Minus, PanelBottom, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap,
+  Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { createPortal } from "react-dom";
 import { formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
 import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
-import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, engine, useEditor } from "@/state/editor";
+import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, engine, useEditor, useHud } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
-import { useIsMobile } from "@/lib/hooks/useMediaQuery";
-import { PanelProbe, WindowFitContext, type NaturalMeasure } from "./DeviceFit";
+import { DeviceFit, PanelProbe, WindowFitContext, type NaturalMeasure } from "./DeviceFit";
 import {
   BENCH_PAD,
   CORNER_CURSOR,
@@ -26,11 +25,6 @@ import {
 } from "@/lib/windows/geometry";
 
 const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
-
-/** Runde 19 (W33): Höhe der Statusleiste – die Dock-Zeile der Gerätefenster
- *  sitzt direkt darüber (mobil ist die Leiste etwas höher). */
-const STATUS_BAR_H = 26;
-const STATUS_BAR_H_MOBILE = 32;
 
 /* W24: SkeuoTek-Oszi (1:1-Port aus oszi/) – eigenes Chunk, kein SSR */
 const OsziScopeLazy = dynamic(() => import("./OsziScope"), { ssr: false });
@@ -922,7 +916,7 @@ function DistortionAnalyzer({ win }: { win: InstrumentWindow }) {
         <Stat label="THD" value={`${thd.toFixed(2)} %`} color="var(--warn)" />
         <Stat label="SINAD" value={`${sinad.toFixed(1)} dB`} color="var(--ok)" />
       </div>
-      <div className="text-[10px] text-mute">Multisim Distortion Analyzer – misst THD und SINAD via FFT. Für Lehre: Klirr bei Verstärkern.</div>
+      <div className="text-[10px] text-mute">Klirrfaktor (THD) und Signal-Rausch-Verhältnis (SINAD) über FFT-Analyse.</div>
     </div>
   );
 }
@@ -970,7 +964,7 @@ function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
       <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--border)" }}>
         <Plot render={render} />
       </div>
-      <div className="text-[10px] text-mute">Network Analyzer – RF, S-Parameter, Gain/Phase. Für MVP zeigt AC-Kurve, voll: S11/S21.</div>
+      <div className="text-[10px] text-mute">Übertragungsfunktion und Amplitudengang zwischen Eingangs- und Ausgangsnetz.</div>
     </div>
   );
 }
@@ -996,7 +990,9 @@ function clampWindowPos(x: number, y: number, w: number): { x: number; y: number
 function isDragSurface(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el || typeof el.closest !== "function") return false;
-  return !el.closest("[data-no-drag],button,input,select,textarea,a,canvas,svg,[role='button']");
+  return !el.closest(
+    "[data-no-drag],button,input,select,textarea,a,canvas,svg,[role='button'],.knob,.knob-wrap,.bnc,.sk-btn,.bezel-btn,.power-btn",
+  );
 }
 
 /** Runde 19 (W34): Der laufende Fenster-Zug lebt modulweit – ein Zug an einem
@@ -1126,7 +1122,7 @@ function Window({ win }: { win: InstrumentWindow }) {
   // Updates während des Ziehens dürfen die DOM-Schreibvorgänge nicht zurücksetzen.
   useLayoutEffect(() => {
     const el = winRef.current;
-    if (!el || win.docked) return;
+    if (!el) return;
     const s = liveSize.current;
     if (s) {
       el.style.width = s.w + "px";
@@ -1222,21 +1218,15 @@ function Window({ win }: { win: InstrumentWindow }) {
     };
   }, [updateInstrument, win.id]);
 
-  /** W34: Zug starten – aus dem Titel, aus dem leeren Hintergrund oder aus dem Dock. */
+  /** W34/W133: Zug starten – aus dem Titel oder aus dem leeren Hintergrund. */
   const beginDrag = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (win.docked) {
-      // Ein Zug an der Titelzeile löst das Fenster und zieht es gleich weiter.
-      const r = winRef.current?.getBoundingClientRect();
-      if (!r) return;
-      activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: r.left, wy: r.top };
-      updateInstrument(win.id, { docked: false, x: r.left, y: r.top });
-      return;
-    }
-    activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
+    const cur = useEditor.getState().instruments.find((i) => i.id === win.id) ?? win;
+    activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: cur.x, wy: cur.y };
   };
 
-  /** W43: Skalieren an einer der vier Ecken starten. */
+  /** W43/W135: Skalieren an einer der vier Ecken starten – Seitenverhältnis
+   *  bei allen Messgeräten fest gesperrt (wie im Browser für Oszi/FG). */
   const beginResize = (e: React.PointerEvent, corner: Corner) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -1246,12 +1236,13 @@ function Window({ win }: { win: InstrumentWindow }) {
     const cur = useEditor.getState().instruments.find((i) => i.id === win.id);
     const cfgAspect = Number(cur?.config.fitAspect);
     const localAspect = r.width / Math.max(r.height, 1);
+    const keepAspect = win.kind !== "inspector";
     resize.current = {
       id: win.id,
       rect: { x: r.left, y: r.top, w: r.width, h: r.height },
       corner,
-      // Geräte-Fenster halten die Proportionen ihrer Frontplatte.
-      ratio: isDevice ? (Number.isFinite(cfgAspect) && cfgAspect > 0 ? cfgAspect : localAspect) : null,
+      // W135: Alle Geräte-Fenster halten streng ihr Seitenverhältnis.
+      ratio: keepAspect ? (Number.isFinite(cfgAspect) && cfgAspect > 0 ? cfgAspect : localAspect) : null,
       // Obergrenze ist die Startgröße am Gerät („nur verkleinern"); Panels frei.
       max: isDevice
         ? {
@@ -1303,46 +1294,28 @@ function Window({ win }: { win: InstrumentWindow }) {
     <WindowFitContext.Provider value={reportNatural}>
       <div
         ref={winRef}
-        className={
-          win.docked
-            ? "win-in pointer-events-auto relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl"
-            : "win-in pointer-events-auto absolute left-0 top-0 flex flex-col overflow-hidden rounded-xl will-change-transform"
-        }
-        style={
-          win.docked
-            ? { background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)", height: win.minimized ? TITLE_H : undefined, flex: win.minimized ? "0 0 auto" : undefined, minWidth: win.minimized ? 160 : 300 }
-            : {
-                // W42: Position läuft über transform – der Wechsel „ziehen → loslassen"
-                // schreibt nie einen anderen Wert, also blitzt nichts auf.
-                transform: `translate3d(${win.x}px, ${win.y}px, 0)`,
-                width: win.w,
-                height: win.minimized ? TITLE_H : win.h,
-                zIndex: win.z,
-                background: "var(--panel-solid)",
-                border: "1px solid var(--border-strong)",
-                boxShadow: "var(--shadow)",
-              }
-        }
+        className="win-in pointer-events-auto absolute left-0 top-0 flex flex-col overflow-hidden rounded-xl will-change-transform"
+        style={{
+          transform: `translate3d(${win.x}px, ${win.y}px, 0)`,
+          width: win.w,
+          height: win.minimized ? TITLE_H : win.h,
+          zIndex: win.z,
+          background: "var(--panel-solid)",
+          border: "1px solid var(--border-strong)",
+          boxShadow: "var(--shadow)",
+        }}
         onPointerDown={() => focusInstrument(win.id)}
       >
         <div
-          className={`flex h-9 shrink-0 items-center gap-2 px-3 ${win.docked ? "" : "cursor-grab"}`}
-          style={{ borderBottom: "1px solid var(--border)" }}
-          title={win.docked ? "Im Dock – Ziehen löst das Fenster, der Dock-Knopf unten rechts hält es hier" : "Ziehen (auch am Fensterhintergrund) bewegt das Fenster – es bleibt immer greifbar"}
+          className="flex h-9 shrink-0 cursor-grab select-none items-center gap-2 px-3"
+          style={{ borderBottom: "1px solid var(--border)", touchAction: "none" }}
+          title="Ziehen (auch am Fensterhintergrund) bewegt das Fenster"
           onPointerDown={(e) => beginDrag(e)}
         >
           <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
             {iconFor(win.kind)}
           </span>
           <span className="flex-1 truncate text-[12px] font-medium">{win.title}</span>
-          <button
-            className="btn px-1 py-0.5"
-            title={win.docked ? "Aus dem Dock lösen – wird wieder freies Fenster" : "Ins Dock unten einrasten – Geräte teilen sich den unteren Rand"}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => updateInstrument(win.id, { docked: !win.docked })}
-          >
-            <PanelBottom size={13} />
-          </button>
           <button
             className="btn px-1 py-0.5"
             title="Minimieren"
@@ -1384,7 +1357,6 @@ function Window({ win }: { win: InstrumentWindow }) {
         )}
         {/* W43: vier Eck-Griffe – Geräte halten ihre Proportionen, Panels sind frei. */}
         {!win.minimized &&
-          !win.docked &&
           CORNERS.map((c) => {
             const top = c === "nw" || c === "ne";
             const size = top ? GRIP_TOP : GRIP_BOTTOM;
@@ -1507,8 +1479,27 @@ export function DeviceBar() {
         return (
           <button
             key={k}
+            onPointerDown={(e) => {
+              if (!partId || e.button !== 0) return;
+              const sx = e.clientX;
+              const sy = e.clientY;
+              let started = false;
+              const onMove = (ev: PointerEvent) => {
+                if (!started && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 5) {
+                  started = true;
+                  setPlacing(partId);
+                  useHud.setState({ dragPart: partId });
+                }
+              };
+              const onUp = () => {
+                window.removeEventListener("pointermove", onMove);
+                window.removeEventListener("pointerup", onUp);
+              };
+              window.addEventListener("pointermove", onMove);
+              window.addEventListener("pointerup", onUp);
+            }}
             onClick={() => (partId ? setPlacing(placing === partId ? null : partId) : open(k))}
-            title={partId ? `${label} – Schaltzeichen auf dem Plan platzieren` : label}
+            title={partId ? `${label} – Schaltzeichen auf dem Plan platzieren (Klick oder Ziehen)` : label}
             aria-label={label}
             aria-pressed={active}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors"
@@ -1547,10 +1538,7 @@ export function DeviceBar() {
  *  und werden nicht mehr am Canvas abgeschnitten. Menü-Dropdowns, Dialoge und
  *  Toasts (z-50/z-100) bleiben darüber. */
 export function InstrumentLayer() {
-  const isMobile = useIsMobile();
   const instruments = useEditor((s) => s.instruments);
-  const floating = instruments.filter((w) => !w.docked);
-  const docked = instruments.filter((w) => w.docked);
 
   // Runde 19 (W36): Escape legt eine aufgenommene Messleitung zurück – an einer
   // Stelle für alle Geräte (Oszi-Tastkopf wie FG-Kabel).
@@ -1565,33 +1553,91 @@ export function InstrumentLayer() {
   }, []);
 
   if (typeof document === "undefined") return null;
+  // W118: In der Windows-Desktop-App öffnen sich alle Messgeräte & der Inspector
+  // als echte eigenständige, rahmenlose Windows-OS-Fenster.
+  if (typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
+    return null;
+  }
 
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-40 flex flex-col">
       <div className="relative min-h-0 flex-1">
-        {floating.map((w) => (
+        {instruments.map((w) => (
           <Window key={w.id} win={w} />
         ))}
       </div>
-      {docked.length > 0 && (
-        <div
-          className="pointer-events-auto absolute inset-x-0 flex items-stretch gap-1 overflow-x-auto p-1"
-          style={{
-            bottom: isMobile ? STATUS_BAR_H_MOBILE : STATUS_BAR_H,
-            height: "min(38vh, 360px)",
-            minHeight: 140,
-            background: "color-mix(in srgb, var(--bg) 82%, transparent)",
-            borderTop: "1px solid var(--border-strong)",
-            backdropFilter: "blur(10px)",
-          }}
-          title="Geräte-Dock – Fenster teilen sich den unteren Rand; Ziehen an der Titelzeile löst sie wieder"
-        >
-          {docked.map((w) => (
-            <Window key={w.id} win={w} />
-          ))}
-        </div>
-      )}
     </div>,
     document.body,
   );
 }
+
+/**
+ * W118: Rendert ein einzelnes Messgerät oder den Inspector flächendeckend in einem
+ * abgekoppelten, rahmenlosen Windows-OS-Fenster (mit eigener iTunes-for-Windows-Leiste).
+ */
+export function StandaloneInstrumentView({
+  winId,
+  fallbackKind,
+  fallbackTitle,
+}: {
+  winId: string;
+  fallbackKind: InstrumentKind;
+  fallbackTitle?: string;
+}) {
+  const instruments = useEditor((s) => s.instruments);
+  const win: InstrumentWindow = useMemo(() => {
+    const found = instruments.find((w) => w.id === winId) ?? instruments.find((w) => w.kind === fallbackKind);
+    if (found) return found;
+    const spec = WINDOW_SPECS[fallbackKind] ?? { w: 520, h: 360, minW: 320, minH: 240 };
+    return {
+      id: winId,
+      kind: fallbackKind,
+      title: fallbackTitle ?? fallbackKind.toUpperCase(),
+      x: 0,
+      y: 0,
+      w: spec.w,
+      h: spec.h,
+      z: 1,
+      minimized: false,
+      docked: false,
+      config: {},
+    };
+  }, [instruments, winId, fallbackKind, fallbackTitle]);
+
+  const spec = WINDOW_SPECS[win.kind] ?? { w: 520, h: 360, minW: 320, minH: 240 };
+  const isSelfFit = win.kind === "scope" || win.kind === "funcgen" || win.kind === "inspector";
+
+  const renderContent = () => (
+    <>
+      {win.kind === "scope" && <OsziScopeLazy win={win} />}
+      {win.kind === "dmm" && <Multimeter win={win} />}
+      {win.kind === "funcgen" && <FgScopeLazy win={win} />}
+      {win.kind === "bode" && <BodePlotter win={win} />}
+      {win.kind === "logic" && <LogicAnalyzer win={win} />}
+      {win.kind === "logicconv" && <LogicConverter win={win} />}
+      {win.kind === "watt" && <Wattmeter win={win} />}
+      {win.kind === "iv" && <IvAnalyzer />}
+      {win.kind === "spectrum" && <SpectrumAnalyzer win={win} />}
+      {win.kind === "pattern" && <PatternGenerator />}
+      {win.kind === "counter" && <FrequencyCounter win={win} />}
+      {win.kind === "distortion" && <DistortionAnalyzer win={win} />}
+      {win.kind === "network" && <NetworkAnalyzer win={win} />}
+      {win.kind === "inspector" && <InspectorBody />}
+    </>
+  );
+
+  return (
+    <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ background: "var(--panel-solid)" }}>
+      {isSelfFit ? (
+        renderContent()
+      ) : (
+        <DeviceFit natural={{ w: spec.w, h: spec.h }} allowUpscale>
+          <div style={{ width: spec.w, height: spec.h }} className="flex flex-col overflow-hidden">
+            {renderContent()}
+          </div>
+        </DeviceFit>
+      )}
+    </div>
+  );
+}
+
