@@ -2821,5 +2821,50 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
 - **`W136` (`desktop/make-splash-bmp.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
   - Nativer 24-Bit-BMP-Splash (`portable.splashImage: "splash.bmp"`) + persistentes Laufzeitverzeichnis (`portable.unpackDirName: "MultiSpice-1.0.0-Runtime"`) für sofortigen Ladebildschirm direkt beim Doppelklick auf die Portable-`.exe`.
 
+---
+
+## §41 — Runde 40 (`W137–W140`): Einziger animierter Taskbar-Splash mit humorvollen Statusmeldungen (sofort ab Doppelklick), echte Windows-Fenstertitel in der Taskleiste & bereinigter Schaltungs-Assistent ohne AI-Slop
+
+### 41.1 Analyse & Plan (`W137–W140`)
+
+1. **`W137` — Ein einziger, animierter Ladebildschirm im Taskbar (sofort ab Doppelklick, ohne doppeltes Aufpoppen) & humorvolle Textmeldungen statt Ladebalken (`desktop/portable-launcher.cs`, `desktop/main.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+   - **Ursache**:
+     - `electron-builder`s `portable.splashImage` zeigte zuerst ein statisches, nicht animiertes NSIS-BMP ohne Taskleiste, und danach öffnete `desktop/main.cjs` (`createSplashWindow`) ein zweites Ladefenster (`skipTaskbar: true`) mit Ladebalken.
+   - **Lösung**:
+     - `portable.splashImage` wird entfernt.
+     - Für die **Portable-`.exe`** baut der Workflow einen nativen Win32/.NET-Starter (`desktop/portable-launcher.cs` via `csc.exe`, auf jedem Windows 10/11 ohne Zusatz-Abhängigkeiten lauffähig), der **sofort beim Doppelklick (< 50 ms)** als echtes Fenster in der Windows-Taskleiste (`ShowInTaskbar = true`, Titel `"MultiSpice"`, mit App-Icon) erscheint, einen sanft rotierenden Amber-Ring um das MultiSpice-Logo animiert und **ohne Ladebalken** alle ~1,2 s humorvolle Labor-Statusmeldungen durchwechselt (z. B. *„Lötkolben wird auf 350 °C vorgeheizt …“*, *„Magischen Rauch in die ICs füllen …“*, *„Oszilloskop-Strahl entknoten …“*, *„Widerstände nach Farbringen sortieren …“*, *„Kirchhoffsche Knotenregeln höflich durchsetzen …“*).
+     - Im Hintergrund entpackt der Starter beim Erststart das unkomprimierte App-Archiv nach `%LOCALAPPDATA%\MultiSpice\Runtime-1.0.0` und startet `MultiSpice.exe --portable-splash-pid=<PID>`.
+     - Erkennt `desktop/main.cjs` `--portable-splash-pid=<PID>`, öffnet es **kein zweites Splash-Fenster**, sondern beendet den Starter-Splash exakt in der Millisekunde, in der das MultiSpice-Hauptfenster sichtbar wird (`mainWindow.show()`).
+     - Wird `MultiSpice.exe` direkt gestartet (z. B. aus dem NSIS-Installer `Setup.exe`), zeigt `createSplashWindow()` in `desktop/main.cjs` denselben einzigen, animierten, in der Taskleiste sichtbaren (`skipTaskbar: false`) Ladebildschirm mit denselben humorvollen Textmeldungen (ohne Ladebalken).
+
+2. **`W138` — Eigene Windows-Fenstertitel für alle geöffneten Geräte- und Werkzeugfenster in der Taskleiste (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`)**:
+   - **Ursache**: Sobald ein Electron-`BrowserWindow` `out/index.html` lud, überschrieb Chromium den in `new BrowserWindow({ title })` gesetzten Fenstertitel automatisch mit `<title>MultiSpice</title>` aus `index.html`.
+   - **Lösung**:
+     - In `desktop/main.cjs` unterbindet `win.on("page-title-updated", (e) => e.preventDefault())` das Überschreiben durch das statische HTML-Tag und hält den echten Fenstertitel (`"Oszilloskop"`, `"Funktionsgenerator"`, `"Digitalmultimeter"`, `"Bode-Plotter"`, `"Logikanalysator"`, `"Wattmeter"`, `"Frequenzzähler"`, `"Bauteil-Bibliothek"`, `"Inspector"`, `"Bauteil-Studio"`) fest; zusätzlich erlaubt der IPC-Kanal `multispice:set-title` dynamische Titel-Updates.
+     - In `src/components/DesktopTitleBar.tsx` setzt jedes Fenster `document.title` und `window.multispiceDesktop?.setWindowTitle(...)` passend zu seiner Rolle (z. B. `"Oszilloskop"`, `"Bauteil-Bibliothek"`, bzw. im Hauptfenster `"MultiSpice – <Projektname>"`).
+
+3. **`W139` — Schaltungs-Assistent (`src/components/WizardsDialog.tsx`) komplett von AI-Slop, Emojis, „wie Multisim“ und „MVP“-Texten befreien & vollständig verdrahtete Schaltungen erzeugen**:
+   - Alle Emojis (`⏰`, `✨`, `📉` usw.), sämtliche „wie Multisim“- und „Multisim hat 20+ Wizards. Für MVP...“-Texte sowie die überladenen Untertitel in der linken Seitenleiste werden restlos entfernt.
+   - Klare, sachliche deutsche Oberfläche (`Schaltungs-Assistent`), gegliedert in übersichtliche Kategorien, mit präziser Live-Berechnung der Bauteilwerte (`R1`, `R2`, `C`, `f`, `Verstärkung`, `U_aus`) und Generierung sauber verdrahteter, direkt simulierbarer Schaltungen (mit echten Parameter-Schlüsseln `r`, `c`, `l`, `v`, `freq`, `amp` und orthogonalen Leitungen).
+
+4. **`W140` — Weitere sichtbare „Multisim“-/„MVP“-Reste und Emojis in UI-Komponenten bereinigen (`src/components/Canvas.tsx`, `src/components/Inspector.tsx`, `src/components/Instruments.tsx`, `src/components/ProbeTable.tsx`, `src/components/LibraryPalette.tsx`)**:
+   - Alle verbleibenden sichtbaren Textstellen wie `„Probe setzen – Multisim“`, `„Multisim Style“`, `„Multisim Hinweis“`, `„Wie in Multisim“`, `„Für MVP zeigt AC-Kurve“` in `Canvas.tsx`, `Inspector.tsx`, `Instruments.tsx` und `ProbeTable.tsx` werden durch klare, professionelle deutsche Fachbegriffe ersetzt.
+
+### 41.2 Umsetzung & Verifikation (`W137–W140`)
+
+- **`W137` (`desktop/portable-launcher.cs`, `desktop/pack-portable.cjs`, `desktop/main.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+  - `portable.splashImage` (`splash.bmp`) entfernt, sodass niemals ein zweites Ladefenster nach dem ersten aufpoppt.
+  - Die Portable-`.exe` besitzt einen nativen Win32/.NET-Starter (`portable-launcher.cs`), der **sofort beim Doppelklick (< 40 ms)** als echtes Fenster in der Windows-Taskleiste (`ShowInTaskbar = true`, Titel `"MultiSpice"`, App-Icon) erscheint, einen sanft rotierenden Amber-Ring um das MultiSpice-Logo animiert und **ohne Ladebalken** alle ~1,2 s humorvolle deutsche Labor-Statusmeldungen anzeigt.
+  - Der Starter übergibt `--portable-splash-pid=<PID>` an `MultiSpice.exe`; `desktop/main.cjs` überspringt in diesem Fall sein eigenes Splash-Fenster und schließt den Starter-Splash exakt beim Einblenden des Hauptfensters (`mainWindow.show()`).
+  - Beim direkten Start der installierten Version (`Setup.exe`) zeigt `createSplashWindow()` in `desktop/main.cjs` denselben einzigen, animierten Taskbar-Ladebildschirm (`skipTaskbar: false`) mit humorvollen Textmeldungen ohne Ladebalken.
+- **`W138` (`desktop/main.cjs`, `desktop/preload.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`)**:
+  - `lockWindowTitle(win, title)` (`page-title-updated` -> `preventDefault()`) und `multispice:set-title` sorgen dafür, dass jedes geöffnete Windows-Fenster in der Taskleiste beim Hovern seinen echten Namen zeigt (`"Oszilloskop"`, `"Funktionsgenerator"`, `"Digitalmultimeter"`, `"Bauteil-Bibliothek"`, `"Inspector"` bzw. `"<Schaltplanname> – MultiSpice"`).
+- **`W139` (`src/components/WizardsDialog.tsx`)**:
+  - Komplett überarbeiteter **„Schaltungs-Assistent“** ohne Emojis, ohne „wie Multisim“, ohne „MVP“-Hinweise und ohne überladene Seitenleisten-Beschreibungen; erzeugt vollständig verdrahtete, direkt simulierbare Schaltungen mit exakter Live-Dimensionierung.
+- **`W140` (`src/components/Canvas.tsx`, `src/components/Inspector.tsx`, `src/components/Instruments.tsx`, `src/components/ProbeTable.tsx`, `src/components/LibraryPalette.tsx`)**:
+  - Alle sichtbaren „Multisim“-/„MVP“-Texte und Emojis in Kontextmenüs, Inspector, Messpunkt-Tabelle und Geräte-Hinweisen bereinigt.
+
+
+
 
 

@@ -1,54 +1,51 @@
 {
   "name": "multispice-desktop",
-  "productName": "MultiSpice",
   "version": "1.0.0",
-  "description": "MultiSpice Interactive Circuit Simulator (Frameless Multi-Window Desktop Edition)",
-  "author": "MultiSpice Project",
+  "description": "MultiSpice – Schaltungssimulation & virtuelles Messlabor (Windows Desktop Edition)",
+  "author": "MultiSpice",
+  "license": "MIT",
   "main": "main.cjs",
   "private": true,
-  "devDependencies": {
-    "electron": "33.2.0",
-    "electron-builder": "25.1.8"
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis dir --x64"
   },
   "build": {
     "appId": "de.multispice.desktop",
     "productName": "MultiSpice",
+    "asar": true,
     "compression": "store",
-    "icon": "icon.png",
     "files": [
       "main.cjs",
       "preload.cjs",
-      "icon.png",
+      "icon.ico",
       "out/**/*"
     ],
     "win": {
-      "icon": "icon.png",
+      "icon": "icon.ico",
       "target": [
         {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "target": "nsis",
+          "arch": ["x64"]
         },
         {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "target": "dir",
+          "arch": ["x64"]
         }
       ]
     },
-    "portable": {
-      "artifactName": "${productName}-${version}-Portable.${ext}",
-      "splashImage": "splash.bmp",
-      "unpackDirName": "MultiSpice-1.0.0-Runtime"
-    },
     "nsis": {
-      "artifactName": "${productName}-${version}-Setup.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "MultiSpice",
+      "artifactName": "${productName}-${version}-Setup.${ext}"
     }
+  },
+  "devDependencies": {
+    "electron": "33.3.1",
+    "electron-builder": "25.1.8",
+    "png-to-ico": "2.1.8"
   }
 }

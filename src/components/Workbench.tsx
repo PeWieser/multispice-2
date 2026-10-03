@@ -197,6 +197,7 @@ export default function Workbench() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [partEditorOpen, setPartEditorOpen] = useState(false);
   const [partEditorInitialId, setPartEditorInitialId] = useState<string | undefined>(undefined);
+  const docName = useEditor((s) => s.doc.name);
 
   useEffect(() => {
     const onOpenStudio = (ev: Event) => {
@@ -459,7 +460,7 @@ export default function Workbench() {
   // Desktop – original layout but with dvh and better flex
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
-      {isDesktopRuntime && <DesktopTitleBar title="MultiSpice" />}
+      {isDesktopRuntime && <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} />}
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
       <ComponentStrip tools={<DrawingTools />} />
       <div className="relative flex min-h-0 flex-1">

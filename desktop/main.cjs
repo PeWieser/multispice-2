@@ -1,7 +1,30 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, screen } = require("electron");
+/**
+ * MultiSpice – Native Windows Desktop App (Electron Main Process)
+ *
+ * Runde 40 (W130–W140):
+ * - W130: Fester lokaler Port (17531) + native Datei-Persistenz in %APPDATA%/MultiSpice
+ *         sowie echter Datei-Speicherdialog beim ersten Speichern und stilles Auto-Save
+ *         in dieselbe Datei bei allen Folgeänderungen.
+ * - W131: Nativer PDF-Export (`webContents.printToPDF`) & Vektor-Druck aus Electron.
+ * - W134: Synchroner `<head>`-Boot-Shield in `index.html`, damit Kindfenster niemals
+ *         kurz das MultiSpice-Hauptfenster aufblitzen lassen.
+ * - W135: Gerätefenster öffnen nie im Vollbild (außer vom User zuvor so skaliert),
+ *         speichern ihre Nutzergröße und skalieren immer streng proportional.
+ * - W137: Ein einziger, animierter Ladebildschirm im Taskbar (`skipTaskbar: false`)
+ *         mit humorvollen Textmeldungen statt Ladebalken; wird die App aus dem
+ *         sofortigen Portable-Starter (`--portable-splash-pid=…`) gestartet, öffnet
+ *         Electron kein zweites Ladefenster, sondern schließt den Starter nahtlos.
+ * - W138: Jedes Fenster unter Windows trägt seinen eigenen echten Fenstertitel
+ *         (z. B. „Oszilloskop“, „Funktionsgenerator“, „Bauteil-Bibliothek“),
+ *         sodass die Windows-Taskleisten-Vorschau beim Hovern den Gerätenamen zeigt.
+ */
+
+const { app, BrowserWindow, shell, Menu, ipcMain, screen, dialog } = require("electron");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+
+app.setAppUserModelId("de.multispice.desktop");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -18,359 +41,685 @@ const MIME_TYPES = {
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",
   ".txt": "text/plain; charset=utf-8",
+  ".wasm": "application/wasm",
 };
 
-let mainWindow = null;
-let splashWindow = null;
-/** @type {Map<string, BrowserWindow>} */
-const childWindows = new Map();
-let serverPort = 0;
+/**
+ * W134: Synchroner Boot-Shield für Kindfenster (`?desktopWindow=...`).
+ */
+const CHILD_BOOT_SHIELD = `<script>(function(){try{if(location.search.indexOf("desktopWindow=")!==-1){document.documentElement.setAttribute("data-ms-child-boot","1");}}catch(e){}})();</script><style>html[data-ms-child-boot="1"],html[data-ms-child-boot="1"] body{background:#0d1017 !important;}html[data-ms-child-boot="1"] body{opacity:0 !important;pointer-events:none !important;}</style>`;
 
-/* ------------------------------------------------------------------ */
-/* Persistenter AppData-Speicher (%APPDATA%/MultiSpice/state.json)    */
-/* ------------------------------------------------------------------ */
-let appDataCache = null;
+/**
+ * W137: Prüft, ob MultiSpice vom nativen Portable-Starter gestartet wurde,
+ * der bereits das animierte Splash-Fenster anzeigt.
+ */
+function getPortableSplashPid() {
+  for (const arg of process.argv) {
+    if (typeof arg === "string" && arg.startsWith("--portable-splash-pid=")) {
+      const n = Number(arg.slice("--portable-splash-pid=".length));
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return 0;
+}
 
-function getAppDataFilePath() {
+const portableSplashPid = getPortableSplashPid();
+
+function closePortableSplashIfRunning() {
+  if (!portableSplashPid) return;
   try {
-    const dir = app.getPath("userData");
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    return path.join(dir, "workspace-state.json");
+    process.kill(portableSplashPid);
   } catch {
-    return null;
+    // Prozess bereits beendet
   }
 }
 
-function readAppData() {
-  if (appDataCache !== null) return appDataCache;
-  const p = getAppDataFilePath();
-  if (!p || !fs.existsSync(p)) {
-    appDataCache = {};
-    return appDataCache;
-  }
+/**
+ * Persistenter AppData-Speicher (%APPDATA%/MultiSpice/workspace-state.json)
+ */
+function getStateFilePath() {
   try {
-    appDataCache = JSON.parse(fs.readFileSync(p, "utf-8")) || {};
+    return path.join(app.getPath("userData"), "workspace-state.json");
   } catch {
-    appDataCache = {};
+    return path.join(__dirname, "workspace-state.json");
   }
+}
+
+let appDataCache = null;
+
+function readAppData() {
+  if (appDataCache) return appDataCache;
+  const p = getStateFilePath();
+  try {
+    if (fs.existsSync(p)) {
+      const raw = fs.readFileSync(p, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        appDataCache = parsed;
+        return appDataCache;
+      }
+    }
+  } catch {
+    // Fallback auf leeres Objekt
+  }
+  appDataCache = {};
   return appDataCache;
 }
 
 let writeTimer = null;
-function writeAppData(key, value) {
-  const store = readAppData();
-  store[key] = value;
+function writeAppDataSoon() {
   if (writeTimer) clearTimeout(writeTimer);
   writeTimer = setTimeout(() => {
     writeTimer = null;
-    const p = getAppDataFilePath();
-    if (!p) return;
     try {
-      fs.writeFileSync(p, JSON.stringify(store), "utf-8");
-    } catch {}
+      const p = getStateFilePath();
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, JSON.stringify(appDataCache || {}, null, 2), "utf8");
+    } catch {
+      // Ignorieren
+    }
   }, 150);
 }
 
 function flushAppDataSync() {
+  if (writeTimer) {
+    clearTimeout(writeTimer);
+    writeTimer = null;
+  }
   if (!appDataCache) return;
-  const p = getAppDataFilePath();
-  if (!p) return;
   try {
-    fs.writeFileSync(p, JSON.stringify(appDataCache), "utf-8");
-  } catch {}
-}
-
-/* ------------------------------------------------------------------ */
-/* Icon & Splash Window (identische Maße 320x200 wie splash.bmp)      */
-/* ------------------------------------------------------------------ */
-function resolveIconPath() {
-  const candidates = [
-    path.join(__dirname, "icon.png"),
-    path.join(__dirname, "out", "favicon.png"),
-    path.join(__dirname, "..", "public", "favicon.png"),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return undefined;
-}
-
-function getIconDataUri() {
-  const p = resolveIconPath();
-  if (!p) return "";
-  try {
-    const buf = fs.readFileSync(p);
-    return `data:image/png;base64,${buf.toString("base64")}`;
+    const p = getStateFilePath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(appDataCache, null, 2), "utf8");
   } catch {
-    return "";
+    // Ignorieren
   }
 }
 
-function createSplashWindow() {
-  const iconPath = resolveIconPath();
-  const iconDataUri = getIconDataUri();
-  const splash = new BrowserWindow({
-    width: 320,
-    height: 200,
-    frame: false,
-    resizable: false,
-    movable: true,
-    center: true,
-    alwaysOnTop: true,
-    skipTaskbar: false,
-    backgroundColor: "#0d1017",
-    icon: iconPath,
-    title: "MultiSpice",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  const html = `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-  html, body {
-    width: 100%;
-    height: 100%;
-    background: #0d1017;
-    color: #e2e8f0;
-    font-family: system-ui, -apple-system, sans-serif;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid #232a38;
-    overflow: hidden;
-    -webkit-app-region: drag;
-  }
-  .logo {
-    width: 64px;
-    height: 64px;
-    border-radius: 14px;
-    margin-bottom: 24px;
-    animation: pulse 1.8s ease-in-out infinite;
-  }
-  .track {
-    width: 128px;
-    height: 4px;
-    background: #1e2533;
-    border-radius: 999px;
-    overflow: hidden;
-    position: relative;
-  }
-  .bar {
-    position: absolute;
-    top: 0;
-    left: -45%;
-    width: 45%;
-    height: 100%;
-    background: #f59e0b;
-    border-radius: 999px;
-    animation: slide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  }
-  @keyframes slide {
-    0% { left: -45%; }
-    100% { left: 100%; }
-  }
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 0.96; }
-    50% { transform: scale(1.03); opacity: 1; }
-  }
-</style>
-</head>
-<body>
-  ${iconDataUri ? `<img class="logo" src="${iconDataUri}" alt="" />` : ""}
-  <div class="track"><div class="bar"></div></div>
-</body>
-</html>`;
-
-  splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  return splash;
-}
-
-/* ------------------------------------------------------------------ */
-/* Statischer Server mit festem Vorzugsport & Child-Boot-Shield       */
-/* ------------------------------------------------------------------ */
-const CHILD_BOOT_SHIELD = `<script>if(window.location.search.indexOf("desktopWindow=")!==-1){document.documentElement.setAttribute("data-ms-child-boot","1");}</script><style>html[data-ms-child-boot="1"],html[data-ms-child-boot="1"] body{background:#0d1017!important;}html[data-ms-child-boot="1"] body>*{opacity:0!important;pointer-events:none!important;}</style>`;
-
+/**
+ * Startet einen lokalen statischen HTTP-Server für das exportierte Next.js-Bundle (`out/`)
+ * auf einem festen Vorzugsport (17531..17535).
+ */
 function startStaticServer(rootDir) {
-  const createHandler = () =>
-    http.createServer((req, res) => {
-      try {
-        const parsed = new URL(req.url || "/", "http://127.0.0.1");
-        let relPath = decodeURIComponent(parsed.pathname);
-        if (relPath === "/" || relPath === "") relPath = "/index.html";
+  const tryPorts = [17531, 17532, 17533, 17534, 17535, 0];
 
-        let filePath = path.join(rootDir, relPath);
-        if (!filePath.startsWith(rootDir)) {
-          res.writeHead(403);
-          res.end("Forbidden");
-          return;
-        }
+  const createHandler = (req, res) => {
+    try {
+      const urlObj = new URL(req.url || "/", "http://127.0.0.1");
+      let relPath = decodeURIComponent(urlObj.pathname);
+      if (relPath.endsWith("/")) relPath += "index.html";
 
-        if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-          filePath = path.join(filePath, "index.html");
-        } else if (!fs.existsSync(filePath) && !path.extname(filePath)) {
-          const htmlCandidate = `${filePath}.html`;
-          if (fs.existsSync(htmlCandidate)) {
-            filePath = htmlCandidate;
-          } else {
-            filePath = path.join(rootDir, "index.html");
-          }
-        }
-
-        if (!fs.existsSync(filePath)) {
-          res.writeHead(404);
-          res.end("Not found");
-          return;
-        }
-
-        const ext = path.extname(filePath).toLowerCase();
-        const contentType = MIME_TYPES[ext] || "application/octet-stream";
-
-        // W134: In index.html injizieren wir das Child-Boot-Shield, damit ein
-        // Kindfenster (?desktopWindow=...) niemals kurz das vor-gerenderte
-        // MultiSpice-Hauptfenster aus out/index.html aufblitzen lässt.
-        if (ext === ".html") {
-          let html = fs.readFileSync(filePath, "utf-8");
-          if (html.includes("<head>")) {
-            html = html.replace("<head>", `<head>${CHILD_BOOT_SHIELD}`);
-          } else {
-            html = `${CHILD_BOOT_SHIELD}${html}`;
-          }
-          res.writeHead(200, { "Content-Type": contentType });
-          res.end(html, "utf-8");
-          return;
-        }
-
-        res.writeHead(200, { "Content-Type": contentType });
-        fs.createReadStream(filePath).pipe(res);
-      } catch (err) {
-        res.writeHead(500);
-        res.end(String(err));
+      let filePath = path.normalize(path.join(rootDir, relPath));
+      if (!filePath.startsWith(path.normalize(rootDir))) {
+        res.writeHead(403);
+        res.end("Forbidden");
+        return;
       }
-    });
 
-  // W130: Fester Vorzugsport (17531..17545), damit der localStorage-Origin
-  // http://127.0.0.1:17531 über Programm-Neustarts hinweg identisch bleibt.
-  const candidatePorts = [17531, 17532, 17533, 17534, 17535, 0];
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        const htmlCandidate = filePath + ".html";
+        if (fs.existsSync(htmlCandidate)) {
+          filePath = htmlCandidate;
+        } else {
+          filePath = path.join(rootDir, "index.html");
+        }
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const mime = MIME_TYPES[ext] || "application/octet-stream";
+
+      if (ext === ".html") {
+        let html = fs.readFileSync(filePath, "utf8");
+        if (html.includes("<head>")) {
+          html = html.replace("<head>", `<head>${CHILD_BOOT_SHIELD}`);
+        } else {
+          html = CHILD_BOOT_SHIELD + html;
+        }
+        res.writeHead(200, {
+          "Content-Type": mime,
+          "Cache-Control": "no-cache",
+        });
+        res.end(html, "utf8");
+        return;
+      }
+
+      res.writeHead(200, {
+        "Content-Type": mime,
+        "Cache-Control": "no-cache",
+      });
+      fs.createReadStream(filePath).pipe(res);
+    } catch {
+      res.writeHead(500);
+      res.end("Internal Server Error");
+    }
+  };
+
   return new Promise((resolve, reject) => {
     let idx = 0;
-    const tryNext = () => {
-      const port = candidatePorts[idx++];
-      const server = createHandler();
+    const attempt = () => {
+      const port = tryPorts[idx++];
+      const server = http.createServer(createHandler);
       server.once("error", (err) => {
-        if (idx < candidatePorts.length) {
-          tryNext();
+        if (idx < tryPorts.length) {
+          attempt();
         } else {
           reject(err);
         }
       });
       server.listen(port, "127.0.0.1", () => {
         const addr = server.address();
-        resolve(addr.port);
+        resolve({ server, port: addr.port });
       });
     };
-    tryNext();
+    attempt();
   });
 }
 
-function createFramelessWindow(options) {
-  const iconPath = resolveIconPath();
-  const win = new BrowserWindow({
-    width: options.width,
-    height: options.height,
-    x: options.x,
-    y: options.y,
-    minWidth: options.minWidth || 320,
-    minHeight: options.minHeight || 220,
-    maxWidth: options.maxWidth,
-    maxHeight: options.maxHeight,
-    center: options.x === undefined && options.y === undefined,
+let mainWindow = null;
+let splashWindow = null;
+let staticServer = null;
+let serverPort = 0;
+const childWindows = new Map();
+const windowTitles = new Map();
+
+function getAppIconPath() {
+  const icoPath = path.join(__dirname, "icon.ico");
+  if (fs.existsSync(icoPath)) return icoPath;
+  const pngPath = path.join(__dirname, "out", "favicon.png");
+  if (fs.existsSync(pngPath)) return pngPath;
+  return undefined;
+}
+
+function getLogoDataUrl() {
+  try {
+    const pngPath = path.join(__dirname, "out", "favicon.png");
+    if (fs.existsSync(pngPath)) {
+      const b64 = fs.readFileSync(pngPath).toString("base64");
+      return `data:image/png;base64,${b64}`;
+    }
+  } catch {
+    // Fallback ohne Bild
+  }
+  return "";
+}
+
+/**
+ * W138: Sperrt den echten Fenstertitel eines BrowserWindows gegen das Überschreiben
+ * durch `<title>MultiSpice</title>` aus `out/index.html`.
+ */
+function lockWindowTitle(win, initialTitle) {
+  windowTitles.set(win.id, initialTitle || "MultiSpice");
+  win.setTitle(initialTitle || "MultiSpice");
+  win.on("page-title-updated", (event) => {
+    event.preventDefault();
+    const desired = windowTitles.get(win.id) || initialTitle || "MultiSpice";
+    if (!win.isDestroyed()) {
+      win.setTitle(desired);
+    }
+  });
+  win.on("closed", () => {
+    windowTitles.delete(win.id);
+  });
+}
+
+/**
+ * W137: Animierter Ladebildschirm (sichtbar als Fenster in der Taskleiste,
+ * mit rotierendem Amber-Ring und humorvollen Statusmeldungen statt Ladebalken).
+ * Wird nur geöffnet, wenn kein Portable-Starter-Splash (`portableSplashPid`) läuft.
+ */
+function createSplashWindow() {
+  const iconPath = getAppIconPath();
+  const logoUrl = getLogoDataUrl();
+  splashWindow = new BrowserWindow({
+    width: 380,
+    height: 236,
     frame: false,
-    titleBarStyle: "hidden",
-    autoHideMenuBar: true,
-    fullscreenable: false,
+    resizable: false,
+    movable: true,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    center: true,
+    show: true,
+    title: "MultiSpice",
     backgroundColor: "#0d1017",
-    show: false,
     icon: iconPath,
-    title: options.title || "MultiSpice",
     webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  lockWindowTitle(splashWindow, "MultiSpice");
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("http://") || url.startsWith("https://")) {
+  const splashHtml = `<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<title>MultiSpice</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 28%, #182030 0%, #0d1017 74%);
+    color: #e5e7eb;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    -webkit-app-region: drag;
+  }
+  .ring-wrap {
+    position: relative;
+    width: 82px;
+    height: 82px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 14px;
+  }
+  .ring-svg {
+    position: absolute;
+    inset: 0;
+    width: 82px;
+    height: 82px;
+    animation: orbit 1.35s linear infinite;
+  }
+  .logo {
+    width: 54px;
+    height: 54px;
+    border-radius: 13px;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+  }
+  .title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #f3f4f6;
+    margin-bottom: 10px;
+  }
+  .status {
+    min-height: 36px;
+    padding: 0 28px;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #9ca8ba;
+    transition: opacity 0.22s ease;
+  }
+  @keyframes orbit {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+</style>
+</head>
+<body>
+  <div class="ring-wrap">
+    <svg class="ring-svg" viewBox="0 0 82 82" fill="none">
+      <circle cx="41" cy="41" r="37" stroke="rgba(255,255,255,0.12)" stroke-width="2.5" />
+      <circle cx="41" cy="41" r="37" stroke="#f59e0b" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="64 180" />
+    </svg>
+    ${logoUrl ? `<img class="logo" src="${logoUrl}" alt="MultiSpice" />` : `<div class="logo"></div>`}
+  </div>
+  <div class="title">MultiSpice</div>
+  <div id="status-msg" class="status">Lötkolben wird auf 350 °C vorgeheizt …</div>
+  <script>
+    const msgs = [
+      "Lötkolben wird auf 350 °C vorgeheizt …",
+      "Widerstände nach Farbringen sortieren …",
+      "Magischen Rauch in die ICs füllen …",
+      "Oszilloskop-Strahl entknoten …",
+      "Kondensatoren auf Nennspannung streicheln …",
+      "Kalte Lötstellen höflich wegdiskutieren …",
+      "Kirchhoffsche Knotenregeln durchsetzen …",
+      "Tastköpfe auf 10:1 abgleichen …",
+      "Operationsverstärker beruhigen …",
+      "Entkopplungskondensatoren verteilen …"
+    ];
+    let idx = 0;
+    const el = document.getElementById("status-msg");
+    setInterval(() => {
+      idx = (idx + 1) % msgs.length;
+      if (el) el.textContent = msgs[idx];
+    }, 1200);
+  </script>
+</body>
+</html>`;
+
+  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml)}`);
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+}
+
+function attachWindowStateEvents(win) {
+  const sendState = () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send("multispice:window-state", {
+        maximized: win.isMaximized(),
+      });
+    }
+  };
+  win.on("maximize", sendState);
+  win.on("unmaximize", sendState);
+  win.webContents.on("did-finish-load", sendState);
+}
+
+/**
+ * W135: Erzwingt proportionales Skalieren (festes Seitenverhältnis) auf Windows-Ebene.
+ */
+function enforceProportionalResize(win, aspectRatio) {
+  if (!aspectRatio || !Number.isFinite(aspectRatio) || aspectRatio <= 0) return;
+  try {
+    win.setAspectRatio(aspectRatio);
+  } catch {
+    // Fallback über will-resize
+  }
+  win.on("will-resize", (event, newBounds) => {
+    if (!newBounds || newBounds.width <= 0 || newBounds.height <= 0) return;
+    const current = win.getBounds();
+    const dw = Math.abs(newBounds.width - current.width);
+    const dh = Math.abs(newBounds.height - current.height);
+    let targetW = newBounds.width;
+    let targetH = newBounds.height;
+    if (dw >= dh) {
+      targetH = Math.max(220, Math.round(targetW / aspectRatio));
+    } else {
+      targetW = Math.max(280, Math.round(targetH * aspectRatio));
+    }
+    if (Math.abs(targetW - newBounds.width) > 2 || Math.abs(targetH - newBounds.height) > 2) {
+      event.preventDefault();
+      win.setBounds({
+        x: newBounds.x,
+        y: newBounds.y,
+        width: targetW,
+        height: targetH,
+      });
+    }
+  });
+}
+
+function getSavedWindowBounds(boundsKey) {
+  const data = readAppData();
+  const map = data.windowBounds;
+  if (!map || typeof map !== "object") return null;
+  const entry = map[boundsKey];
+  if (!entry || typeof entry !== "object") return null;
+  return entry;
+}
+
+function saveWindowBounds(boundsKey, win) {
+  if (!boundsKey || !win || win.isDestroyed()) return;
+  const data = readAppData();
+  if (!data.windowBounds || typeof data.windowBounds !== "object") {
+    data.windowBounds = {};
+  }
+  const b = win.getBounds();
+  data.windowBounds[boundsKey] = {
+    width: b.width,
+    height: b.height,
+    maximized: win.isMaximized(),
+  };
+  writeAppDataSoon();
+}
+
+/**
+ * W135: Berechnet die kompakte, nicht-vollbildartige Startgröße eines Gerätefensters
+ * unter Wahrung des exakten Seitenverhältnisses.
+ */
+function computeInitialChildSize({ boundsKey, width, height, minWidth, minHeight, aspectRatio }) {
+  const primary = screen.getPrimaryDisplay();
+  const workArea = primary?.workAreaSize || { width: 1600, height: 900 };
+  const minW = minWidth || 320;
+  const minH = minHeight || 240;
+
+  const saved = boundsKey ? getSavedWindowBounds(boundsKey) : null;
+  if (saved && Number(saved.width) >= minW && Number(saved.height) >= minH) {
+    let w = Math.min(Number(saved.width), workArea.width - 40);
+    let h = Math.min(Number(saved.height), workArea.height - 40);
+    if (aspectRatio && aspectRatio > 0) {
+      h = Math.round(w / aspectRatio);
+      if (h > workArea.height - 40) {
+        h = workArea.height - 40;
+        w = Math.round(h * aspectRatio);
+      }
+    }
+    return {
+      width: Math.max(minW, w),
+      height: Math.max(minH, h),
+      maximized: Boolean(saved.maximized),
+    };
+  }
+
+  let w = width || 720;
+  let h = height || 480;
+  const maxW = Math.round(workArea.width * 0.64);
+  const maxH = Math.round(workArea.height * 0.64);
+
+  if (aspectRatio && aspectRatio > 0) {
+    const scale = Math.min(1, maxW / Math.max(w, 1), maxH / Math.max(h, 1));
+    w = Math.max(minW, Math.round(w * scale));
+    h = Math.max(minH, Math.round(w / aspectRatio));
+  } else {
+    w = Math.max(minW, Math.min(w, maxW));
+    h = Math.max(minH, Math.min(h, maxH));
+  }
+
+  return { width: w, height: h, maximized: false };
+}
+
+function openChildWindow(spec) {
+  if (!serverPort || !spec) return;
+  const winKey = spec.id || spec.key;
+  if (!winKey) return;
+
+  const existing = childWindows.get(winKey);
+  if (existing && !existing.isDestroyed()) {
+    if (spec.title) {
+      windowTitles.set(existing.id, spec.title);
+      existing.setTitle(spec.title);
+    }
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return;
+  }
+
+  const isLibrary = spec.role === "library" || winKey === "library";
+  const effectiveBoundsKey =
+    spec.boundsKey || (isLibrary ? "library" : `inst:${spec.kind || winKey}`);
+  const aspectRatio =
+    spec.aspectRatio ||
+    (!isLibrary && spec.kind !== "inspector" && spec.width && spec.height
+      ? Number(spec.width) / Math.max(Number(spec.height), 1)
+      : undefined);
+
+  const initial = computeInitialChildSize({
+    boundsKey: effectiveBoundsKey,
+    width: spec.width,
+    height: spec.height,
+    minWidth: spec.minWidth,
+    minHeight: spec.minHeight,
+    aspectRatio,
+  });
+
+  const resolvedTitle = spec.title || (isLibrary ? "Bauteil-Bibliothek" : "Messgerät");
+  const query =
+    spec.query ||
+    (isLibrary
+      ? `desktopWindow=library&title=${encodeURIComponent(resolvedTitle)}`
+      : `desktopWindow=instrument&winId=${encodeURIComponent(winKey)}&kind=${encodeURIComponent(spec.kind || "scope")}&title=${encodeURIComponent(resolvedTitle)}`);
+
+  const child = new BrowserWindow({
+    width: initial.width,
+    height: initial.height,
+    minWidth: spec.minWidth || 320,
+    minHeight: spec.minHeight || 240,
+    title: resolvedTitle,
+    backgroundColor: "#0d1017",
+    frame: false,
+    autoHideMenuBar: true,
+    show: false,
+    icon: getAppIconPath(),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  lockWindowTitle(child, resolvedTitle);
+
+  if (aspectRatio && aspectRatio > 0) {
+    enforceProportionalResize(child, aspectRatio);
+  }
+
+  childWindows.set(winKey, child);
+  attachWindowStateEvents(child);
+
+  const revealChild = () => {
+    if (child.isDestroyed() || child.isVisible()) return;
+    if (initial.maximized) {
+      child.maximize();
+    }
+    child.show();
+    child.focus();
+  };
+
+  // W134: Erst zeigen, wenn die Kind-Ansicht (`notifyChildReady`) fertig gerendert ist!
+  const safetyTimer = setTimeout(revealChild, 3500);
+
+  const onResizeOrMax = () => {
+    if (child.isVisible()) {
+      saveWindowBounds(effectiveBoundsKey, child);
+    }
+  };
+  child.on("resized", onResizeOrMax);
+  child.on("maximize", onResizeOrMax);
+  child.on("unmaximize", onResizeOrMax);
+
+  child.on("closed", () => {
+    clearTimeout(safetyTimer);
+    childWindows.delete(winKey);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("multispice:child-closed", winKey);
+      mainWindow.webContents.send("multispice:sync", {
+        type: "child-closed",
+        id: winKey,
+      });
+    }
+  });
+
+  child.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("https://") || url.startsWith("http://")) {
       shell.openExternal(url);
     }
     return { action: "deny" };
   });
 
-  if (options.autoShow !== false) {
-    win.once("ready-to-show", () => {
-      win.show();
-    });
-  }
-
-  return win;
+  child.loadURL(`http://127.0.0.1:${serverPort}/?${query}`);
 }
 
-async function boot() {
-  splashWindow = createSplashWindow();
+async function createMainWindow() {
+  // W137: Nur dann ein eigenes Electron-Splash-Fenster öffnen, wenn nicht
+  // bereits der sofortige Portable-Starter-Splash läuft.
+  if (!portableSplashPid) {
+    createSplashWindow();
+  }
+  readAppData();
 
-  const outDir = fs.existsSync(path.join(__dirname, "out"))
-    ? path.join(__dirname, "out")
-    : path.join(__dirname, "..", "out");
+  const outDir = path.join(__dirname, "out");
+  const { server, port } = await startStaticServer(outDir);
+  staticServer = server;
+  serverPort = port;
 
-  serverPort = await startStaticServer(outDir);
-
-  mainWindow = createFramelessWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 960,
-    minHeight: 640,
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  mainWindow = new BrowserWindow({
+    width: Math.min(1600, Math.round(width * 0.92)),
+    height: Math.min(980, Math.round(height * 0.92)),
+    minWidth: 1024,
+    minHeight: 680,
     title: "MultiSpice",
-    autoShow: false,
+    backgroundColor: "#0d1017",
+    frame: false,
+    autoHideMenuBar: true,
+    show: false,
+    icon: getAppIconPath(),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
   });
 
-  mainWindow.once("ready-to-show", () => {
+  lockWindowTitle(mainWindow, "MultiSpice");
+  Menu.setApplicationMenu(null);
+  attachWindowStateEvents(mainWindow);
+
+  const showMain = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.close();
       splashWindow = null;
     }
-    mainWindow.show();
-    mainWindow.focus();
+    closePortableSplashIfRunning();
+  };
+
+  mainWindow.once("ready-to-show", showMain);
+  mainWindow.webContents.once("did-finish-load", () => {
+    setTimeout(showMain, 120);
   });
 
-  mainWindow.loadURL(`http://127.0.0.1:${serverPort}/`);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("https://") || url.startsWith("http://")) {
+      shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
 
   mainWindow.on("closed", () => {
     flushAppDataSync();
-    mainWindow = null;
+    for (const [, child] of childWindows) {
+      if (!child.isDestroyed()) child.close();
+    }
+    childWindows.clear();
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.close();
       splashWindow = null;
     }
-    for (const child of childWindows.values()) {
-      if (!child.isDestroyed()) child.close();
-    }
-    childWindows.clear();
+    closePortableSplashIfRunning();
+    mainWindow = null;
   });
+
+  await mainWindow.loadURL(`http://127.0.0.1:${port}/`);
 }
 
+// IPC: Fenstertitel setzen (W138)
+ipcMain.on("multispice:set-title", (event, rawTitle) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  const nextTitle = String(rawTitle || "MultiSpice").trim() || "MultiSpice";
+  windowTitles.set(win.id, nextTitle);
+  win.setTitle(nextTitle);
+});
+
+// IPC: Fenster-Steuerung
 ipcMain.on("multispice:window-control", (event, action) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win || win.isDestroyed()) return;
-  if (action === "minimize") {
-    win.minimize();
-  } else if (action === "maximize") {
+  if (action === "minimize") win.minimize();
+  else if (action === "maximize") {
     if (win.isMaximized()) win.unmaximize();
     else win.maximize();
   } else if (action === "close") {
@@ -378,257 +727,121 @@ ipcMain.on("multispice:window-control", (event, action) => {
   }
 });
 
+// IPC: Kind-Fenster öffnen / schließen
+ipcMain.on("multispice:open-child", (_event, opts) => {
+  if (opts && (opts.id || opts.key)) openChildWindow(opts);
+});
+
 ipcMain.on("multispice:child-ready", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  if (win && !win.isDestroyed() && !win.isVisible()) {
-    if (win.__restoreMaximized) {
-      win.maximize();
+  if (win && !win.isDestroyed() && win !== mainWindow && win !== splashWindow) {
+    if (!win.isVisible()) {
+      win.show();
+      win.focus();
     }
-    win.show();
-    win.focus();
   }
 });
 
-/* ------------------------------------------------------------------ */
-/* W134 & W135: Kindfenster (Bibliothek & proportionale Geräte)       */
-/* ------------------------------------------------------------------ */
-ipcMain.on("multispice:open-child", (event, spec) => {
-  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
-  if (!spec || !spec.id) return;
-  const existing = childWindows.get(spec.id);
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    if (!existing.isVisible()) existing.show();
-    existing.focus();
+ipcMain.on("multispice:close-child", (event, key) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
     return;
   }
-
-  const display = screen.getPrimaryDisplay();
-  const workArea = display?.workAreaSize || { width: 1600, height: 900 };
-  const sw = workArea.width;
-  const sh = workArea.height;
-
-  const isInstrument = spec.role === "instrument";
-  const kindKey = spec.kind || spec.id;
-  const store = readAppData();
-  const savedBoundsMap = store.windowBounds || {};
-  const userBounds = isInstrument ? savedBoundsMap[kindKey] : savedBoundsMap.library;
-
-  // Natürliches Seitenverhältnis des Geräts (inkl. 28px Titelleiste)
-  const natW = Math.max(320, Number(spec.width) || 560);
-  const natH = Math.max(240, Number(spec.height) || 400);
-  const aspect = natW / natH;
-
-  let initW = natW;
-  let initH = natH;
-  let restoreMaximized = false;
-
-  if (userBounds && typeof userBounds.width === "number" && typeof userBounds.height === "number") {
-    // User hat das Fenster zuvor selbst angepasst -> Größe übernehmen (proportional für Geräte)
-    initW = Math.min(sw - 24, Math.max(320, Math.round(userBounds.width)));
-    initH = isInstrument
-      ? Math.round(initW / aspect)
-      : Math.min(sh - 24, Math.max(240, Math.round(userBounds.height)));
-    if (isInstrument && initH > sh - 24) {
-      initH = sh - 24;
-      initW = Math.round(initH * aspect);
-    }
-    restoreMaximized = Boolean(userBounds.maximized);
-  } else if (isInstrument) {
-    // W135: Geräte beim Erstöffnen NIE im Vollbild öffnen!
-    // Maximal 62 % der Bildschirmbreite bzw. 64 % der Bildschirmhöhe, exakt im
-    // Original-Seitenverhältnis (aspect) des Geräts.
-    const maxInitW = Math.min(natW, Math.round(sw * 0.62));
-    const maxInitH = Math.min(natH, Math.round(sh * 0.64));
-    initW = maxInitW;
-    initH = Math.round(initW / aspect);
-    if (initH > maxInitH) {
-      initH = maxInitH;
-      initW = Math.round(initH * aspect);
-    }
-  } else {
-    initW = Math.min(natW, Math.round(sw * 0.68));
-    initH = Math.min(natH, Math.round(sh * 0.72));
-  }
-
-  const minW = isInstrument ? 320 : 520;
-  const minH = isInstrument ? Math.max(180, Math.round(minW / aspect)) : 360;
-
-  const child = createFramelessWindow({
-    width: initW,
-    height: initH,
-    minWidth: minW,
-    minHeight: minH,
-    title: spec.title || "MultiSpice",
-    autoShow: false,
-  });
-
-  child.__restoreMaximized = restoreMaximized;
-
-  if (isInstrument) {
-    // W135: Seitenverhältnis bei Geräten immer proportional halten (wie im Browser)
-    try {
-      child.setAspectRatio(aspect);
-    } catch {}
-
-    child.on("will-resize", (resizeEvent, newBounds) => {
-      if (child.isMaximized()) return;
-      let targetW = Math.max(minW, Math.min(sw - 12, newBounds.width));
-      let targetH = Math.round(targetW / aspect);
-      if (targetH > sh - 12) {
-        targetH = sh - 12;
-        targetW = Math.round(targetH * aspect);
-      }
-      if (targetH < minH) {
-        targetH = minH;
-        targetW = Math.round(targetH * aspect);
-      }
-      if (Math.abs(targetW - newBounds.width) > 2 || Math.abs(targetH - newBounds.height) > 2) {
-        resizeEvent.preventDefault();
-        child.setBounds({
-          x: newBounds.x,
-          y: newBounds.y,
-          width: targetW,
-          height: targetH,
-        });
-      }
-    });
-  }
-
-  const saveCurrentBounds = () => {
-    if (child.isDestroyed()) return;
-    const isMax = child.isMaximized();
-    const b = child.getNormalBounds ? child.getNormalBounds() : child.getBounds();
-    const curStore = readAppData();
-    const map = curStore.windowBounds || {};
-    map[isInstrument ? kindKey : "library"] = {
-      width: b.width,
-      height: b.height,
-      maximized: isMax,
-    };
-    writeAppData("windowBounds", map);
-  };
-
-  child.on("resized", saveCurrentBounds);
-  child.on("maximize", saveCurrentBounds);
-  child.on("unmaximize", saveCurrentBounds);
-
-  childWindows.set(spec.id, child);
-
-  const params = new URLSearchParams({
-    desktopWindow: spec.role || "instrument",
-    winId: spec.id,
-    kind: spec.kind || "",
-    title: spec.title || "MultiSpice",
-  });
-
-  child.loadURL(`http://127.0.0.1:${serverPort}/?${params.toString()}`);
-
-  // W134: Großzügiger Sicherheits-Fallback (3500 ms), damit das Fenster im
-  // Normalfall ausschließlich durch multispice:child-ready nach dem Rendern
-  // der Kind-Ansicht geöffnet wird (kein Aufblitzen des Hauptfensters!).
-  const showFallback = setTimeout(() => {
-    if (!child.isDestroyed() && !child.isVisible()) {
-      child.show();
-      child.focus();
-    }
-  }, 3500);
-
-  child.on("closed", () => {
-    clearTimeout(showFallback);
-    childWindows.delete(spec.id);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("multispice:child-closed", spec.id);
-    }
-  });
-});
-
-ipcMain.on("multispice:close-child", (event, id) => {
-  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
-  const child = childWindows.get(id);
+  const child = childWindows.get(key);
   if (child && !child.isDestroyed()) {
+    const url = child.webContents.getURL() || "";
+    if (key === "library" && !url.includes("desktopWindow=library")) {
+      return;
+    }
     child.close();
+    childWindows.delete(key);
   }
-  childWindows.delete(id);
 });
 
+// IPC: Echtzeit-Synchronisation zwischen Hauptfenster & Kindfenstern
 ipcMain.on("multispice:sync", (event, payload) => {
   const senderId = event.sender.id;
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.id !== senderId) {
     mainWindow.webContents.send("multispice:sync", payload);
   }
-  for (const child of childWindows.values()) {
+  for (const [, child] of childWindows) {
     if (!child.isDestroyed() && child.webContents.id !== senderId) {
       child.webContents.send("multispice:sync", payload);
     }
   }
 });
 
-/* ------------------------------------------------------------------ */
-/* W130: Native Datei-Operationen & AppData-Persistenz                */
-/* ------------------------------------------------------------------ */
-ipcMain.on("multispice:save-appdata", (_event, payload) => {
+// IPC: Persistenter AppData-Speicher (W130)
+ipcMain.on("multispice:appdata-load-sync", (event) => {
+  event.returnValue = readAppData();
+});
+
+ipcMain.on("multispice:appdata-save", (_event, payload) => {
   if (!payload || typeof payload.key !== "string") return;
-  writeAppData(payload.key, payload.value);
+  const data = readAppData();
+  data[payload.key] = payload.value;
+  writeAppDataSoon();
 });
 
-ipcMain.on("multispice:load-appdata-sync", (event, key) => {
-  const store = readAppData();
-  event.returnValue = store[key] !== undefined ? store[key] : null;
-});
-
-ipcMain.handle("multispice:save-file", async (event, opts) => {
+// IPC: Nativer Datei-Speicherdialog & Direkt-Speicherung für Auto-Save (W130 & W131)
+ipcMain.handle("multispice:file-save", async (event, opts) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
     let targetPath = opts?.filePath || null;
 
     if (!targetPath) {
       const defaultName = opts?.defaultName || "schaltplan.msx.json";
-      const filters = opts?.filters || [
-        { name: "MultiSpice-Projekt (*.msx.json)", extensions: ["msx.json", "json"] },
-        { name: "Alle Dateien (*.*)", extensions: ["*"] },
-      ];
-      const res = await dialog.showSaveDialog(win, {
-        title: opts?.title || "Schaltplan speichern",
-        defaultPath: path.join(app.getPath("documents"), defaultName),
+      const filters = Array.isArray(opts?.filters) && opts.filters.length
+        ? opts.filters
+        : [
+            { name: "MultiSpice-Projekt (*.msx.json)", extensions: ["msx.json", "json"] },
+            { name: "Alle Dateien (*.*)", extensions: ["*"] },
+          ];
+      const result = await dialog.showSaveDialog(win, {
+        title: opts?.title || "Projekt speichern",
+        defaultPath: defaultName,
         filters,
       });
-      if (res.canceled || !res.filePath) {
+      if (result.canceled || !result.filePath) {
         return { ok: false, canceled: true };
       }
-      targetPath = res.filePath;
+      targetPath = result.filePath;
     }
 
-    const encoding = opts?.encoding === "base64" ? "base64" : "utf-8";
-    const data = opts?.encoding === "base64" ? Buffer.from(opts.content || "", "base64") : String(opts?.content ?? "");
-    await fs.promises.writeFile(targetPath, data, encoding === "base64" ? undefined : "utf-8");
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    if (opts?.encoding === "base64" && typeof opts?.content === "string") {
+      fs.writeFileSync(targetPath, Buffer.from(opts.content, "base64"));
+    } else {
+      fs.writeFileSync(targetPath, String(opts?.content ?? ""), "utf8");
+    }
     return { ok: true, filePath: targetPath };
   } catch (err) {
-    return { ok: false, error: err?.message || String(err) };
+    return { ok: false, error: String(err?.message || err) };
   }
 });
 
-ipcMain.handle("multispice:open-file", async (event, opts) => {
+// IPC: Nativer Datei-Öffnen-Dialog (W130)
+ipcMain.handle("multispice:file-open", async (event, opts) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-    const filters = opts?.filters || [
-      {
-        name: "MultiSpice & SPICE Dateien",
-        extensions: ["json", "cir", "net", "sp", "asc", "txt"],
-      },
-      { name: "Alle Dateien (*.*)", extensions: ["*"] },
-    ];
-    const res = await dialog.showOpenDialog(win, {
+    const filters = Array.isArray(opts?.filters) && opts.filters.length
+      ? opts.filters
+      : [
+          {
+            name: "Schaltplan-Dateien (*.msx.json, *.json, *.cir, *.sp, *.net, *.asc)",
+            extensions: ["json", "cir", "sp", "net", "asc"],
+          },
+          { name: "Alle Dateien (*.*)", extensions: ["*"] },
+        ];
+    const result = await dialog.showOpenDialog(win, {
       title: opts?.title || "Schaltplan öffnen",
-      defaultPath: app.getPath("documents"),
       properties: ["openFile"],
       filters,
     });
-    if (res.canceled || !res.filePaths || !res.filePaths[0]) {
+    if (result.canceled || !result.filePaths || !result.filePaths[0]) {
       return { ok: false, canceled: true };
     }
-    const filePath = res.filePaths[0];
-    const content = await fs.promises.readFile(filePath, "utf-8");
+    const filePath = result.filePaths[0];
+    const content = fs.readFileSync(filePath, "utf8");
     return {
       ok: true,
       filePath,
@@ -636,13 +849,11 @@ ipcMain.handle("multispice:open-file", async (event, opts) => {
       content,
     };
   } catch (err) {
-    return { ok: false, error: err?.message || String(err) };
+    return { ok: false, error: String(err?.message || err) };
   }
 });
 
-/* ------------------------------------------------------------------ */
-/* W131: Nativer Vektor-Druck & PDF-Export unter Windows              */
-/* ------------------------------------------------------------------ */
+// IPC: Nativer Vektor-Druck & PDF-Export unter Windows (W131)
 ipcMain.handle("multispice:print-svg", async (event, opts) => {
   let printWin = null;
   try {
@@ -653,10 +864,9 @@ ipcMain.handle("multispice:print-svg", async (event, opts) => {
 
     let pdfTargetPath = null;
     if (mode === "pdf") {
-      const defaultName = opts?.defaultName || `${title.replace(/\s+/g, "_")}.pdf`;
       const saveRes = await dialog.showSaveDialog(parentWin, {
-        title: "Schaltblatt als PDF speichern",
-        defaultPath: path.join(app.getPath("documents"), defaultName),
+        title: "Als PDF exportieren",
+        defaultPath: opts?.defaultName || `${title}.pdf`,
         filters: [{ name: "PDF-Dokument (*.pdf)", extensions: ["pdf"] }],
       });
       if (saveRes.canceled || !saveRes.filePath) {
@@ -675,28 +885,16 @@ ipcMain.handle("multispice:print-svg", async (event, opts) => {
       },
     });
 
-    const html = `<!doctype html>
-<html>
+    const html = `<!DOCTYPE html>
+<html lang="de">
 <head>
 <meta charset="utf-8" />
-<title>${title.replace(/</g, "&lt;")}</title>
+<title>${title}</title>
 <style>
   @page { size: A4 landscape; margin: 10mm; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
-    width: 100%;
-    height: 100%;
-    background: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  svg {
-    width: 100%;
-    height: 100%;
-    max-width: 100%;
-    max-height: 100%;
-  }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #ffffff; color: #111111; }
+  body { display: flex; align-items: center; justify-content: center; }
+  svg { width: 100%; height: 100%; max-width: 277mm; max-height: 190mm; display: block; }
 </style>
 </head>
 <body>${svg}</body>
@@ -705,33 +903,24 @@ ipcMain.handle("multispice:print-svg", async (event, opts) => {
     await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
     if (mode === "pdf" && pdfTargetPath) {
-      const pdfBuf = await printWin.webContents.printToPDF({
+      const pdfBuffer = await printWin.webContents.printToPDF({
         landscape: true,
         pageSize: "A4",
         printBackground: true,
       });
-      await fs.promises.writeFile(pdfTargetPath, pdfBuf);
+      fs.writeFileSync(pdfTargetPath, pdfBuffer);
       printWin.close();
-      printWin = null;
       return { ok: true, filePath: pdfTargetPath };
     }
 
     return await new Promise((resolve) => {
       printWin.webContents.print(
-        {
-          silent: false,
-          printBackground: true,
-          landscape: true,
-        },
+        { silent: false, printBackground: true, landscape: true },
         (success, failureReason) => {
           if (printWin && !printWin.isDestroyed()) {
             printWin.close();
           }
-          if (!success && failureReason && failureReason !== "cancelled") {
-            resolve({ ok: false, error: failureReason });
-          } else {
-            resolve({ ok: success, canceled: !success });
-          }
+          resolve({ ok: Boolean(success), error: failureReason || undefined });
         },
       );
     });
@@ -739,19 +928,21 @@ ipcMain.handle("multispice:print-svg", async (event, opts) => {
     if (printWin && !printWin.isDestroyed()) {
       printWin.close();
     }
-    return { ok: false, error: err?.message || String(err) };
+    return { ok: false, error: String(err?.message || err) };
   }
 });
 
-app.whenReady().then(boot);
-
-app.on("before-quit", () => {
-  flushAppDataSync();
-});
+app.whenReady().then(createMainWindow);
 
 app.on("window-all-closed", () => {
   flushAppDataSync();
-  if (process.platform !== "darwin") {
-    app.quit();
+  if (staticServer) {
+    try {
+      staticServer.close();
+    } catch {
+      // Ignore
+    }
   }
+  closePortableSplashIfRunning();
+  app.quit();
 });

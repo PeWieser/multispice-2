@@ -916,7 +916,7 @@ function DistortionAnalyzer({ win }: { win: InstrumentWindow }) {
         <Stat label="THD" value={`${thd.toFixed(2)} %`} color="var(--warn)" />
         <Stat label="SINAD" value={`${sinad.toFixed(1)} dB`} color="var(--ok)" />
       </div>
-      <div className="text-[10px] text-mute">Multisim Distortion Analyzer – misst THD und SINAD via FFT. Für Lehre: Klirr bei Verstärkern.</div>
+      <div className="text-[10px] text-mute">Klirrfaktor (THD) und Signal-Rausch-Verhältnis (SINAD) über FFT-Analyse.</div>
     </div>
   );
 }
@@ -964,7 +964,7 @@ function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
       <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--border)" }}>
         <Plot render={render} />
       </div>
-      <div className="text-[10px] text-mute">Network Analyzer – RF, S-Parameter, Gain/Phase. Für MVP zeigt AC-Kurve, voll: S11/S21.</div>
+      <div className="text-[10px] text-mute">Übertragungsfunktion und Amplitudengang zwischen Eingangs- und Ausgangsnetz.</div>
     </div>
   );
 }

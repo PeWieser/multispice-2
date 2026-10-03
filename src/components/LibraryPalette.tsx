@@ -781,7 +781,7 @@ export default function LibraryPalette({
               )}
 
               <div className="rounded-lg p-2 text-[10.5px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
-                <div className="font-medium text-[11px] mb-1">💡 Tipp</div>
+                <div className="font-medium text-[11px] mb-1">Hinweis</div>
                 Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
               </div>
 

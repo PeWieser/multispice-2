@@ -3,182 +3,567 @@
 import { useState } from "react";
 import { Dialog } from "./ui";
 import { useEditor } from "@/state/editor";
-import { PART_MAP } from "@/lib/library/catalog";
+import { Instance, SchematicDoc, emptyDoc } from "@/lib/schematic/model";
+import { normalizeDocGeometry } from "@/lib/schematic/netdraw";
+import { presetById } from "@/lib/schematic/tools";
+import { formatValue } from "@/lib/library/catalog";
 
-type WizardKind = "555_astable" | "555_monostable" | "555_bistable" | "rc_lowpass" | "rc_highpass" | "rl_lowpass" | "rlc_bandpass" | "opamp_inverter" | "opamp_noninverter" | "opamp_follower" | "opamp_summing" | "opamp_diff" | "opamp_integrator" | "opamp_differentiator" | "voltage_divider" | "wien_osc" | "sallen_key_low" | "sallen_key_high" | "bjt_ce" | "mosfet_cs" | "buck_converter" | "led_blink";
+type WizardKind =
+  | "voltage_divider"
+  | "rc_lowpass"
+  | "rc_highpass"
+  | "rl_lowpass"
+  | "rlc_bandpass"
+  | "opamp_noninverter"
+  | "opamp_inverter"
+  | "opamp_follower"
+  | "555_astable"
+  | "bjt_ce"
+  | "halfwave"
+  | "buck_converter";
 
-const WIZARDS: Array<{ id: WizardKind; title: string; desc: string; icon: string }> = [
-  { id: "555_astable", title: "555 Astabil", desc: "Rechteckgenerator mit R1,R2,C – Frequenz und Duty einstellbar", icon: "⏰" },
-  { id: "555_monostable", title: "555 Monostabil", desc: "Monoflop – Trigger → Ausgang für Zeit T", icon: "⏱️" },
-  { id: "555_bistable", title: "555 Bistabil", desc: "Flip-Flop mit 2 Tastern", icon: "🔀" },
-  { id: "rc_lowpass", title: "RC Tiefpass", desc: "Passiver Tiefpass 1. Ordnung – Grenzfrequenz fc", icon: "📉" },
-  { id: "rc_highpass", title: "RC Hochpass", desc: "Passiver Hochpass 1. Ordnung", icon: "📈" },
-  { id: "rl_lowpass", title: "RL Tiefpass", desc: "RL Tiefpass – fc = R/(2πL)", icon: "🧲" },
-  { id: "rlc_bandpass", title: "RLC Bandpass", desc: "Serie Resonanz – f0 = 1/(2π√LC)", icon: "🎛️" },
-  { id: "opamp_inverter", title: "OpAmp Inverter", desc: "Invertierender Verstärker – Gain = -Rf/Rin", icon: "🔊" },
-  { id: "opamp_noninverter", title: "OpAmp Non-Inverter", desc: "Nicht-invertierend – Gain = 1+Rf/Rin", icon: "🔈" },
-  { id: "opamp_follower", title: "Voltage Follower", desc: "Impedanzwandler Gain=1", icon: "🔁" },
-  { id: "opamp_summing", title: "Summing Amp", desc: "Addierer – mehrere Eingänge", icon: "➕" },
-  { id: "opamp_diff", title: "Difference Amp", desc: "Differenzverstärker", icon: "➖" },
-  { id: "opamp_integrator", title: "Integrator", desc: "Integrierer – Sägezahn aus Rechteck", icon: "∫" },
-  { id: "opamp_differentiator", title: "Differentiator", desc: "Differenzierer – Rechteck aus Dreieck", icon: "∂" },
-  { id: "wien_osc", title: "Wien Bridge Osc", desc: "Sinus-Oszillator 1kHz", icon: "〰️" },
-  { id: "sallen_key_low", title: "Sallen-Key Tiefpass", desc: "Aktiver Tiefpass 2. Ordnung", icon: "🔽" },
-  { id: "sallen_key_high", title: "Sallen-Key Hochpass", desc: "Aktiver Hochpass 2. Ordnung", icon: "🔼" },
-  { id: "bjt_ce", title: "BJT CE Verstärker", desc: "Common Emitter – Kleinsignal", icon: "🔺" },
-  { id: "mosfet_cs", title: "MOSFET CS", desc: "Common Source Verstärker", icon: "🔷" },
-  { id: "buck_converter", title: "Buck Converter", desc: "Abwärtswandler – L,C,MOSFET,Diode", icon: "⚙️" },
-  { id: "voltage_divider", title: "Spannungsteiler", desc: "Einfacher Teiler R1/R2", icon: "⚡" },
-  { id: "led_blink", title: "LED Blink 555", desc: "Klassiker – LED blinkt mit 555", icon: "💡" },
+interface WizardEntry {
+  id: WizardKind;
+  title: string;
+  group: string;
+  formula: string;
+}
+
+const WIZARDS: WizardEntry[] = [
+  { id: "voltage_divider", title: "Spannungsteiler", group: "Passiv & Filter", formula: "U_aus = U_ein · R2 / (R1 + R2)" },
+  { id: "rc_lowpass", title: "RC-Tiefpass 1. Ordnung", group: "Passiv & Filter", formula: "f_c = 1 / (2π · R1 · C1)" },
+  { id: "rc_highpass", title: "RC-Hochpass 1. Ordnung", group: "Passiv & Filter", formula: "f_c = 1 / (2π · R1 · C1)" },
+  { id: "rl_lowpass", title: "RL-Tiefpass 1. Ordnung", group: "Passiv & Filter", formula: "f_c = R1 / (2π · L1)" },
+  { id: "rlc_bandpass", title: "RLC-Serienschwingkreis", group: "Passiv & Filter", formula: "f_0 = 1 / (2π · √(L1 · C1))" },
+  { id: "opamp_noninverter", title: "Nichtinvertierender Verstärker", group: "Operationsverstärker", formula: "A_v = 1 + RF / RG" },
+  { id: "opamp_inverter", title: "Invertierender Verstärker", group: "Operationsverstärker", formula: "A_v = −RF / RIN" },
+  { id: "opamp_follower", title: "Impedanzwandler (Spannungsfolger)", group: "Operationsverstärker", formula: "A_v = 1" },
+  { id: "555_astable", title: "NE555 Astabiler Taktgeber", group: "Grundschaltungen", formula: "f ≈ 1,44 / ((R1 + 2·R2) · C1)" },
+  { id: "bjt_ce", title: "NPN-Emitterverstärker", group: "Grundschaltungen", formula: "A_u ≈ −RC / RE" },
+  { id: "halfwave", title: "Einweg-Gleichrichter", group: "Grundschaltungen", formula: "U_dc ≈ U_s − 0,7 V" },
+  { id: "buck_converter", title: "Abwärtswandler (Buck)", group: "Grundschaltungen", formula: "U_aus ≈ D · U_ein" },
 ];
 
+let uidSeq = 0;
+function nid(prefix: string): string {
+  uidSeq += 1;
+  return `${prefix}_${Date.now().toString(36)}_${uidSeq.toString(36)}`;
+}
+
+function makeInst(
+  partId: string,
+  label: string,
+  x: number,
+  y: number,
+  params: Record<string, number | string | boolean> = {},
+  rot: 0 | 90 | 180 | 270 = 0,
+): Instance {
+  return { id: nid("i"), partId, label, x, y, rot, params };
+}
+
+function makeWire(...pts: number[]): SchematicDoc["wires"][number] {
+  const points = [];
+  for (let i = 0; i < pts.length; i += 2) {
+    points.push({ x: pts[i], y: pts[i + 1] });
+  }
+  return { id: nid("w"), points };
+}
+
 export default function WizardsDialog({ onClose }: { onClose: () => void }) {
-  const [kind, setKind] = useState<WizardKind>("555_astable");
-  const [params, setParams] = useState<Record<string, number>>({ freq: 1000, duty: 50, fc: 1000, gain: 10, r1: 10000, r2: 10000, c: 1e-6 });
-  const editor = useEditor.getState();
+  const [kind, setKind] = useState<WizardKind>("voltage_divider");
+  const [params, setParams] = useState({
+    vin: 5,
+    freq: 1000,
+    fc: 1000,
+    gain: 10,
+    r1: 10000,
+    r2: 10000,
+    c: 1e-7,
+    l: 1e-3,
+    duty: 50,
+  });
+
+  const active = WIZARDS.find((w) => w.id === kind) ?? WIZARDS[0];
+  const groups = Array.from(new Set(WIZARDS.map((w) => w.group)));
+
+  // Berechnete Kennwerte für die Vorschau
+  const calc = (() => {
+    if (kind === "voltage_divider") {
+      const r1 = Math.max(1, params.r1);
+      const r2 = Math.max(1, params.r2);
+      const vout = (params.vin * r2) / (r1 + r2);
+      return [
+        ["R1", `${formatValue(r1)}Ω`],
+        ["R2", `${formatValue(r2)}Ω`],
+        ["U_ein", `${params.vin} V`],
+        ["U_aus", `${vout.toFixed(3)} V`],
+      ];
+    }
+    if (kind === "rc_lowpass" || kind === "rc_highpass") {
+      const fc = Math.max(1, params.fc);
+      const c = Math.max(1e-12, params.c);
+      const r = Math.max(1, Math.round(1 / (2 * Math.PI * fc * c)));
+      return [
+        ["Grenzfrequenz f_c", `${formatValue(fc)}Hz`],
+        ["Berechneter R1", `${formatValue(r)}Ω`],
+        ["Kondensator C1", `${formatValue(c)}F`],
+      ];
+    }
+    if (kind === "rl_lowpass") {
+      const fc = Math.max(1, params.fc);
+      const l = Math.max(1e-9, params.l);
+      const r = Math.max(1, Math.round(2 * Math.PI * fc * l));
+      return [
+        ["Grenzfrequenz f_c", `${formatValue(fc)}Hz`],
+        ["Berechneter R1", `${formatValue(r)}Ω`],
+        ["Induktivität L1", `${formatValue(l)}H`],
+      ];
+    }
+    if (kind === "rlc_bandpass") {
+      const f0 = Math.max(1, params.fc);
+      const l = Math.max(1e-9, params.l);
+      const c = 1 / (Math.pow(2 * Math.PI * f0, 2) * l);
+      return [
+        ["Resonanzfrequenz f_0", `${formatValue(f0)}Hz`],
+        ["Induktivität L1", `${formatValue(l)}H`],
+        ["Berechneter C1", `${formatValue(c)}F`],
+        ["Dämpfung R1", `${formatValue(params.r1)}Ω`],
+      ];
+    }
+    if (kind === "opamp_noninverter") {
+      const av = Math.max(1.1, params.gain);
+      const rg = Math.max(100, params.r1);
+      const rf = Math.round(rg * (av - 1));
+      return [
+        ["Verstärkung A_v", `${av.toFixed(2)}×`],
+        ["RG", `${formatValue(rg)}Ω`],
+        ["Berechneter RF", `${formatValue(rf)}Ω`],
+      ];
+    }
+    if (kind === "opamp_inverter") {
+      const av = Math.max(0.1, params.gain);
+      const rin = Math.max(100, params.r1);
+      const rf = Math.round(rin * av);
+      return [
+        ["Verstärkung A_v", `−${av.toFixed(2)}×`],
+        ["RIN", `${formatValue(rin)}Ω`],
+        ["Berechneter RF", `${formatValue(rf)}Ω`],
+      ];
+    }
+    if (kind === "opamp_follower") {
+      return [
+        ["Verstärkung A_v", "1,00× (0 dB)"],
+        ["Eingangsfrequenz", `${formatValue(params.freq)}Hz`],
+      ];
+    }
+    if (kind === "555_astable") {
+      const f = Math.max(0.5, params.freq);
+      const c = Math.max(1e-10, params.c);
+      const rTotal = 1.44 / (f * c);
+      const r2 = Math.max(100, Math.round(rTotal * 0.4));
+      const r1 = Math.max(100, Math.round(rTotal - 2 * r2));
+      return [
+        ["Zielfrequenz f", `${formatValue(f)}Hz`],
+        ["Berechneter R1", `${formatValue(r1)}Ω`],
+        ["Berechneter R2", `${formatValue(r2)}Ω`],
+        ["Kondensator C1", `${formatValue(c)}F`],
+      ];
+    }
+    if (kind === "bjt_ce") {
+      const rc = Math.max(100, params.r1);
+      const re = Math.max(10, params.r2);
+      return [
+        ["Kollektorwiderstand RC", `${formatValue(rc)}Ω`],
+        ["Emitterwiderstand RE", `${formatValue(re)}Ω`],
+        ["Spannungsverstärkung", `≈ −${(rc / re).toFixed(1)}×`],
+      ];
+    }
+    if (kind === "halfwave") {
+      return [
+        ["Eingangsspannung", `${params.vin} V`],
+        ["Netzfrequenz", `${formatValue(params.freq)}Hz`],
+        ["Lastwiderstand RL", `${formatValue(params.r1)}Ω`],
+      ];
+    }
+    return [
+      ["Eingangsspannung", `${params.vin} V`],
+      ["Tastgrad D", `${params.duty} %`],
+      ["Ausgangsspannung", `≈ ${((params.vin * params.duty) / 100).toFixed(1)} V`],
+    ];
+  })();
 
   const build = () => {
-    const doc = editor.doc;
-    const add = (partId: string, x: number, y: number, extraParams: any = {}) => {
-      const id = editor.addInstance(partId, x, y);
-      if (id && Object.keys(extraParams).length) {
-        for (const [k,v] of Object.entries(extraParams)) editor.setParam(id, k, v as any);
-      }
-      return id;
-    };
+    const editor = useEditor.getState();
+    let doc: SchematicDoc;
 
-    // Clear and build based on wizard
-    // For MVP, we build simple circuits near 0,0
-    if (kind === "555_astable") {
-      const f = params.freq || 1000;
-      const c = params.c || 1e-6;
-      // Formula: f = 1.44 / ((R1+2*R2)*C)
-      const rTotal = 1.44 / (f * c);
-      const r2 = rTotal * 0.6;
-      const r1 = rTotal - 2*r2 > 0 ? rTotal - 2*r2 : r2*0.2;
-      add("ne555", 0, 0);
-      add("resistor", -80, -40, { resistance: r1 });
-      add("resistor", -80, 40, { resistance: r2 });
-      add("capacitor", 0, 80, { capacitance: c });
-      add("capacitor", 80, -60, { capacitance: 10e-9 });
-      add("vdc", -200, 0, { voltage: 5 });
-      add("gnd", 0, 120);
-      editor.log("ok", `555 Astabil generiert: f≈${f}Hz, R1=${(r1/1000).toFixed(1)}k, R2=${(r2/1000).toFixed(1)}k, C=${(c*1e6).toFixed(2)}µF`);
+    if (kind === "voltage_divider") {
+      doc = emptyDoc("Spannungsteiler");
+      const r1 = Math.max(1, params.r1);
+      const r2 = Math.max(1, params.r2);
+      doc.instances.push(
+        makeInst("vdc", "V1", 200, 300, { dc: params.vin }),
+        makeInst("resistor", "R1", 360, 240, { r: r1 }, 90),
+        makeInst("resistor", "R2", 360, 360, { r: r2 }, 90),
+        makeInst("gnd", "GND1", 200, 420),
+        makeInst("gnd", "GND2", 360, 420),
+      );
+      doc.wires.push(
+        makeWire(200, 270, 200, 190, 360, 190, 360, 210),
+        makeWire(360, 270, 360, 330),
+        makeWire(200, 330, 200, 400),
+        makeWire(360, 390, 360, 400),
+      );
+      doc.labels.push(
+        { id: nid("l"), x: 200, y: 190, name: "IN" },
+        { id: nid("l"), x: 360, y: 300, name: "OUT" },
+      );
     } else if (kind === "rc_lowpass") {
-      const fc = params.fc || 1000;
-      const c = params.c || 1e-6;
-      const r = 1 / (2*Math.PI*fc*c);
-      add("resistor", -40, 0, { resistance: r });
-      add("capacitor", 40, 0, { capacitance: c });
-      add("vdc", -120, 0, { voltage: 1 });
-      add("gnd", 40, 40);
-      editor.log("ok", `RC Tiefpass fc=${fc}Hz, R=${(r/1000).toFixed(1)}k, C=${(c*1e6).toFixed(2)}µF`);
-    } else if (kind === "voltage_divider") {
-      const r1 = params.r1 || 10000;
-      const r2 = params.r2 || 10000;
-      add("resistor", 0, -30, { resistance: r1 });
-      add("resistor", 0, 30, { resistance: r2 });
-      add("vdc", -80, 0, { voltage: 5 });
-      add("gnd", 0, 80);
-      editor.log("ok", `Spannungsteiler R1=${r1/1000}k R2=${r2/1000}k → Vout=${(5*r2/(r1+r2)).toFixed(2)}V`);
+      const fc = Math.max(1, params.fc);
+      const cVal = Math.max(1e-12, params.c);
+      const rVal = Math.max(1, Math.round(1 / (2 * Math.PI * fc * cVal)));
+      doc = presetById("rc-lowpass")!.build();
+      doc.name = "RC-Tiefpass";
+      for (const i of doc.instances) {
+        if (i.label === "R1") i.params.r = rVal;
+        if (i.label === "C1") i.params.c = cVal;
+        if (i.label === "V1") i.params.freq = fc;
+      }
+    } else if (kind === "rc_highpass") {
+      const fc = Math.max(1, params.fc);
+      const cVal = Math.max(1e-12, params.c);
+      const rVal = Math.max(1, Math.round(1 / (2 * Math.PI * fc * cVal)));
+      doc = emptyDoc("RC-Hochpass");
+      doc.instances.push(
+        makeInst("vac", "V1", 200, 300, { amplitude: 1, freq: fc, acMag: 1 }),
+        makeInst("capacitor", "C1", 320, 240, { c: cVal }),
+        makeInst("resistor", "R1", 420, 300, { r: rVal }, 90),
+        makeInst("gnd", "GND1", 200, 400),
+        makeInst("gnd", "GND2", 420, 400),
+      );
+      doc.wires.push(
+        makeWire(200, 270, 200, 240, 290, 240),
+        makeWire(350, 240, 420, 240, 420, 270),
+        makeWire(200, 330, 200, 380),
+        makeWire(420, 330, 420, 380),
+      );
+      doc.labels.push(
+        { id: nid("l"), x: 200, y: 240, name: "IN" },
+        { id: nid("l"), x: 420, y: 240, name: "OUT" },
+      );
+    } else if (kind === "rl_lowpass") {
+      const fc = Math.max(1, params.fc);
+      const lVal = Math.max(1e-9, params.l);
+      const rVal = Math.max(1, Math.round(2 * Math.PI * fc * lVal));
+      doc = emptyDoc("RL-Tiefpass");
+      doc.instances.push(
+        makeInst("vac", "V1", 200, 300, { amplitude: 1, freq: fc, acMag: 1 }),
+        makeInst("inductor", "L1", 320, 240, { l: lVal }),
+        makeInst("resistor", "R1", 420, 300, { r: rVal }, 90),
+        makeInst("gnd", "GND1", 200, 400),
+        makeInst("gnd", "GND2", 420, 400),
+      );
+      doc.wires.push(
+        makeWire(200, 270, 200, 240, 290, 240),
+        makeWire(350, 240, 420, 240, 420, 270),
+        makeWire(200, 330, 200, 380),
+        makeWire(420, 330, 420, 380),
+      );
+      doc.labels.push(
+        { id: nid("l"), x: 200, y: 240, name: "IN" },
+        { id: nid("l"), x: 420, y: 240, name: "OUT" },
+      );
+    } else if (kind === "rlc_bandpass") {
+      const f0 = Math.max(1, params.fc);
+      const lVal = Math.max(1e-9, params.l);
+      const cVal = 1 / (Math.pow(2 * Math.PI * f0, 2) * lVal);
+      const rVal = Math.max(1, params.r1);
+      doc = emptyDoc("RLC-Bandpass");
+      doc.instances.push(
+        makeInst("vac", "V1", 180, 300, { amplitude: 1, freq: f0, acMag: 1 }),
+        makeInst("inductor", "L1", 290, 240, { l: lVal }),
+        makeInst("capacitor", "C1", 400, 240, { c: cVal }),
+        makeInst("resistor", "R1", 500, 300, { r: rVal }, 90),
+        makeInst("gnd", "GND1", 180, 400),
+        makeInst("gnd", "GND2", 500, 400),
+      );
+      doc.wires.push(
+        makeWire(180, 270, 180, 240, 260, 240),
+        makeWire(320, 240, 370, 240),
+        makeWire(430, 240, 500, 240, 500, 270),
+        makeWire(180, 330, 180, 380),
+        makeWire(500, 330, 500, 380),
+      );
+      doc.labels.push(
+        { id: nid("l"), x: 180, y: 240, name: "IN" },
+        { id: nid("l"), x: 500, y: 240, name: "OUT" },
+      );
+    } else if (kind === "opamp_noninverter") {
+      const av = Math.max(1.1, params.gain);
+      const rg = Math.max(100, params.r1);
+      const rf = Math.round(rg * (av - 1));
+      doc = presetById("noninv-opamp")!.build();
+      doc.name = "Nichtinvertierender Verstärker";
+      for (const i of doc.instances) {
+        if (i.label === "RG") i.params.r = rg;
+        if (i.label === "RF") i.params.r = rf;
+      }
+    } else if (kind === "opamp_inverter") {
+      const av = Math.max(0.1, params.gain);
+      const rin = Math.max(100, params.r1);
+      const rf = Math.round(rin * av);
+      doc = presetById("noninv-opamp")!.build();
+      doc.name = "Invertierender Verstärker";
+      for (const i of doc.instances) {
+        if (i.label === "RG") i.params.r = rin;
+        if (i.label === "RF") i.params.r = rf;
+      }
     } else if (kind === "opamp_follower") {
-      add("opamp_lm741", 0, 0);
-      add("vac", -80, 0, { amplitude: 0.5, freq: 1000 });
-      add("vdc", -40, -80, { voltage: 15 });
-      add("vdc", -40, 80, { voltage: -15 });
-      add("gnd", 0, 80);
-      editor.log("ok", "Voltage Follower Gain=1 generiert");
-    } else if (kind === "opamp_integrator") {
-      add("opamp_lm741", 0, 0);
-      add("resistor", -60, 0, { resistance: 10000 });
-      add("capacitor", 60, 0, { capacitance: 100e-9 });
-      add("vpulse", -120, 0, { v1: 0, v2: 1, freq: 1000 });
-      add("gnd", 0, 80);
-      editor.log("ok", "Integrator – Rechteck → Sägezahn");
-    } else if (kind === "opamp_differentiator") {
-      add("opamp_lm741", 0, 0);
-      add("capacitor", -60, 0, { capacitance: 1e-6 });
-      add("resistor", 60, 0, { resistance: 1000 });
-      add("vac", -120, 0, { amplitude: 0.5, freq: 1000 });
-      add("gnd", 0, 80);
-      editor.log("ok", "Differentiator – Dreieck → Rechteck");
-    } else if (kind === "wien_osc") {
-      add("opamp_lm741", 0, 0);
-      add("resistor", -60, -30, { resistance: 10000 });
-      add("capacitor", -60, 30, { capacitance: 100e-9 });
-      add("resistor", 60, -30, { resistance: 10000 });
-      add("capacitor", 60, 30, { capacitance: 100e-9 });
-      add("vdc", -40, -80, { voltage: 15 });
-      add("vdc", -40, 80, { voltage: -15 });
-      add("gnd", 0, 80);
-      editor.log("ok", "Wien Bridge Oszillator 1kHz – schwingt, Fourier THD");
-    } else if (kind === "led_blink") {
-      add("ne555", 0, 0);
-      add("resistor", -60, -30, { resistance: 1000 });
-      add("resistor", -60, 30, { resistance: 10000 });
-      add("capacitor", 0, 60, { capacitance: 100e-9 });
-      add("led", 80, 0, { color: "red" });
-      add("resistor", 80, 30, { resistance: 330 });
-      add("vdc", -120, 0, { voltage: 5 });
-      add("gnd", 0, 80);
-      editor.log("ok", "LED Blink mit 555 – 1kHz blinkt");
+      doc = presetById("noninv-opamp")!.build();
+      doc.name = "Impedanzwandler";
+      for (const i of doc.instances) {
+        if (i.label === "RG") i.params.r = 1e7;
+        if (i.label === "RF") i.params.r = 1;
+        if (i.label === "V1") i.params.freq = Math.max(1, params.freq);
+      }
+    } else if (kind === "555_astable") {
+      const f = Math.max(0.5, params.freq);
+      const cVal = Math.max(1e-10, params.c);
+      const rTotal = 1.44 / (f * cVal);
+      const r2 = Math.max(100, Math.round(rTotal * 0.4));
+      const r1 = Math.max(100, Math.round(rTotal - 2 * r2));
+      doc = presetById("astable555")!.build();
+      doc.name = "NE555 Taktgeber";
+      for (const i of doc.instances) {
+        if (i.label === "R1") i.params.r = r1;
+        if (i.label === "R2") i.params.r = r2;
+        if (i.label === "C1") i.params.c = cVal;
+      }
     } else if (kind === "bjt_ce") {
-      add("npn_2n3904", 0, 0);
-      add("resistor", -40, -40, { resistance: 47000 });
-      add("resistor", -40, 40, { resistance: 10000 });
-      add("resistor", 40, -20, { resistance: 1000 });
-      add("resistor", 0, 60, { resistance: 100 });
-      add("capacitor", -80, 0, { capacitance: 10e-6 });
-      add("vdc", -80, -60, { voltage: 12 });
-      add("gnd", 0, 80);
-      editor.log("ok", "BJT Common Emitter Verstärker – Gain ≈ -Rc/Re");
+      const rc = Math.max(100, params.r1);
+      const re = Math.max(10, params.r2);
+      doc = presetById("ce-amp")!.build();
+      doc.name = "NPN-Emitterverstärker";
+      for (const i of doc.instances) {
+        if (i.label === "RC") i.params.r = rc;
+        if (i.label === "RE") i.params.r = re;
+      }
+    } else if (kind === "halfwave") {
+      doc = presetById("halfwave")!.build();
+      doc.name = "Einweg-Gleichrichter";
+      for (const i of doc.instances) {
+        if (i.label === "V1") {
+          i.params.amplitude = params.vin;
+          i.params.freq = params.freq;
+        }
+        if (i.label === "RL") i.params.r = Math.max(10, params.r1);
+      }
     } else {
-      editor.log("info", `Wizard ${kind} – Demo: platziert Beispielbauteile`);
-      add("opamp_lm741", 0, 0);
-      add("resistor", -60, -20, { resistance: 10000 });
-      add("resistor", 60, -20, { resistance: params.gain ? 10000*params.gain : 100000 });
+      doc = presetById("buck")!.build();
+      doc.name = "Abwärtswandler (Buck)";
+      for (const i of doc.instances) {
+        if (i.label === "VIN") i.params.dc = params.vin;
+        if (i.label === "VG") i.params.duty = Math.max(5, Math.min(95, params.duty));
+      }
     }
+
+    normalizeDocGeometry(doc);
+    editor.setDoc(doc);
     editor.fitView();
+    editor.log("ok", `${doc.name} erstellt`);
     onClose();
   };
 
   return (
-    <Dialog title="Circuit Wizards – wie Multisim" subtitle="Assistenten für 555, Filter, OpAmp – Werte eingeben, Schaltung wird generiert" onClose={onClose} wide actions={<><button className="btn" onClick={onClose}>Abbrechen</button><button className="btn btn-primary" onClick={build}>Generieren ✨</button></>}>
-      <div className="flex gap-3">
-        <div className="w-[200px] shrink-0 space-y-1">
-          {WIZARDS.map(w=> (
-            <button key={w.id} className="tab w-full text-left flex items-center gap-2" data-active={kind===w.id} onClick={()=>setKind(w.id)}>
-              <span>{w.icon}</span><div><div className="text-[12px] font-medium">{w.title}</div><div className="text-[10px] text-mute leading-tight">{w.desc}</div></div>
-            </button>
+    <Dialog
+      title="Schaltungs-Assistent"
+      subtitle="Dimensionierung und Erzeugung parametrierter Grundschaltungen"
+      onClose={onClose}
+      wide
+      actions={
+        <>
+          <button className="btn" onClick={onClose}>
+            Abbrechen
+          </button>
+          <button className="btn btn-primary" onClick={build}>
+            Schaltung erzeugen
+          </button>
+        </>
+      }
+    >
+      <div className="flex gap-4">
+        <div className="w-[210px] shrink-0 space-y-3">
+          {groups.map((grp) => (
+            <div key={grp} className="space-y-0.5">
+              <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-mute">
+                {grp}
+              </div>
+              {WIZARDS.filter((w) => w.group === grp).map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  className="tab flex w-full items-center px-2.5 py-1.5 text-left text-[12px]"
+                  data-active={kind === w.id}
+                  onClick={() => setKind(w.id)}
+                >
+                  <span className="truncate font-medium">{w.title}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </div>
-        <div className="flex-1 rounded-lg p-3 space-y-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-          <div className="text-[12px] font-medium">{WIZARDS.find(w=>w.id===kind)?.title}</div>
-          <div className="text-[11px] text-mute">{WIZARDS.find(w=>w.id===kind)?.desc}</div>
-          <div className="grid grid-cols-2 gap-2">
-            {kind.includes("555") && (
-              <>
-                <label className="text-[11px]">Frequenz Hz<input className="input mono" type="number" value={params.freq} onChange={e=>setParams({...params, freq: Number(e.target.value)})} /></label>
-                <label className="text-[11px]">C (F)<input className="input mono" type="number" step="1e-6" value={params.c} onChange={e=>setParams({...params, c: Number(e.target.value)})} /></label>
-              </>
-            )}
-            {kind.includes("rc") && (
-              <>
-                <label className="text-[11px]">Grenzfrequenz fc Hz<input className="input mono" type="number" value={params.fc} onChange={e=>setParams({...params, fc: Number(e.target.value)})} /></label>
-                <label className="text-[11px]">C (F)<input className="input mono" type="number" step="1e-6" value={params.c} onChange={e=>setParams({...params, c: Number(e.target.value)})} /></label>
-              </>
-            )}
-            {kind.includes("opamp") && (
-              <label className="text-[11px]">Gain<input className="input mono" type="number" value={params.gain} onChange={e=>setParams({...params, gain: Number(e.target.value)})} /></label>
-            )}
-            {kind === "voltage_divider" && (
-              <>
-                <label className="text-[11px]">R1 Ω<input className="input mono" type="number" value={params.r1} onChange={e=>setParams({...params, r1: Number(e.target.value)})} /></label>
-                <label className="text-[11px]">R2 Ω<input className="input mono" type="number" value={params.r2} onChange={e=>setParams({...params, r2: Number(e.target.value)})} /></label>
-              </>
-            )}
+
+        <div
+          className="flex flex-1 flex-col justify-between rounded-lg p-4"
+          style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}
+        >
+          <div className="space-y-4">
+            <div className="flex items-baseline justify-between border-b pb-2.5" style={{ borderColor: "var(--border)" }}>
+              <div className="text-[13px] font-semibold">{active.title}</div>
+              <div className="mono rounded px-2 py-0.5 text-[11px]" style={{ background: "var(--panel)", border: "1px solid var(--border)", color: "var(--text-dim)" }}>
+                {active.formula}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {(kind === "voltage_divider" || kind === "halfwave" || kind === "buck_converter") && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>Eingangsspannung U_ein (V)</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    value={params.vin}
+                    onChange={(e) => setParams({ ...params, vin: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {(kind === "555_astable" || kind === "opamp_follower" || kind === "halfwave") && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>Frequenz f (Hz)</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    value={params.freq}
+                    onChange={(e) => setParams({ ...params, freq: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {(kind === "rc_lowpass" || kind === "rc_highpass" || kind === "rl_lowpass" || kind === "rlc_bandpass") && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>{kind === "rlc_bandpass" ? "Resonanzfrequenz f_0 (Hz)" : "Grenzfrequenz f_c (Hz)"}</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    value={params.fc}
+                    onChange={(e) => setParams({ ...params, fc: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {(kind === "rc_lowpass" || kind === "rc_highpass" || kind === "555_astable") && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>Kapazität C1 (F)</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    step="1e-7"
+                    value={params.c}
+                    onChange={(e) => setParams({ ...params, c: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {(kind === "rl_lowpass" || kind === "rlc_bandpass") && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>Induktivität L1 (H)</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    step="1e-4"
+                    value={params.l}
+                    onChange={(e) => setParams({ ...params, l: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {(kind === "opamp_noninverter" || kind === "opamp_inverter") && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>Betragsverstärkung |A_v|</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    step="0.5"
+                    value={params.gain}
+                    onChange={(e) => setParams({ ...params, gain: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {(kind === "voltage_divider" ||
+                kind === "rlc_bandpass" ||
+                kind === "opamp_noninverter" ||
+                kind === "opamp_inverter" ||
+                kind === "bjt_ce" ||
+                kind === "halfwave") && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>
+                    {kind === "bjt_ce"
+                      ? "Kollektorwiderstand RC (Ω)"
+                      : kind === "halfwave"
+                        ? "Lastwiderstand RL (Ω)"
+                        : "Widerstand R1 (Ω)"}
+                  </span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    value={params.r1}
+                    onChange={(e) => setParams({ ...params, r1: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {(kind === "voltage_divider" || kind === "bjt_ce") && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>{kind === "bjt_ce" ? "Emitterwiderstand RE (Ω)" : "Widerstand R2 (Ω)"}</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    value={params.r2}
+                    onChange={(e) => setParams({ ...params, r2: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {kind === "buck_converter" && (
+                <label className="space-y-1 text-[11px] text-dim">
+                  <span>Tastgrad D (%)</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    min={5}
+                    max={95}
+                    value={params.duty}
+                    onChange={(e) => setParams({ ...params, duty: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+            </div>
           </div>
-          <div className="text-[10px] text-mute">Multisim hat 20+ Wizards. Für MVP: 555, RC, Spannungsteiler, OpAmp. Generiert Bauteile nahe 0,0, dann Fit View.</div>
+
+          <div className="mt-6 rounded-md p-3" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+            <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-mute">
+              Dimensionierung
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11.5px]">
+              {calc.map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between">
+                  <span className="text-mute">{k}</span>
+                  <span className="mono font-medium">{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </Dialog>

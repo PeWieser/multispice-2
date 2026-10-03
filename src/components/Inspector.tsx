@@ -178,10 +178,10 @@ export default function Inspector() {
                 </div>
 
                 <div>
-                  <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Referenz (Multisim Voltage Reference)</div>
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Referenzpotential</div>
                   <div className="rounded-lg p-2.5 space-y-2" style={{ background: "var(--panel-2)" }}>
                     <label className="block">
-                      <span className="mb-1 block text-[11px] text-dim">Voltage Reference</span>
+                      <span className="mb-1 block text-[11px] text-dim">Bezugspunkt</span>
                       <select className="input" value={selectedProbe.ref ?? "0"} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{ref:e.target.value})}>
                         <option value="0">GND (0)</option>
                         {st.doc.probes.filter(p=>p.kind==="ref").map(p=> <option key={p.id} value={p.id}>REF Probe: {p.name ?? p.id.slice(0,6)} – {p.net ?? "auto"} ({p.x},{p.y})</option>)}
@@ -189,7 +189,7 @@ export default function Inspector() {
                       </select>
                     </label>
                     <div className="text-[10.5px] text-mute leading-snug">
-                      Wie in Multisim: Voltage misst gegen GND oder gegen selektierte REF-Probe. Differential = V(probe) - V(ref). Power = V·I.
+                      Spannungsmessung erfolgt gegen Masse (GND) oder die gewählte Referenzsonde (ΔU = U_Messpunkt − U_Ref).
                     </div>
                   </div>
                 </div>
@@ -253,17 +253,6 @@ export default function Inspector() {
 
                 <div className="flex gap-1.5 pt-1">
                   <button className="btn btn-danger flex-1" onClick={()=> st.removeMeasurementProbe(selectedProbe.id)}>Probe löschen</button>
-                </div>
-
-                <div className="rounded-lg p-2 text-[10.5px] text-mute leading-snug" style={{ background:"color-mix(in srgb, var(--accent) 10%, transparent)" }}>
-                  <div className="font-semibold text-[11px] mb-1 flex items-center gap-1"><Zap size={11}/> Multisim Hinweis</div>
-                  • Voltage: misst gegen GND oder selektierte REF-Probe (Dropdown).<br/>
-                  • Current: Pfeil zeigt Richtung – Reverse via Checkbox oder Rechtsklick.<br/>
-                  • Power: W = V·I (V gegen REF).<br/>
-                  • Differential: ΔV = V+ - Vref (automatisch REF-Link Linie).<br/>
-                  • Mindestens 1 Probe empfohlen – auto-add zu Transient/AC Grapher.<br/>
-                  • Rechtsklick auf Probe → Typ wechseln / Reverse / Löschen.<br/>
-                  • Doppelklick → Inspector öffnet direkt.
                 </div>
               </div>
             ) : !selected || !part ? (

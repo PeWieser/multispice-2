@@ -12,6 +12,7 @@ export interface DesktopChildWindowSpec {
   title: string;
   width: number;
   height: number;
+  aspectRatio?: number;
 }
 
 export interface DesktopSaveFileOptions {
@@ -50,6 +51,7 @@ export interface MultispiceDesktopBridge {
   isDesktop: boolean;
   platform?: string;
   windowControl: (action: "minimize" | "maximize" | "close") => void;
+  setWindowTitle?: (title: string) => void;
   openChildWindow: (spec: DesktopChildWindowSpec) => void;
   closeChildWindow: (id: string) => void;
   notifyChildReady?: () => void;
@@ -79,6 +81,7 @@ export function isDesktopApp(): boolean {
  * und besitzt nur eine dezente 1px-Trennlinie sowie rechts die Fenstersteuerung.
  */
 export default function DesktopTitleBar({
+  title,
   onCloseOverride,
 }: {
   title?: string;
@@ -87,6 +90,15 @@ export default function DesktopTitleBar({
   onCloseOverride?: () => void;
 }) {
   const [maximized, setMaximized] = useState(false);
+
+  // W138: Setzt den echten Windows-Fenstertitel für die Taskleisten-Vorschau
+  // (z. B. „Oszilloskop“, „Funktionsgenerator“, „Bauteile-Bibliothek“), während
+  // die sichtbare Leiste selbst puristisch ohne Text bleibt (W124).
+  useEffect(() => {
+    if (!title) return;
+    document.title = title;
+    window.multispiceDesktop?.setWindowTitle?.(title);
+  }, [title]);
 
   const handleControl = (action: "minimize" | "maximize" | "close") => {
     if (action === "close" && onCloseOverride) {
@@ -175,6 +187,7 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
         title: w.title,
         width: natW,
         height: natH,
+        aspectRatio: w.kind === "inspector" ? undefined : natW / Math.max(natH, 1),
       });
     }
     for (const oldId of prevInstIdsRef.current) {

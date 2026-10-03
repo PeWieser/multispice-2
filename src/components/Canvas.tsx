@@ -2152,7 +2152,7 @@ export default function Canvas() {
             `Ecke ${pointIdx}: ${finalPt.x.toFixed(0)}, ${finalPt.y.toFixed(0)}`,
             `Δ ${dx >= 0 ? "+" : ""}${dx.toFixed(0)}, ${dy >= 0 ? "+" : ""}${dy.toFixed(0)} • ${len.toFixed(0)} px (90° orthogonal)`,
             guideX !== null || guideY !== null
-              ? `🧲 Ausrichtung an ${guideX !== null ? "X" : ""}${guideX !== null && guideY !== null ? "+" : ""}${guideY !== null ? "Y" : ""}`
+              ? `Ausrichtung an ${guideX !== null ? "X" : ""}${guideX !== null && guideY !== null ? "+" : ""}${guideY !== null ? "Y" : ""}`
               : "",
           ].filter(Boolean),
         });
@@ -3300,14 +3300,14 @@ export default function Canvas() {
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().openInstrument("inspector")}
                 >
-                  ⚙ Inspector
+                  Inspector
                 </button>
                 <button
                   type="button"
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().duplicateSelection()}
                 >
-                  ⎘ Kopie
+                  Kopie
                 </button>
                 <button
                   type="button"
@@ -3315,7 +3315,7 @@ export default function Canvas() {
                   style={{ color: "var(--err)" }}
                   onClick={() => useEditor.getState().deleteSelection()}
                 >
-                  🗑 Löschen
+                  Löschen
                 </button>
                 <button
                   type="button"
@@ -3385,7 +3385,7 @@ function ContextMenu({
         return (
           <>
             <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
-              <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>🔧</div>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[11px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>{inst?.label?.slice(0, 3) ?? "B"}</div>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold truncate">{part?.name ?? "Bauteil"} {inst?.label}</div>
                 <div className="text-[10px] text-mute truncate">{part?.category ?? ""}{netLabel}</div>
@@ -3449,7 +3449,7 @@ function ContextMenu({
               ))}
             </div>
             <div className="sep" />
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Probe auf Netz{netLabel} – Multisim Style</div>
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Messpunkt auf Netz{netLabel}</div>
             <div className="grid grid-cols-2 gap-1">
               {([
                 ["voltage","V","#fbbf24"],
@@ -3461,7 +3461,7 @@ function ContextMenu({
               ))}
             </div>
             <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>🗑 Löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
+            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
           </>
         );
       })()}
@@ -3470,7 +3470,7 @@ function ContextMenu({
         return (
           <>
             <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
-              <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>🏷️</div>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[10px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>NET</div>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold truncate">Netzlabel „{lbl?.name ?? ""}“</div>
                 <div className="text-[10px] text-mute truncate">Position ({lbl?.x ?? 0}, {lbl?.y ?? 0})</div>
@@ -3485,12 +3485,12 @@ function ContextMenu({
                 onClose();
               }}
             >
-              <span>✎ Netzname ändern…</span>
+              <span>Netzname ändern…</span>
               <span className="ml-auto text-[10px] text-mute">Doppelklick</span>
             </button>
-            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
+            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
             <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>🗑 Label löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
+            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Label löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
           </>
         );
       })()}
@@ -3499,7 +3499,7 @@ function ContextMenu({
         return (
           <>
             <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
-              <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>📝</div>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[10px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>TXT</div>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold truncate">Textnotiz</div>
                 <div className="text-[10px] text-mute truncate">{note?.text ?? ""}</div>
@@ -3514,12 +3514,12 @@ function ContextMenu({
                 onClose();
               }}
             >
-              <span>✎ Notiz bearbeiten…</span>
+              <span>Notiz bearbeiten…</span>
               <span className="ml-auto text-[10px] text-mute">Doppelklick</span>
             </button>
-            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
+            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>Duplizieren</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘D", apple)}</span></button>
             <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>🗑 Notiz löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
+            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Notiz löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
           </>
         );
       })()}
@@ -3538,8 +3538,6 @@ function ContextMenu({
             </div>
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Bearbeiten</div>
             {(() => {
-              // W61: Multisim – Kreuzung ist nur mit Punkt leitend. Der Eintrag
-              // erscheint genau dann, wenn hier zwei Leitungen aufeinandertreffen.
               let near = false;
               let verbunden = false;
               for (const c of wireJunctionCandidates(doc)) {
@@ -3550,7 +3548,7 @@ function ContextMenu({
               if (!near) return null;
               return (
                 <button className="row" onClick={() => { st.toggleJunction(wx, wy); onClose(); }} data-active={verbunden}>
-                  <span>{verbunden ? "⭕ Verbindungspunkt entfernen" : "🔗 Verbindungspunkt setzen (Kreuzung verbinden)"}</span>
+                  <span>{verbunden ? "Verbindungspunkt entfernen" : "Verbindungspunkt setzen (Kreuzung verbinden)"}</span>
                 </button>
               );
             })()}
@@ -3558,7 +3556,7 @@ function ContextMenu({
               st.setSelection([target.id]);
               st.straightenSelection();
               onClose();
-            }}><span>📐 Leitung begradigen (Raster + rechte Winkel)</span></button>
+            }}><span>Leitung begradigen (Raster + rechte Winkel)</span></button>
             <div className="sep" />
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Leitungsfarbe</div>
             <button className="row" onClick={() => {
@@ -3569,7 +3567,7 @@ function ContextMenu({
                 if (ww) ww.isBus = !ww.isBus;
               });
               onClose();
-            }}><span>🚌 { (doc.wires.find(x=>x.id===target.id) as any)?.isBus ? "Bus → normale Leitung" : "Als Bus markieren (dicker, digital)"}</span></button>
+            }}><span>{ (doc.wires.find(x=>x.id===target.id) as any)?.isBus ? "Bus → normale Leitung" : "Als Bus markieren"}</span></button>
             <div className="flex gap-1 flex-wrap px-1">
               {[
                 [null, "Auto", "var(--wire)"],
@@ -3595,7 +3593,7 @@ function ContextMenu({
               ))}
             </div>
             <div className="sep" />
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Probe setzen – Multisim</div>
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Messpunkt setzen</div>
             <div className="grid grid-cols-2 gap-1">
               {([
                 ["voltage","V – Spannung","#fbbf24"],
@@ -3610,7 +3608,7 @@ function ContextMenu({
               ))}
             </div>
             <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>🗑 Leitung löschen</span></button>
+            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Leitung löschen</span></button>
           </>
         );
       })()}
@@ -3631,11 +3629,11 @@ function ContextMenu({
           <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Typ ändern</div>
           <div className="grid grid-cols-1 gap-0.5">
           {([
-            ["voltage","V – Voltage – misst gegen GND/REF","#fbbf24"],
-            ["current","A – Current – Stromrichtung Pfeil","#22d3ee"],
+            ["voltage","V – Spannung (gegen GND/REF)","#fbbf24"],
+            ["current","A – Strom","#22d3ee"],
             ["voltage_current","V·A – Kombi","#f59e0b"],
-            ["power","W – Power V·I","#a78bfa"],
-            ["diff","ΔV – Differential","#f472b6"],
+            ["power","W – Leistung V·I","#a78bfa"],
+            ["diff","ΔV – Differenzspannung","#f472b6"],
             ["ref","REF – Referenz","#94a3b8"],
             ["digital","D – Digital 0/1","#4ade80"],
           ] as const).map(([k, desc, col]) => (
@@ -3652,7 +3650,7 @@ function ContextMenu({
           <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Anzeige</div>
           <button className="row" onClick={()=> { st.updateMeasurementProbe(target.id,{periodic:!target.probe.periodic}); onClose(); }}><span>{target.probe.periodic?"☐ Periodic aus – nur DC":"☑ Periodic an – RMS/Vpp/Freq"}</span></button>
           <div className="sep" />
-          <button className="row danger" onClick={() => { st.removeMeasurementProbe(target.id); onClose(); }}><span>🗑 Probe löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
+          <button className="row danger" onClick={() => { st.removeMeasurementProbe(target.id); onClose(); }}><span>Probe löschen</span><span className="ml-auto text-[10px] text-mute">Entf</span></button>
         </>
       )}
       {target.kind === "empty" && (
@@ -3664,11 +3662,11 @@ function ContextMenu({
               <div className="text-[10px] text-mute">Netz {target.net ?? "–"} • {doc.instances.length} Bauteile</div>
             </div>
           </div>
-          {st.clipboard && <button className="row" onClick={() => { st.pasteClipboard(); onClose(); }}><span>⎘ Einfügen</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘V", apple)}</span></button>}
-          <button className="row" onClick={() => { st.setTool("label" as any); onClose(); }}><span>🏷️ Netzname hinzufügen</span><span className="ml-auto text-[10px] text-mute">L</span></button>
-          <button className="row" onClick={() => { st.setTool("text" as any); onClose(); }}><span>📝 Notiz hinzufügen</span><span className="ml-auto text-[10px] text-mute">T</span></button>
+          {st.clipboard && <button className="row" onClick={() => { st.pasteClipboard(); onClose(); }}><span>Einfügen</span><span className="ml-auto text-[10px] text-mute">{adaptShortcut("⌘V", apple)}</span></button>}
+          <button className="row" onClick={() => { st.setTool("label" as any); onClose(); }}><span>Netzname hinzufügen</span><span className="ml-auto text-[10px] text-mute">L</span></button>
+          <button className="row" onClick={() => { st.setTool("text" as any); onClose(); }}><span>Notiz hinzufügen</span><span className="ml-auto text-[10px] text-mute">T</span></button>
           <div className="sep" />
-          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Messpunkt setzen – Multisim</div>
+          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Messpunkt setzen</div>
           <div className="grid grid-cols-2 gap-1">
           {([
             ["voltage","V","#fbbf24"],
