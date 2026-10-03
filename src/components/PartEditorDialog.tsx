@@ -575,8 +575,7 @@ function SymbolCanvasEditor({
       <div className="flex flex-col gap-2.5">
         {/* Zeichen-Werkzeugleiste */}
         <div
-          className="flex flex-wrap items-center gap-1 rounded-xl border p-1.5"
-          style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+          className="flex flex-wrap items-center gap-1 rounded-xl border p-1.5 border-hairline bg-surface-2"
         >
           {(
             [
@@ -595,7 +594,7 @@ function SymbolCanvasEditor({
                 key={id}
                 type="button"
                 onClick={() => setTool(id)}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors"
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-2xs font-medium transition-colors"
                 style={
                   active
                     ? {
@@ -614,18 +613,18 @@ function SymbolCanvasEditor({
         </div>
 
         {/* Zusatzleiste für Textwerkzeug & Vorlagen */}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-2xs">
           <div className="flex items-center gap-1.5">
-            <span className="text-mute">Text:</span>
+            <span className="text-ink-3">Text:</span>
             <input
-              className="input h-7 px-2 text-[11px]"
+              className="input h-7 px-2 text-2xs"
               style={{ width: 110 }}
               value={newTextValue}
               onChange={(e) => setNewTextValue(e.target.value)}
               placeholder="Beschriftung …"
             />
             <select
-              className="input h-7 px-1.5 text-[11px]"
+              className="input h-7 px-1.5 text-2xs"
               style={{ width: 68 }}
               value={newTextSize}
               onChange={(e) => setNewTextSize(Number(e.target.value))}
@@ -640,25 +639,25 @@ function SymbolCanvasEditor({
           <div className="flex flex-wrap items-center gap-1">
             <button
               type="button"
-              className="btn h-7 px-2 text-[10.5px]"
+              className="btn h-7 px-2 text-2xs"
               onClick={() => applySymbolTemplate("auto_ic")}
-              title="Standard-IC-Gehäuse automatisch aus den Pins berechnen"
+              title="Standard-IC-Gehäuse automatisch aus den Pins berechnen" aria-label="Standard-IC-Gehäuse automatisch aus den Pins berechnen"
             >
               Auto-IC
             </button>
             <button
               type="button"
-              className="btn h-7 px-2 text-[10.5px]"
+              className="btn h-7 px-2 text-2xs"
               onClick={() => applySymbolTemplate("transistor")}
-              title="Transistor-Grundsymbol laden"
+              title="Transistor-Grundsymbol laden" aria-label="Transistor-Grundsymbol laden"
             >
               Transistor-Form
             </button>
             <button
               type="button"
-              className="btn h-7 px-2 text-[10.5px]"
+              className="btn h-7 px-2 text-2xs"
               onClick={() => applySymbolTemplate("triangle")}
-              title="Verstärker-/Komparator-Dreieck laden"
+              title="Verstärker-/Komparator-Dreieck laden" aria-label="Verstärker-/Komparator-Dreieck laden"
             >
               OPV-Dreieck
             </button>
@@ -674,7 +673,7 @@ function SymbolCanvasEditor({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
           />
-          <div className="mt-1.5 flex w-full items-center justify-between px-2 text-[10.5px] text-mute mono">
+          <div className="mt-1.5 flex w-full items-center justify-between px-2 text-2xs text-ink-3 mono">
             <span>Koordinate: ({cursorPt.x}, {cursorPt.y})</span>
             <span>Farbpunkte = Elektrische Pin-Anker (10-px-Raster)</span>
           </div>
@@ -683,17 +682,16 @@ function SymbolCanvasEditor({
 
       {/* Rechte Spalte: Element-Liste & Eigenschaften im Symbol */}
       <div
-        className="flex flex-col rounded-xl border p-3"
-        style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+        className="flex flex-col rounded-xl border p-3 border-hairline bg-surface-2"
       >
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
+          <span className="text-2xs font-semibold uppercase tracking-wider text-ink-3">
             Gezeichnete Elemente ({activePrims.length})
           </span>
           {selectedPrimIdx !== null && (
             <button
               type="button"
-              className="btn h-6 gap-1 px-2 text-[10.5px] text-[#f87171]"
+              className="btn h-6 gap-1 px-2 text-2xs text-[#f87171]"
               onClick={() => {
                 const next = ensureEditableSymbol().filter((_, i) => i !== selectedPrimIdx);
                 onUpdateSymbol(next);
@@ -707,17 +705,17 @@ function SymbolCanvasEditor({
 
         {selectedPrim && selectedPrimIdx !== null && (
           <div
-            className="mb-3 space-y-2 rounded-lg border p-2.5 text-[11px]"
+            className="mb-3 space-y-2 rounded-lg border p-2.5 text-2xs"
             style={{ borderColor: "var(--wire-sel, #f59e0b)", background: "var(--surface)" }}
           >
-            <div className="font-semibold text-[var(--wire-sel)]">
+            <div className="font-semibold text-selection">
               Ausgewählt: {selectedPrim.t.toUpperCase()} #{selectedPrimIdx + 1}
             </div>
             {selectedPrim.t === "text" && (
               <div className="space-y-1.5">
-                <label className="block text-[10px] text-mute">Beschriftungstext</label>
+                <label className="block text-2xs text-ink-3">Beschriftungstext</label>
                 <input
-                  className="input h-7 text-[11.5px]"
+                  className="input h-7 text-2xs"
                   value={selectedPrim.s}
                   onChange={(e) => {
                     const next = ensureEditableSymbol();
@@ -727,10 +725,10 @@ function SymbolCanvasEditor({
                 />
                 <div className="grid grid-cols-2 gap-1.5">
                   <div>
-                    <label className="block text-[10px] text-mute">Größe</label>
+                    <label className="block text-2xs text-ink-3">Größe</label>
                     <input
                       type="number"
-                      className="input h-7 text-[11px]"
+                      className="input h-7 text-2xs"
                       value={selectedPrim.size ?? 8}
                       onChange={(e) => {
                         const next = ensureEditableSymbol();
@@ -740,9 +738,9 @@ function SymbolCanvasEditor({
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-mute">Ausrichtung</label>
+                    <label className="block text-2xs text-ink-3">Ausrichtung</label>
                     <select
-                      className="input h-7 text-[11px]"
+                      className="input h-7 text-2xs"
                       value={selectedPrim.align ?? "center"}
                       onChange={(e) => {
                         const next = ensureEditableSymbol();
@@ -762,7 +760,7 @@ function SymbolCanvasEditor({
               </div>
             )}
             {(selectedPrim.t === "rect" || selectedPrim.t === "circle") && (
-              <label className="flex items-center gap-2 text-[11px]">
+              <label className="flex items-center gap-2 text-2xs">
                 <input
                   type="checkbox"
                   checked={Boolean(selectedPrim.fill)}
@@ -795,7 +793,7 @@ function SymbolCanvasEditor({
               <div
                 key={idx}
                 onClick={() => setSelectedPrimIdx(idx)}
-                className="flex cursor-pointer items-center justify-between rounded-lg border px-2.5 py-1.5 text-[11px] transition-colors"
+                className="flex cursor-pointer items-center justify-between rounded-lg border px-2.5 py-1.5 text-2xs transition-colors"
                 style={
                   active
                     ? {
@@ -805,7 +803,7 @@ function SymbolCanvasEditor({
                     : { borderColor: "var(--hairline)", background: "var(--surface)" }
                 }
               >
-                <span className="truncate mono text-[10.5px]">{summary}</span>
+                <span className="truncate mono text-2xs">{summary}</span>
                 <button
                   type="button"
                   onClick={(ev) => {
@@ -814,7 +812,7 @@ function SymbolCanvasEditor({
                     onUpdateSymbol(next);
                     if (selectedPrimIdx === idx) setSelectedPrimIdx(null);
                   }}
-                  className="text-mute hover:text-[#f87171]"
+                  className="text-ink-3 hover:text-[#f87171]"
                   title="Element entfernen"
                 >
                   <Trash2 size={11} />
@@ -1141,49 +1139,48 @@ export default function PartEditorDialog({
       <div className="flex flex-col gap-4 p-4">
         {/* Obere Kopfzeile: Bauteil-Grunddaten + 4 Studio-Reiter */}
         <div
-          className="flex flex-col gap-3 rounded-xl border p-3"
-          style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+          className="flex flex-col gap-3 rounded-xl border p-3 border-hairline bg-surface-2"
         >
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-5">
             <div className="md:col-span-2">
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-mute">
+              <label className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-ink-3">
                 Bauteilname / Typenbezeichnung
               </label>
               <input
-                className="input h-8 text-[12px] font-medium"
+                className="input h-8 text-xs font-medium"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="z. B. NE555 Transistor-Timer"
               />
             </div>
             <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-mute">
+              <label className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-ink-3">
                 Referenz-Kürzel
               </label>
               <input
-                className="input mono h-8 text-[12px]"
+                className="input mono h-8 text-xs"
                 value={ref}
                 onChange={(e) => setRef(e.target.value)}
                 placeholder="U / Q / IC"
               />
             </div>
             <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-mute">
+              <label className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-ink-3">
                 Gehäuse (Footprint)
               </label>
               <input
-                className="input mono h-8 text-[12px]"
+                className="input mono h-8 text-xs"
                 value={footprint}
                 onChange={(e) => setFootprint(e.target.value)}
                 placeholder="DIP-8 / TO-220"
               />
             </div>
             <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-mute">
+              <label className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-ink-3">
                 Kategorie
               </label>
               <input
-                className="input h-8 text-[12px]"
+                className="input h-8 text-xs"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 placeholder="Eigene Bauteile/ICs"
@@ -1192,7 +1189,7 @@ export default function PartEditorDialog({
           </div>
 
           {/* 4 Studio-Reiter */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2.5" style={{ borderColor: "var(--hairline)" }}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2.5 border-hairline">
             <div className="flex flex-wrap items-center gap-1">
               {(
                 [
@@ -1208,7 +1205,7 @@ export default function PartEditorDialog({
                     key={id}
                     type="button"
                     onClick={() => setTab(id)}
-                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-medium transition-colors"
+                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-2xs font-medium transition-colors"
                     style={
                       active
                         ? {
@@ -1229,13 +1226,13 @@ export default function PartEditorDialog({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                className="btn h-7 gap-1 px-2.5 text-[11px]"
+                className="btn h-7 gap-1 px-2.5 text-2xs"
                 onClick={handleExportJson}
-                title="Bauteil als JSON-Datei exportieren"
+                title="Bauteil als JSON-Datei exportieren" aria-label="Bauteil als JSON-Datei exportieren"
               >
                 <Download size={12} /> JSON-Export
               </button>
-              <label className="btn h-7 cursor-pointer gap-1 px-2.5 text-[11px]" title="Bauteil-JSON laden">
+              <label className="btn h-7 cursor-pointer gap-1 px-2.5 text-2xs" title="Bauteil-JSON laden">
                 <Upload size={12} /> JSON-Import
                 <input type="file" accept=".json" className="hidden" onChange={handleImportJson} />
               </label>
@@ -1249,11 +1246,10 @@ export default function PartEditorDialog({
             <div className="flex flex-col gap-3">
               {/* Vorlagen & Schaltplan-Übernahme */}
               <div
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-2.5"
-                style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-2.5 border-hairline bg-surface-2"
               >
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-[var(--wire-sel)]">
+                  <span className="flex items-center gap-1 text-2xs font-semibold text-selection">
                     <Sparkles size={13} /> Vorlage laden:
                   </span>
                   {SUBCIRCUIT_TEMPLATES.map((tpl) => (
@@ -1261,7 +1257,7 @@ export default function PartEditorDialog({
                       key={tpl.id}
                       type="button"
                       onClick={() => loadSpecIntoStudio(tpl.spec, null)}
-                      className="btn h-7 px-2.5 text-[11px]"
+                      className="btn h-7 px-2.5 text-2xs"
                       title={tpl.subtitle}
                     >
                       {tpl.title.split(" (")[0]}
@@ -1271,12 +1267,12 @@ export default function PartEditorDialog({
                 <button
                   type="button"
                   onClick={handleImportFromCurrentCanvas}
-                  className="btn h-7 gap-1 px-2.5 text-[11px]"
+                  className="btn h-7 gap-1 px-2.5 text-2xs"
                   style={{
                     borderColor: "var(--teal, #22d3ee)",
                     color: "var(--teal, #22d3ee)",
                   }}
-                  title="Übernimmt alle Bauteile und Netzlabels vom aktuellen Haupt-Schaltplan als Innenschaltung"
+                  title="Übernimmt alle Bauteile und Netzlabels vom aktuellen Haupt-Schaltplan als Innenschaltung" aria-label="Übernimmt alle Bauteile und Netzlabels vom aktuellen Haupt-Schaltplan als Innenschaltung"
                 >
                   <Layers size={12} /> Vom Schaltplan übernehmen
                 </button>
@@ -1284,7 +1280,7 @@ export default function PartEditorDialog({
 
               {/* Schnell-Palette zum Hinzufügen interner Transistoren & Bauteile */}
               <div className="flex flex-wrap items-center gap-1">
-                <span className="mr-1 text-[10.5px] font-semibold uppercase tracking-wider text-mute">
+                <span className="mr-1 text-2xs font-semibold uppercase tracking-wider text-ink-3">
                   + Bauteil zur Innenschaltung:
                 </span>
                 {(
@@ -1306,7 +1302,7 @@ export default function PartEditorDialog({
                     key={kind}
                     type="button"
                     onClick={() => addSubcircuitElement(kind)}
-                    className="btn h-6 px-2 text-[10.5px]"
+                    className="btn h-6 px-2 text-2xs"
                   >
                     {label}
                   </button>
@@ -1315,8 +1311,7 @@ export default function PartEditorDialog({
 
               {/* Liste der internen Bauteile mit Knoten-Zuordnung */}
               <div
-                className="max-h-[340px] space-y-2 overflow-y-auto rounded-xl border p-2.5"
-                style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+                className="max-h-[340px] space-y-2 overflow-y-auto rounded-xl border p-2.5 border-hairline bg-surface-2"
               >
                 <datalist id="subcircuit-known-nodes">
                   {allKnownNodes.map((n) => (
@@ -1329,13 +1324,12 @@ export default function PartEditorDialog({
                   return (
                     <div
                       key={`${el.id}_${idx}`}
-                      className="rounded-xl border p-2.5 transition-colors"
-                      style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
+                      className="rounded-xl border p-2.5 transition-colors border-hairline bg-surface"
                     >
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <input
-                            className="input mono h-6 px-2 text-[11.5px] font-bold"
+                            className="input mono h-6 px-2 text-2xs font-bold"
                             style={{ width: 88, color: "var(--wire-sel, #f59e0b)" }}
                             value={el.id}
                             onChange={(e) => {
@@ -1346,7 +1340,7 @@ export default function PartEditorDialog({
                             }}
                           />
                           <select
-                            className="input h-6 px-2 text-[11px]"
+                            className="input h-6 px-2 text-2xs"
                             style={{ width: 175 }}
                             value={el.kind}
                             onChange={(e) => {
@@ -1373,7 +1367,7 @@ export default function PartEditorDialog({
                             ))}
                           </select>
                           <input
-                            className="input h-6 px-2 text-[11px]"
+                            className="input h-6 px-2 text-2xs"
                             style={{ width: 190 }}
                             value={el.label ?? ""}
                             placeholder="Beschreibung (z. B. Entlade-NPN)"
@@ -1387,11 +1381,11 @@ export default function PartEditorDialog({
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10.5px] text-mute">{meta.valueLabel}:</span>
+                          <span className="text-2xs text-ink-3">{meta.valueLabel}:</span>
                           <input
                             type="number"
                             step="any"
-                            className="input mono h-6 px-2 text-[11px]"
+                            className="input mono h-6 px-2 text-2xs"
                             style={{ width: 82 }}
                             value={el.value}
                             onChange={(e) => {
@@ -1401,12 +1395,12 @@ export default function PartEditorDialog({
                               );
                             }}
                           />
-                          {meta.unit && <span className="mono text-[10.5px] text-mute">{meta.unit}</span>}
+                          {meta.unit && <span className="mono text-2xs text-ink-3">{meta.unit}</span>}
                           <button
                             type="button"
                             onClick={() => setSubcircuit((prev) => prev.filter((_, i) => i !== idx))}
-                            className="ml-1 grid h-6 w-6 place-items-center rounded text-mute hover:text-[#f87171]"
-                            title="Bauteil aus Innenschaltung löschen"
+                            className="ml-1 grid h-6 w-6 place-items-center rounded text-ink-3 hover:text-[#f87171]"
+                            title="Bauteil aus Innenschaltung löschen" aria-label="Bauteil aus Innenschaltung löschen"
                           >
                             <Trash2 size={12} />
                           </button>
@@ -1423,16 +1417,16 @@ export default function PartEditorDialog({
                           return (
                             <div
                               key={nIdx}
-                              className="flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10.5px]"
+                              className="flex items-center gap-1 rounded-lg border px-2 py-0.5 text-2xs"
                               style={{
                                 borderColor: isExternalPort ? "var(--wire-sel, #f59e0b)" : "var(--hairline)",
                                 background: "var(--app)",
                               }}
                             >
-                              <span className="text-mute">{pLabel}:</span>
+                              <span className="text-ink-3">{pLabel}:</span>
                               <input
                                 list="subcircuit-known-nodes"
-                                className="mono bg-transparent font-semibold text-[var(--ink)] outline-none"
+                                className="mono bg-transparent font-semibold text-ink outline-none"
                                 style={{ width: 78 }}
                                 value={nodeVal}
                                 placeholder="Knoten …"
@@ -1461,20 +1455,19 @@ export default function PartEditorDialog({
             {/* Rechte Spalte in Tab 1: Topologie-Vorschau & Außen-Pin-Kurzübersicht */}
             <div className="flex flex-col gap-3">
               <div
-                className="flex flex-col items-center rounded-xl border p-3"
-                style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+                className="flex flex-col items-center rounded-xl border p-3 border-hairline bg-surface-2"
               >
                 <div className="mb-2 flex w-full items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-ink-3">
                     Innenschaltungs-Topologie
                   </span>
-                  <span className="mono text-[10.5px] text-[var(--wire-sel)]">
+                  <span className="mono text-2xs text-selection">
                     {subcircuit.length} Elemente · {pins.length} Außen-Pins
                   </span>
                 </div>
                 <SubcircuitTopologyPreview pins={pins} subcircuit={subcircuit} />
-                <div className="mt-2 text-[10.5px] text-mute">
-                  Jeder Pin-Name (z. B. <span className="mono text-[var(--ink)]">VCC, TRIG, THR, DIS, OUT, GND</span>) verbindet die Innenschaltung direkt mit dem äußeren Schaltplan-Pin.
+                <div className="mt-2 text-2xs text-ink-3">
+                  Jeder Pin-Name (z. B. <span className="mono text-ink">VCC, TRIG, THR, DIS, OUT, GND</span>) verbindet die Innenschaltung direkt mit dem äußeren Schaltplan-Pin.
                 </div>
               </div>
             </div>
@@ -1494,16 +1487,15 @@ export default function PartEditorDialog({
         {tab === "pins_package" && (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_290px]">
             <div
-              className="flex flex-col rounded-xl border p-3"
-              style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+              className="flex flex-col rounded-xl border p-3 border-hairline bg-surface-2"
             >
               <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-ink-3">
                     Ein- und Ausgangs-Pins ({pins.length})
                   </span>
                   <select
-                    className="input h-7 px-2 text-[11px]"
+                    className="input h-7 px-2 text-2xs"
                     style={{ width: 210 }}
                     value=""
                     onChange={(e) => {
@@ -1525,7 +1517,7 @@ export default function PartEditorDialog({
                 </div>
                 <button
                   type="button"
-                  className="btn h-7 gap-1 px-2.5 text-[11px]"
+                  className="btn h-7 gap-1 px-2.5 text-2xs"
                   onClick={() =>
                     setPins((prev) => [
                       ...prev,
@@ -1546,12 +1538,11 @@ export default function PartEditorDialog({
                 {pins.map((pin, idx) => (
                   <div
                     key={idx}
-                    className="grid grid-cols-[26px_1fr_110px_120px_100px_110px_28px] items-center gap-1.5 rounded-lg border px-2 py-1.5"
-                    style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
+                    className="grid grid-cols-[26px_1fr_110px_120px_100px_110px_28px] items-center gap-1.5 rounded-lg border px-2 py-1.5 border-hairline bg-surface"
                   >
-                    <span className="mono text-center text-[11px] font-bold text-mute">#{idx + 1}</span>
+                    <span className="mono text-center text-2xs font-bold text-ink-3">#{idx + 1}</span>
                     <input
-                      className="input mono h-7 px-2 text-[11.5px] font-semibold"
+                      className="input mono h-7 px-2 text-2xs font-semibold"
                       value={pin.name}
                       placeholder="Pin-Name"
                       onChange={(e) => {
@@ -1573,7 +1564,7 @@ export default function PartEditorDialog({
                       }}
                     />
                     <select
-                      className="input h-7 px-1.5 text-[11px]"
+                      className="input h-7 px-1.5 text-2xs"
                       value={pin.role}
                       onChange={(e) => {
                         const r = e.target.value as PinRole;
@@ -1589,7 +1580,7 @@ export default function PartEditorDialog({
                     </select>
                     <input
                       list="subcircuit-known-nodes"
-                      className="input mono h-7 px-2 text-[11px]"
+                      className="input mono h-7 px-2 text-2xs"
                       value={pin.internalNode ?? pin.name}
                       placeholder="Interner Knoten"
                       title="Verknüpfter Knotenname in der Innenschaltung"
@@ -1601,7 +1592,7 @@ export default function PartEditorDialog({
                       }}
                     />
                     <select
-                      className="input h-7 px-1.5 text-[11px]"
+                      className="input h-7 px-1.5 text-2xs"
                       value={pin.side}
                       onChange={(e) => {
                         const s = e.target.value as PinSide;
@@ -1618,7 +1609,7 @@ export default function PartEditorDialog({
                       <option value="bottom">Unten</option>
                     </select>
                     <select
-                      className="input h-7 px-1.5 text-[11px]"
+                      className="input h-7 px-1.5 text-2xs"
                       value={pin.marker ?? "none"}
                       onChange={(e) => {
                         const m = e.target.value as PinMarker;
@@ -1634,8 +1625,8 @@ export default function PartEditorDialog({
                       type="button"
                       disabled={pins.length <= 2}
                       onClick={() => setPins((prev) => prev.filter((_, i) => i !== idx))}
-                      className="grid h-7 w-7 place-items-center rounded text-mute hover:text-[#f87171] disabled:opacity-30"
-                      title="Pin entfernen"
+                      className="grid h-7 w-7 place-items-center rounded text-ink-3 hover:text-[#f87171] disabled:opacity-30"
+                      title="Pin entfernen" aria-label="Pin entfernen"
                     >
                       <Trash2 size={12} />
                     </button>
@@ -1646,15 +1637,14 @@ export default function PartEditorDialog({
 
             {/* Rechte Spalte in Tab 3: Physische Gehäuse-Draufsicht */}
             <div
-              className="flex flex-col items-center rounded-xl border p-3"
-              style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+              className="flex flex-col items-center rounded-xl border p-3 border-hairline bg-surface-2"
             >
               <div className="mb-2 flex w-full items-center justify-between">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
+                <span className="text-2xs font-semibold uppercase tracking-wider text-ink-3">
                   Gehäuse-Draufsicht
                 </span>
                 <select
-                  className="input h-6 px-1.5 text-[10.5px]"
+                  className="input h-6 px-1.5 text-2xs"
                   style={{ width: 90 }}
                   value={mount}
                   onChange={(e) => setMount(e.target.value as "THT" | "SMD" | "both")}
@@ -1665,7 +1655,7 @@ export default function PartEditorDialog({
                 </select>
               </div>
               <PackageTopView footprint={footprint} pins={pins} />
-              <div className="mt-2.5 flex flex-wrap justify-center gap-2 text-[10px]">
+              <div className="mt-2.5 flex flex-wrap justify-center gap-2 text-2xs">
                 <span className="flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full bg-[#38bdf8]" /> IN
                 </span>
@@ -1688,16 +1678,15 @@ export default function PartEditorDialog({
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* Eigene Bauteil-Parameter */}
             <div
-              className="flex flex-col rounded-xl border p-3"
-              style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+              className="flex flex-col rounded-xl border p-3 border-hairline bg-surface-2"
             >
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
+                <span className="text-2xs font-semibold uppercase tracking-wider text-ink-3">
                   Einstellbare Bauteil-Parameter ({customParams.length})
                 </span>
                 <button
                   type="button"
-                  className="btn h-7 gap-1 px-2.5 text-[11px]"
+                  className="btn h-7 gap-1 px-2.5 text-2xs"
                   onClick={() =>
                     setCustomParams((prev) => [
                       ...prev,
@@ -1712,11 +1701,10 @@ export default function PartEditorDialog({
                 {customParams.map((cp, idx) => (
                   <div
                     key={idx}
-                    className="grid grid-cols-[90px_1fr_65px_90px_28px] items-center gap-1.5 rounded-lg border px-2 py-1.5"
-                    style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
+                    className="grid grid-cols-[90px_1fr_65px_90px_28px] items-center gap-1.5 rounded-lg border px-2 py-1.5 border-hairline bg-surface"
                   >
                     <input
-                      className="input mono h-7 px-2 text-[11px]"
+                      className="input mono h-7 px-2 text-2xs"
                       value={cp.key}
                       placeholder="Key"
                       onChange={(e) => {
@@ -1725,7 +1713,7 @@ export default function PartEditorDialog({
                       }}
                     />
                     <input
-                      className="input h-7 px-2 text-[11px]"
+                      className="input h-7 px-2 text-2xs"
                       value={cp.label}
                       placeholder="Anzeigename"
                       onChange={(e) => {
@@ -1734,7 +1722,7 @@ export default function PartEditorDialog({
                       }}
                     />
                     <input
-                      className="input mono h-7 px-2 text-[11px]"
+                      className="input mono h-7 px-2 text-2xs"
                       value={cp.unit}
                       placeholder="Einheit"
                       onChange={(e) => {
@@ -1745,7 +1733,7 @@ export default function PartEditorDialog({
                     <input
                       type="number"
                       step="any"
-                      className="input mono h-7 px-2 text-[11px]"
+                      className="input mono h-7 px-2 text-2xs"
                       value={cp.def}
                       onChange={(e) => {
                         const v = Number(e.target.value);
@@ -1755,7 +1743,7 @@ export default function PartEditorDialog({
                     <button
                       type="button"
                       onClick={() => setCustomParams((prev) => prev.filter((_, i) => i !== idx))}
-                      className="grid h-7 w-7 place-items-center text-mute hover:text-[#f87171]"
+                      className="grid h-7 w-7 place-items-center text-ink-3 hover:text-[#f87171]"
                     >
                       <Trash2 size={12} />
                     </button>
@@ -1763,11 +1751,11 @@ export default function PartEditorDialog({
                 ))}
               </div>
               <div className="mt-3">
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-mute">
+                <label className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-ink-3">
                   Technische Beschreibung / Datenblatt-Notiz
                 </label>
                 <textarea
-                  className="input min-h-[72px] w-full p-2 text-[11.5px]"
+                  className="input min-h-[72px] w-full p-2 text-2xs"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Funktionsweise der Innenschaltung, Pinbelegung, Grenzwerte …"
@@ -1777,14 +1765,13 @@ export default function PartEditorDialog({
 
             {/* Gespeicherte eigene Bauteile */}
             <div
-              className="flex flex-col rounded-xl border p-3"
-              style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
+              className="flex flex-col rounded-xl border p-3 border-hairline bg-surface-2"
             >
-              <span className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-mute">
+              <span className="mb-2 text-2xs font-semibold uppercase tracking-wider text-ink-3">
                 Gespeicherte eigene Bauteile ({savedParts.length})
               </span>
               {savedParts.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center py-8 text-center text-[11.5px] text-mute">
+                <div className="flex flex-1 items-center justify-center py-8 text-center text-2xs text-ink-3">
                   Noch keine eigenen Bauteile gespeichert. Klicke unten rechts auf „Speichern & Platzieren“.
                 </div>
               ) : (
@@ -1792,19 +1779,18 @@ export default function PartEditorDialog({
                   {savedParts.map((sp) => (
                     <div
                       key={sp.id}
-                      className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
-                      style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
+                      className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 border-hairline bg-surface"
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-[12px] font-semibold">{sp.name}</div>
-                        <div className="mono text-[10px] text-mute">
+                        <div className="truncate text-xs font-semibold">{sp.name}</div>
+                        <div className="mono text-2xs text-ink-3">
                           {sp.ref} · {sp.footprint} · {sp.pins.length} Pins · {sp.subcircuit?.length ?? 0} interne Bauteile
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <button
                           type="button"
-                          className="btn h-6 px-2 text-[10.5px]"
+                          className="btn h-6 px-2 text-2xs"
                           onClick={() => {
                             loadSpecIntoStudio(sp, sp.id);
                             setTab("subcircuit");
@@ -1814,7 +1800,7 @@ export default function PartEditorDialog({
                         </button>
                         <button
                           type="button"
-                          className="btn btn-primary h-6 px-2 text-[10.5px]"
+                          className="btn btn-primary h-6 px-2 text-2xs"
                           onClick={() => {
                             useEditor.getState().setPlacing(sp.id);
                             onClose();
@@ -1824,9 +1810,9 @@ export default function PartEditorDialog({
                         </button>
                         <button
                           type="button"
-                          className="btn h-6 px-1.5 text-[10.5px] text-[#f87171]"
+                          className="btn h-6 px-1.5 text-2xs text-[#f87171]"
                           onClick={() => setSavedParts(deleteCustomPart(sp.id))}
-                          title="Aus Bibliothek löschen"
+                          title="Aus Bibliothek löschen" aria-label="Aus Bibliothek löschen"
                         >
                           <Trash2 size={11} />
                         </button>
@@ -1841,31 +1827,30 @@ export default function PartEditorDialog({
 
         {/* Fußzeile: Aktionsknöpfe */}
         <div
-          className="flex flex-wrap items-center justify-between gap-2 border-t pt-3"
-          style={{ borderColor: "var(--hairline)" }}
+          className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 border-hairline"
         >
-          <div className="flex items-center gap-2 text-[11px] text-mute">
-            <Cpu size={14} className="text-[var(--wire-sel)]" />
+          <div className="flex items-center gap-2 text-2xs text-ink-3">
+            <Cpu size={14} className="text-selection" />
             <span>
               {editingId ? `Bearbeite Bauteil (${editingId})` : "Neues eigenes Bauteil"} ·{" "}
-              <strong className="text-[var(--ink)]">{pins.length} Pins</strong> ·{" "}
-              <strong className="text-[var(--ink)]">{subcircuit.length} Innenschaltungs-Elemente</strong>
+              <strong className="text-ink">{pins.length} Pins</strong> ·{" "}
+              <strong className="text-ink">{subcircuit.length} Innenschaltungs-Elemente</strong>
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn h-8 px-3 text-[12px]" onClick={onClose}>
+            <button type="button" className="btn h-8 px-3 text-xs" onClick={onClose}>
               Schließen
             </button>
             <button
               type="button"
-              className="btn h-8 px-3 text-[12px]"
+              className="btn h-8 px-3 text-xs"
               onClick={() => handleSaveAndPlace(false)}
             >
               In Bibliothek speichern
             </button>
             <button
               type="button"
-              className="btn btn-primary h-8 gap-1.5 px-4 text-[12px]"
+              className="btn btn-primary h-8 gap-1.5 px-4 text-xs"
               onClick={() => handleSaveAndPlace(true)}
             >
               <Check size={14} />

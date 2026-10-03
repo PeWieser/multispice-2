@@ -1326,7 +1326,7 @@ function Window({ win }: { win: InstrumentWindow }) {
           </button>
           <button
             className="btn px-1 py-0.5"
-            title="Schließen"
+            title="Schließen" aria-label="Schließen"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => closeInstrument(win.id)}
           >

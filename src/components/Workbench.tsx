@@ -14,6 +14,7 @@ import Inspector from "./Inspector";
 import { engine, useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { Menu, X, Library, Settings, SlidersHorizontal, Play, Pause, Undo2, Redo2 } from "lucide-react";
+import { Button, IconButton } from "./ui";
 
 // R17: Schwere, selten geöffnete Oberflächen laden wir als eigene Chunks –
 // der Erststart bezahlt nur noch Canvas, Menü und Statusleiste.
@@ -100,15 +101,14 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
   const canUndo = useEditor((s) => s.past.length > 0);
   const canRedo = useEditor((s) => s.future.length > 0);
   return (
-    <div className="flex h-[48px] shrink-0 items-center gap-1.5 px-2.5" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} onClick={onMenu} aria-label="Menü">
+    <div className="flex h-[48px] shrink-0 items-center gap-1.5 px-2.5 bg-surface border-b border-hairline">
+      <button className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={onMenu} aria-label="Menü">
         <Menu size={18} />
       </button>
-      <span className="text-[13px] font-semibold">Multispice</span>
+      <span className="text-sm font-semibold">Multispice</span>
       <div className="flex-1" />
       <button
-        className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"
-        style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}
+        className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40 bg-surface-2 border border-hairline"
         disabled={!canUndo}
         onClick={undo}
         title="Rückgängig"
@@ -117,8 +117,7 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
         <Undo2 size={15} />
       </button>
       <button
-        className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"
-        style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}
+        className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40 bg-surface-2 border border-hairline"
         disabled={!canRedo}
         onClick={redo}
         title="Wiederholen"
@@ -126,19 +125,20 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
       >
         <Redo2 size={15} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} onClick={onSettings} title="Einstellungen">
+      <button className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={onSettings} title="Einstellungen" aria-label="Einstellungen">
         <Settings size={16} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} onClick={toggleLibrary} title="Bibliothek">
+      <button className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={toggleLibrary} title="Bibliothek" aria-label="Bibliothek">
         <Library size={16} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} onClick={toggleRight} title="Inspector">
+      <button className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={toggleRight} title="Inspector" aria-label="Inspector">
         <SlidersHorizontal size={16} />
       </button>
       <button
         className="grid h-9 w-9 place-items-center rounded-lg text-white"
         style={{ background: simRunning ? "var(--warn)" : "var(--ok)" }}
         onClick={() => (simRunning ? pauseSim() : startSim())}
+        aria-label={simRunning ? "Simulation pausieren" : "Simulation starten"}
       >
         {simRunning ? <Pause size={16} /> : <Play size={16} />}
       </button>
@@ -149,15 +149,15 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
 function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; height?: string }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+    <div className="fixed inset-0 z-modal flex flex-col justify-end" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="absolute inset-0 bg-scrim" onClick={onClose} />
       <div
         className="relative flex flex-col rounded-t-2xl overflow-hidden animate-in slide-in-from-bottom duration-300"
         style={{ height, background: "var(--surface)", borderTop: "1px solid var(--hairline-strong)", boxShadow: "var(--shadow-3)" }}
       >
-        <div className="flex h-10 shrink-0 items-center justify-between px-4" style={{ borderBottom: "1px solid var(--hairline)" }}>
-          <div className="h-1 w-8 rounded-full bg-[var(--hairline-strong)] mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
-          <span className="text-[12px] font-medium mt-2">{title}</span>
+        <div className="flex h-10 shrink-0 items-center justify-between px-4 border-b border-hairline">
+          <div className="h-1 w-8 rounded-full bg-hairline-strong mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
+          <span className="text-xs font-medium mt-2">{title}</span>
           <button className="btn h-7 w-7 p-0 mt-2" onClick={onClose}>
             <X size={14} />
           </button>
@@ -173,14 +173,16 @@ function UndoToast() {
   const clear = useEditor((s) => s.clearToast);
   if (!toast) return null;
   return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 rounded-xl px-4 py-2.5 text-[12px] shadow-2xl backdrop-blur-xl" style={{ background: "color-mix(in srgb, var(--surface) 92%, transparent)", border: "1px solid var(--hairline-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
-      <span className="text-dim">{toast.message}</span>
+    <div role="status" aria-live="polite" className="rise fixed bottom-12 left-1/2 z-toast flex -translate-x-1/2 items-center gap-2 rounded-panel bg-overlay py-1.5 pl-4 pr-1.5 text-sm shadow-3 backdrop-blur-xl backdrop-saturate-150">
+      <span className="text-ink">{toast.message}</span>
       {toast.action && toast.actionLabel && (
-        <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => toast.action?.()}>
+        <Button variant="ghost" size="sm" className="text-accent" onClick={() => toast.action?.()}>
           {toast.actionLabel}
-        </button>
+        </Button>
       )}
-      <button className="btn h-7 w-7 p-0" onClick={() => clear()}><X size={12} /></button>
+      <IconButton size="sm" aria-label="Hinweis schließen" onClick={() => clear()}>
+        <X />
+      </IconButton>
     </div>
   );
 }
@@ -317,11 +319,7 @@ export default function Workbench() {
   if (parsedDesktop.role === "instrument" && parsedDesktop.kind) {
     return (
       <div
-        className="flex h-screen w-screen flex-col overflow-hidden"
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--hairline-strong)",
-        }}
+        className="flex h-screen w-screen flex-col overflow-hidden bg-surface border border-hairline-strong"
       >
         <DesktopTitleBar
           title={parsedDesktop.title ?? "Messgerät"}
@@ -342,11 +340,7 @@ export default function Workbench() {
   if (parsedDesktop.role === "library") {
     return (
       <div
-        className="flex h-screen w-screen flex-col overflow-hidden"
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--hairline-strong)",
-        }}
+        className="flex h-screen w-screen flex-col overflow-hidden bg-surface border border-hairline-strong"
       >
         <DesktopTitleBar
           title={parsedDesktop.title ?? "Bauteile-Bibliothek"}
@@ -364,7 +358,7 @@ export default function Workbench() {
   // Mobile layout — W110: Nutzt exakt dieselbe ComponentStrip + DrawingTools wie Desktop/Tablet
   if (isMobile) {
     return (
-      <div className="flex h-[100dvh] w-screen flex-col overflow-hidden" style={{ background: "var(--app)" }}>
+      <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-app">
         <MobileTopBar onMenu={() => setMobileMenuOpen(true)} onSettings={() => setSettingsOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -382,7 +376,7 @@ export default function Workbench() {
             {mobileMenuOpen && (
               <div className="fixed inset-0 z-50 flex">
                 <div className="absolute inset-0 bg-black/40" onClick={() => setMobileMenuOpen(false)} />
-                <div className="relative w-[280px] h-full overflow-auto p-4" style={{ background: "var(--surface)", borderRight: "1px solid var(--hairline)" }}>
+                <div className="relative w-[280px] h-full overflow-auto p-4 bg-surface border-r border-hairline">
                   <div className="flex items-center justify-between mb-4">
                     <span className="font-semibold">Menü</span>
                     <button className="btn h-7 w-7 p-0" onClick={() => setMobileMenuOpen(false)}>
@@ -395,7 +389,7 @@ export default function Workbench() {
             )}
           </div>
           {bottomOpen && (
-            <div className="h-[40vh] shrink-0 border-t overflow-hidden" style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}>
+            <div className="h-[40vh] shrink-0 border-t overflow-hidden border-hairline bg-surface">
               <BottomPanel />
             </div>
           )}
@@ -404,7 +398,7 @@ export default function Workbench() {
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
-        {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
+      {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         {partEditorOpen && (
           <PartEditorDialog
             initialPartId={partEditorInitialId}
@@ -415,7 +409,7 @@ export default function Workbench() {
           />
         )}
         <UndoToast />
-        <PrintSheet />
+      <PrintSheet />
       </div>
     );
   }
@@ -423,7 +417,7 @@ export default function Workbench() {
   // Tablet layout – similar to desktop but inspector as drawer, library as bottom sheet
   if (isTablet) {
     return (
-      <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--app)" }}>
+      <div className="flex h-screen w-screen flex-col overflow-hidden bg-app">
           <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
@@ -441,7 +435,7 @@ export default function Workbench() {
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
-        {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
+      {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         {partEditorOpen && (
           <PartEditorDialog
             initialPartId={partEditorInitialId}
@@ -452,18 +446,26 @@ export default function Workbench() {
           />
         )}
         <UndoToast />
-        <PrintSheet />
+      <PrintSheet />
       </div>
     );
   }
 
   // Desktop – original layout but with dvh and better flex
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--app)" }}>
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-app">
+      <a
+        href="#workspace"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-toast focus:rounded-field focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-ink"
+      >
+        Zum Schaltplan springen
+      </a>
       {isDesktopRuntime && <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} />}
+      <header className="contents">
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
       <ComponentStrip tools={<DrawingTools />} />
-      <div className="relative flex min-h-0 flex-1">
+      </header>
+      <main id="workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1 overflow-hidden">
             <Canvas />
@@ -473,13 +475,13 @@ export default function Workbench() {
           </div>
           <BottomPanel />
         </div>
-      </div>
+      </main>
       {/* W96: Eine einzige schlanke Fußleiste (links geöffnete Blätter, rechts Prüfung & Sim-Zeit). */}
       <StatusBar />
       {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
-        {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
+      {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
       {partEditorOpen && (
         <PartEditorDialog
           initialPartId={partEditorInitialId}
@@ -490,7 +492,7 @@ export default function Workbench() {
         />
       )}
       <UndoToast />
-        <PrintSheet />
+      <PrintSheet />
     </div>
   );
 }

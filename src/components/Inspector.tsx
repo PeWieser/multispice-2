@@ -13,15 +13,15 @@ function Field({ def, value, onChange }: { def: ParamDef; value: number | string
   if (def.type === "bool") {
     return (
       <label className="flex items-center justify-between gap-2 py-1">
-        <span className="text-[11.5px] text-dim">{def.label}</span>
-        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--accent)]" />
+        <span className="text-2xs text-ink-2">{def.label}</span>
+        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="h-3.5 w-3.5 accent-accent" />
       </label>
     );
   }
   if (def.type === "select") {
     return (
       <label className="block py-1">
-        <span className="mb-1 block text-[11.5px] text-dim">{def.label}</span>
+        <span className="mb-1 block text-2xs text-ink-2">{def.label}</span>
         <select className="input" value={String(value)} onChange={(e) => onChange(e.target.value)}>
           {def.options?.map((o) => (
             <option key={String(o.value)} value={String(o.value)}>
@@ -35,9 +35,9 @@ function Field({ def, value, onChange }: { def: ParamDef; value: number | string
   if (def.min !== undefined && def.max !== undefined) {
     return (
       <label className="block py-1">
-        <div className="mb-1 flex justify-between text-[11.5px]">
-          <span className="text-dim">{def.label}</span>
-          <span className="mono text-mute">{Number(value).toFixed(2)}</span>
+        <div className="mb-1 flex justify-between text-2xs">
+          <span className="text-ink-2">{def.label}</span>
+          <span className="mono text-ink-3">{Number(value).toFixed(2)}</span>
         </div>
         <input
           type="range"
@@ -53,9 +53,9 @@ function Field({ def, value, onChange }: { def: ParamDef; value: number | string
   }
   return (
     <label className="block py-1">
-      <span className="mb-1 flex items-baseline justify-between text-[11.5px]">
-        <span className="text-dim">{def.label}</span>
-        {def.unit && <span className="mono text-[10px] text-mute">{def.unit}</span>}
+      <span className="mb-1 flex items-baseline justify-between text-2xs">
+        <span className="text-ink-2">{def.label}</span>
+        {def.unit && <span className="mono text-2xs text-ink-3">{def.unit}</span>}
       </span>
       <input
         className="input mono"
@@ -115,28 +115,28 @@ export default function Inspector() {
           <>
             {selectedProbe ? (
               <div className="space-y-3">
-                <div className="rounded-lg p-2.5" style={{ background: "var(--surface-2)" }}>
+                <div className="rounded-lg p-2.5 bg-surface-2">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-[12px] font-semibold">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
                       <Radio size={14} style={{ color: selectedProbe.color }} /> Messpunkt
                     </div>
-                    <span className="rounded px-1.5 py-0.5 text-[9.5px] mono" style={{ background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--teal)" }}>
+                    <span className="rounded px-1.5 py-0.5 text-2xs mono" style={{ background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--teal)" }}>
                       {selectedProbe.kind}
                     </span>
                   </div>
                   <div className="mt-2">
                     <label className="block">
-                      <span className="mb-1 block text-[11px] text-dim">Name</span>
-                      <input className="input mono text-[12px]" value={selectedProbe.name ?? ""} placeholder={`${selectedProbe.kind.toUpperCase()}1`} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{name:e.target.value})} />
+                      <span className="mb-1 block text-2xs text-ink-2">Name</span>
+                      <input className="input mono text-xs" value={selectedProbe.name ?? ""} placeholder={`${selectedProbe.kind.toUpperCase()}1`} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{name:e.target.value})} />
                     </label>
                   </div>
                 </div>
 
                 <div>
-                  <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Typ & Darstellung</div>
-                  <div className="space-y-2 rounded-lg p-2.5" style={{ background: "var(--surface-2)" }}>
+                  <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Typ & Darstellung</div>
+                  <div className="space-y-2 rounded-lg p-2.5 bg-surface-2">
                     <label className="block">
-                      <span className="mb-1 block text-[11px] text-dim">Typ</span>
+                      <span className="mb-1 block text-2xs text-ink-2">Typ</span>
                       <select className="input" value={selectedProbe.kind} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{kind:e.target.value as ProbeKind})}>
                         <option value="voltage">Voltage – V gegen GND/REF</option>
                         <option value="current">Current – A mit Richtung</option>
@@ -150,11 +150,11 @@ export default function Inspector() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <label className="block">
-                        <span className="mb-1 block text-[11px] text-dim">Farbe</span>
+                        <span className="mb-1 block text-2xs text-ink-2">Farbe</span>
                         <input type="color" className="h-8 w-full rounded cursor-pointer" value={probeHexColor(selectedProbe.kind, selectedProbe.color)} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{color:e.target.value})} />
                       </label>
                       <label className="block">
-                        <span className="mb-1 block text-[11px] text-dim">Netz (auto)</span>
+                        <span className="mb-1 block text-2xs text-ink-2">Netz (auto)</span>
                         <select className="input" value={selectedProbe.net ?? ""} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{net:e.target.value||undefined})}>
                           <option value="">— auto nearest —</option>
                           {st.netResult.nets.map(n=> <option key={n.name} value={n.name}>{n.name} ({n.pins.length} pins)</option>)}
@@ -163,14 +163,14 @@ export default function Inspector() {
                     </div>
 
                     <label className="flex items-center justify-between gap-2 py-1">
-                      <span className="text-[11.5px] text-dim">Richtung umkehren (Current)</span>
-                      <input type="checkbox" checked={!!selectedProbe.direction} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{direction:e.target.checked?1:0})} className="h-3.5 w-3.5 accent-[var(--accent)]" />
+                      <span className="text-2xs text-ink-2">Richtung umkehren (Current)</span>
+                      <input type="checkbox" checked={!!selectedProbe.direction} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{direction:e.target.checked?1:0})} className="h-3.5 w-3.5 accent-accent" />
                     </label>
 
                     <div>
-                      <div className="mb-1 flex justify-between text-[11.5px]">
-                        <span className="text-dim">Rotation</span>
-                        <span className="mono text-mute">{selectedProbe.rotation ?? 0}°</span>
+                      <div className="mb-1 flex justify-between text-2xs">
+                        <span className="text-ink-2">Rotation</span>
+                        <span className="mono text-ink-3">{selectedProbe.rotation ?? 0}°</span>
                       </div>
                       <input type="range" min={-180} max={180} step={15} value={selectedProbe.rotation ?? 0} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{rotation:Number(e.target.value)})} className="w-full" />
                     </div>
@@ -178,28 +178,28 @@ export default function Inspector() {
                 </div>
 
                 <div>
-                  <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Referenzpotential</div>
-                  <div className="rounded-lg p-2.5 space-y-2" style={{ background: "var(--surface-2)" }}>
+                  <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Referenzpotential</div>
+                  <div className="rounded-lg p-2.5 space-y-2 bg-surface-2">
                     <label className="block">
-                      <span className="mb-1 block text-[11px] text-dim">Bezugspunkt</span>
+                      <span className="mb-1 block text-2xs text-ink-2">Bezugspunkt</span>
                       <select className="input" value={selectedProbe.ref ?? "0"} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{ref:e.target.value})}>
                         <option value="0">GND (0)</option>
                         {st.doc.probes.filter(p=>p.kind==="ref").map(p=> <option key={p.id} value={p.id}>REF Probe: {p.name ?? p.id.slice(0,6)} – {p.net ?? "auto"} ({p.x},{p.y})</option>)}
                         {st.netResult.nets.filter(n=>n.name!=="0").map(n=> <option key={n.name} value={n.name}>Net: {n.name}</option>)}
                       </select>
                     </label>
-                    <div className="text-[10.5px] text-mute leading-snug">
+                    <div className="text-2xs text-ink-3 leading-snug">
                       Spannungsmessung erfolgt gegen Masse (GND) oder die gewählte Referenzsonde (ΔU = U_Messpunkt − U_Ref).
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Messwerte Anzeige</div>
-                  <div className="rounded-lg p-2.5 space-y-2" style={{ background: "var(--surface-2)" }}>
+                  <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Messwerte Anzeige</div>
+                  <div className="rounded-lg p-2.5 space-y-2 bg-surface-2">
                     <label className="flex items-center justify-between gap-2 py-1">
-                      <span className="text-[11.5px] text-dim flex items-center gap-1.5"><Activity size={12}/> Periodic (RMS/Peak/Freq)</span>
-                      <input type="checkbox" checked={!!selectedProbe.periodic} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{periodic:e.target.checked})} className="h-3.5 w-3.5 accent-[var(--accent)]" />
+                      <span className="text-2xs text-ink-2 flex items-center gap-1.5"><Activity size={12}/> Periodic (RMS/Peak/Freq)</span>
+                      <input type="checkbox" checked={!!selectedProbe.periodic} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{periodic:e.target.checked})} className="h-3.5 w-3.5 accent-accent" />
                     </label>
 
                     <div className="grid grid-cols-2 gap-1.5">
@@ -214,24 +214,24 @@ export default function Inspector() {
                         ["ipp","Ipp"],
                         ["power","Power W"],
                       ].map(([k,label])=> (
-                        <label key={k} className="flex items-center gap-1.5 text-[11.5px]">
+                        <label key={k} className="flex items-center gap-1.5 text-2xs">
                           <input type="checkbox" checked={!!(selectedProbe.show as any)?.[k]} onChange={(e)=> {
                             const cur = selectedProbe.show ?? {} as any;
                             st.updateMeasurementProbe(selectedProbe.id,{show:{...cur,[k]:e.target.checked}});
-                          }} className="h-3 w-3 accent-[var(--accent)]" />
-                          <span className="text-dim">{label}</span>
+                          }} className="h-3 w-3 accent-accent" />
+                          <span className="text-ink-2">{label}</span>
                         </label>
                       ))}
                     </div>
 
                     {selectedProbe.kind==="digital" && (
-                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[var(--hairline)]">
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-hairline">
                         <label className="block">
-                          <span className="mb-1 block text-[11px] text-dim">Low Threshold</span>
+                          <span className="mb-1 block text-2xs text-ink-2">Low Threshold</span>
                           <input type="number" step={0.1} className="input mono" value={selectedProbe.thresholds?.low ?? 0.8} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{thresholds:{low:Number(e.target.value), high:selectedProbe.thresholds?.high ?? 2.0}})} />
                         </label>
                         <label className="block">
-                          <span className="mb-1 block text-[11px] text-dim">High Threshold</span>
+                          <span className="mb-1 block text-2xs text-ink-2">High Threshold</span>
                           <input type="number" step={0.1} className="input mono" value={selectedProbe.thresholds?.high ?? 2.0} onChange={(e)=> st.updateMeasurementProbe(selectedProbe.id,{thresholds:{low:selectedProbe.thresholds?.low ?? 0.8, high:Number(e.target.value)}})} />
                         </label>
                       </div>
@@ -240,8 +240,8 @@ export default function Inspector() {
                 </div>
 
                 {live && (
-                  <div className="rounded-lg p-2.5 mono text-[11px]" style={{ background: "var(--surface-2)" }}>
-                    <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Live Messwerte</div>
+                  <div className="rounded-lg p-2.5 mono text-2xs bg-surface-2">
+                    <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Live Messwerte</div>
                     <div className="space-y-0.5">
                       <Row k="Net" v={selectedProbe.net ?? "—"} />
                       <Row k="V" v={formatValue(live.nets[selectedProbe.net ?? ""] ?? 0,"V")} />
@@ -256,31 +256,31 @@ export default function Inspector() {
                 </div>
               </div>
             ) : !selected || !part ? (
-              <div className="pt-10 text-center text-[12px] text-mute">
+              <div className="pt-10 text-center text-xs text-ink-3">
                 <SlidersHorizontal size={22} className="mx-auto mb-2 opacity-50" />
                 Kein Bauteil ausgewählt.
-                <div className="mt-1 text-[11px]">Wähle ein Element im Schaltplan aus, um Parameter, SPICE-Modell und Messwerte zu sehen. Probes via Toolbar oder Rechtsklick → Probe hinzufügen.</div>
+                <div className="mt-1 text-2xs">Wähle ein Element im Schaltplan aus, um Parameter, SPICE-Modell und Messwerte zu sehen. Probes via Toolbar oder Rechtsklick → Probe hinzufügen.</div>
                 <div className="mt-3 flex justify-center gap-2">
-                  <button className="btn text-[11px]" onClick={()=> { const s=useEditor.getState(); const id=s.addMeasurementProbe("voltage",200,200); if(id) s.setSelection([id]); }}>+ V Probe</button>
-                  <button className="btn text-[11px]" onClick={()=> { const s=useEditor.getState(); const id=s.addMeasurementProbe("current",240,200); if(id) s.setSelection([id]); }}>+ A Probe</button>
+                  <button className="btn text-2xs" onClick={()=> { const s=useEditor.getState(); const id=s.addMeasurementProbe("voltage",200,200); if(id) s.setSelection([id]); }}>+ V Probe</button>
+                  <button className="btn text-2xs" onClick={()=> { const s=useEditor.getState(); const id=s.addMeasurementProbe("current",240,200); if(id) s.setSelection([id]); }}>+ A Probe</button>
                 </div>
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="rounded-lg p-2.5" style={{ background: "var(--surface-2)" }}>
+                <div className="rounded-lg p-2.5 bg-surface-2">
                   <div className="flex items-center justify-between">
                     <input
-                      className="input mono w-24 py-0.5 text-[12px] font-semibold"
+                      className="input mono w-24 py-0.5 text-xs font-semibold"
                       value={selected.label}
                       onChange={(e) => st.setParam(selected.id, "__label", e.target.value)}
                     />
-                    <span className="rounded px-1.5 py-0.5 text-[9.5px] mono" style={{ background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--teal)" }}>
+                    <span className="rounded px-1.5 py-0.5 text-2xs mono" style={{ background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--teal)" }}>
                       {part.mount}
                     </span>
                   </div>
-                  <div className="mt-1.5 text-[12px] font-medium">{part.name}</div>
-                  <div className="text-[10.5px] text-mute">{part.category}</div>
-                  {part.footprint && <div className="mono mt-1 text-[10px] text-mute">Footprint: {part.footprint}</div>}
+                  <div className="mt-1.5 text-xs font-medium">{part.name}</div>
+                  <div className="text-2xs text-ink-3">{part.category}</div>
+                  {part.footprint && <div className="mono mt-1 text-2xs text-ink-3">Footprint: {part.footprint}</div>}
                 </div>
 
                 {live && (
@@ -288,19 +288,19 @@ export default function Inspector() {
                     {part.pins.map((pin, idx) => {
                       const net = st.netResult.pinNets[`${selected.id}:${idx}`];
                       return (
-                        <div key={idx} className="rounded-md px-2 py-1" style={{ background: "var(--surface-2)" }}>
-                          <div className="text-[9.5px] text-mute">
+                        <div key={idx} className="rounded-md px-2 py-1 bg-surface-2">
+                          <div className="text-2xs text-ink-3">
                             {pin.name} → {net}
                           </div>
-                          <div className="mono text-[11.5px]" style={{ color: "var(--teal)" }}>
+                          <div className="mono text-2xs text-teal">
                             {formatValue(live.nets[net] ?? 0, "V")}
                           </div>
                         </div>
                       );
                     })}
-                    <div className="col-span-2 rounded-md px-2 py-1" style={{ background: "var(--surface-2)" }}>
-                      <div className="text-[9.5px] text-mute">Strom / Leistung</div>
-                      <div className="mono text-[11.5px]" style={{ color: "var(--ok)" }}>
+                    <div className="col-span-2 rounded-md px-2 py-1 bg-surface-2">
+                      <div className="text-2xs text-ink-3">Strom / Leistung</div>
+                      <div className="mono text-2xs text-ok">
                         {formatValue(live.currents[selected.label] ?? 0, "A")} · {formatValue(Math.abs(live.power[selected.label] ?? 0), "W")}
                       </div>
                     </div>
@@ -309,7 +309,7 @@ export default function Inspector() {
 
                 {[...groups.entries()].map(([group, defs]) => (
                   <div key={group}>
-                    <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">{group}</div>
+                    <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">{group}</div>
                     {defs.map((def) => (
                       <Field
                         key={def.key}
@@ -323,16 +323,16 @@ export default function Inspector() {
 
                 {part.interactive === "mcu" && (
                   <div>
-                    <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-mute">
+                    <div className="mb-1 flex items-center gap-1.5 text-2xs uppercase tracking-wide text-ink-3">
                       <Cpu size={11} /> Firmware (Arduino-C Subset)
                     </div>
                     <textarea
-                      className="input mono h-56 resize-y text-[11px] leading-[1.45]"
+                      className="input mono h-56 resize-y text-2xs leading-[1.45]"
                       value={selected.text ?? ""}
                       onChange={(e) => st.setInstanceText(selected.id, e.target.value)}
                       spellCheck={false}
                     />
-                    <div className="mt-1 text-[10px] text-mute">
+                    <div className="mt-1 text-2xs text-ink-3">
                       Unterstützt: setup/loop, pinMode, digitalRead/Write, analogRead/Write, delay, if/for/while, Variablen, eigene Funktionen.
                     </div>
                   </div>
@@ -340,8 +340,8 @@ export default function Inspector() {
 
                 {part.spice && (
                   <div>
-                    <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">SPICE-Modellkarte</div>
-                    <pre className="mono overflow-x-auto rounded-lg p-2 text-[10px] leading-relaxed" style={{ background: "var(--surface-2)", color: "var(--ink-2)" }}>
+                    <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">SPICE-Modellkarte</div>
+                    <pre className="mono overflow-x-auto rounded-lg p-2 text-2xs leading-relaxed bg-surface-2 text-ink-2">
                       {part.spice}
                     </pre>
                   </div>
@@ -386,19 +386,19 @@ export default function Inspector() {
 
         {tab === "net" && (
           <div className="space-y-1">
-            <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Knoten-Inspektor & Probes</div>
-            <div className="mb-2 rounded-lg p-2 text-[10.5px]" style={{ background:"var(--surface-2)" }}>
+            <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Knoten-Inspektor & Probes</div>
+            <div className="mb-2 rounded-lg p-2 text-2xs bg-surface-2">
               <div className="flex items-center gap-1.5 mb-1 font-medium"><Radio size={12}/> Measurement Probes ({st.doc.probes.length})</div>
               {st.doc.probes.map(p=> (
                 <button key={p.id} onClick={()=> st.setSelection([p.id])} className="tree-row flex w-full items-center gap-2 rounded-md px-2 py-1 text-left" style={st.selection.includes(p.id)?{background:"color-mix(in srgb, var(--accent) 18%, transparent)"}:undefined}>
                   <span className="w-2 h-2 rounded-full" style={{background:p.color}}></span>
-                  <span className="mono text-[11px] flex-1">{p.name ?? `${p.kind.toUpperCase()}`}</span>
-                  <span className="text-[10px] text-mute">{p.net ?? "auto"}</span>
-                  <span className="text-[9px] text-mute">{p.kind}</span>
+                  <span className="mono text-2xs flex-1">{p.name ?? `${p.kind.toUpperCase()}`}</span>
+                  <span className="text-2xs text-ink-3">{p.net ?? "auto"}</span>
+                  <span className="text-2xs text-ink-3">{p.kind}</span>
                 </button>
               ))}
               <div className="mt-2 flex gap-1">
-                {(["voltage","current","ref"] as ProbeKind[]).map(k=> <button key={k} className="btn flex-1 text-[10px] py-1" onClick={()=> { const id=st.addMeasurementProbe(k,200+Math.random()*200,200); if(id) st.setSelection([id]); }}>+ {k}</button>)}
+                {(["voltage","current","ref"] as ProbeKind[]).map(k=> <button key={k} className="btn flex-1 text-2xs py-1" onClick={()=> { const id=st.addMeasurementProbe(k,200+Math.random()*200,200); if(id) st.setSelection([id]); }}>+ {k}</button>)}
               </div>
             </div>
 
@@ -412,16 +412,16 @@ export default function Inspector() {
                   className="tree-row flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left"
                   style={probed ? { background: "color-mix(in srgb, var(--violet) 18%, transparent)" } : undefined}
                 >
-                  <span className="mono w-12 shrink-0 text-[11px]" style={{ color: n.name === "0" ? "var(--ink-3)" : "var(--teal)" }}>
+                  <span className="mono w-12 shrink-0 text-2xs" style={{ color: n.name === "0" ? "var(--ink-3)" : "var(--teal)" }}>
                     {n.name}
                   </span>
-                  <span className="mono flex-1 text-right text-[11px]">{v !== undefined ? formatValue(v, "V") : "—"}</span>
-                  <span className="w-12 text-right text-[10px] text-mute">{n.pins.length} Pins</span>
+                  <span className="mono flex-1 text-right text-2xs">{v !== undefined ? formatValue(v, "V") : "—"}</span>
+                  <span className="w-12 text-right text-2xs text-ink-3">{n.pins.length} Pins</span>
                 </button>
               );
             })}
             {!!st.netResult.warnings.length && (
-              <div className="mt-2 rounded-lg p-2 text-[11px]" style={{ background: "color-mix(in srgb, var(--warn) 14%, transparent)", color: "var(--warn)" }}>
+              <div className="mt-2 rounded-lg p-2 text-2xs" style={{ background: "color-mix(in srgb, var(--warn) 14%, transparent)", color: "var(--warn)" }}>
                 {st.netResult.warnings.map((w, i) => (
                   <div key={i}>⚠ {w}</div>
                 ))}
@@ -433,7 +433,7 @@ export default function Inspector() {
         {tab === "sim" && (
           <div className="space-y-3">
             <div>
-              <div className="mb-1 text-[10px] uppercase tracking-wide text-mute">Integrationsverfahren</div>
+              <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Integrationsverfahren</div>
               <select
                 className="input"
                 value={st.sim.method}
@@ -449,9 +449,9 @@ export default function Inspector() {
               </select>
             </div>
             <div>
-              <div className="mb-1 flex justify-between text-[11.5px]">
-                <span className="text-dim">Abtastrate (Solver)</span>
-                <span className="mono text-mute">{(st.sim.sampleRate / 1000).toFixed(0)} kS/s</span>
+              <div className="mb-1 flex justify-between text-2xs">
+                <span className="text-ink-2">Abtastrate (Solver)</span>
+                <span className="mono text-ink-3">{(st.sim.sampleRate / 1000).toFixed(0)} kS/s</span>
               </div>
               <input
                 type="range"
@@ -464,9 +464,9 @@ export default function Inspector() {
               />
             </div>
             <div>
-              <div className="mb-1 flex justify-between text-[11.5px]">
-                <span className="text-dim">Temperatur</span>
-                <span className="mono text-mute">{st.sim.temperature.toFixed(0)} °C</span>
+              <div className="mb-1 flex justify-between text-2xs">
+                <span className="text-ink-2">Temperatur</span>
+                <span className="mono text-ink-3">{st.sim.temperature.toFixed(0)} °C</span>
               </div>
               <input
                 type="range"
@@ -478,7 +478,7 @@ export default function Inspector() {
                 onChange={(e) => st.setSimOption("temperature", Number(e.target.value))}
               />
             </div>
-            <div className="rounded-lg p-2.5 text-[11px] mono" style={{ background: "var(--surface-2)" }}>
+            <div className="rounded-lg p-2.5 text-2xs mono bg-surface-2">
               <Row k="Bauteile (SPICE)" v={String(st.netResult.netlist.devices.length)} />
               <Row k="Matrixgröße" v={engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"} />
               <Row k="Simulationszeit" v={live ? formatValue(live.time, "s") : "0 s"} />
@@ -486,14 +486,14 @@ export default function Inspector() {
               <Row k="Schritte/s" v={live ? live.stepsPerSecond.toFixed(0) : "—"} />
             </div>
 
-            <div className="rounded-lg p-2.5" style={{ background:"var(--surface-2)" }}>
-              <div className="mb-1 text-[10px] uppercase tracking-wide text-mute flex items-center gap-1"><GitBranch size={11}/> Probe Settings (Global)</div>
-              <div className="text-[11px] text-mute">Alle Probes werden automatisch zu Transient/AC Grapher Output hinzugefügt. Konfiguration pro Probe in Eigenschaften-Tab.</div>
+            <div className="rounded-lg p-2.5 bg-surface-2">
+              <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3 flex items-center gap-1"><GitBranch size={11}/> Probe Settings (Global)</div>
+              <div className="text-2xs text-ink-3">Alle Probes werden automatisch zu Transient/AC Grapher Output hinzugefügt. Konfiguration pro Probe in Eigenschaften-Tab.</div>
               <div className="mt-2 grid grid-cols-2 gap-1.5">
-                <div className="rounded px-2 py-1 text-[11px] mono" style={{background:"var(--surface)"}}>V Probes: {st.doc.probes.filter(p=>p.kind==="voltage"||p.kind==="voltage_current").length}</div>
-                <div className="rounded px-2 py-1 text-[11px] mono" style={{background:"var(--surface)"}}>I Probes: {st.doc.probes.filter(p=>p.kind==="current"||p.kind==="voltage_current").length}</div>
-                <div className="rounded px-2 py-1 text-[11px] mono" style={{background:"var(--surface)"}}>REF: {st.doc.probes.filter(p=>p.kind==="ref").length}</div>
-                <div className="rounded px-2 py-1 text-[11px] mono" style={{background:"var(--surface)"}}>Digital: {st.doc.probes.filter(p=>p.kind==="digital").length}</div>
+                <div className="rounded px-2 py-1 text-2xs mono bg-surface">V Probes: {st.doc.probes.filter(p=>p.kind==="voltage"||p.kind==="voltage_current").length}</div>
+                <div className="rounded px-2 py-1 text-2xs mono bg-surface">I Probes: {st.doc.probes.filter(p=>p.kind==="current"||p.kind==="voltage_current").length}</div>
+                <div className="rounded px-2 py-1 text-2xs mono bg-surface">REF: {st.doc.probes.filter(p=>p.kind==="ref").length}</div>
+                <div className="rounded px-2 py-1 text-2xs mono bg-surface">Digital: {st.doc.probes.filter(p=>p.kind==="digital").length}</div>
               </div>
             </div>
           </div>
@@ -506,7 +506,7 @@ export default function Inspector() {
 function Row({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex justify-between py-0.5">
-      <span className="text-mute">{k}</span>
+      <span className="text-ink-3">{k}</span>
       <span>{v}</span>
     </div>
   );

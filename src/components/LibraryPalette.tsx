@@ -77,7 +77,7 @@ function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
     }
     ctx.restore();
   }, [part, size, symbolStylePref]);
-  return <canvas ref={ref} className="shrink-0 rounded-[5px]" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} />;
+  return <canvas ref={ref} className="shrink-0 rounded-control bg-surface-2 border border-hairline" />;
 }
 
 // --- Advanced search with scoring ---
@@ -174,16 +174,16 @@ const PartRow = React.memo(function PartRow({
       <SymbolPreview part={part} size={36} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="block truncate text-[12px] font-medium leading-[1.2]">{part.name}</span>
-          <span className="rounded px-1 py-0 text-[9px] mono" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)", color: "var(--ink-2)" }}>
+          <span className="block truncate text-xs font-medium leading-[1.2]">{part.name}</span>
+          <span className="rounded px-1 py-0 text-2xs mono bg-surface-2 border border-hairline text-ink-2">
             {part.ref}
           </span>
-          {datasheet?.direct && <span className="rounded bg-amber-500/20 px-1 py-0 text-[8px] text-amber-400">PDF</span>}
+          {datasheet?.direct && <span className="rounded bg-amber-500/20 px-1 py-0 text-2xs text-amber-400">PDF</span>}
         </span>
-        <span className="block truncate text-[10.5px] text-mute leading-[1.2] mt-0.5">{part.description ?? `${part.category.split("/").slice(-1)[0]} · ${part.mount} · ${part.footprint ?? ""}`}</span>
+        <span className="block truncate text-2xs text-ink-3 leading-[1.2] mt-0.5">{part.description ?? `${part.category.split("/").slice(-1)[0]} · ${part.mount} · ${part.footprint ?? ""}`}</span>
         <span className="mt-1 flex gap-1">
           <CategoryIcon category={part.category} size={12} />
-          <span className="text-[9px] text-mute">{part.category.split("/").slice(-1)[0]}</span>
+          <span className="text-2xs text-ink-3">{part.category.split("/").slice(-1)[0]}</span>
         </span>
       </span>
       <div className="flex flex-col items-center gap-1 shrink-0">
@@ -210,7 +210,7 @@ const PartRow = React.memo(function PartRow({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="grid h-5 w-5 place-items-center rounded-md text-mute hover:text-[var(--accent)]"
+            className="grid h-5 w-5 place-items-center rounded-md text-ink-3 hover:text-accent"
             title={`Datenblatt ${datasheet.manufacturer}`}
           >
             <FileText size={11} />
@@ -243,21 +243,21 @@ function CatNode({
     <div>
       <div className="flex items-center">
         <button
-          className="grid h-6 w-4 shrink-0 place-items-center text-[9px] text-mute hover:text-[var(--ink)]"
+          className="grid h-6 w-4 shrink-0 place-items-center text-2xs text-ink-3 hover:text-ink"
           style={{ marginLeft: depth * 10 }}
           onClick={() => setOpen((o) => !o)}
         >
           {node.children.length ? (open ? "▾" : "▸") : ""}
         </button>
         <button
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
           style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
           onClick={() => onSel(node.path)}
           title={node.name}
         >
           <CategoryIcon category={node.path || node.name} size={13} />
           <span className="truncate">{node.name}</span>
-          <span className="mono ml-auto shrink-0 text-[9px] text-mute">{count}</span>
+          <span className="mono ml-auto shrink-0 text-2xs text-ink-3">{count}</span>
         </button>
       </div>
       {open && node.children.map((c) => <CatNode key={c.path} node={c} depth={depth + 1} selCat={selCat} onSel={onSel} />)}
@@ -541,16 +541,15 @@ export default function LibraryPalette({
     >
       {!standalone && (
       <div
-        className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3"
-        style={{ borderBottom: "1px solid var(--hairline)" }}
+        className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3 border-b border-hairline"
         onPointerDown={(e) => {
           dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y, w: paletteRef.current?.offsetWidth ?? 420 };
         }}
       >
-        <span className="text-[12px] font-medium flex items-center gap-1.5">
+        <span className="text-xs font-medium flex items-center gap-1.5">
           <LayoutGrid size={12} /> Bibliothek
         </span>
-        <span className="flex items-center gap-1 rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[9px] text-mute border border-[var(--hairline)]">
+        <span className="flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-ink-3 border border-hairline">
           <Command size={9} />K
         </span>
         <div className="flex-1" />
@@ -558,15 +557,15 @@ export default function LibraryPalette({
           {onPartEditor && (
             <button
               type="button"
-              className="btn h-6 gap-1 px-2 text-[11px]"
+              className="btn h-6 gap-1 px-2 text-2xs"
               onClick={onPartEditor}
-              title="Eigenes Bauteil mit Gehäuse & Pinbelegung erstellen"
+              title="Eigenes Bauteil mit Gehäuse & Pinbelegung erstellen" aria-label="Eigenes Bauteil mit Gehäuse & Pinbelegung erstellen"
             >
               <Plus size={11} />
               <span>Bauteil-Editor</span>
             </button>
           )}
-          <button className="btn px-1 py-0.5 h-6" onClick={toggle} title="Schließen (Esc)">
+          <button className="btn px-1 py-0.5 h-6" onClick={toggle} title="Schließen (Esc)" aria-label="Schließen (Esc)">
             <X size={13} />
           </button>
         </div>
@@ -575,11 +574,11 @@ export default function LibraryPalette({
 
       <div className="p-2.5 space-y-2">
         <div className="relative">
-          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-mute" />
+          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
             id="lib-search"
             autoFocus
-            className="input h-8 text-[12px]"
+            className="input h-8 text-xs"
             style={{ paddingLeft: 28, paddingRight: 28 }}
             placeholder="Suchen: 'r 10k', 'nmos', '555' – / zum Fokussieren"
             value={query}
@@ -587,7 +586,7 @@ export default function LibraryPalette({
           />
           {query && (
             <button
-              className="absolute right-2 top-1/2 -translate-y-1/2 grid h-5 w-5 place-items-center rounded-md hover:bg-[var(--surface-2)]"
+              className="absolute right-2 top-1/2 -translate-y-1/2 grid h-5 w-5 place-items-center rounded-md hover:bg-surface-2"
               onClick={() => setQuery("")}
             >
               <X size={11} />
@@ -596,7 +595,7 @@ export default function LibraryPalette({
         </div>
 
         {/* Quick Stats */}
-        <div className="flex items-center gap-2 text-[10px] text-mute">
+        <div className="flex items-center gap-2 text-2xs text-ink-3">
           <span>{PARTS.length} Teile</span>
           <span>·</span>
           <span className="flex items-center gap-1">
@@ -608,29 +607,29 @@ export default function LibraryPalette({
 
       <div className="flex min-h-0 flex-1">
         {/* Spalte 1 – Navigation (Ref-1 Component Browser) */}
-        <div className="hidden w-[170px] shrink-0 flex-col overflow-y-auto border-r py-1 md:flex" style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}>
+        <div className="hidden w-[170px] shrink-0 flex-col overflow-y-auto border-r py-1 md:flex border-hairline bg-surface-2">
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
             style={!query && tab === "all" && !selCat ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("all"); setSelCat(null); }}
           >
-            <LayoutGrid size={12} /> Alle <span className="mono ml-auto text-[9px] text-mute">{PARTS.length}</span>
+            <LayoutGrid size={12} /> Alle <span className="mono ml-auto text-2xs text-ink-3">{PARTS.length}</span>
           </button>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
             style={!query && tab === "fav" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("fav"); setSelCat(null); }}
           >
-            <Star size={12} /> Favoriten <span className="mono ml-auto text-[9px] text-mute">{favorites.length}</span>
+            <Star size={12} /> Favoriten <span className="mono ml-auto text-2xs text-ink-3">{favorites.length}</span>
           </button>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
             style={!query && tab === "recent" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("recent"); setSelCat(null); }}
           >
-            <Clock size={12} /> Zuletzt <span className="mono ml-auto text-[9px] text-mute">{recent.length}</span>
+            <Clock size={12} /> Zuletzt <span className="mono ml-auto text-2xs text-ink-3">{recent.length}</span>
           </button>
-          <div className="px-2 pb-1 pt-2 text-[9px] uppercase tracking-wide text-mute">Kategorien</div>
+          <div className="px-2 pb-1 pt-2 text-2xs uppercase tracking-wide text-ink-3">Kategorien</div>
           {tree.children.map((c) => (
             <CatNode
               key={c.path}
@@ -646,7 +645,7 @@ export default function LibraryPalette({
         <div className="min-h-0 w-full overflow-y-auto px-1 pb-2 md:w-[300px] md:shrink-0">
           {query ? (
             <div>
-              <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute flex items-center gap-1.5">
+              <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3 flex items-center gap-1.5">
                 <Command size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
               </div>
               {results.map((p, idx) => (
@@ -658,21 +657,21 @@ export default function LibraryPalette({
               {favorites.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
                 <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
               ))}
-              {!favorites.length && <div className="p-6 text-center text-[12px] text-mute">Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit</div>}
+              {!favorites.length && <div className="p-6 text-center text-xs text-ink-3">Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit</div>}
             </div>
           ) : activeTab === "recent" ? (
             <div>
               {recent.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
                 <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
               ))}
-              {!recent.length && <div className="p-6 text-center text-[12px] text-mute">Noch nichts verwendet – platziere Bauteile</div>}
+              {!recent.length && <div className="p-6 text-center text-xs text-ink-3">Noch nichts verwendet – platziere Bauteile</div>}
             </div>
           ) : (
             <div className="pt-1">
               {groups.map((g) => (
                 <div key={g.name}>
                   {!selCat && (
-                    <div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[9px] uppercase tracking-wide text-mute">
+                    <div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-2xs uppercase tracking-wide text-ink-3">
                       <CategoryIcon category={g.name} size={11} /> {g.name}
                       <span className="mono ml-auto">{g.parts.length}</span>
                     </div>
@@ -682,14 +681,14 @@ export default function LibraryPalette({
                   ))}
                 </div>
               ))}
-              {!groups.length && <div className="p-6 text-center text-[12px] text-mute">Keine Teile in dieser Kategorie</div>}
+              {!groups.length && <div className="p-6 text-center text-xs text-ink-3">Keine Teile in dieser Kategorie</div>}
             </div>
           )}
         </div>
 
         {/* Detail Panel – right side of palette (floating palette + detail) */}
         {detailPart && (
-          <div className="hidden min-w-[240px] flex-1 flex-col overflow-y-auto border-l md:flex" style={{ borderColor: "var(--hairline)" }}>
+          <div className="hidden min-w-[240px] flex-1 flex-col overflow-y-auto border-l md:flex border-hairline">
             <div className="p-3 space-y-3">
               <div className="flex justify-center">
                 <SymbolPreview part={detailPart} size={96} />
@@ -697,34 +696,34 @@ export default function LibraryPalette({
               <div>
                 <div className="flex items-center gap-1.5">
                   <CategoryIcon category={detailPart.category} size={16} />
-                  <span className="text-[13px] font-semibold">{detailPart.name}</span>
+                  <span className="text-sm font-semibold">{detailPart.name}</span>
                 </div>
-                <div className="mt-1 text-[11px] text-mute leading-snug">{detailPart.description ?? "Keine Beschreibung – generisches Bauteil"}</div>
+                <div className="mt-1 text-2xs text-ink-3 leading-snug">{detailPart.description ?? "Keine Beschreibung – generisches Bauteil"}</div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--surface)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}>
+                  <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
                     {detailPart.ref}
                   </span>
-                  <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--surface)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}>
+                  <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
                     {detailPart.mount}
                   </span>
                   {detailPart.footprint && (
-                    <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--surface)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}>
+                    <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
                       {detailPart.footprint}
                     </span>
                   )}
                 </div>
               </div>
 
-              <div className="rounded-lg p-2.5" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
-                <div className="text-[10px] uppercase tracking-wide text-mute mb-1.5">Parameter</div>
+              <div className="rounded-lg p-2.5 bg-surface border border-hairline">
+                <div className="text-2xs uppercase tracking-wide text-ink-3 mb-1.5">Parameter</div>
                 <div className="space-y-1">
                   {detailPart.params.slice(0, 5).map((pr) => (
-                    <div key={pr.key} className="flex justify-between text-[11px]">
-                      <span className="text-dim">{pr.label}</span>
-                      <span className="mono text-mute">{String(pr.def)} {pr.unit ?? ""}</span>
+                    <div key={pr.key} className="flex justify-between text-2xs">
+                      <span className="text-ink-2">{pr.label}</span>
+                      <span className="mono text-ink-3">{String(pr.def)} {pr.unit ?? ""}</span>
                     </div>
                   ))}
-                  {detailPart.params.length > 5 && <div className="text-[10px] text-mute">+{detailPart.params.length - 5} weitere</div>}
+                  {detailPart.params.length > 5 && <div className="text-2xs text-ink-3">+{detailPart.params.length - 5} weitere</div>}
                 </div>
               </div>
 
@@ -737,8 +736,7 @@ export default function LibraryPalette({
                         href={ds.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-medium border hover:opacity-90 transition-opacity"
-                        style={{ background: "var(--accent)", color: "var(--accent-ink)", borderColor: "var(--accent)" }}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-2xs font-medium border hover:opacity-90 transition-opacity bg-accent text-accent-ink border-accent"
                       >
                         <FileText size={14} /> Datenblatt – {ds.manufacturer} {ds.direct ? "(PDF)" : ""}
                         <ExternalLink size={12} className="ml-auto" />
@@ -752,8 +750,7 @@ export default function LibraryPalette({
                     href={getDatasheetSearchUrl(detailPart.id, detailPart.name)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[10px] border hover:bg-[var(--surface)]"
-                    style={{ borderColor: "var(--hairline)", color: "var(--ink-2)" }}
+                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-2xs border hover:bg-surface border-hairline text-ink-2"
                   >
                     <Search size={10} /> AllDatasheet
                   </a>
@@ -761,8 +758,7 @@ export default function LibraryPalette({
                     href={getOctopartUrl(detailPart.id)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[10px] border hover:bg-[var(--surface)]"
-                    style={{ borderColor: "var(--hairline)", color: "var(--ink-2)" }}
+                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-2xs border hover:bg-surface border-hairline text-ink-2"
                   >
                     <ExternalLink size={10} /> Octopart
                   </a>
@@ -770,9 +766,9 @@ export default function LibraryPalette({
               </div>
 
               {detailPart.pins && detailPart.pins.length > 0 && (
-                <div className="rounded-lg p-2.5" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
-                  <div className="text-[10px] uppercase tracking-wide text-mute mb-1.5">Pins ({detailPart.pins.length})</div>
-                  <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-[10px] text-dim">
+                <div className="rounded-lg p-2.5 bg-surface border border-hairline">
+                  <div className="text-2xs uppercase tracking-wide text-ink-3 mb-1.5">Pins ({detailPart.pins.length})</div>
+                  <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-2xs text-ink-2">
                     {detailPart.pins.map((pn, i) => (
                       <span key={i}>{pn.name || `Pin ${i + 1}`}</span>
                     ))}
@@ -780,13 +776,13 @@ export default function LibraryPalette({
                 </div>
               )}
 
-              <div className="rounded-lg p-2 text-[10.5px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
-                <div className="font-medium text-[11px] mb-1">Hinweis</div>
+              <div className="rounded-lg p-2 text-2xs text-ink-3 leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
+                <div className="font-medium text-2xs mb-1">Hinweis</div>
                 Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
               </div>
 
               <button
-                className="btn btn-primary w-full justify-center py-2 text-[12px] font-medium"
+                className="btn btn-primary w-full justify-center py-2 text-xs font-medium"
                 onClick={() => onConfirmPlace(detailPart.id)}
               >
                 {`Als ${detailPart.ref} platzieren (Enter)`}

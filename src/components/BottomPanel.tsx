@@ -65,7 +65,7 @@ export default function BottomPanel() {
   return (
     <div className="relative flex flex-col" style={{ background: "var(--surface)", borderTop: "1px solid var(--hairline)", height: openH }}>
       <div onPointerDown={startResize} className="absolute -top-1 left-0 right-0 z-10 h-2 cursor-ns-resize" title="Ziehen: Panel-Höhe" />
-      <div className="flex h-[34px] shrink-0 items-center gap-0.5 px-2" style={{ borderBottom: "1px solid var(--hairline)" }}>
+      <div className="flex h-[34px] shrink-0 items-center gap-0.5 px-2 border-b border-hairline">
         {TABS.map(([id, label, icon]) => (
           <button key={id} className="tab" data-active={bottomTab === id} onClick={() => setBottomTab(id as TabId)}>
             <span className="flex items-center gap-1.5">
@@ -75,17 +75,17 @@ export default function BottomPanel() {
           </button>
         ))}
         <div className="flex-1" />
-        <button className="btn px-1.5" onClick={toggleBottom} title="Panel schließen">
+        <button className="btn px-1.5" onClick={toggleBottom} title="Panel schließen" aria-label="Panel schließen">
           <ChevronDown size={14} />
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
           {bottomTab === "console" && (
-            <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-[11.5px] leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
+            <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-2xs leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
               {logs.map((l) => (
                 <div key={l.id} className="flex gap-2">
-                  <span className="text-mute">{l.time}</span>
+                  <span className="text-ink-3">{l.time}</span>
                   <span
                     style={{
                       color:
@@ -94,7 +94,7 @@ export default function BottomPanel() {
                   >
                     {l.level === "error" ? "✕" : l.level === "warn" ? "⚠" : l.level === "ok" ? "✓" : "›"}
                   </span>
-                  <span className="text-dim">{l.message}</span>
+                  <span className="text-ink-2">{l.message}</span>
                 </div>
               ))}
             </div>
@@ -105,10 +105,10 @@ export default function BottomPanel() {
           {bottomTab === "netlist" && (
             <div className="flex h-full flex-col gap-1.5 p-2">
               <div className="flex items-center gap-2">
-                <span className="text-[10.5px] text-mute">SPICE3/ngspice-kompatibel — Import überschreibt den Schaltplan</span>
+                <span className="text-2xs text-ink-3">SPICE3/ngspice-kompatibel — Import überschreibt den Schaltplan</span>
                 <div className="flex-1" />
                 <button
-                  className="btn py-1 text-[11.5px]"
+                  className="btn py-1 text-2xs"
                   onClick={() => {
                     navigator.clipboard?.writeText(netlistText);
                     log("ok", "Netzliste in die Zwischenablage kopiert");
@@ -117,7 +117,7 @@ export default function BottomPanel() {
                   Kopieren
                 </button>
                 <button
-                  className="btn py-1 text-[11.5px]"
+                  className="btn py-1 text-2xs"
                   onClick={() => {
                     const text = (document.getElementById("netlist-editor") as HTMLTextAreaElement)?.value ?? "";
                     const imported = isLtspiceAsc(text) ? fromLtspiceAsc(text) : fromSpiceNetlist(text);
@@ -128,22 +128,22 @@ export default function BottomPanel() {
                   Importieren
                 </button>
               </div>
-              <textarea id="netlist-editor" className="input mono h-full resize-none text-[11px] leading-[1.55]" defaultValue={netlistText} key={netlistText.length} spellCheck={false} />
+              <textarea id="netlist-editor" className="input mono h-full resize-none text-2xs leading-[1.55]" defaultValue={netlistText} key={netlistText.length} spellCheck={false} />
             </div>
           )}
 
           {bottomTab === "errors" && (
-            <div className="h-full overflow-y-auto p-3 text-[12px]">
+            <div className="h-full overflow-y-auto p-3 text-xs">
               {netResult.errors.length === 0 && netResult.warnings.length === 0 ? (
-                <div className="text-[12px]" style={{ color: "var(--ok)" }}>
+                <div className="text-xs text-ok">
                   ✓ Prüfung bestanden — keine offenen Netze, keine unbekannten Bauteile.
                 </div>
               ) : (
                 <ul className="space-y-1">
                   {netResult.errors.map((e, i) => (
-                    <li key={"e" + i} className="flex items-center gap-2" style={{ color: "var(--err)" }}>
+                    <li key={"e" + i} className="flex items-center gap-2 text-err">
                       <span className="flex-1">✕ {e}</span>
-                      <button className="btn h-6 px-2 text-[10px]" onClick={()=>{
+                      <button className="btn h-6 px-2 text-2xs" onClick={()=>{
                         // Zoom to error – find instance by label in error message
                         const doc = useEditor.getState().doc;
                         for (const inst of doc.instances) {
@@ -157,9 +157,9 @@ export default function BottomPanel() {
                     </li>
                   ))}
                   {netResult.warnings.map((w, i) => (
-                    <li key={"w" + i} className="flex items-center gap-2" style={{ color: "var(--warn)" }}>
+                    <li key={"w" + i} className="flex items-center gap-2 text-warn">
                       <span className="flex-1">⚠ {w}</span>
-                      <button className="btn h-6 px-2 text-[10px]" onClick={()=>{
+                      <button className="btn h-6 px-2 text-2xs" onClick={()=>{
                         const doc = useEditor.getState().doc;
                         for (const inst of doc.instances) {
                           if (w.includes(inst.label)) {
@@ -173,7 +173,7 @@ export default function BottomPanel() {
                   ))}
                 </ul>
               )}
-              <div className="mt-3 text-[11px] text-mute">
+              <div className="mt-3 text-2xs text-ink-3">
                 Knoten: {netResult.nets.length} · Bauteile: {netResult.netlist.devices.length} · Matrix:{" "}
                 {engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"} · ERC-Marker am Bauteil
               </div>
@@ -182,7 +182,7 @@ export default function BottomPanel() {
 
           {bottomTab === "probes" && (
             <div className="flex h-full flex-col md:flex-row">
-              <div className="flex-1 min-h-0 overflow-hidden border-r" style={{ borderColor: "var(--hairline)" }}>
+              <div className="flex-1 min-h-0 overflow-hidden border-r border-hairline">
                 <ProbeTable />
               </div>
               <div className="h-[140px] md:h-full md:w-[320px] shrink-0">
@@ -193,8 +193,8 @@ export default function BottomPanel() {
 
           {bottomTab === "bom" && (
             <div className="h-full overflow-auto p-2">
-              <table className="w-full text-[11.5px]">
-                <thead className="text-mute">
+              <table className="w-full text-2xs">
+                <thead className="text-ink-3">
                   <tr>
                     {["Referenz", "Bauteil", "Wert", "Footprint", "Montage", "Menge"].map((h) => (
                       <th key={h} className="px-2 py-1 text-left font-medium">
@@ -206,13 +206,13 @@ export default function BottomPanel() {
                 <tbody className="mono">
                   {bom.map((r, i) => (
                     <tr key={i} style={{ borderTop: "1px solid var(--hairline)" }}>
-                      <td className="px-2 py-1" style={{ color: "var(--teal)" }}>
+                      <td className="px-2 py-1 text-teal">
                         {r.ref}
                       </td>
-                      <td className="px-2 py-1 text-dim">{r.part}</td>
+                      <td className="px-2 py-1 text-ink-2">{r.part}</td>
                       <td className="px-2 py-1">{r.value}</td>
-                      <td className="px-2 py-1 text-mute">{r.footprint}</td>
-                      <td className="px-2 py-1 text-mute">{r.mount}</td>
+                      <td className="px-2 py-1 text-ink-3">{r.footprint}</td>
+                      <td className="px-2 py-1 text-ink-3">{r.mount}</td>
                       <td className="px-2 py-1">{r.qty}</td>
                     </tr>
                   ))}
@@ -294,7 +294,7 @@ function LiveStrip() {
 
   return (
     <div className="h-full p-2">
-      <canvas ref={ref} className="h-full w-full rounded-lg" style={{ background: "var(--canvas)", border: "1px solid var(--hairline)" }} />
+      <canvas ref={ref} className="h-full w-full rounded-lg bg-canvas border border-hairline" />
     </div>
   );
 }

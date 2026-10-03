@@ -121,7 +121,7 @@ export default function AnalysisDialog({ kind, onClose }: { kind: string; onClos
         }
       })}
       {error && (
-        <div className="mt-2 rounded-md px-2.5 py-2 text-[12px]" role="status" style={{ background: "color-mix(in srgb, var(--err) 12%, transparent)", color: "var(--err)" }}>
+        <div className="mt-2 rounded-md px-2.5 py-2 text-xs" role="status" style={{ background: "color-mix(in srgb, var(--err) 12%, transparent)", color: "var(--err)" }}>
           {error}
         </div>
       )}

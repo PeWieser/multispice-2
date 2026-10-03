@@ -69,18 +69,18 @@ export default function ProbeTable() {
   if (!probes.length) {
     return (
       <div className="p-6 text-center">
-        <div className="text-[13px] font-medium">Keine Messpunkte</div>
-        <div className="mt-1 text-[11px] text-mute leading-snug">
+        <div className="text-sm font-medium">Keine Messpunkte</div>
+        <div className="mt-1 text-2xs text-ink-3 leading-snug">
           Platziere eine Spannungs- oder Stromsonde über die Werkzeugleiste oder per Rechtsklick auf eine Leitung.
         </div>
         <div className="mt-3 flex justify-center gap-2">
-          <button className="btn text-[11px]" onClick={() => useEditor.getState().addMeasurementProbe("voltage", 200, 200)}>
+          <button className="btn text-2xs" onClick={() => useEditor.getState().addMeasurementProbe("voltage", 200, 200)}>
             + V Probe
           </button>
-          <button className="btn text-[11px]" onClick={() => useEditor.getState().addMeasurementProbe("current", 240, 200)}>
+          <button className="btn text-2xs" onClick={() => useEditor.getState().addMeasurementProbe("current", 240, 200)}>
             + A Probe
           </button>
-          <button className="btn text-[11px]" onClick={() => useEditor.getState().addMeasurementProbe("ref", 280, 200)}>
+          <button className="btn text-2xs" onClick={() => useEditor.getState().addMeasurementProbe("ref", 280, 200)}>
             + REF
           </button>
         </div>
@@ -91,11 +91,11 @@ export default function ProbeTable() {
   return (
     <div className="h-full overflow-auto" role="region" aria-label="Messpunkte Tabelle – permanente Anzeige aller Probes">
       <table className="sr-only"><caption>Messwerte der Sonden – Name, Typ, Netz, Bezugspunkt, Vdc, Vrms, Vpp, Vavg und Frequenz.</caption></table>
-      <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 text-[10px] uppercase tracking-wide text-mute" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
+      <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 text-2xs uppercase tracking-wide text-ink-3 bg-surface border-b border-hairline">
         <span>Messpunkte</span>
         <span className="ml-auto mono">{rows.length} Probes</span>
         <button
-          className="btn h-6 px-2 text-[10px]"
+          className="btn h-6 px-2 text-2xs"
           onClick={() => {
             const csv = ["Name,Typ,Netz,REF,Vdc,Vrms,Vpp,Vavg,Freq", ...rows.map((r) => `${r.name},${r.kind},${r.net},${r.ref},${r.vdc},${r.vrms},${r.vpp},${r.vavg},${r.freq}`)].join("\n");
             const blob = new Blob([csv], { type: "text/csv" });
@@ -110,8 +110,8 @@ export default function ProbeTable() {
           CSV Export
         </button>
       </div>
-      <table className="w-full text-[11px]">
-        <thead className="sticky top-[33px] z-10 text-[10px] text-mute" style={{ background: "var(--surface-2)" }}>
+      <table className="w-full text-2xs">
+        <thead className="sticky top-[33px] z-10 text-2xs text-ink-3 bg-surface-2">
           <tr>
             <th className="px-2 py-1.5 text-left font-medium">Name</th>
             <th className="px-2 py-1.5 text-left font-medium">Typ</th>
@@ -137,20 +137,20 @@ export default function ProbeTable() {
             >
               <td className="px-2 py-1.5 flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full shrink-0" style={{ background: r.color }} />
-                <span className="font-medium" style={{ color: "var(--ink)" }}>
+                <span className="font-medium text-ink">
                   {r.name}
                 </span>
               </td>
-              <td className="px-2 py-1.5 text-dim">{r.kind}</td>
-              <td className="px-2 py-1.5" style={{ color: "var(--teal)" }}>
+              <td className="px-2 py-1.5 text-ink-2">{r.kind}</td>
+              <td className="px-2 py-1.5 text-teal">
                 {r.net || "—"}
               </td>
-              <td className="px-2 py-1.5 text-mute">{r.ref || "GND"}</td>
+              <td className="px-2 py-1.5 text-ink-3">{r.ref || "GND"}</td>
               <td className="px-2 py-1.5 text-right">{formatValue(r.vdc, "V")}</td>
-              <td className="px-2 py-1.5 text-right text-mute">{r.vrms ? formatValue(r.vrms, "V") : "—"}</td>
-              <td className="px-2 py-1.5 text-right text-mute">{r.vpp ? formatValue(r.vpp, "V") : "—"}</td>
-              <td className="px-2 py-1.5 text-right text-mute">{r.vavg ? formatValue(r.vavg, "V") : "—"}</td>
-              <td className="px-2 py-1.5 text-right text-mute">{r.freq > 0.1 ? `${r.freq.toFixed(1)} Hz` : "—"}</td>
+              <td className="px-2 py-1.5 text-right text-ink-3">{r.vrms ? formatValue(r.vrms, "V") : "—"}</td>
+              <td className="px-2 py-1.5 text-right text-ink-3">{r.vpp ? formatValue(r.vpp, "V") : "—"}</td>
+              <td className="px-2 py-1.5 text-right text-ink-3">{r.vavg ? formatValue(r.vavg, "V") : "—"}</td>
+              <td className="px-2 py-1.5 text-right text-ink-3">{r.freq > 0.1 ? `${r.freq.toFixed(1)} Hz` : "—"}</td>
             </tr>
           ))}
         </tbody>

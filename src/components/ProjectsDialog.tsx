@@ -69,19 +69,19 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="flex gap-2 mb-4">
         <input
-          className="input h-8 flex-1 text-[12px]"
+          className="input h-8 flex-1 text-xs"
           placeholder={`Name für aktuellen Stand (z. B. ${doc.name || "Verstärker V2"})`}
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && saveAs()}
         />
-        <button className="btn btn-primary h-8 px-3 text-[11.5px]" onClick={saveAs}>
+        <button className="btn btn-primary h-8 px-3 text-2xs" onClick={saveAs}>
           <Save size={12} /> Aktuellen Stand speichern
         </button>
       </div>
 
       {slots.length === 0 ? (
-        <div className="rounded-xl p-6 text-center text-[12px] text-mute" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
+        <div className="rounded-xl p-6 text-center text-xs text-ink-3 bg-surface border border-hairline">
           <FolderOpen size={18} className="mx-auto mb-2 opacity-60" />
           Noch keine gespeicherten Projekte.
           <br />
@@ -90,11 +90,11 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
       ) : (
         <div className="flex flex-col gap-1.5">
           {slots.map((s) => (
-            <div key={s.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
+            <div key={s.id} className="flex items-center gap-2 rounded-lg px-3 py-2 bg-surface border border-hairline">
               <div className="min-w-0 flex-1">
                 {editing === s.id ? (
                   <input
-                    className="input h-7 w-full text-[12px]"
+                    className="input h-7 w-full text-xs"
                     value={editName}
                     autoFocus
                     onChange={(e) => setEditName(e.target.value)}
@@ -109,14 +109,14 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
                   />
                 ) : (
                   <>
-                    <div className="truncate text-[12.5px] font-medium">{s.name}</div>
-                    <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-mute">
+                    <div className="truncate text-xs font-medium">{s.name}</div>
+                    <div className="mt-0.5 flex items-center gap-2 text-2xs text-ink-3">
                       <Clock size={10} /> {stamp(s.savedAt)} · {s.doc.instances.length} Bauteile · {sizeOf(s)}
                     </div>
                   </>
                 )}
               </div>
-              <button className="btn h-7 px-2.5 text-[11px]" onClick={() => open(s)} title="Projekt öffnen (ersetzt aktuellen Plan, Undo möglich)">
+              <button className="btn h-7 px-2.5 text-2xs" onClick={() => open(s)} title="Projekt öffnen (ersetzt aktuellen Plan, Undo möglich)" aria-label="Projekt öffnen (ersetzt aktuellen Plan, Undo möglich)">
                 <FolderOpen size={12} /> Öffnen
               </button>
               <button
@@ -131,7 +131,7 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
               </button>
               {confirmDel === s.id ? (
                 <button
-                  className="btn h-7 px-2.5 text-[11px]"
+                  className="btn h-7 px-2.5 text-2xs"
                   style={{ background: "var(--err)", color: "white", borderColor: "var(--err)" }}
                   onClick={() => {
                     deleteProjectSlot(s.id);
@@ -143,7 +143,7 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
                   Wirklich?
                 </button>
               ) : (
-                <button className="btn h-7 w-7 p-0" title="Löschen" onClick={() => setConfirmDel(s.id)}>
+                <button className="btn h-7 w-7 p-0" title="Löschen" aria-label="Löschen" onClick={() => setConfirmDel(s.id)}>
                   <Trash2 size={12} />
                 </button>
               )}
@@ -152,7 +152,7 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      <div className="mt-4 text-[10.5px] leading-relaxed text-mute">
+      <div className="mt-4 text-2xs leading-relaxed text-ink-3">
         Hinweis: „Öffnen“ ersetzt den aktuellen Plan – der vorherige Stand bleibt über Undo ({adaptShortcut("⌘Z", apple)}) und die
         Auto-Save-Arbeitskopie erreichbar, bis du weiterarbeitest.
       </div>

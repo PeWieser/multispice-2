@@ -23,14 +23,12 @@ export default function SheetTabs() {
 
   return (
     <div
-      className="flex h-[30px] shrink-0 items-center gap-1 overflow-x-auto px-2"
-      style={{ background: "var(--surface)", borderTop: "1px solid var(--hairline)" }}
+      className="flex h-[30px] shrink-0 items-center gap-1 overflow-x-auto px-2 bg-surface border-t border-hairline"
       role="tablist"
       aria-label="Geöffnete Schaltblätter"
     >
       <button
-        className="grid h-6 w-6 shrink-0 place-items-center rounded-md border"
-        style={{ background: "var(--surface-2)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-md border bg-surface-2 border-hairline text-ink-2"
         title="Neues Schaltblatt"
         aria-label="Neues Schaltblatt"
         onClick={() => newDocument()}
@@ -38,7 +36,7 @@ export default function SheetTabs() {
         <Plus size={13} />
       </button>
 
-      <div className="mx-1 h-4 w-px shrink-0" style={{ background: "var(--hairline)" }} />
+      <div className="mx-1 h-4 w-px shrink-0 bg-hairline" />
 
       {list.map((s) => {
         const active = s.id === docId;
@@ -81,7 +79,7 @@ export default function SheetTabs() {
               }
             }}
             onTouchEnd={() => setDragSheetId(null)}
-            className="group flex h-6 shrink-0 cursor-grab active:cursor-grabbing select-none items-center gap-1 rounded-md border px-2 text-[11px]"
+            className="group flex h-6 shrink-0 cursor-grab active:cursor-grabbing select-none items-center gap-1 rounded-md border px-2 text-2xs"
             style={{
               background: active ? "var(--tool-active-bg)" : "var(--surface-2)",
               borderColor: active ? "var(--tool-active-border)" : "var(--hairline)",

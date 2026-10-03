@@ -111,46 +111,38 @@ export default function DesktopTitleBar({
     window.multispiceDesktop?.windowControl(action);
   };
 
+  // Windows-Caption-Layout: 46×32-Schaltflächen bündig rechts, Schließen wird rot (#c42b1c).
   return (
     <div
-      className="flex h-7 shrink-0 select-none items-center justify-end px-2"
-      style={{
-        background: "var(--surface)",
-        borderBottom: "1px solid var(--hairline)",
-        color: "var(--ink-2)",
-        WebkitAppRegion: "drag",
-      } as React.CSSProperties}
+      className="flex h-8 shrink-0 select-none items-stretch bg-app text-ink-2"
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
-      <div
-        className="flex items-center gap-0.5"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
+      {/* W124: Leiste bleibt textfrei — der Titel geht an die Taskleiste. */}
+      <div className="flex-1" />
+      <div className="flex items-stretch" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         <button
           type="button"
           onClick={() => handleControl("minimize")}
-          title="Minimieren"
           aria-label="Fenster minimieren"
-          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+          className="grid h-full w-[46px] place-items-center text-ink-2 transition-colors duration-100 focus-visible:outline-offset-[-2px] hover:bg-surface-3 hover:text-ink"
         >
-          <Minus size={11} />
+          <Minus size={14} strokeWidth={1.5} />
         </button>
         <button
           type="button"
           onClick={() => handleControl("maximize")}
-          title={maximized ? "Wiederherstellen" : "Maximieren"}
           aria-label={maximized ? "Fenster wiederherstellen" : "Fenster maximieren"}
-          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+          className="grid h-full w-[46px] place-items-center text-ink-2 transition-colors duration-100 focus-visible:outline-offset-[-2px] hover:bg-surface-3 hover:text-ink"
         >
-          {maximized ? <Copy size={10} /> : <Square size={10} />}
+          {maximized ? <Copy size={12} strokeWidth={1.5} /> : <Square size={11} strokeWidth={1.5} />}
         </button>
         <button
           type="button"
           onClick={() => handleControl("close")}
-          title="Schließen"
           aria-label="Fenster schließen"
-          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[#dc2626] hover:text-white"
+          className="grid h-full w-[46px] place-items-center text-ink-2 transition-colors duration-100 focus-visible:outline-offset-[-2px] hover:bg-[#c42b1c] hover:text-white"
         >
-          <X size={11} />
+          <X size={15} strokeWidth={1.5} />
         </button>
       </div>
     </div>

@@ -478,8 +478,8 @@ export function LinePlot({
       <canvas ref={canvasRef} className="block h-full w-full" style={{ cursor: panning ? "grabbing" : "default" }} />
       {view && (
         <button
-          className="btn absolute right-2 top-1 z-10 px-1.5 py-0.5 text-[10px]"
-          title="Zoom zurücksetzen – Ansicht wieder automatisch eingepasst"
+          className="btn absolute right-2 top-1 z-10 px-1.5 py-0.5 text-2xs"
+          title="Zoom zurücksetzen – Ansicht wieder automatisch eingepasst" aria-label="Zoom zurücksetzen – Ansicht wieder automatisch eingepasst"
           onClick={() => setView(null)}
         >
           ⤢ Auto-Scale
@@ -492,7 +492,7 @@ export function LinePlot({
 function Legend({ names }: { names: string[] }) {
   if (names.length < 2) return null;
   return (
-    <div className="flex flex-wrap gap-x-3 gap-y-0.5 px-1 pb-1 text-[10.5px] text-mute">
+    <div className="flex flex-wrap gap-x-3 gap-y-0.5 px-1 pb-1 text-2xs text-ink-3">
       {names.map((n, i) => (
         <span key={n} className="flex items-center gap-1.5">
           <span className="inline-block h-[2px] w-4 rounded" style={{ background: `var(${SERIES_COLORS[i % SERIES_COLORS.length]})` }} />
@@ -519,15 +519,15 @@ export default function Grapher() {
   const docName = useEditor((s) => s.doc.name);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  if (analysis.running) return <div className="p-4 text-[12px] text-mute">Analyse „{ANALYSIS_MAP[analysis.kind]?.title ?? analysis.kind}“ läuft …</div>;
+  if (analysis.running) return <div className="p-4 text-xs text-ink-3">Analyse „{ANALYSIS_MAP[analysis.kind]?.title ?? analysis.kind}“ läuft …</div>;
   if (analysis.error)
     return (
-      <div className="p-4 text-[12px]" style={{ color: "var(--err)" }}>
+      <div className="p-4 text-xs text-err">
         ✕ {analysis.error}
       </div>
     );
   if (!analysis.data)
-    return <div className="p-4 text-[12px] text-mute">Noch keine Analyse ausgeführt — Menü „Analysen“ wählen.</div>;
+    return <div className="p-4 text-xs text-ink-3">Noch keine Analyse ausgeführt — Menü „Analysen“ wählen.</div>;
 
   const def = ANALYSIS_MAP[analysis.kind];
   const d = analysis.data as Record<string, unknown>;
@@ -542,18 +542,18 @@ export default function Grapher() {
 
   const head = (extra: string, csv?: () => void, png = true) => (
     <div className="flex shrink-0 items-center gap-2 px-3 pb-1.5 pt-2">
-      <span className="text-[12px] font-medium">{def?.title ?? analysis.kind}</span>
-      <span className="mono text-[10.5px] text-mute">
+      <span className="text-xs font-medium">{def?.title ?? analysis.kind}</span>
+      <span className="mono text-2xs text-ink-3">
         {analysis.durationMs} ms · {extra}
       </span>
       <div className="flex-1" />
       {png && (
-        <button className="btn py-1 text-[11.5px]" onClick={exportPng} title="Diagramm als PNG exportieren">
+        <button className="btn py-1 text-2xs" onClick={exportPng} title="Diagramm als PNG exportieren" aria-label="Diagramm als PNG exportieren">
           <ImageDown size={13} /> PNG
         </button>
       )}
       {csv && (
-        <button className="btn py-1 text-[11.5px]" onClick={csv} title="Daten als CSV exportieren">
+        <button className="btn py-1 text-2xs" onClick={csv} title="Daten als CSV exportieren" aria-label="Daten als CSV exportieren">
           <Download size={13} /> CSV
         </button>
       )}
@@ -643,11 +643,11 @@ export default function Grapher() {
             logY
             onCanvas={(c) => (canvasRef.current = c)}
           />
-          <div className="mono overflow-y-auto text-[11px]">
-            <div className="mb-1 text-[10px] uppercase text-mute">Hauptverursacher</div>
+          <div className="mono overflow-y-auto text-2xs">
+            <div className="mb-1 text-2xs uppercase text-ink-3">Hauptverursacher</div>
             {contributors.slice(0, 12).map((c) => (
               <div key={c.id} className="flex justify-between gap-2">
-                <span className="text-mute">{c.id}</span>
+                <span className="text-ink-3">{c.id}</span>
                 <span>{formatValue(Math.sqrt(c.contribution), "")}</span>
               </div>
             ))}
@@ -711,18 +711,18 @@ export default function Grapher() {
         )}
         <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 px-2 pb-2">
           <div className="flex min-h-0 flex-col">
-            <div className="px-1 pb-1 text-[10.5px] text-mute">Oberwellen</div>
+            <div className="px-1 pb-1 text-2xs text-ink-3">Oberwellen</div>
             <div className="flex min-h-0 flex-1 items-end gap-1.5">
               {harmonics.map((h) => (
                 <div key={h.n} className="flex h-full min-h-0 flex-1 flex-col items-center justify-end gap-1">
                   <div className="w-full rounded-t" style={{ height: `${Math.max((h.relative / maxRel) * 100, 1.5)}%`, background: h.n === 1 ? "var(--accent)" : "var(--ch3)" }} title={`${formatValue(h.freq, "Hz")}: ${formatValue(h.mag, "V")}`} />
-                  <span className="mono shrink-0 text-[9px] text-mute">{h.n}</span>
+                  <span className="mono shrink-0 text-2xs text-ink-3">{h.n}</span>
                 </div>
               ))}
             </div>
           </div>
           <div className="flex min-h-0 flex-col">
-            <div className="px-1 pb-1 text-[10.5px] text-mute">Spektrum</div>
+            <div className="px-1 pb-1 text-2xs text-ink-3">Spektrum</div>
             <div className="min-h-0 flex-1">
               <LinePlot panels={[{ series: [{ name: "Spektrum", x: sf, y: sdb }], yLabel: "dB" }]} xLabel="f (Hz)" logX onCanvas={(c) => (canvasRef.current = c)} />
             </div>
@@ -746,21 +746,21 @@ export default function Grapher() {
           ),
           false,
         )}
-        <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-auto px-3 pb-2 text-[11.5px] mono">
+        <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-auto px-3 pb-2 text-2xs mono">
           <div>
-            <div className="mb-1 text-[10px] uppercase text-mute">Knotenspannungen</div>
+            <div className="mb-1 text-2xs uppercase text-ink-3">Knotenspannungen</div>
             {names.map((k) => (
               <div key={k} className="flex justify-between">
-                <span className="text-mute">V({k})</span>
+                <span className="text-ink-3">V({k})</span>
                 <span>{formatValue(nodes[k], "V")}</span>
               </div>
             ))}
           </div>
           <div>
-            <div className="mb-1 text-[10px] uppercase text-mute">Zweigströme</div>
+            <div className="mb-1 text-2xs uppercase text-ink-3">Zweigströme</div>
             {Object.keys(currents).slice(0, 60).map((k) => (
               <div key={k} className="flex justify-between">
-                <span className="text-mute">{k}</span>
+                <span className="text-ink-3">{k}</span>
                 <span>{formatValue(currents[k], "A")}</span>
               </div>
             ))}
@@ -781,7 +781,7 @@ export default function Grapher() {
           false,
         )}
         <div className="flex min-h-0 flex-1 gap-4 px-3 pb-2">
-          <div className="mono shrink-0 space-y-0.5 text-[11.5px]">
+          <div className="mono shrink-0 space-y-0.5 text-2xs">
             <div>µ = {formatValue(Number(d.mean), "V")}</div>
             <div>σ = {formatValue(Number(d.sigma), "V")}</div>
             <div>min = {formatValue(Number(d.min), "V")}</div>
@@ -809,16 +809,16 @@ export default function Grapher() {
           ),
           false,
         )}
-        <div className="flex min-h-0 flex-1 gap-6 overflow-auto px-3 pb-2 text-[11.5px] mono">
+        <div className="flex min-h-0 flex-1 gap-6 overflow-auto px-3 pb-2 text-2xs mono">
           <div className="shrink-0 space-y-0.5">
             <div style={{ color: "var(--err)" }}>Min: {formatValue(Number(d.low), "V")}</div>
             <div style={{ color: "var(--ok)" }}>Max: {formatValue(Number(d.high), "V")}</div>
           </div>
           <div className="min-w-[280px] flex-1">
-            <div className="mb-1 text-[10px] uppercase text-mute">Empfindlichkeiten</div>
+            <div className="mb-1 text-2xs uppercase text-ink-3">Empfindlichkeiten</div>
             {sens.map((s) => (
               <div key={s.id + s.param} className="flex justify-between">
-                <span className="text-mute">{s.id}.{s.param}</span>
+                <span className="text-ink-3">{s.id}.{s.param}</span>
                 <span>{s.sensitivity.toFixed(3)}</span>
               </div>
             ))}
@@ -829,6 +829,6 @@ export default function Grapher() {
   }
 
   return (
-    <pre className="mono h-full overflow-auto p-3 text-[10.5px] leading-relaxed text-dim">{JSON.stringify(analysis.data, null, 2).slice(0, 8000)}</pre>
+    <pre className="mono h-full overflow-auto p-3 text-2xs leading-relaxed text-ink-2">{JSON.stringify(analysis.data, null, 2).slice(0, 8000)}</pre>
   );
 }

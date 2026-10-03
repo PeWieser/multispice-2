@@ -116,8 +116,14 @@ export interface SchematicDoc {
   junctions?: Junction[];
 }
 
+// Das allererste Blatt bekommt eine feste ID, damit Server-HTML (statischer
+// Export) und Client-Hydration übereinstimmen. Alle weiteren sind zufällig.
+let firstDoc = true;
+
 export function emptyDoc(name = "Neue Schaltung"): SchematicDoc {
-  return { id: "sch_" + Math.random().toString(36).slice(2, 9), name, instances: [], wires: [], labels: [], notes: [], probes: [], junctions: [] };
+  const id = firstDoc ? "sch_initial" : "sch_" + Math.random().toString(36).slice(2, 9);
+  firstDoc = false;
+  return { id, name, instances: [], wires: [], labels: [], notes: [], probes: [], junctions: [] };
 }
 
 /* ----------------------------- geometry ----------------------------- */

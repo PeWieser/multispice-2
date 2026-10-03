@@ -3278,7 +3278,7 @@ export default function Canvas() {
                   type="button"
                   className="btn h-8 shrink-0 px-2 text-[11.5px]"
                   onClick={() => useEditor.getState().setSelection([])}
-                  title="Auswahl aufheben"
+                  title="Auswahl aufheben" aria-label="Auswahl aufheben"
                 >
                   ✕
                 </button>
@@ -3367,17 +3367,17 @@ function ContextMenu({
                 <>
                   <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute">Anordnen – {n} Bauteile (W55)</div>
                   <div className="grid grid-cols-3 gap-1 mb-1">
-                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("left"))} title="Links ausrichten">⇤ links</button>
-                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("centerH"))} title="Waagerecht mittig">↔ Mitte</button>
-                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("right"))} title="Rechts ausrichten">⇥ rechts</button>
-                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("top"))} title="Oben ausrichten">⇧ oben</button>
-                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("centerV"))} title="Senkrecht mittig">↕ Mitte</button>
-                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("bottom"))} title="Unten ausrichten">⇩ unten</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("left"))} title="Links ausrichten" aria-label="Links ausrichten">⇤ links</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("centerH"))} title="Waagerecht mittig" aria-label="Waagerecht mittig">↔ Mitte</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("right"))} title="Rechts ausrichten" aria-label="Rechts ausrichten">⇥ rechts</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("top"))} title="Oben ausrichten" aria-label="Oben ausrichten">⇧ oben</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("centerV"))} title="Senkrecht mittig" aria-label="Senkrecht mittig">↕ Mitte</button>
+                    <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.alignSelection("bottom"))} title="Unten ausrichten" aria-label="Unten ausrichten">⇩ unten</button>
                   </div>
                   {n >= 3 && (
                     <div className="grid grid-cols-2 gap-1 mb-1">
-                      <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.distributeSelection("h"))} title="Gleicher Abstand waagerecht">⇹ verteilen</button>
-                      <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.distributeSelection("v"))} title="Gleicher Abstand senkrecht">⇳ verteilen</button>
+                      <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.distributeSelection("h"))} title="Gleicher Abstand waagerecht" aria-label="Gleicher Abstand waagerecht">⇹ verteilen</button>
+                      <button className="row justify-center text-[10.5px]" onClick={() => act(() => st.distributeSelection("v"))} title="Gleicher Abstand senkrecht" aria-label="Gleicher Abstand senkrecht">⇳ verteilen</button>
                     </div>
                   )}
                   <div className="sep" />

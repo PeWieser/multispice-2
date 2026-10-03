@@ -16,14 +16,14 @@ export function LeadBanner({
 }) {
   return (
     <div
-      className="pointer-events-auto fixed left-1/2 top-3 z-[60] flex max-w-[min(920px,92vw)] -translate-x-1/2 items-center gap-3 rounded-full bg-black/85 px-5 py-2 text-[13px] text-white shadow-xl"
+      className="pointer-events-auto fixed left-1/2 top-3 z-popover flex max-w-[min(920px,92vw)] -translate-x-1/2 items-center gap-3 rounded-full bg-black/85 px-5 py-2 text-sm text-white shadow-xl"
       style={{ boxShadow: `0 0 0 2px ${color}` }}
     >
       <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
       <span>
         <b>{title}</b> {hint}
       </span>
-      <button className="shrink-0 rounded-full bg-white/15 px-3 py-0.5 text-[12px] hover:bg-white/25" onClick={onCancel}>
+      <button className="shrink-0 rounded-full bg-white/15 px-3 py-0.5 text-xs hover:bg-white/25" onClick={onCancel}>
         Zurückstecken
       </button>
     </div>

@@ -57,11 +57,7 @@ function MacSegmented<T extends string>({
 }) {
   return (
     <div
-      className="inline-flex rounded-[7px] p-0.5 text-[11px]"
-      style={{
-        background: "var(--app)",
-        border: "1px solid var(--hairline)",
-      }}
+      className="inline-flex rounded-field p-0.5 text-2xs bg-app border border-hairline"
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -70,7 +66,7 @@ function MacSegmented<T extends string>({
             key={opt.value}
             type="button"
             onClick={() => onChange(opt.value)}
-            className="rounded-[5px] px-2.5 py-1 font-medium transition-all"
+            className="rounded-control px-2.5 py-1 font-medium transition-all"
             style={{
               background: active ? "var(--surface-2)" : "transparent",
               color: active ? "var(--ink)" : "var(--ink-3)",
@@ -95,17 +91,12 @@ function SettingsGroup({
   return (
     <div className="mb-4 last:mb-0">
       {title && (
-        <div className="mb-1.5 px-1 text-[11px] font-semibold tracking-tight text-dim">
+        <div className="mb-1.5 px-1 text-2xs font-semibold tracking-tight text-ink-2">
           {title}
         </div>
       )}
       <div
-        className="divide-y overflow-hidden rounded-[10px]"
-        style={{
-          background: "var(--surface-2)",
-          border: "1px solid var(--hairline)",
-          borderColor: "var(--hairline)",
-        }}
+        className="divide-y overflow-hidden rounded-panel bg-surface-2 border border-hairline border-hairline"
       >
         {children}
       </div>
@@ -124,13 +115,12 @@ function SettingsRow({
 }) {
   return (
     <div
-      className="flex items-center justify-between gap-4 px-3.5 py-2.5"
-      style={{ borderColor: "var(--hairline)" }}
+      className="flex items-center justify-between gap-4 px-3.5 py-2.5 border-hairline"
     >
       <div className="min-w-0">
-        <div className="text-[12px] font-medium text-[var(--ink)]">{title}</div>
+        <div className="text-xs font-medium text-ink">{title}</div>
         {subtitle && (
-          <div className="mt-0.5 text-[11px] leading-snug text-mute">{subtitle}</div>
+          <div className="mt-0.5 text-2xs leading-snug text-ink-3">{subtitle}</div>
         )}
       </div>
       <div className="shrink-0">{children}</div>
@@ -205,11 +195,7 @@ export default function SettingsDialog({
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
           {/* Sidebar */}
           <aside
-            className="flex shrink-0 gap-1 overflow-x-auto p-2 sm:w-[176px] sm:flex-col sm:overflow-visible sm:p-2.5"
-            style={{
-              background: "var(--app)",
-              borderRight: "1px solid var(--hairline)",
-            }}
+            className="flex shrink-0 gap-1 overflow-x-auto p-2 sm:w-[176px] sm:flex-col sm:overflow-visible sm:p-2.5 bg-app border-r border-hairline"
           >
             {navItems.map((item) => {
               const active = section === item.id;
@@ -218,7 +204,7 @@ export default function SettingsDialog({
                   key={item.id}
                   type="button"
                   onClick={() => setSection(item.id)}
-                  className="flex items-center gap-2.5 rounded-[7px] px-2.5 py-1.5 text-left text-[12px] font-medium whitespace-nowrap transition-colors"
+                  className="flex items-center gap-2.5 rounded-field px-2.5 py-1.5 text-left text-xs font-medium whitespace-nowrap transition-colors"
                   style={{
                     background: active
                       ? "rgba(245, 158, 11, 0.16)"
@@ -467,11 +453,7 @@ function SymbolPreviewCard({
 }) {
   return (
     <div
-      className="flex flex-col items-center rounded-[8px] p-2"
-      style={{
-        background: "var(--app)",
-        border: "1px solid var(--hairline)",
-      }}
+      className="flex flex-col items-center rounded-field p-2 bg-app border border-hairline"
     >
       <svg width="88" height="36" viewBox="-44 -18 88 36">
         {kind === "R" &&
@@ -511,7 +493,7 @@ function SymbolPreviewCard({
           </g>
         )}
       </svg>
-      <div className="mt-1 text-[10px] text-mute">{label}</div>
+      <div className="mt-1 text-2xs text-ink-3">{label}</div>
     </div>
   );
 }

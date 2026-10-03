@@ -490,7 +490,7 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
           </div>
           <div className="flex items-center gap-8 px-4 pt-4" style={{ height: 76 }}>
             <div className="flex flex-col items-center gap-1">
-              <button className="power-btn" onClick={togglePower} title="Netzschalter">
+              <button className="power-btn" onClick={togglePower} title="Netzschalter" aria-label="Netzschalter">
                 <svg width="24" height="24" viewBox="0 0 24 24">
                   <circle cx="12" cy="12" r="11" fill={power ? '#3cff5c' : '#9aa'} style={{ filter: power ? 'drop-shadow(0 0 6px #3cff5c)' : undefined }} />
                   <path d="M12 5v7M8 7.5a6 6 0 1 0 8 0" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" />

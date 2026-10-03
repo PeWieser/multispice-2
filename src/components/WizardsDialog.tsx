@@ -394,14 +394,14 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
         <div className="w-[210px] shrink-0 space-y-3">
           {groups.map((grp) => (
             <div key={grp} className="space-y-0.5">
-              <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-mute">
+              <div className="px-2 pb-1 text-2xs font-medium uppercase tracking-wider text-ink-3">
                 {grp}
               </div>
               {WIZARDS.filter((w) => w.group === grp).map((w) => (
                 <button
                   key={w.id}
                   type="button"
-                  className="tab flex w-full items-center px-2.5 py-1.5 text-left text-[12px]"
+                  className="tab flex w-full items-center px-2.5 py-1.5 text-left text-xs"
                   data-active={kind === w.id}
                   onClick={() => setKind(w.id)}
                 >
@@ -413,20 +413,19 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         <div
-          className="flex flex-1 flex-col justify-between rounded-lg p-4"
-          style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}
+          className="flex flex-1 flex-col justify-between rounded-lg p-4 bg-surface-2 border border-hairline"
         >
           <div className="space-y-4">
-            <div className="flex items-baseline justify-between border-b pb-2.5" style={{ borderColor: "var(--hairline)" }}>
-              <div className="text-[13px] font-semibold">{active.title}</div>
-              <div className="mono rounded px-2 py-0.5 text-[11px]" style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--ink-2)" }}>
+            <div className="flex items-baseline justify-between border-b pb-2.5 border-hairline">
+              <div className="text-sm font-semibold">{active.title}</div>
+              <div className="mono rounded px-2 py-0.5 text-2xs bg-surface border border-hairline text-ink-2">
                 {active.formula}
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               {(kind === "voltage_divider" || kind === "halfwave" || kind === "buck_converter") && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>Eingangsspannung U_ein (V)</span>
                   <input
                     className="input mono"
@@ -438,7 +437,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
               )}
 
               {(kind === "555_astable" || kind === "opamp_follower" || kind === "halfwave") && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>Frequenz f (Hz)</span>
                   <input
                     className="input mono"
@@ -450,7 +449,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
               )}
 
               {(kind === "rc_lowpass" || kind === "rc_highpass" || kind === "rl_lowpass" || kind === "rlc_bandpass") && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>{kind === "rlc_bandpass" ? "Resonanzfrequenz f_0 (Hz)" : "Grenzfrequenz f_c (Hz)"}</span>
                   <input
                     className="input mono"
@@ -462,7 +461,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
               )}
 
               {(kind === "rc_lowpass" || kind === "rc_highpass" || kind === "555_astable") && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>Kapazität C1 (F)</span>
                   <input
                     className="input mono"
@@ -475,7 +474,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
               )}
 
               {(kind === "rl_lowpass" || kind === "rlc_bandpass") && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>Induktivität L1 (H)</span>
                   <input
                     className="input mono"
@@ -488,7 +487,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
               )}
 
               {(kind === "opamp_noninverter" || kind === "opamp_inverter") && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>Betragsverstärkung |A_v|</span>
                   <input
                     className="input mono"
@@ -506,7 +505,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
                 kind === "opamp_inverter" ||
                 kind === "bjt_ce" ||
                 kind === "halfwave") && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>
                     {kind === "bjt_ce"
                       ? "Kollektorwiderstand RC (Ω)"
@@ -524,7 +523,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
               )}
 
               {(kind === "voltage_divider" || kind === "bjt_ce") && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>{kind === "bjt_ce" ? "Emitterwiderstand RE (Ω)" : "Widerstand R2 (Ω)"}</span>
                   <input
                     className="input mono"
@@ -536,7 +535,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
               )}
 
               {kind === "buck_converter" && (
-                <label className="space-y-1 text-[11px] text-dim">
+                <label className="space-y-1 text-2xs text-ink-2">
                   <span>Tastgrad D (%)</span>
                   <input
                     className="input mono"
@@ -551,14 +550,14 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="mt-6 rounded-md p-3" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
-            <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-mute">
+          <div className="mt-6 rounded-md p-3 bg-surface border border-hairline">
+            <div className="mb-2 text-2xs font-medium uppercase tracking-wider text-ink-3">
               Dimensionierung
             </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11.5px]">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-2xs">
               {calc.map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between">
-                  <span className="text-mute">{k}</span>
+                  <span className="text-ink-3">{k}</span>
                   <span className="mono font-medium">{v}</span>
                 </div>
               ))}

@@ -48,8 +48,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
 
   return (
     <footer
-      className="flex h-[30px] shrink-0 items-center gap-2 px-2.5 text-[11px] text-mute"
-      style={{ background: "var(--surface)", borderTop: "1px solid var(--hairline)" }}
+      className="flex h-[30px] shrink-0 items-center gap-2 px-2.5 text-2xs text-ink-3 bg-surface border-t border-hairline"
     >
       {/* Links: Schaltblatt-Reiter (+ legt ein neues Blatt an, Klick wechselt, Ziehen sortiert um, × schließt) */}
       <div
@@ -59,8 +58,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
       >
         <button
           type="button"
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-md border transition-colors"
-          style={{ background: "var(--surface-2)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md border transition-colors bg-surface-2 border-hairline text-ink-2"
           title="Neues Schaltblatt"
           aria-label="Neues Schaltblatt"
           onClick={() => newDocument()}
@@ -68,7 +66,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
           <Plus size={13} />
         </button>
 
-        <div className="mx-0.5 h-4 w-px shrink-0" style={{ background: "var(--hairline)" }} />
+        <div className="mx-0.5 h-4 w-px shrink-0 bg-hairline" />
 
         {list.map((s) => {
           const active = s.id === docId;
@@ -125,7 +123,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
                 setDragSheetId(null);
                 setDragOverId(null);
               }}
-              className="group flex h-6 shrink-0 cursor-grab active:cursor-grabbing select-none items-center gap-1 rounded-md border px-2 text-[11px] transition-colors"
+              className="group flex h-6 shrink-0 cursor-grab active:cursor-grabbing select-none items-center gap-1 rounded-md border px-2 text-2xs transition-colors"
               style={{
                 background: active ? "var(--tool-active-bg)" : "var(--surface-2)",
                 borderColor: isDragOver

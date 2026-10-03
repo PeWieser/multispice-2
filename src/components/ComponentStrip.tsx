@@ -9,6 +9,7 @@ import { PartGlyph } from "@/components/PartGlyphs";
 import { resolveSymbolStyle } from "@/lib/settings";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ChevronDown, Library as LibraryIcon } from "lucide-react";
+import { ToolGroup, cx } from "./ui";
 
 /* W7 / W69 / W73 / W88 / W97: Luftige, klar gegliederte Werkzeugleiste:
    1. Bibliothek-Button links (Eingangstür zu allen 410 Bauteilen)
@@ -97,21 +98,15 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
 
   return (
     <div
-      className="flex h-11 shrink-0 items-center gap-3 overflow-x-auto no-scrollbar border-b px-3.5"
-      style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
+      className="flex h-11 shrink-0 items-center gap-3 overflow-x-auto no-scrollbar border-b px-3.5 border-hairline bg-surface"
     >
       <button
         type="button"
-        className="btn h-8 shrink-0 gap-2 px-3 text-[11.5px] font-semibold"
-        style={
-          libraryOpen
-            ? {
-                background: "var(--tool-active-bg)",
-                borderColor: "var(--tool-active-border)",
-                color: "var(--tool-active-text)",
-              }
-            : undefined
-        }
+        aria-pressed={libraryOpen}
+        className={cx(
+          "pressable ring-focus inline-flex h-8 shrink-0 items-center gap-2 rounded-field px-3 text-xs font-semibold",
+          libraryOpen ? "bg-accent-soft text-accent shadow-[inset_0_0_0_0.5px_var(--accent-mid)]" : "text-ink-2 hover:bg-surface-3 hover:text-ink",
+        )}
         onClick={toggleLibrary}
         title={adaptShortcut("Bauteil-Bibliothek öffnen (⌘K)", apple)}
       >
@@ -119,10 +114,10 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
         <span className="hidden sm:inline">Bibliothek</span>
       </button>
 
-      <div className="h-5 w-px shrink-0" style={{ background: "var(--hairline-strong)" }} />
+      <div className="h-5 w-px shrink-0 bg-hairline" />
 
       {/* 1. Grundbauteile (R, C, L, VDC, GND) – großzügige Schaltzeichen-Kacheln */}
-      <div className="flex shrink-0 items-center gap-1.5" role="group" aria-label="Schnell-Bauteile">
+      <ToolGroup label="Schnell-Bauteile">
         {quickParts.map((p) => {
           const active = placing === p.id;
           return (
@@ -149,15 +144,10 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
                 window.addEventListener("pointerup", onUp);
               }}
               onDragStart={(e) => e.preventDefault()}
-              className="grid h-8 w-10 shrink-0 place-items-center rounded-md border transition-colors"
-              style={{
-                background: active ? "var(--tool-active-bg)" : "var(--surface-2)",
-                color: active ? "var(--tool-active-text)" : "var(--ink)",
-                borderColor: active ? "var(--tool-active-border)" : "var(--hairline)",
-                boxShadow: active
-                  ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"
-                  : "none",
-              }}
+              className={cx(
+                "pressable ring-focus grid h-7 w-9 shrink-0 place-items-center rounded-[8px]",
+                active ? "bg-accent-soft text-accent shadow-[inset_0_0_0_0.5px_var(--accent-mid)]" : "text-ink hover:bg-surface-3",
+              )}
               title={`${p.name} – platzieren (R = drehen, M = spiegeln)`}
               aria-label={p.name}
               aria-pressed={active}
@@ -167,16 +157,16 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
             </button>
           );
         })}
-      </div>
+      </ToolGroup>
 
-      <div className="h-5 w-px shrink-0" style={{ background: "var(--hairline-strong)" }} />
+      <div className="h-5 w-px shrink-0 bg-hairline" />
 
       {/* 2. Zeichenwerkzeuge (Auswahl, [Stift | Radiergummi | Knotenpunkt], [Netzname | Notiz]) */}
       {tools ? <div className="flex shrink-0 items-center">{tools}</div> : null}
-      {tools ? <div className="h-5 w-px shrink-0" style={{ background: "var(--hairline-strong)" }} /> : null}
+      {tools ? <div className="h-5 w-px shrink-0 bg-hairline" /> : null}
 
       {/* 3. Messsonden (Probes) – V & A direkt + Dropdown für Spezial-Sonden */}
-      <div className="flex shrink-0 items-center gap-1.5" role="group" aria-label="Messsonden">
+      <ToolGroup label="Messsonden">
         {PRIMARY_PROBES.map((b) => {
           const active = placingProbe === b.k;
           return (
@@ -184,19 +174,10 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
               key={b.k}
               type="button"
               aria-pressed={active}
-              className="flex h-8 shrink-0 items-center gap-2 rounded-full border pl-2 pr-3 text-[11.5px] font-semibold leading-none transition-colors"
-              style={{
-                borderColor: active
-                  ? "var(--tool-active-border)"
-                  : `color-mix(in srgb, ${b.c} 42%, var(--hairline))`,
-                background: active
-                  ? "var(--tool-active-bg)"
-                  : `color-mix(in srgb, ${b.c} 10%, var(--surface-2))`,
-                color: active ? "var(--tool-active-text)" : "var(--ink)",
-                boxShadow: active
-                  ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"
-                  : "none",
-              }}
+              className={cx(
+                "pressable ring-focus flex h-7 shrink-0 items-center gap-2 rounded-full pl-2 pr-3 text-xs font-semibold leading-none",
+                active ? "bg-accent-soft text-accent shadow-[inset_0_0_0_0.5px_var(--accent-mid)]" : "text-ink hover:bg-surface-3",
+              )}
               title={b.key ? `${b.t} (${b.key})` : b.t}
               onClick={() => setPlacingProbe(active ? null : b.k)}
             >
@@ -218,20 +199,15 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
           type="button"
           aria-expanded={probeMenuOpen}
           aria-haspopup="menu"
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border pl-2.5 pr-2.5 text-[11.5px] font-semibold leading-none transition-colors"
-          style={{
-            borderColor: activeExtraProbe
-              ? "var(--tool-active-border)"
+          className={cx(
+            "pressable ring-focus flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold leading-none",
+            activeExtraProbe
+              ? "bg-accent-soft text-accent shadow-[inset_0_0_0_0.5px_var(--accent-mid)]"
               : probeMenuOpen
-                ? "var(--hairline-strong)"
-                : "var(--hairline)",
-            background: activeExtraProbe ? "var(--tool-active-bg)" : "var(--surface-2)",
-            color: activeExtraProbe ? "var(--tool-active-text)" : "var(--ink-2)",
-            boxShadow: activeExtraProbe
-              ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"
-              : "none",
-          }}
-          title="Weitere Messsonden (V·A, Leistung W, Differenz ΔV, Referenz REF, Digital D)"
+                ? "bg-surface-3 text-ink"
+                : "text-ink-2 hover:bg-surface-3 hover:text-ink",
+          )}
+          title="Weitere Messsonden (V·A, Leistung W, Differenz ΔV, Referenz REF, Digital D)" aria-label="Weitere Messsonden (V·A, Leistung W, Differenz ΔV, Referenz REF, Digital D)"
           onClick={toggleProbeMenu}
         >
           {activeExtraProbe ? (
@@ -255,16 +231,13 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
               ref={menuRef}
               role="menu"
               aria-label="Weitere Messsonden"
-              className="fixed z-[120] min-w-[210px] rounded-xl border p-1.5 shadow-2xl"
+              className="rise fixed z-popover min-w-[232px] rounded-panel bg-overlay p-1 shadow-3 backdrop-blur-xl backdrop-saturate-150"
               style={{
                 left: menuPos.left,
                 top: menuPos.top,
-                background: "var(--surface)",
-                borderColor: "var(--hairline-strong)",
-                boxShadow: "var(--shadow-3)",
               }}
             >
-              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-mute">
+              <div className="px-2 py-1 text-2xs font-semibold uppercase tracking-wider text-ink-3">
                 Spezial-Messsonden
               </div>
               {EXTRA_PROBES.map((b) => {
@@ -274,7 +247,7 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
                     key={b.k}
                     type="button"
                     role="menuitem"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
                     style={
                       active
                         ? {
@@ -293,14 +266,14 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
                       style={{ background: b.c }}
                     />
                     <span className="mono w-9 font-semibold">{b.l}</span>
-                    <span className="flex-1 text-[11.5px] text-dim">{b.t}</span>
+                    <span className="flex-1 text-2xs text-ink-2">{b.t}</span>
                   </button>
                 );
               })}
             </div>,
             document.body,
           )}
-      </div>
+      </ToolGroup>
     </div>
   );
 }

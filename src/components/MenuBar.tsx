@@ -108,7 +108,7 @@ export default function MenuBar({
     return (
       <div className="flex flex-col gap-3">
         <div className="space-y-1">
-          <div className="px-2 text-[10px] uppercase tracking-wide text-mute">Datei</div>
+          <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Datei</div>
           <button className="btn w-full justify-start" onClick={() => st().newDocument()}>Neuer Schaltplan</button>
           <button className="btn w-full justify-start" onClick={triggerOpenFile}>Öffnen / Importieren …</button>
           <button className="btn w-full justify-start" onClick={() => void st().saveProject()}>Speichern</button>
@@ -122,45 +122,45 @@ export default function MenuBar({
           <button className="btn w-full justify-start" onClick={printSheet}>Drucken / PDF …</button>
         </div>
         <div className="space-y-1">
-          <div className="px-2 text-[10px] uppercase tracking-wide text-mute">Bearbeiten</div>
+          <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Bearbeiten</div>
           <button className="btn w-full justify-start" disabled={!hasSelection} onClick={() => st().copySelection()}>Kopieren</button>
           <button className="btn w-full justify-start" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</button>
           <button className="btn w-full justify-start" disabled={!hasSelection} onClick={() => st().duplicateSelection()}>Duplizieren</button>
           <button className="btn w-full justify-start" disabled={!hasWireSelection} onClick={() => st().straightenSelection()}>Leitungen begradigen</button>
         </div>
         <div className="space-y-1">
-          <div className="px-2 text-[10px] uppercase tracking-wide text-mute">Ansicht</div>
+          <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Ansicht</div>
           <button className="btn w-full justify-start" onClick={() => st().fitView()}>Schaltplan einpassen</button>
           <button className="btn w-full justify-start" onClick={() => st().toggleBottom()}>Auswertung &amp; Konsole</button>
           <button className="btn w-full justify-start" onClick={() => onSettings?.()}>Einstellungen …</button>
         </div>
         <div className="space-y-1">
-          <div className="px-2 text-[10px] uppercase tracking-wide text-mute">Vorlagen</div>
+          <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Vorlagen</div>
           {PRESETS.map((p) => (
-            <button key={p.id} className="btn w-full justify-start text-[11px]" onClick={() => st().loadPreset(p.id)}>
+            <button key={p.id} className="btn w-full justify-start text-2xs" onClick={() => st().loadPreset(p.id)}>
               {p.name}
             </button>
           ))}
           {onWizards && (
-            <button className="btn w-full justify-start text-[11px]" onClick={() => onWizards()}>
+            <button className="btn w-full justify-start text-2xs" onClick={() => onWizards()}>
               Schaltungs-Assistenten …
             </button>
           )}
         </div>
         <div className="space-y-1">
-          <div className="px-2 text-[10px] uppercase tracking-wide text-mute">Analysen</div>
+          <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Analysen</div>
           {ANALYSIS_DEFS.map((a) => (
-            <button key={a.kind} className="btn w-full justify-start text-[11px]" onClick={() => (a.direct ? runDirect(a.kind) : onAnalysis(a.kind))}>
+            <button key={a.kind} className="btn w-full justify-start text-2xs" onClick={() => (a.direct ? runDirect(a.kind) : onAnalysis(a.kind))}>
               {a.title} ({a.spice})
             </button>
           ))}
         </div>
         <div className="space-y-1">
-          <div className="px-2 text-[10px] uppercase tracking-wide text-mute">Geräte</div>
+          <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Geräte</div>
           {INSTRUMENT_ITEMS.map(([kind, title]) => (
             <button
               key={kind}
-              className="btn w-full justify-start text-[11px]"
+              className="btn w-full justify-start text-2xs"
               onClick={() =>
                 kind === "scope"
                   ? st().setPlacing("oscilloscope")
@@ -190,8 +190,7 @@ export default function MenuBar({
 
   return (
     <header
-      className="flex h-9 shrink-0 items-center gap-0.5 px-2.5 text-[12px]"
-      style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}
+      className="flex h-9 shrink-0 items-center gap-0.5 px-2.5 text-xs bg-surface border-b border-hairline"
     >
       <Menu label="Datei" {...menuProps("datei")}>
         <MenuItem onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
@@ -293,7 +292,7 @@ export default function MenuBar({
         ))}
       </Menu>
 
-      <div className="mx-2 h-4 w-px" style={{ background: "var(--hairline)" }} />
+      <div className="mx-2 h-4 w-px bg-hairline" />
 
       <div className="flex items-center gap-0.5">
         <Tooltip content="Rückgängig (⌘Z)" side="bottom">
@@ -308,7 +307,7 @@ export default function MenuBar({
         </Tooltip>
       </div>
 
-      <div className="mx-1 h-4 w-px" style={{ background: "var(--hairline)" }} />
+      <div className="mx-1 h-4 w-px bg-hairline" />
 
       <div className="flex items-center gap-1">
         <Tooltip content={running ? "Pause (Leertaste)" : "Start (Leertaste)"} side="bottom">
@@ -317,7 +316,7 @@ export default function MenuBar({
             onClick={() => (running ? st().pauseSim() : st().startSim())}
           >
             {running ? <Pause size={12} /> : <Play size={12} />}
-            <span className="ml-1 hidden sm:inline text-[11px]">{running ? "Pause" : "Start"}</span>
+            <span className="ml-1 hidden sm:inline text-2xs">{running ? "Pause" : "Start"}</span>
           </button>
         </Tooltip>
         <Tooltip content="Stoppen" side="bottom">
