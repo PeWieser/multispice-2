@@ -2746,3 +2746,80 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
 - **`W129` (`desktop/main.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
   - `public/favicon.png` (`512×512`) als Windows-`.exe`- und Fenster-Icon eingebunden, `"compression": "store"` für verzögerungsfreien Start der Portable-Version aktiviert und sofortiges minimalistisches Splash-Fenster (`createSplashWindow`) mit Repo-Favicon und feiner Ladeanimation beim Programmstart ergänzt.
 
+---
+
+## §40 — Runde 39 (`W130–W136`): Echtes Datei-Speichern mit Auto-Save nach Erstspeicherung, Vektor-Druck & PDF-Export, Bibliotheks-Klickverhalten, echtes Klicken-Halten-Ziehen, blitzfreie Kindfenster, proportionale Gerätefenster & sofortiger Portable-Splash
+
+### 40.1 Analyse & Plan (`W130–W136`)
+
+1. **`W130` — Echtes Datei-Speichern, Öffnen & automatisches Nachspeichern nach dem ersten Speichern (Windows & Browser)**:
+   - **Ursache**:
+     - Bisher schrieb `Datei → Lokal speichern (⌘S)` nur in `localStorage` (`multispice.project.v1`), erzeugte aber keine echte Datei auf der Festplatte.
+     - Zudem lauschte der lokale HTTP-Server in `desktop/main.cjs` auf `server.listen(0, "127.0.0.1")` (zufälliger Port pro Start), wodurch sich der `localStorage`-Origin bei jedem Neustart der Windows-App änderte.
+   - **Lösung**:
+     - **Fester Port + native AppData-Persistenz unter Windows**: `desktop/main.cjs` nutzt einen festen Vorzugsport (`17531`, Fallback `17532..17545`) und spiegelt den Arbeitsstand zusätzlich nach `app.getPath("userData")/workspace-state.json`.
+     - **Echtes Speichern & Speichern unter (`Strg+S` / `Strg+Umschalt+S`)**:
+       - Beim **ersten Speichern** (`Strg+S` oder `Datei → Speichern`) öffnet sich unter Windows der native Windows-Speicherdialog (`dialog.showSaveDialog`, `.msx.json`) bzw. im Browser die File System Access API (`window.showSaveFilePicker`, mit `.msx.json`-Download-Fallback).
+       - Sobald die Datei **einmal gespeichert** (oder über `Datei → Öffnen …` geöffnet) wurde, merkt sich MultiSpice den Dateipfad (`currentFilePath` in Windows) bzw. das Datei-Handle (`activeBrowserFileHandle` im Browser).
+       - **Ab diesem Moment speichert der Auto-Save (`scheduleAutosave`) jede Änderung automatisch direkt in diese Datei nach** (zusätzlich zum Arbeitskopie-Speicher), und ein erneutes `Strg+S` schreibt sofort ohne erneuten Dialog in dieselbe Datei. `Speichern unter …` (`Strg+Umschalt+S`) fragt jederzeit nach einem neuen Speicherort.
+
+2. **`W131` — Drucken (`Strg+P`) & PDF-/Datei-Export in Browser und Windows-App reparieren**:
+   - **Ursache**:
+     - `PrintSheet` in `Workbench.tsx` versuchte kurz vor `window.print()` per `c.toDataURL("image/png")` einen Screenshot des (oft dunklen) Canvas in ein `<img>` zu laden, das beim Öffnen der Druckvorschau oft noch nicht dekodiert war.
+     - `exportPdf` in `src/lib/export/sheet.ts` rief `window.open("", "_blank")` auf – in Electron (`desktop/main.cjs`) blockierte `setWindowOpenHandler(() => ({ action: "deny" }))` jedes `about:blank`-Popup komplett!
+   - **Lösung**:
+     - `PrintSheet` rendert das gestochen scharfe, papierweiße Vektor-Schaltblatt (`docToSvg(doc, { frame: false })`) **synchron als Inline-SVG** direkt im DOM – sofort bereit für `Strg+P` und `window.print()`.
+     - In der Windows-App (`desktop/main.cjs`) erzeugt `Export PDF` über `webContents.printToPDF({ landscape: true, pageSize: "A4", printBackground: true })` + nativen Speicherdialog eine echte `.pdf`-Datei direkt auf der Festplatte, und `Drucken …` öffnet über ein sauberes Vektor-Druckfenster verlässlich den nativen Windows-Druckdialog.
+
+3. **`W132` — Bibliothek schließt sich nicht beim einfachen Klick auf ein Bauteil, sondern nur beim Klicken & Ziehen oder über den „Platzieren“-Button (`src/components/LibraryPalette.tsx`)**:
+   - Ein einfacher Klick auf eine Bauteilzeile (`PartRow`) wählt das Bauteil aus (Detailansicht rechts + Platzier-Vorbereitung), **lässt die Bibliothek aber offen**.
+   - Erst ein Klick auf den **„Als … platzieren (Enter)“-Button** (oder `Enter` / Doppelklick) oder das **Klicken, Gedrückthalten und Herausziehen** eines Bauteils auf den Schaltplan schließt die Bibliothek.
+
+4. **`W133` — Echtes „Klicken, gedrückt halten und Ziehen“ (Click-Hold-Drag) ohne Zwischendurch-Loslassen (`src/components/LibraryPalette.tsx`, `src/components/ComponentStrip.tsx`, `src/components/Instruments.tsx`, `src/components/Canvas.tsx`, `src/components/oszi2/Oscilloscope.tsx`, `src/components/fg2/FunctionGenerator.tsx`)**:
+   - **Bauteile aus Bibliothek, Schnellleiste (`R`, `C`, `L`, `VDC`, `GND`) und Geräteleiste (`Oszi`, `FG`)**: Drückt man die Maustaste auf ein Bauteil, hält sie gedrückt und zieht auf den Canvas (> 5 px), hängt das Bauteil sofort als Live-Schaltzeichen-Vorschau am Zeiger (die Bibliothek schließt sich dabei automatisch) und wird beim **Loslassen der Maustaste auf dem Canvas** direkt platziert!
+   - **Leitungen auf dem Canvas**: Drückt man auf einen Bauteil-Pin, hält die Maustaste gedrückt, zieht zu einem anderen Pin/Netz und lässt los, wird die Leitung sofort beim Loslassen fertig verbunden (ein kurzer Klick ohne Ziehen startet weiterhin das schrittweise Eckpunkt-Verlegen).
+   - **BNC-Tastköpfe (Oszi) & Ausgangskabel (FG-2500)**: Reagieren bereits bei `onPointerDown`, sodass man ein Kabel anklicken, gedrückt halten, direkt auf Klemme/Schaltplan ziehen und beim Loslassen anschließen kann.
+   - **Gerätefenster ziehen**: `data-no-drag` auf dem äußeren Gehäuse-Container von Oszi & FG entfernt, zodat man Gerätefenster im Browser überall am freien Gehäuse sofort per Klicken-Halten-Ziehen bewegen kann.
+
+5. **`W134` — Windows-App: Kein kurzes Aufblitzen des MultiSpice-Hauptfensters beim Öffnen neuer Kindfenster (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`)**:
+   - **Ursache**: `out/index.html` enthält das vor-gerenderte HTML des Hauptfensters (`role === "main"`), und der 450-ms-Fallback in `main.cjs` blendete das Kindfenster bereits ein, bevor React `?desktopWindow=...` fertig hydriert hatte.
+   - **Lösung**:
+     - Der HTTP-Server in `desktop/main.cjs` injiziert in `<head>` ein synchrones Inline-Skript/Style: Sobald `location.search` `desktopWindow=` enthält, bleibt `body` auf `opacity: 0` (`background: #0d1017`), bis die Kind-Ansicht (`LibraryPalette` / `StandaloneInstrumentView`) in React gemountet ist, das Attribut entfernt und `multispice:child-ready` sendet. Zudem wird der frühe 450-ms-Fallback durch einen reinen Sicherheits-Timeout (3500 ms) ersetzt.
+
+6. **`W135` — Geräte nie im Vollbild öffnen (außer vom User angepasst) & beim Skalieren immer proportional (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Instruments.tsx`, `src/components/DeviceFit.tsx`)**:
+   - **Startgröße**: Geräte öffnen sich unter Windows niemals maximiert/vollbildartig, sondern in einer kompakten, freischwebenden Größe (max. ~62 % der Bildschirmbreite/-höhe unter exakter Wahrung des Seitenverhältnisses), sofern der Nutzer das Fenster zuvor nicht selbst vergrößert oder maximiert hat (Benutzer-Fenstergrößen werden pro Gerätetyp in `userData` gespeichert).
+   - **Proportionale Skalierung**: Sowohl im Browser (`Instruments.tsx`) als auch unter Windows (`desktop/main.cjs` via `setAspectRatio` + `will-resize`-Handler sowie `DeviceFit` in `StandaloneInstrumentView`) behalten Geräte beim Skalieren immer exakt ihr Seitenverhältnis bei.
+
+7. **`W136` — Windows Portable: Sofortiger Ladebildschirm beim Doppelklick (`desktop/make-splash-bmp.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+   - **Ursache**: Der NSIS-Wrapper der Portable-`.exe` entpackt vor dem Start von `MultiSpice.exe` das Archiv nach `%TEMP%`; erst danach startete `main.cjs`.
+   - **Lösung**:
+     - `desktop/make-splash-bmp.cjs` erzeugt beim Build eine native 24-Bit-BMP-Grafik (`splash.bmp`) im dunklen MultiSpice-Design mit dem Repo-Favicon und Ladebalken.
+     - Über `portable.splashImage: "splash.bmp"` und `portable.unpackDirName: "MultiSpice-1.0.0-Runtime"` in `desktop/package.json` zeigt Windows **sofort beim Doppelklick (< 50 ms)** auf win32-Ebene den Ladebildschirm an, noch während die Portable-Laufzeit vorbereitet wird, und übergibt danach nahtlos an das animierte Splash-Fenster in `main.cjs`.
+
+### 40.2 Umsetzung & Verifikation (`W130–W136`)
+
+- **`W130` (`desktop/main.cjs`, `desktop/preload.cjs`, `src/lib/storage.ts`, `src/lib/schematic/openFile.ts`, `src/state/editor.ts`, `src/components/MenuBar.tsx`)**:
+  - Fester lokaler Port (`17531..17535`) + native `%APPDATA%/MultiSpice/workspace-state.json`-Spiegelung (`saveAppData` / `loadAppDataSync`) für Arbeitskopie, Projektliste, Favoriten und eigene Bauteile.
+  - Echte Datei-Speicherung (`saveProjectToFile` & `autoSaveToBoundFile`) per nativem Windows-Dialog (`window.multispiceDesktop.saveFile`) bzw. File System Access API (`window.showSaveFilePicker` / Blob-Download-Fallback) im Browser.
+  - Sobald eine Datei einmal gespeichert oder geöffnet wurde (`activeDesktopFilePath` bzw. `activeBrowserFileHandle`), speichert `scheduleAutosave()` jede Änderung automatisch nach 1,5 s direkt in diese Datei nach.
+- **`W131` (`src/lib/export/sheet.ts`, `src/components/Workbench.tsx`, `src/components/MenuBar.tsx`, `src/components/ui.tsx`, `desktop/main.cjs`)**:
+  - `PrintSheet` rendert synchron ein papierweißes Vektor-SVG (`docToSvg(doc, { frame: false, paperColor: "#ffffff" })`) statt eines asynchronen Canvas-Screenshots.
+  - `exportPdf` und `printSchematicSheet` nutzen unter Windows `multispice:print-svg` (`webContents.printToPDF` bzw. nativer Windows-Druckdialog) und im Browser ein synchrones Vektor-Druckblatt.
+  - `downloadText` und `downloadBlob` nutzen unter Windows den nativen Speicherdialog und geben im Browser `ObjectURL`s erst nach 1500 ms frei.
+- **`W132` (`src/components/LibraryPalette.tsx`, `src/components/DesktopTitleBar.tsx`)**:
+  - Einfacher Klick auf eine Bauteilzeile (`onSelectPart`) wählt das Bauteil lediglich zur Vorschau in der Bibliothek aus und schließt die Bibliothek **nicht**.
+  - Erst der Klick auf „Als … platzieren (Enter)“, die `Enter`-Taste oder das direkte Klicken-und-Ziehen (`onStartDragPart`) schließt die Bibliothek und startet die Platzierung.
+- **`W133` (`src/components/Canvas.tsx`, `src/components/LibraryPalette.tsx`, `src/components/ComponentStrip.tsx`, `src/components/Instruments.tsx`, `src/components/OsziScope.tsx`, `src/components/FgScope.tsx`, `src/components/oszi2/Oscilloscope.tsx`, `src/components/fg2/Bnc.tsx`)**:
+  - Echtes Klicken, gedrückt halten, Ziehen und Loslassen (`pointerdown` → `pointermove` > 5 px → `pointerup`) für Bauteile aus Bibliothek, Schnellleiste und Geräteleiste direkt auf den Schaltplan.
+  - Im Auswahlmodus (`select`) greift der Pin-Magnet nur eng am Pin-Anschluss (`7 px`), sodass der gesamte Bauteilkörper frei zum direkten Klicken-Halten-Ziehen bleibt; zieht man von einem Pin mit gedrückter Maustaste zu einem Ziel-Pin/Netz, verbindet sich die Leitung sofort beim Loslassen.
+  - BNC-Buchsen an Oszilloskop und Funktionsgenerator nehmen Tastköpfe/Kabel direkt bei `onPointerDown` auf und schließen sie beim Loslassen (`onPointerUp`) auf Klemme oder Schaltplan an.
+  - `data-no-drag` auf dem äußeren Gehäuse von Oszi und FG entfernt, damit freie Gehäuseflächen das Fenster sofort ziehen.
+- **`W134` (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`)**:
+  - Synchroner `<head>`-Boot-Shield (`CHILD_BOOT_SHIELD`, `data-ms-child-boot="1"`) hält Kindfenster unsichtbar, bis React die Kind-Ansicht gemountet hat und `notifyChildReady()` aufruft – kein kurzes Aufblitzen des Hauptfensters mehr.
+- **`W135` (`desktop/main.cjs`, `src/components/DesktopTitleBar.tsx`, `src/components/Instruments.tsx`, `src/components/DeviceFit.tsx`, `src/components/OsziScope.tsx`, `src/components/FgScope.tsx`)**:
+  - Geräte öffnen unter Windows niemals im Vollbild (außer vom Nutzer zuvor so skaliert/maximiert; Fenstergrößen werden pro Gerät in `userData` persistiert) und skalieren in Browser wie Windows immer streng proportional (`setAspectRatio` + `will-resize` + `DeviceFit`).
+- **`W136` (`desktop/make-splash-bmp.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+  - Nativer 24-Bit-BMP-Splash (`portable.splashImage: "splash.bmp"`) + persistentes Laufzeitverzeichnis (`portable.unpackDirName: "MultiSpice-1.0.0-Runtime"`) für sofortigen Ladebildschirm direkt beim Doppelklick auf die Portable-`.exe`.
+
+
+

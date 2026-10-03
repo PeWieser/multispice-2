@@ -159,8 +159,8 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
         />
       )}
       <div className="flex min-h-0 flex-1 flex-col" style={{ padding: BENCH_PAD }}>
-        <DeviceFit natural={FG_STAGE_SIZE} onMeasure={reportNatural}>
-          <div data-no-drag>
+        <DeviceFit natural={FG_STAGE_SIZE} onMeasure={reportNatural} allowUpscale>
+          <div>
             <FunctionGenerator core={core} jacks={jacks} autoScale={false} />
           </div>
         </DeviceFit>

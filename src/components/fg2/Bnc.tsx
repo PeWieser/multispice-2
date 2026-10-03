@@ -22,7 +22,16 @@ export function Bnc({ x, y, size = 78, live = false, title, jackId, held = false
       data-jack={jackId}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
-      onClick={onClick}
+      onPointerDown={
+        onClick
+          ? (e) => {
+              if (e.button === 0) {
+                e.stopPropagation();
+                onClick();
+              }
+            }
+          : undefined
+      }
       onKeyDown={
         onClick
           ? (e) => {

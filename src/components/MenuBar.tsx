@@ -6,9 +6,9 @@ import { PRESETS } from "@/lib/schematic/tools";
 import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
 import { toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, useEditor } from "@/state/editor";
-import { exportSvg, exportPng, exportPdf } from "@/lib/export/sheet";
+import { exportSvg, exportPng, exportPdf, printSchematicSheet } from "@/lib/export/sheet";
 import { Menu, MenuItem, MenuSeparator, downloadText, safeName, Tooltip } from "./ui";
-import { openFileInEditor } from "@/lib/schematic/openFile";
+import { openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 
 const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete"] as const;
 
@@ -79,26 +79,19 @@ export default function MenuBar({
   };
 
   const printSheet = () => {
-    st().fitView();
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        (window as any).__msPrintCapture?.();
-        setTimeout(() => window.print(), 60);
-      }),
-    );
+    void printSchematicSheet(st().doc).then((ok) => {
+      if (ok) st().log("ok", "Druckansicht geöffnet");
+    });
+  };
+
+  const triggerOpenFile = () => {
+    void openProjectViaNativeDialogIfAvailable().then((handled) => {
+      if (!handled) fileRef.current?.click();
+    });
   };
 
   const exportJson = () => {
-    const envelope = {
-      format: "multispice-project",
-      version: 2,
-      name: doc.name,
-      savedAt: new Date().toISOString(),
-      doc,
-      instruments: st().instruments,
-    };
-    downloadText(`${base}.msx.json`, JSON.stringify(envelope, null, 2), "application/json");
-    st().log("ok", "Projekt als JSON exportiert (inkl. Gerätefenster)");
+    void st().saveProject(undefined, { saveAs: true });
   };
 
   const importFile = (file: File) => {
@@ -116,14 +109,16 @@ export default function MenuBar({
         <div className="space-y-1">
           <div className="px-2 text-[10px] uppercase tracking-wide text-mute">Datei</div>
           <button className="btn w-full justify-start" onClick={() => st().newDocument()}>Neuer Schaltplan</button>
-          <button className="btn w-full justify-start" onClick={() => st().saveProject()}>Lokal speichern</button>
+          <button className="btn w-full justify-start" onClick={triggerOpenFile}>Öffnen / Importieren …</button>
+          <button className="btn w-full justify-start" onClick={() => void st().saveProject()}>Speichern</button>
+          <button className="btn w-full justify-start" onClick={() => void st().saveProject(undefined, { saveAs: true })}>Speichern unter …</button>
           <button className="btn w-full justify-start" onClick={() => onProjects?.()}>Projekte …</button>
           {onPartEditor && (
             <button className="btn w-full justify-start" onClick={() => onPartEditor()}>Bauteile-Editor …</button>
           )}
-          <button className="btn w-full justify-start" onClick={() => fileRef.current?.click()}>Importieren …</button>
           <button className="btn w-full justify-start" onClick={exportSpice}>Export SPICE (.cir)</button>
           <button className="btn w-full justify-start" onClick={exportJson}>Export JSON</button>
+          <button className="btn w-full justify-start" onClick={printSheet}>Drucken / PDF …</button>
         </div>
         <div className="space-y-1">
           <div className="px-2 text-[10px] uppercase tracking-wide text-mute">Bearbeiten</div>
@@ -199,9 +194,10 @@ export default function MenuBar({
     >
       <Menu label="Datei" {...menuProps("datei")}>
         <MenuItem onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
-        <MenuItem hint="⌘S" onClick={() => st().saveProject()}>Lokal speichern</MenuItem>
+        <MenuItem hint="⌘O" onClick={triggerOpenFile}>Öffnen / Importieren …</MenuItem>
+        <MenuItem hint="⌘S" onClick={() => void st().saveProject()}>Speichern</MenuItem>
+        <MenuItem hint="⇧⌘S" onClick={() => void st().saveProject(undefined, { saveAs: true })}>Speichern unter …</MenuItem>
         <MenuItem onClick={() => onProjects?.()}>Projekte …</MenuItem>
-        <MenuItem onClick={() => fileRef.current?.click()}>Importieren …</MenuItem>
         {onPartEditor && (
           <>
             <MenuSeparator />
@@ -211,12 +207,13 @@ export default function MenuBar({
         <MenuSeparator />
         <MenuItem onClick={exportSpice}>Export SPICE (.cir)</MenuItem>
         <MenuItem onClick={exportJson}>Export JSON</MenuItem>
-        <MenuItem onClick={() => { exportSvg(st().doc); st().log("ok", "Schaltblatt als SVG exportiert"); }}>Export SVG</MenuItem>
+        <MenuItem onClick={() => { void exportSvg(st().doc).then((ok) => { if (ok) st().log("ok", "Schaltblatt als SVG exportiert"); }); }}>Export SVG</MenuItem>
         <MenuItem onClick={() => { exportPng(st().doc); st().log("ok", "Schaltblatt als PNG exportiert"); }}>Export PNG</MenuItem>
         <MenuItem
           onClick={() => {
-            if (exportPdf(st().doc)) st().log("ok", "Druckfenster geöffnet – dort „Als PDF speichern“ wählen");
-            else st().log("error", "Pop-up blockiert – Druckfenster konnte nicht geöffnet werden");
+            void exportPdf(st().doc).then((ok) => {
+              if (ok) st().log("ok", "PDF-Export / Druckvorschau geöffnet");
+            });
           }}
         >
           Export PDF

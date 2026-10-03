@@ -1138,9 +1138,13 @@ export function registerCustomPart(spec: CustomPartSpec): PartDef {
 export function loadCustomParts(): CustomPartSpec[] {
   if (typeof window === "undefined") return [];
   try {
+    let list: CustomPartSpec[] | null = null;
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const list = JSON.parse(raw) as CustomPartSpec[];
+    if (raw) {
+      list = JSON.parse(raw) as CustomPartSpec[];
+    } else if (window.multispiceDesktop?.loadAppDataSync) {
+      list = window.multispiceDesktop.loadAppDataSync(STORAGE_KEY) as CustomPartSpec[] | null;
+    }
     if (!Array.isArray(list)) return [];
     for (const spec of list) {
       if (spec && spec.id && Array.isArray(spec.pins)) {
@@ -1161,6 +1165,9 @@ export function saveCustomPart(spec: CustomPartSpec): CustomPartSpec[] {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
   } catch {}
+  try {
+    window.multispiceDesktop?.saveAppData?.(STORAGE_KEY, list);
+  } catch {}
   registerCustomPart(spec);
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("multispice-custom-parts"));
@@ -1172,6 +1179,9 @@ export function deleteCustomPart(id: string): CustomPartSpec[] {
   const list = loadCustomParts().filter((x) => x.id !== id);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch {}
+  try {
+    window.multispiceDesktop?.saveAppData?.(STORAGE_KEY, list);
   } catch {}
   delete PART_MAP[id];
   const pIdx = PARTS.findIndex((p) => p.id === id);

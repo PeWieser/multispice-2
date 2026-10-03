@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import BottomPanel from "./BottomPanel";
@@ -26,53 +26,36 @@ const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.Inst
 const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
 const StandaloneInstrumentView = dynamic(() => import("./Instruments").then((m) => m.StandaloneInstrumentView), { ssr: false });
 import { loadCustomParts } from "@/lib/library/customParts";
+import { docToSvg, printSchematicSheet } from "@/lib/export/sheet";
+import { openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 import DesktopTitleBar, { isDesktopApp, useDesktopMultiWindowSync } from "./DesktopTitleBar";
 import type { InstrumentKind } from "@/state/editor";
 
-/** R8: Ein echtes Schaltblatt für window.print() – Rahmen, Kopf, Stempel.
- *  Der Capture läuft synchron im beforeprint-Event (direkt am <img>-Element),
- *  damit auch Strg+P aus dem Browser das aktuelle Bild bekommt. */
+/** R8 & W131: Echtes Vektor-Schaltblatt für window.print() – Rahmen, Kopf, Stempel.
+ *  Rendert das papierweiße Vektor-SVG aus docToSvg(doc, { frame: false }) direkt
+ *  synchron im DOM, sodass sowohl „Drucken …" als auch Strg+P sofort ein
+ *  gestochen scharfes Schaltblatt ohne dunklen Hintergrund drucken. */
 function PrintSheet() {
   const doc = useEditor((s) => s.doc);
   const nets = useEditor((s) => s.netResult.nets);
-  // Client-only Mount ohne setState-im-Effect: useSyncExternalStore liefert
-  // serverseitig false und im Browser sofort true.
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
     () => false,
   );
-  const [takenAt, setTakenAt] = useState(0);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  useEffect(() => {
-    const capture = () => {
-      const c = document.getElementById("schematic-canvas") as HTMLCanvasElement | null;
-      if (!c || !c.width) return;
-      try {
-        const url = c.toDataURL("image/png");
-        if (imgRef.current) imgRef.current.src = url; // synchron – wichtig für Strg+P
-        setTakenAt(Date.now());
-      } catch {}
-    };
-    (window as any).__msPrintCapture = capture;
-    window.addEventListener("beforeprint", capture);
-    return () => {
-      window.removeEventListener("beforeprint", capture);
-      delete (window as any).__msPrintCapture;
-    };
-  }, []);
   if (!mounted) return null;
+  const svgMarkup = docToSvg(doc, { frame: false, paperColor: "#ffffff" });
   return createPortal(
     <div className="print-sheet">
       <div className="sheet-frame">
         <div className="sheet-head">
           <span className="sheet-title">{doc.name || "Unbenanntes Projekt"}</span>
-          <span className="sheet-meta">Multispice – Schaltplan</span>
+          <span className="sheet-meta">MultiSpice – Schaltplan</span>
         </div>
-        <div className="sheet-img">
-          {/* eslint-disable-next-line @next/next/no-img-element -- Druck-Snapshot ist eine data:URL, next/image optimiert hier nichts */}
-          <img ref={imgRef} alt="Schaltplan" />
-        </div>
+        <div
+          className="sheet-img"
+          dangerouslySetInnerHTML={{ __html: svgMarkup }}
+        />
         <div className="sheet-stamp">
           <div>
             <span className="stamp-label">Bauteile</span>
@@ -91,8 +74,8 @@ function PrintSheet() {
             1 / 1
           </div>
           <div>
-            <span className="stamp-label">Gedruckt</span>
-            {takenAt ? new Date(takenAt).toLocaleString("de-DE") : "–"}
+            <span className="stamp-label">Datum</span>
+            {new Date().toLocaleDateString("de-DE")}
           </div>
         </div>
       </div>
@@ -310,6 +293,18 @@ export default function Workbench() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "i") {
         e.preventDefault();
         useEditor.getState().toggleInspector();
+      }
+      // W130: Strg+O / ⌘O öffnet den Datei-Dialog
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        void openProjectViaNativeDialogIfAvailable();
+      }
+      // W131: Strg+P / ⌘P druckt das Schaltblatt
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
+        if (window.multispiceDesktop?.printSvg) {
+          e.preventDefault();
+          void printSchematicSheet(useEditor.getState().doc);
+        }
       }
     };
     window.addEventListener("keydown", onKey);

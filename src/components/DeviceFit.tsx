@@ -53,19 +53,21 @@ interface DeviceFitProps {
   natural?: NaturalSize;
   /** Meldet Gerätemaß und Anzeigegröße (Fenstergröße, Seitenverhältnis). */
   onMeasure?: (size: NaturalMeasure) => void;
+  /** W135: Erlaubt proportionales Hochskalieren über das Naturmaß hinaus (z. B. im eigenen Windows-Fenster). */
+  allowUpscale?: boolean;
   children: ReactNode;
 }
 
 /**
- * Runde 19/20/21 (W35/W38/W42): skaliert ein Gerät 1:1 in den verfügbaren Platz
- * („contain", nie hoch, nie verzerrt) – **ohne** künstlichen Rand, damit das
+ * Runde 19/20/21 (W35/W38/W42/W135): skaliert ein Gerät proportional in den verfügbaren Platz
+ * („contain", nie verzerrt) – **ohne** künstlichen Rand, damit das
  * Fenster kantenbündig am Gehäuse sitzt.
  *
  * Das Layoutmaß bleibt messbar, die Skalierung sitzt als Transform auf dem
  * inneren Kasten (die 1:1-Kopie des Geräts bleibt unangetastet). Gemeldet wird
  * beides: Naturmaß und Anzeigegröße.
  */
-export function DeviceFit({ natural, onMeasure, children }: DeviceFitProps) {
+export function DeviceFit({ natural, onMeasure, allowUpscale = false, children }: DeviceFitProps) {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState({ scale: 1, natW: natural?.w ?? 0, natH: natural?.h ?? 0 });
@@ -84,13 +86,22 @@ export function DeviceFit({ natural, onMeasure, children }: DeviceFitProps) {
       if (!natW || !natH) return;
       const availW = o.clientWidth;
       const availH = o.clientHeight;
-      // W38: ohne Fit-Rand rechnen; bei exakt sitzendem Fenster ist die
-      // Skalierung damit genau 1.
-      const scale = Math.min(
-        1,
-        availW + EPS >= natW ? 1 : availW / Math.max(natW, 1),
-        availH + EPS >= natH ? 1 : availH / Math.max(natH, 1),
+      // W38/W135: ohne Fit-Rand rechnen; bei exakt sitzendem Fenster ist die
+      // Skalierung damit genau 1. Mit allowUpscale skaliert das Gerät auch bei
+      // größeren Fenstern streng proportional mit.
+      const rawScale = Math.min(
+        availW / Math.max(natW, 1),
+        availH / Math.max(natH, 1),
       );
+      const scale = allowUpscale
+        ? Math.abs(rawScale - 1) <= EPS / Math.max(natW, 1)
+          ? 1
+          : rawScale
+        : Math.min(
+            1,
+            availW + EPS >= natW ? 1 : availW / Math.max(natW, 1),
+            availH + EPS >= natH ? 1 : availH / Math.max(natH, 1),
+          );
       setFit((f) => (f.scale === scale && f.natW === natW && f.natH === natH ? f : { scale, natW, natH }));
       measure.current?.({
         w: natW,
@@ -104,7 +115,7 @@ export function DeviceFit({ natural, onMeasure, children }: DeviceFitProps) {
     if (outer.current) ro.observe(outer.current);
     if (inner.current) ro.observe(inner.current);
     return () => ro.disconnect();
-  }, []);
+  }, [allowUpscale]);
 
   return (
     <div ref={outer} className="flex h-full w-full items-center justify-center overflow-hidden">

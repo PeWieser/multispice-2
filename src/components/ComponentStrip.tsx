@@ -129,13 +129,26 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
             <button
               key={p.id}
               type="button"
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("text/multispice-part", p.id);
-                e.dataTransfer.effectAllowed = "copy";
-                useHud.setState({ dragPart: p.id });
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                const sx = e.clientX;
+                const sy = e.clientY;
+                let started = false;
+                const onMove = (ev: PointerEvent) => {
+                  if (!started && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 5) {
+                    started = true;
+                    setPlacing(p.id);
+                    useHud.setState({ dragPart: p.id });
+                  }
+                };
+                const onUp = () => {
+                  window.removeEventListener("pointermove", onMove);
+                  window.removeEventListener("pointerup", onUp);
+                };
+                window.addEventListener("pointermove", onMove);
+                window.addEventListener("pointerup", onUp);
               }}
-              onDragEnd={() => useHud.setState({ dragPart: null })}
+              onDragStart={(e) => e.preventDefault()}
               className="grid h-8 w-10 shrink-0 place-items-center rounded-md border transition-colors"
               style={{
                 background: active ? "var(--tool-active-bg)" : "var(--panel-2)",

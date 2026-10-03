@@ -23,7 +23,8 @@ import { PART_MAP } from "../src/lib/library/catalog";
 import { SUBCIRCUIT_TEMPLATES, registerCustomPart, extractSubcircuitFromSchematic } from "../src/lib/library/customParts";
 import { PRESETS, routeOrthogonal } from "../src/lib/schematic/tools";
 import { collectPins, reattachWiresToPins, sheets, useEditor, useHud, wireJunctionCandidates } from "../src/state/editor";
-import { isValidProjectDoc, normalizeProjectDoc } from "../src/lib/storage";
+import { isValidProjectDoc, normalizeProjectDoc, setActiveDesktopFilePath, getActiveDesktopFilePath } from "../src/lib/storage";
+import { docToSvg } from "../src/lib/export/sheet";
 import {
   buildNetPath,
   cleanOrphanJunctions,
@@ -995,6 +996,36 @@ console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Strom
       customNe555Def.symbol.length === 2 &&
       extractedFromPreset.subcircuit.some((e) => e.kind === "npn"),
     `devs=${compiledDevs.length}, has5k=${has5kDivider}, hasDisQ=${hasDisTransistor}, extracted=${extractedFromPreset.subcircuit.length}`,
+  );
+
+  // W130–W133: Datei-Bindung für Auto-Save, Vektor-Druckblatt & Bauteilkörper-Klick-Ziehen
+  setActiveDesktopFilePath("C:\\Users\\Test\\Schaltung.multispice.json");
+  const boundPath = getActiveDesktopFilePath();
+  setActiveDesktopFilePath(null);
+  const svgSheet = docToSvg(PRESETS[0].build(), { frame: true });
+  const svgPrint = docToSvg(PRESETS[0].build(), { frame: false, paperColor: "#ffffff" });
+  const rDoc: SchematicDoc = {
+    id: "w133_doc",
+    name: "W133",
+    instances: [{ id: "r_drag", partId: "resistor", x: 200, y: 200, rot: 0, label: "R1", params: { r: 1000 } }],
+    wires: [],
+    labels: [],
+    notes: [],
+    probes: [],
+    junctions: [],
+  };
+  // Am Widerstandskörper (x=192, also 8px links der Mitte, 22px vom Pin bei x=170 entfernt)
+  // springt selectPinMagnet=7 NICHT als Pin-Netzstart an, am Pin (x=172, 2px vom Pin bei x=170) dagegen schon:
+  const bodyHit = findNetTarget(rDoc, { x: 192, y: 200 }, 7);
+  const pinHit = findNetTarget(rDoc, { x: 172, y: 200 }, 7);
+  check(
+    "W130/W131/W133 Datei-Bindung (Auto-Save), Vektor-Druck-SVG und freier Bauteilkörper beim Klicken-Halten-Ziehen",
+    boundPath === "C:\\Users\\Test\\Schaltung.multispice.json" &&
+      svgSheet.startsWith("<svg") &&
+      svgPrint.includes("#ffffff") &&
+      bodyHit === null &&
+      pinHit?.kind === "pin",
+    `bound=${boundPath}, bodyHit=${JSON.stringify(bodyHit)}, pinHit=${pinHit?.kind}`,
   );
 }
 

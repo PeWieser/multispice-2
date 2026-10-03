@@ -1,7 +1,8 @@
-/* Runde 11 (W19): Echter Blatt-Export im Referenz-Stil.
+/* Runde 11 (W19) & Runde 39 (W131): Echter Blatt-Export & Vektor-Druck.
  * SVG wird aus dem Dokument-Modell erzeugt (Symbole = dieselben Primitive wie
  * der Canvas) – Export-Qualität ohne Runtime-Umbau. PNG rastert das SVG,
- * PDF geht über das Druckfenster (Ref-2-Trick, ohne Backend). */
+ * PDF & Drucken nutzen unter Windows den nativen Electron-PDF/Druck-Dienst und
+ * im Browser das synchrone Vektor-Druckblatt (ohne Pop-up-Blocker!). */
 import { PART_MAP, type SymbolPrim } from "@/lib/library/catalog";
 import { instanceBounds, rotatePoint, type Instance, type SchematicDoc } from "@/lib/schematic/model";
 
@@ -84,11 +85,12 @@ function docBounds(doc: SchematicDoc) {
   return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
 }
 
-export function docToSvg(doc: SchematicDoc, opts: { frame?: boolean } = {}): string {
+export function docToSvg(doc: SchematicDoc, opts: { frame?: boolean; paperColor?: string } = {}): string {
   const { minX, minY, maxX, maxY } = docBounds(doc);
   const w = maxX - minX, h = maxY - minY;
+  const bg = opts.paperColor ?? PAPER;
   const out: string[] = [];
-  out.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${PAPER}"/>`);
+  out.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${bg}"/>`);
   if (opts.frame !== false) {
     out.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="none" stroke="${RULE}" stroke-width="1.5"/>`);
     const tw = 150, th = 34, tx = maxX - tw - 8, ty = maxY - th - 8;
@@ -101,6 +103,9 @@ export function docToSvg(doc: SchematicDoc, opts: { frame?: boolean } = {}): str
     const pts = wire.points.map((p) => `${n(p.x)},${n(p.y)}`).join(" ");
     out.push(`<polyline points="${pts}" fill="none" stroke="${wire.color ?? WIRE}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`);
   }
+  for (const j of doc.junctions ?? []) {
+    out.push(`<circle cx="${n(j.x)}" cy="${n(j.y)}" r="3.2" fill="${WIRE}"/>`);
+  }
   for (const l of doc.labels) {
     out.push(`<text x="${n(l.x)}" y="${n(l.y - 4)}" font-size="9" fill="${LABEL}" text-anchor="middle">${esc(l.name)}</text>`);
   }
@@ -108,7 +113,7 @@ export function docToSvg(doc: SchematicDoc, opts: { frame?: boolean } = {}): str
     out.push(`<text x="${n(t.x)}" y="${n(t.y)}" font-size="${t.size ?? 11}" fill="${MUTE}">${esc(t.text)}</text>`);
   }
   for (const inst of doc.instances) out.push(instanceSvg(inst));
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(minX)} ${n(minY)} ${n(w)} ${n(h)}" width="${n(w)}" height="${n(h)}" font-family="'IBM Plex Sans', sans-serif">${out.join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(minX)} ${n(minY)} ${n(w)} ${n(h)}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" font-family="'IBM Plex Sans', sans-serif">${out.join("")}</svg>`;
 }
 
 function download(name: string, content: string, mime: string) {
@@ -117,47 +122,113 @@ function download(name: string, content: string, mime: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-const fileName = (doc: SchematicDoc) => (doc.name || "schaltplan").replace(/\s+/g, "_");
+const fileName = (doc: SchematicDoc) => (doc.name || "schaltplan").trim().replace(/\s+/g, "_").replace(/[^\wäöüÄÖÜß.-]+/g, "-");
 
-export function exportSvg(doc: SchematicDoc) {
-  download(`${fileName(doc)}.svg`, docToSvg(doc), "image/svg+xml");
+export async function exportSvg(doc: SchematicDoc): Promise<boolean> {
+  const svg = docToSvg(doc);
+  const name = `${fileName(doc)}.svg`;
+  if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
+    const res = await window.multispiceDesktop.saveFile({
+      defaultName: name,
+      content: svg,
+      title: "Schaltblatt als SVG exportieren",
+      filters: [{ name: "SVG-Vektorgrafik (*.svg)", extensions: ["svg"] }],
+    });
+    return Boolean(res.ok);
+  }
+  download(name, svg, "image/svg+xml;charset=utf-8");
+  return true;
 }
 
 export function exportPng(doc: SchematicDoc, scale = 2) {
   const svg = docToSvg(doc);
   const img = new Image();
   const { minX, minY, maxX, maxY } = docBounds(doc);
-  img.onload = () => {
+  img.onload = async () => {
     const canvas = document.createElement("canvas");
-    canvas.width = (maxX - minX) * scale;
-    canvas.height = (maxY - minY) * scale;
+    canvas.width = Math.max(1, Math.round((maxX - minX) * scale));
+    canvas.height = Math.max(1, Math.round((maxY - minY) * scale));
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.fillStyle = PAPER;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/png");
+    const name = `${fileName(doc)}.png`;
+
+    if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
+      const base64 = dataUrl.replace(/^data:image\/png;base64,/, "");
+      await window.multispiceDesktop.saveFile({
+        defaultName: name,
+        content: base64,
+        encoding: "base64",
+        title: "Schaltblatt als PNG exportieren",
+        filters: [{ name: "PNG-Grafik (*.png)", extensions: ["png"] }],
+      });
+      return;
+    }
+
     const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = `${fileName(doc)}.png`;
+    a.href = dataUrl;
+    a.download = name;
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
   };
   img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 }
 
-/** Ref-2-Trick: sauberes SVG-Blatt in ein Druckfenster → „Als PDF drucken". */
-export function exportPdf(doc: SchematicDoc): boolean {
-  const win = window.open("", "_blank");
-  if (!win) return false;
-  win.document.write(
-    `<!doctype html><html><head><title>${esc(doc.name || "Schaltblatt")}</title>` +
-      `<style>@page{size:landscape;margin:12mm}body{margin:0}svg{width:100%;height:auto}</style>` +
-      `</head><body>${docToSvg(doc)}</body></html>`,
-  );
-  win.document.close();
-  setTimeout(() => win.print(), 350);
-  return true;
+/**
+ * W131: Exportiert das Schaltblatt als PDF oder öffnet den Druckdialog.
+ * - Unter Windows (Electron): Erzeugt über `printToPDF` eine echte Vektor-PDF-Datei
+ *   mit nativem Speicherdialog.
+ * - Im Browser: Nutzt das synchrone Inline-Vektor-Druckblatt (`window.print()`),
+ *   sodass kein Pop-up-Blocker mehr dazwischenfunken kann!
+ */
+export async function exportPdf(doc: SchematicDoc): Promise<boolean> {
+  const svg = docToSvg(doc);
+  const name = `${fileName(doc)}.pdf`;
+  if (typeof window !== "undefined" && window.multispiceDesktop?.printSvg) {
+    const res = await window.multispiceDesktop.printSvg({
+      svg,
+      title: doc.name || "Schaltplan",
+      mode: "pdf",
+      defaultName: name,
+    });
+    return Boolean(res.ok);
+  }
+  if (typeof window !== "undefined") {
+    window.print();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * W131: Druckt das Schaltblatt.
+ * - Unter Windows (Electron): Öffnet den nativen Windows-Druckdialog mit dem Vektor-Blatt.
+ * - Im Browser: Öffnet `window.print()` mit dem synchron gerenderten Vektor-`PrintSheet`.
+ */
+export async function printSchematicSheet(doc: SchematicDoc): Promise<boolean> {
+  if (typeof window !== "undefined" && window.multispiceDesktop?.printSvg) {
+    const res = await window.multispiceDesktop.printSvg({
+      svg: docToSvg(doc),
+      title: doc.name || "Schaltplan",
+      mode: "print",
+    });
+    return Boolean(res.ok);
+  }
+  if (typeof window !== "undefined") {
+    window.print();
+    return true;
+  }
+  return false;
 }

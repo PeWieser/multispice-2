@@ -36,6 +36,12 @@ import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
 
 interface Pt { x: number; y: number; }
 
+let wireIdSeq = 0;
+function makeWireId(): string {
+  wireIdSeq += 1;
+  return `w_${Date.now().toString(36)}_${wireIdSeq.toString(36)}`;
+}
+
 const css = (name: string, fallback: string) => {
   if (typeof window === "undefined") return fallback;
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -1700,21 +1706,31 @@ export default function Canvas() {
       // Beim 2. Klick eines Doppelklicks auf eine Leitung nicht schon hier einen
       // Punkt setzen, sondern onDoubleClick den Abzweig/Abschluss behandeln lassen.
       if (e.detail >= 2 && sr.netDraft) return;
+      // W133: Im Auswahlmodus (ohne laufendes Netz) nur direkt am Pin-Anschluss
+      // (7 px) ein Netz starten, damit man Bauteile überall am Gehäuse sofort
+      // anklicken, gedrückt halten und ziehen kann!
+      const effectiveMagnet =
+        sr.netDraft || st.tool === "wire"
+          ? magnet
+          : (isTouch ? 12 : 7) / Math.max(st.view.zoom, 0.25);
       const res = netClick(st.doc, sr.netDraft, world, sp, {
-        magnet,
+        magnet: effectiveMagnet,
         allowStartOnEmpty: st.tool === "wire",
         startOnWire: st.tool === "wire",
         obstacles: getNetObstacles(st.doc),
       });
       if (res) {
         if (res.kind === "start") {
+          (sr as any).netStartScreen = { x: e.clientX, y: e.clientY };
           syncNetDraft(res.draft);
           if (canvasRef.current) canvasRef.current.style.cursor = PEN_CURSOR;
-          st.log("info", `Netz von (${Math.round(res.draft.anchor.x)}, ${Math.round(res.draft.anchor.y)}): Klick setzt Ecken, Klick auf Pin/Leitung verbindet, Doppelklick beendet frei, Leertaste wendet Knick, Esc bricht ab`);
+          st.log("info", `Netz von (${Math.round(res.draft.anchor.x)}, ${Math.round(res.draft.anchor.y)}): Ziehen & Loslassen oder Klick setzt Ecken, Klick auf Pin/Leitung verbindet`);
         } else if (res.kind === "corner") {
+          (sr as any).netStartScreen = null;
           syncNetDraft(res.draft);
           st.log("info", `Eckpunkt gesetzt (${Math.round(sp.x)}, ${Math.round(sp.y)}) – weiter zeichnen, Doppelklick beendet, Esc bricht ab`);
         } else {
+          (sr as any).netStartScreen = null;
           st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: res.points });
           st.log("ok", `Netz angeschlossen – ${res.target.label}`);
           syncNetDraft(null);
@@ -2223,16 +2239,16 @@ export default function Canvas() {
       (sr as any).junctionHover = null;
     }
 
-    // W64/W89/W98a/W101: Anschluss-Magnet nur in Modi, in denen tatsächlich Leitungen
+    // W64/W89/W98a/W101/W133: Anschluss-Magnet nur in Modi, in denen tatsächlich Leitungen
     // gezeichnet oder Labels gesetzt werden. Im Auswahlmodus (`select` ohne `netDraft`)
-    // darf der Magnet-Ring nur auf freien/angeschlossenen Bauteil-Pins (`kind === "pin"`)
-    // anspringen – NIEMALS auf Leitungssegmenten, weil ein Klick+Ziehen auf einer
-    // Leitung das Segment verschiebt und kein neues Netz zeichnet!
+    // darf der Magnet-Ring nur eng am Bauteil-Pin (`selectPinMagnet = 7px`) anspringen,
+    // damit der Bauteilkörper frei zum direkten Klicken-Halten-Ziehen bleibt!
     const magnet = (isTouch ? 22 : 14) / Math.max(st.view.zoom, 0.25);
+    const selectPinMagnet = (isTouch ? 12 : 7) / Math.max(st.view.zoom, 0.25);
     if (st.tool === "wire" || st.tool === "label" || Boolean(sr.netDraft)) {
       sr.netHover = findNetTarget(st.doc, world, magnet);
     } else if (st.tool === "select") {
-      const rawTarget = findNetTarget(st.doc, world, magnet);
+      const rawTarget = findNetTarget(st.doc, world, selectPinMagnet);
       sr.netHover = rawTarget?.kind === "pin" ? rawTarget : null;
     } else {
       sr.netHover = null;
@@ -2380,6 +2396,42 @@ export default function Canvas() {
     const st = useEditor.getState(); const sr = stateRef.current;
     const wasMoved = sr.moved;
     st.endGesture();
+
+    // W133: Klicken, gedrückt halten und Ziehen beim Leitungszeichnen:
+    // Hat der Nutzer auf einem Pin gedrückt, die Maustaste gedrückt gehalten,
+    // zu einem anderen Pin/Leitung/Knoten gezogen (> 14 px) und dort losgelassen,
+    // wird die Leitung sofort beim Loslassen fertig angeschlossen!
+    const netStartScr = (sr as any).netStartScreen as { x: number; y: number } | null;
+    (sr as any).netStartScreen = null;
+    if (sr.netDraft && netStartScr && Math.hypot(e.clientX - netStartScr.x, e.clientY - netStartScr.y) > 14) {
+      const worldUp = toWorld(e.clientX, e.clientY);
+      const spUp = snap(worldUp);
+      const magnetUp = (isTouch ? 22 : 14) / Math.max(st.view.zoom, 0.25);
+      const resUp = netClick(st.doc, sr.netDraft, worldUp, spUp, {
+        magnet: magnetUp,
+        allowStartOnEmpty: false,
+        startOnWire: true,
+        obstacles: getNetObstacles(st.doc),
+      });
+      if (resUp && resUp.kind === "finish") {
+        st.addWire({ id: makeWireId(), points: resUp.points });
+        st.log("ok", `Netz angeschlossen – ${resUp.target.label}`);
+        syncNetDraft(null);
+        st.setTool("select");
+      }
+    }
+
+    // W133: Klicken, gedrückt halten und Ziehen einer Messleitung (Oszi / FG) auf den Canvas:
+    if (st.leadArmed && e.button === 0) {
+      const worldUp = toWorld(e.clientX, e.clientY);
+      const tgt = probeTarget(st.doc, worldUp);
+      if (tgt) {
+        st.connectProbeWire(st.leadArmed.instanceId, st.leadArmed.pinIndex, tgt);
+        st.setLeadArmed(null);
+        click("plug");
+      }
+    }
+
     (sr as any).wirePointDrag = null;
     (sr as any).probeAnchorDrag = null;
     (sr as any)._alignGuides = null;
@@ -2559,6 +2611,55 @@ export default function Canvas() {
     }
   };
 
+  // W133: Echtes Klicken, gedrückt halten und Ziehen eines Bauteils aus
+  // LibraryPalette, ComponentStrip oder DeviceBar direkt auf den Schaltplan:
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const dragPartId = useHud.getState().dragPart;
+      if (!dragPartId) return;
+      const el = canvasRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const st = useEditor.getState();
+      const world = {
+        x: (e.clientX - r.left - st.view.x) / st.view.zoom,
+        y: (e.clientY - r.top - st.view.y) / st.view.zoom,
+      };
+      const sp = snap(world);
+      setCursor(sp);
+      useHud.setState({ cursor: sp });
+    };
+    const onUp = (e: PointerEvent) => {
+      const dragPartId = useHud.getState().dragPart;
+      if (!dragPartId) return;
+      useHud.setState({ dragPart: null });
+      const el = canvasRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+        const st = useEditor.getState();
+        const world = {
+          x: (e.clientX - r.left - st.view.x) / st.view.zoom,
+          y: (e.clientY - r.top - st.view.y) / st.view.zoom,
+        };
+        const sp = snap(world);
+        const newId = st.addInstance(dragPartId, sp.x, sp.y, {
+          rot: st.placingRot,
+          mirror: st.placingMirror,
+          autoWire: true,
+        });
+        if (newId) st.setSelection([newId]);
+        if (!e.shiftKey) st.setPlacing(null);
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [snap]);
+
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2571,7 +2672,7 @@ export default function Canvas() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault(); if (e.shiftKey) st.redo(); else st.undo();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); st.redo(); }
-      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void st.saveProject(); }
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void st.saveProject(undefined, { saveAs: e.shiftKey }); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") { e.preventDefault(); st.copySelection(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") { e.preventDefault(); st.pasteClipboard(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); st.duplicateSelection(); }

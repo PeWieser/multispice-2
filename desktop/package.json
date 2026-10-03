@@ -39,7 +39,9 @@
       ]
     },
     "portable": {
-      "artifactName": "${productName}-${version}-Portable.${ext}"
+      "artifactName": "${productName}-${version}-Portable.${ext}",
+      "splashImage": "splash.bmp",
+      "unpackDirName": "MultiSpice-1.0.0-Runtime"
     },
     "nsis": {
       "artifactName": "${productName}-${version}-Setup.${ext}",

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
@@ -124,11 +124,13 @@ function searchAdvanced(query: string): PartDef[] {
 // --- Part Row V2 ---
 const PartRow = React.memo(function PartRow({
   part,
-  onPick,
+  onSelect,
+  onStartDrag,
   selected,
 }: {
   part: PartDef;
-  onPick: (id: string) => void;
+  onSelect: (id: string) => void;
+  onStartDrag: (id: string) => void;
   selected?: boolean;
 }) {
   const placing = useEditor((s) => s.placingPartId);
@@ -139,21 +141,36 @@ const PartRow = React.memo(function PartRow({
 
   return (
     <div
-      className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)] cursor-pointer"
+      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)] cursor-pointer"
       style={
         active || selected
           ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }
           : { border: "1px solid transparent" }
       }
-      onClick={() => onPick(part.id)}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/multispice-part", part.id);
-        e.dataTransfer.effectAllowed = "copy";
-        useHud.setState({ dragPart: part.id });
+      onClick={() => onSelect(part.id)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        if ((e.target as HTMLElement)?.closest("button,a")) return;
+        const sx = e.clientX;
+        const sy = e.clientY;
+        let started = false;
+        const onMove = (ev: PointerEvent) => {
+          if (!started && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 5) {
+            started = true;
+            onStartDrag(part.id);
+          }
+        };
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
       }}
-      onDragEnd={() => useHud.setState({ dragPart: null })}
-          >
+      onDragStart={(e) => {
+        e.preventDefault();
+      }}
+    >
       <SymbolPreview part={part} size={36} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
@@ -413,10 +430,41 @@ export default function LibraryPalette({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, toggle]);
 
-  const onPick = (id: string) => {
+  // W132: Einfacher Klick auf ein Bauteil wählt es in der Bibliothek aus
+  // (Vorschau, Datenblatt, Pins), schließt die Bibliothek aber NICHT und startet
+  // noch nicht das Platzieren – das passiert erst beim Klick auf den
+  // „Platzieren“-Button oder beim Klicken-und-Ziehen!
+  const onSelectPart = (id: string) => {
+    const part = PART_MAP[id];
+    if (part) setSelected(part);
+  };
+
+  // W132 & W133: Nur beim Klick auf den „Platzieren“-Button (bzw. Enter) oder
+  // beim Klicken-und-Ziehen eines Bauteils schließt sich die Bibliothek.
+  const onConfirmPlace = useCallback(
+    (id: string) => {
+      const part = PART_MAP[id];
+      if (part) setSelected(part);
+      setPlacing(id);
+      useEditor.setState({ libraryOpen: false });
+      if (standalone && typeof window !== "undefined") {
+        try {
+          const bc = new BroadcastChannel("multispice-desktop-sync");
+          bc.postMessage({ type: "pick-part", partId: id });
+          bc.close();
+        } catch {}
+        window.multispiceDesktop?.sendSync({ type: "pick-part", partId: id });
+        window.multispiceDesktop?.windowControl("close");
+      }
+    },
+    [setPlacing, standalone],
+  );
+
+  const onStartDragPart = (id: string) => {
     const part = PART_MAP[id];
     if (part) setSelected(part);
     setPlacing(id);
+    useHud.setState({ dragPart: id });
     useEditor.setState({ libraryOpen: false });
     if (standalone && typeof window !== "undefined") {
       try {
@@ -453,17 +501,16 @@ export default function LibraryPalette({
         e.preventDefault();
         // Place selected & auto-close library
         const list = visibleList;
-        const part = list[selectedIdx] ?? list[0];
+        const part = selected ?? list[selectedIdx] ?? list[0];
         if (part) {
-          useEditor.getState().setPlacing(part.id);
-          useEditor.setState({ libraryOpen: false });
+          onConfirmPlace(part.id);
           useEditor.getState().log("info", `${part.name} zum Platzieren gewählt – Klick auf Canvas (R = drehen, M = spiegeln)`);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, selectedIdx, query, tab, results, visibleList]);
+  }, [open, selected, selectedIdx, query, tab, results, visibleList, onConfirmPlace]);
 
   if (!open) return null;
   if (!standalone && typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
@@ -603,20 +650,20 @@ export default function LibraryPalette({
                 <Command size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
               </div>
               {results.map((p, idx) => (
-                <PartRow key={p.id} part={p} onPick={onPick} selected={selected?.id === p.id || idx === selectedIdx} />
+                <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id || idx === selectedIdx} />
               ))}
             </div>
           ) : activeTab === "favorites" ? (
             <div>
               {favorites.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onPick={onPick} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
               ))}
               {!favorites.length && <div className="p-6 text-center text-[12px] text-mute">Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit</div>}
             </div>
           ) : activeTab === "recent" ? (
             <div>
               {recent.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onPick={onPick} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
               ))}
               {!recent.length && <div className="p-6 text-center text-[12px] text-mute">Noch nichts verwendet – platziere Bauteile</div>}
             </div>
@@ -631,7 +678,7 @@ export default function LibraryPalette({
                     </div>
                   )}
                   {g.parts.map((p) => (
-                    <PartRow key={p.id} part={p} onPick={onPick} selected={selected?.id === p.id} />
+                    <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id} />
                   ))}
                 </div>
               ))}
@@ -735,15 +782,14 @@ export default function LibraryPalette({
 
               <div className="rounded-lg p-2 text-[10.5px] text-mute leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
                 <div className="font-medium text-[11px] mb-1">💡 Tipp</div>
-                Klick zum Platzieren, nochmal klicken zum Abbrechen. Rechtsklick → Favorit. Drag & Drop: Bauteil direkt auf die Fläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
+                Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
               </div>
 
               <button
-                className="w-full rounded-lg py-2 text-[12px] font-medium border"
-                style={{ background: "var(--panel)", borderColor: "var(--border)", color: "var(--text)" }}
-                onClick={() => onPick(detailPart.id)}
+                className="btn btn-primary w-full justify-center py-2 text-[12px] font-medium"
+                onClick={() => onConfirmPlace(detailPart.id)}
               >
-                {useEditor.getState().placingPartId === detailPart.id ? "Platzieren abbrechen" : `Als ${detailPart.ref} platzieren (Enter)`}
+                {`Als ${detailPart.ref} platzieren (Enter)`}
               </button>
             </div>
           </div>

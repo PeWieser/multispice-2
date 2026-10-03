@@ -9,9 +9,9 @@ import { createPortal } from "react-dom";
 import { formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
 import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
-import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, engine, useEditor } from "@/state/editor";
+import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, engine, useEditor, useHud } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
-import { PanelProbe, WindowFitContext, type NaturalMeasure } from "./DeviceFit";
+import { DeviceFit, PanelProbe, WindowFitContext, type NaturalMeasure } from "./DeviceFit";
 import {
   BENCH_PAD,
   CORNER_CURSOR,
@@ -990,7 +990,9 @@ function clampWindowPos(x: number, y: number, w: number): { x: number; y: number
 function isDragSurface(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el || typeof el.closest !== "function") return false;
-  return !el.closest("[data-no-drag],button,input,select,textarea,a,canvas,svg,[role='button']");
+  return !el.closest(
+    "[data-no-drag],button,input,select,textarea,a,canvas,svg,[role='button'],.knob,.knob-wrap,.bnc,.sk-btn,.bezel-btn,.power-btn",
+  );
 }
 
 /** Runde 19 (W34): Der laufende Fenster-Zug lebt modulweit – ein Zug an einem
@@ -1216,13 +1218,15 @@ function Window({ win }: { win: InstrumentWindow }) {
     };
   }, [updateInstrument, win.id]);
 
-  /** W34: Zug starten – aus dem Titel oder aus dem leeren Hintergrund. */
+  /** W34/W133: Zug starten – aus dem Titel oder aus dem leeren Hintergrund. */
   const beginDrag = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
+    const cur = useEditor.getState().instruments.find((i) => i.id === win.id) ?? win;
+    activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: cur.x, wy: cur.y };
   };
 
-  /** W43: Skalieren an einer der vier Ecken starten. */
+  /** W43/W135: Skalieren an einer der vier Ecken starten – Seitenverhältnis
+   *  bei allen Messgeräten fest gesperrt (wie im Browser für Oszi/FG). */
   const beginResize = (e: React.PointerEvent, corner: Corner) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -1232,12 +1236,13 @@ function Window({ win }: { win: InstrumentWindow }) {
     const cur = useEditor.getState().instruments.find((i) => i.id === win.id);
     const cfgAspect = Number(cur?.config.fitAspect);
     const localAspect = r.width / Math.max(r.height, 1);
+    const keepAspect = win.kind !== "inspector";
     resize.current = {
       id: win.id,
       rect: { x: r.left, y: r.top, w: r.width, h: r.height },
       corner,
-      // Geräte-Fenster halten die Proportionen ihrer Frontplatte.
-      ratio: isDevice ? (Number.isFinite(cfgAspect) && cfgAspect > 0 ? cfgAspect : localAspect) : null,
+      // W135: Alle Geräte-Fenster halten streng ihr Seitenverhältnis.
+      ratio: keepAspect ? (Number.isFinite(cfgAspect) && cfgAspect > 0 ? cfgAspect : localAspect) : null,
       // Obergrenze ist die Startgröße am Gerät („nur verkleinern"); Panels frei.
       max: isDevice
         ? {
@@ -1474,8 +1479,27 @@ export function DeviceBar() {
         return (
           <button
             key={k}
+            onPointerDown={(e) => {
+              if (!partId || e.button !== 0) return;
+              const sx = e.clientX;
+              const sy = e.clientY;
+              let started = false;
+              const onMove = (ev: PointerEvent) => {
+                if (!started && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 5) {
+                  started = true;
+                  setPlacing(partId);
+                  useHud.setState({ dragPart: partId });
+                }
+              };
+              const onUp = () => {
+                window.removeEventListener("pointermove", onMove);
+                window.removeEventListener("pointerup", onUp);
+              };
+              window.addEventListener("pointermove", onMove);
+              window.addEventListener("pointerup", onUp);
+            }}
             onClick={() => (partId ? setPlacing(placing === partId ? null : partId) : open(k))}
-            title={partId ? `${label} – Schaltzeichen auf dem Plan platzieren` : label}
+            title={partId ? `${label} – Schaltzeichen auf dem Plan platzieren (Klick oder Ziehen)` : label}
             aria-label={label}
             aria-pressed={active}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors"
@@ -1580,8 +1604,11 @@ export function StandaloneInstrumentView({
     };
   }, [instruments, winId, fallbackKind, fallbackTitle]);
 
-  return (
-    <div className="relative flex h-full w-full flex-col overflow-auto" style={{ background: "var(--panel-solid)" }}>
+  const spec = WINDOW_SPECS[win.kind] ?? { w: 520, h: 360, minW: 320, minH: 240 };
+  const isSelfFit = win.kind === "scope" || win.kind === "funcgen" || win.kind === "inspector";
+
+  const renderContent = () => (
+    <>
       {win.kind === "scope" && <OsziScopeLazy win={win} />}
       {win.kind === "dmm" && <Multimeter win={win} />}
       {win.kind === "funcgen" && <FgScopeLazy win={win} />}
@@ -1596,6 +1623,20 @@ export function StandaloneInstrumentView({
       {win.kind === "distortion" && <DistortionAnalyzer win={win} />}
       {win.kind === "network" && <NetworkAnalyzer win={win} />}
       {win.kind === "inspector" && <InspectorBody />}
+    </>
+  );
+
+  return (
+    <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ background: "var(--panel-solid)" }}>
+      {isSelfFit ? (
+        renderContent()
+      ) : (
+        <DeviceFit natural={{ w: spec.w, h: spec.h }} allowUpscale>
+          <div style={{ width: spec.w, height: spec.h }} className="flex flex-col overflow-hidden">
+            {renderContent()}
+          </div>
+        </DeviceFit>
+      )}
     </div>
   );
 }

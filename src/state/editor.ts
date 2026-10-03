@@ -35,14 +35,24 @@ import {
 import { orthoFollow } from "@/lib/schematic/ortho";
 import { RealtimeEngine } from "@/lib/sim/realtime";
 import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
-import { loadLibraryLocal, loadProjectLocal, saveLibraryLocal, saveProjectLocal } from "@/lib/storage";
+import {
+  autoSaveToBoundFile,
+  clearActiveSaveTarget,
+  getActiveSaveTargetLabel,
+  hasActiveSaveTarget,
+  loadLibraryLocal,
+  loadProjectLocal,
+  saveLibraryLocal,
+  saveProjectLocal,
+  saveProjectToFile,
+} from "@/lib/storage";
 import { IntegrationMethod } from "@/lib/sim/engine";
 import { BENCH_PAD } from "@/lib/windows/geometry";
 import { DEFAULT_MCU_SKETCH } from "@/lib/sim/digital";
 
-/* Auto-Save: 2 s nach der letzten Schaltplan-Änderung in den localStorage.
-   Still bei Erfolg, ehrlich bei Fehler (Quota, Privatmodus) – das Produkt
-   hält sein Versprechen aus dem Menü, statt es nur zu behaupten. */
+/* Auto-Save: 1.5 s nach der letzten Schaltplan-Änderung in den localStorage /
+   Windows-AppData UND – sobald der Nutzer die Datei das erste Mal gespeichert
+   oder geöffnet hat (W130) – automatisch direkt in die gebundene Datei! */
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleAutosave() {
   if (typeof window === "undefined") return;
@@ -52,9 +62,10 @@ function scheduleAutosave() {
     autosaveTimer = null;
     const { doc, instruments, log } = useEditor.getState();
     const { ok } = saveProjectLocal(doc, instruments);
+    void autoSaveToBoundFile(doc, instruments);
     useEditor.setState({ savePending: false, ...(ok ? { lastSavedAt: Date.now() } : {}) });
     if (!ok) log("warn", "Auto-Save fehlgeschlagen (Speicher voll?) — Projekt bitte per Export JSON sichern.");
-  }, 2000);
+  }, 1500);
 }
 
 export const engine = new RealtimeEngine();
@@ -291,7 +302,7 @@ export interface EditorState {
   reorderSheets: (fromId: string, toId: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
-  saveProject: (name?: string) => void;
+  saveProject: (name?: string, opts?: { saveAs?: boolean }) => Promise<void>;
   restoreLocalProject: () => void;
   markFavorite: (partId: string) => void;
   refreshNets: () => void;
@@ -1685,6 +1696,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const preset = PRESETS.find((p) => p.id === id);
     if (!preset) return;
     engine.running = false;
+    clearActiveSaveTarget();
     const prevId = get().doc.id;
     const doc = preset.build();
     const sheetIdx = sheets.findIndex((s2) => s2.id === prevId);
@@ -1700,6 +1712,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   newDocument: () => {
     // W72: „+" legt ein neues leeres Schaltblatt an und öffnet es als Reiter.
     engine.running = false;
+    clearActiveSaveTarget();
     // Das offene Blatt bleibt als Reiter erhalten (auch wenn es noch nicht in
     // der Liste steht) – „+" öffnet ein zusätzliches Blatt, keine Ersetzung.
     const aktuell = get().doc;
@@ -1767,16 +1780,35 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  saveProject: (name) => {
+  saveProject: async (name, opts) => {
     const { doc } = get();
     const next = name && name !== doc.name ? { ...doc, name } : doc;
     if (next !== doc) get().setDoc(next, false);
     const { ok, bytes } = saveProjectLocal(next, get().instruments);
     if (ok) {
       set({ lastSavedAt: Date.now(), savePending: false });
+    }
+    const wasBound = hasActiveSaveTarget();
+    const fileRes = await saveProjectToFile(next, get().instruments, { saveAs: opts?.saveAs });
+    if (fileRes.ok) {
+      const label = fileRes.targetName ?? getActiveSaveTargetLabel() ?? `${next.name}.msx.json`;
+      if (!wasBound || opts?.saveAs) {
+        get().log("ok", `Datei „${label}“ gespeichert — zukünftige Änderungen werden automatisch gespeichert`);
+      } else {
+        get().log("ok", `Datei „${label}“ aktualisiert (${(bytes / 1024).toFixed(1)} KB, Auto-Save aktiv)`);
+      }
+      return;
+    }
+    if (fileRes.canceled) {
+      if (ok) {
+        get().log("info", `Arbeitskopie lokal gesichert (${(bytes / 1024).toFixed(1)} KB)`);
+      }
+      return;
+    }
+    if (ok) {
       get().log("ok", `Projekt lokal gespeichert (${(bytes / 1024).toFixed(1)} KB)`);
     } else {
-      get().log("error", "Lokal speichern fehlgeschlagen (Speicher voll?) — sichere dein Projekt per Export (JSON).");
+      get().log("error", "Speichern fehlgeschlagen — bitte Projekt per Export JSON sichern.");
     }
   },
 

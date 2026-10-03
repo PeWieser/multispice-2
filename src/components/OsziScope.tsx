@@ -297,8 +297,8 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
         className="flex min-h-0 flex-1 flex-col"
         style={{ userSelect: "none", padding: BENCH_PAD }}
       >
-        <DeviceFit natural={OSZI_CHASSIS} onMeasure={reportNatural}>
-          <div className="otx-scope" data-no-drag>
+        <DeviceFit natural={OSZI_CHASSIS} onMeasure={reportNatural} allowUpscale>
+          <div className="otx-scope">
             <Oscilloscope
               envRef={envRef}
               probes={probes}

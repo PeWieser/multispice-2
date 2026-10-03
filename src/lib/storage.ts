@@ -1,11 +1,13 @@
 /**
- * Lokale Persistenz (localStorage) für Projekte und Bibliotheks-Nutzung.
+ * Lokale Persistenz (localStorage + Windows AppData + echtes Datei-Auto-Save)
+ * für Projekte und Bibliotheks-Nutzung.
  *
- * Die App ist ein statischer Export ohne Server — alles, was früher in
- * Postgres lag, liegt jetzt versioniert im Browser des Nutzers. Jede Funktion
- * ist SSR-sicher (`typeof window`-Guard) und Quota-sicher (try/catch):
- * Scheitert das Schreiben, meldet der Aufrufer ehrlich einen Fehler statt
- * still Daten zu verlieren.
+ * W130:
+ * 1. Arbeitskopie wird jederzeit automatisch in localStorage UND unter Windows
+ *    in %APPDATA%/MultiSpice/workspace-state.json gesichert.
+ * 2. Beim ersten „Datei speichern“ (Strg+S) wählt der Nutzer eine Datei
+ *    (.msx.json). Sobald diese Datei einmal gewählt (oder geöffnet) wurde,
+ *    speichert MultiSpice bei jeder Änderung automatisch direkt in diese Datei!
  */
 
 import { SchematicDoc, Junction, pointOnSegment } from "./schematic/model";
@@ -19,11 +21,208 @@ export interface StoredProject {
   savedAt: string;
   /** Gerätefenster + Configs: ein Projekt ist Schaltung ODER Messplatz. */
   instruments?: unknown[];
+  /** Unter Windows ggf. zuletzt gebundener Dateipfad für nahtloses Auto-Save. */
+  filePath?: string | null;
 }
 
 export interface StoredLibrary {
   favorites: string[];
   recent: string[];
+}
+
+interface BrowserWritableFileStream {
+  write: (data: string) => Promise<void>;
+  close: () => Promise<void>;
+}
+
+export interface BrowserFileHandle {
+  name?: string;
+  createWritable: () => Promise<BrowserWritableFileStream>;
+  getFile?: () => Promise<File>;
+}
+
+let activeDesktopFilePath: string | null = null;
+let activeBrowserFileHandle: BrowserFileHandle | null = null;
+
+export function getActiveSaveTargetLabel(): string | null {
+  if (activeDesktopFilePath) {
+    const parts = activeDesktopFilePath.split(/[\\/]/);
+    return parts[parts.length - 1] || activeDesktopFilePath;
+  }
+  if (activeBrowserFileHandle?.name) {
+    return activeBrowserFileHandle.name;
+  }
+  return null;
+}
+
+export function getActiveDesktopFilePath(): string | null {
+  return activeDesktopFilePath;
+}
+
+export function setActiveDesktopFilePath(filePath: string | null): void {
+  activeDesktopFilePath = filePath;
+  if (typeof window !== "undefined" && window.multispiceDesktop?.saveAppData) {
+    window.multispiceDesktop.saveAppData("activeFilePath", filePath);
+  }
+}
+
+export function setActiveBrowserFileHandle(handle: BrowserFileHandle | null): void {
+  activeBrowserFileHandle = handle;
+}
+
+export function clearActiveSaveTarget(): void {
+  activeDesktopFilePath = null;
+  activeBrowserFileHandle = null;
+  if (typeof window !== "undefined" && window.multispiceDesktop?.saveAppData) {
+    window.multispiceDesktop.saveAppData("activeFilePath", null);
+  }
+}
+
+export function hasActiveSaveTarget(): boolean {
+  return Boolean(activeDesktopFilePath || activeBrowserFileHandle);
+}
+
+function safeFileName(name: string): string {
+  return (name || "schaltplan").trim().replace(/\s+/g, "_").replace(/[^\wäöüÄÖÜß.-]+/g, "-") || "schaltplan";
+}
+
+export function buildProjectEnvelopeJson(doc: SchematicDoc, instruments?: unknown[]): string {
+  const envelope = {
+    format: "multispice-project",
+    version: 2,
+    name: doc.name,
+    savedAt: new Date().toISOString(),
+    doc,
+    instruments: instruments ?? [],
+  };
+  return JSON.stringify(envelope, null, 2);
+}
+
+/**
+ * W130: Speichert das Projekt in eine echte Datei (Windows-Speicherdialog bzw.
+ * Browser File System Access API / Download).
+ * - Beim ersten Speichern (`saveAs: false` ohne bisherige Datei) wird der Dialog geöffnet.
+ * - Ist bereits eine Datei gebunden (`activeDesktopFilePath` oder `activeBrowserFileHandle`),
+ *   wird bei `saveAs: false` direkt und ohne erneute Nachfrage in diese Datei geschrieben.
+ */
+export async function saveProjectToFile(
+  doc: SchematicDoc,
+  instruments?: unknown[],
+  opts: { saveAs?: boolean } = {},
+): Promise<{ ok: boolean; canceled?: boolean; targetName?: string; error?: string }> {
+  const json = buildProjectEnvelopeJson(doc, instruments);
+  const suggestedName = `${safeFileName(doc.name)}.msx.json`;
+
+  // 1. Windows Desktop App (Electron IPC)
+  if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
+    const usePath = opts.saveAs ? null : activeDesktopFilePath;
+    const res = await window.multispiceDesktop.saveFile({
+      filePath: usePath,
+      defaultName: suggestedName,
+      content: json,
+      title: opts.saveAs ? "Projekt speichern unter …" : "Projekt speichern",
+      filters: [
+        { name: "MultiSpice-Projekt (*.msx.json)", extensions: ["msx.json", "json"] },
+        { name: "Alle Dateien (*.*)", extensions: ["*"] },
+      ],
+    });
+    if (res.canceled) return { ok: false, canceled: true };
+    if (res.ok && res.filePath) {
+      setActiveDesktopFilePath(res.filePath);
+      const parts = res.filePath.split(/[\\/]/);
+      return { ok: true, targetName: parts[parts.length - 1] || res.filePath };
+    }
+    return { ok: false, error: res.error || "Dateischreibfehler" };
+  }
+
+  // 2. Browser mit File System Access API (Chrome / Edge / Opera)
+  const winAny = typeof window !== "undefined" ? (window as unknown as Record<string, unknown>) : null;
+  if (winAny && typeof winAny.showSaveFilePicker === "function") {
+    try {
+      let handle = opts.saveAs ? null : activeBrowserFileHandle;
+      if (!handle) {
+        const showPicker = winAny.showSaveFilePicker as (options: unknown) => Promise<BrowserFileHandle>;
+        handle = await showPicker({
+          suggestedName,
+          types: [
+            {
+              description: "MultiSpice-Projekt (.msx.json)",
+              accept: { "application/json": [".msx.json", ".json"] },
+            },
+          ],
+        });
+      }
+      if (handle) {
+        const writable = await handle.createWritable();
+        await writable.write(json);
+        await writable.close();
+        activeBrowserFileHandle = handle;
+        return { ok: true, targetName: handle.name || suggestedName };
+      }
+    } catch (err) {
+      const e = err as { name?: string; message?: string };
+      if (e?.name === "AbortError") {
+        return { ok: false, canceled: true };
+      }
+      // Falls File System Access fehlschlägt (z. B. Iframe-Restriktion), auf Download zurückfallen
+    }
+  }
+
+  // 3. Browser-Fallback: Direkter Datei-Download (.msx.json)
+  if (typeof window !== "undefined" && typeof document !== "undefined") {
+    try {
+      const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = suggestedName;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      return { ok: true, targetName: suggestedName };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  return { ok: false, error: "Keine Speicher-Umgebung verfügbar" };
+}
+
+/**
+ * W130: Wird von `scheduleAutosave()` aufgerufen. Sobald der Nutzer eine Datei
+ * das erste Mal gespeichert (oder geöffnet) hat, wird jede Änderung automatisch
+ * im Hintergrund direkt in diese Datei geschrieben.
+ */
+export async function autoSaveToBoundFile(doc: SchematicDoc, instruments?: unknown[]): Promise<boolean> {
+  if (!hasActiveSaveTarget()) return false;
+  const json = buildProjectEnvelopeJson(doc, instruments);
+
+  if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile && activeDesktopFilePath) {
+    try {
+      const res = await window.multispiceDesktop.saveFile({
+        filePath: activeDesktopFilePath,
+        content: json,
+      });
+      return Boolean(res.ok);
+    } catch {
+      return false;
+    }
+  }
+
+  if (activeBrowserFileHandle) {
+    try {
+      const writable = await activeBrowserFileHandle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 function canStore(): boolean {
@@ -47,20 +246,11 @@ function isDoc(value: unknown): value is SchematicDoc {
 
 /**
  * Runde 24 (W61): Altbestand übernehmen, ohne Verbindungen zu verlieren.
- *
- * Vorher galt: ein Leitungs-*Stützpunkt* (Knick oder Ende), der auf einer
- * fremden Leitung liegt, war leitend – ohne dass man das im Bild sehen konnte.
- * Dafür wird beim Laden genau an diesen Stellen ein Verbindungspunkt
- * nachgetragen, damit sich gespeicherte Schaltungen nicht ändern: sie sehen
- * jetzt wie in Multisim aus (Punkt an jeder Verbindung). Eine reine Kreuzung
- * mitten auf zwei Leitungen war auch vorher nicht leitend und bekommt deshalb
- * auch keinen Punkt.
  */
 function migrateDoc(doc: SchematicDoc): SchematicDoc {
   if (!Array.isArray((doc as any).probes)) (doc as any).probes = [];
   if (!Array.isArray(doc.junctions)) {
     const existing: Junction[] = [];
-    // Segmente je Leitung, damit „fremde" Leitung erkannt werden kann.
     const byWire: Array<{ id: string; segs: Array<[number, number, number, number]> }> = [];
     for (const w of doc.wires ?? []) {
       const segs: Array<[number, number, number, number]> = [];
@@ -88,7 +278,6 @@ function migrateDoc(doc: SchematicDoc): SchematicDoc {
     }
     doc.junctions = existing;
   }
-  // Migrate each probe to new professional format
   for (const pr of (doc as any).probes as any[]) {
     if (pr.direction === undefined) pr.direction = 0;
     if (pr.rotation === undefined) pr.rotation = 0;
@@ -103,7 +292,7 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === "string");
 }
 
-/** Speichert das aktuelle Projekt. Gibt `false` zurück, wenn der Browser es ablehnt (z. B. Quota, Privatmodus). */
+/** Speichert das aktuelle Projekt in localStorage UND unter Windows in AppData. */
 export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[]): { ok: boolean; bytes: number } {
   if (!canStore()) return { ok: false, bytes: 0 };
   const stored: StoredProject = {
@@ -111,48 +300,76 @@ export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[]): { 
     doc,
     savedAt: new Date().toISOString(),
     instruments: instruments ?? [],
+    filePath: activeDesktopFilePath,
   };
   try {
     const raw = JSON.stringify(stored);
     window.localStorage.setItem(PROJECT_KEY, raw);
+    if (window.multispiceDesktop?.saveAppData) {
+      window.multispiceDesktop.saveAppData(PROJECT_KEY, stored);
+    }
     return { ok: true, bytes: raw.length };
   } catch {
+    if (typeof window !== "undefined" && window.multispiceDesktop?.saveAppData) {
+      try {
+        window.multispiceDesktop.saveAppData(PROJECT_KEY, stored);
+        return { ok: true, bytes: 1024 };
+      } catch {}
+    }
     return { ok: false, bytes: 0 };
   }
 }
 
-/** Lädt das gespeicherte Projekt oder `null` (nichts da, defekt oder kein Browser). */
+/** Lädt das gespeicherte Projekt aus localStorage oder (unter Windows) aus AppData. */
 export function loadProjectLocal(): StoredProject | null {
   if (!canStore()) return null;
   try {
+    let parsed: StoredProject | null = null;
     const raw = window.localStorage.getItem(PROJECT_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredProject;
-    if (typeof parsed?.name !== "string" || !isDoc(parsed?.doc)) return null;
+    if (raw) {
+      parsed = JSON.parse(raw) as StoredProject;
+    } else if (window.multispiceDesktop?.loadAppDataSync) {
+      const fromAppData = window.multispiceDesktop.loadAppDataSync(PROJECT_KEY) as StoredProject | null;
+      if (fromAppData && typeof fromAppData === "object") {
+        parsed = fromAppData;
+      }
+    }
+    if (!parsed || typeof parsed?.name !== "string" || !isDoc(parsed?.doc)) return null;
     parsed.doc = migrateDoc(parsed.doc);
+    if (parsed.filePath && typeof parsed.filePath === "string") {
+      activeDesktopFilePath = parsed.filePath;
+    }
     return parsed;
   } catch {
     return null;
   }
 }
 
-/** Speichert Favoriten + Zuletzt-verwendet der Bauteilbibliothek (best effort, still). */
+/** Speichert Favoriten + Zuletzt-verwendet der Bauteilbibliothek. */
 export function saveLibraryLocal(favorites: string[], recent: string[]): void {
   if (!canStore()) return;
+  const data: StoredLibrary = { favorites, recent };
   try {
-    window.localStorage.setItem(LIBRARY_KEY, JSON.stringify({ favorites, recent } satisfies StoredLibrary));
-  } catch {
-    // Bibliotheks-Nutzung ist Komfort, kein Nutzerergebnis — still ignorieren.
+    window.localStorage.setItem(LIBRARY_KEY, JSON.stringify(data));
+  } catch {}
+  if (window.multispiceDesktop?.saveAppData) {
+    try {
+      window.multispiceDesktop.saveAppData(LIBRARY_KEY, data);
+    } catch {}
   }
 }
 
-/** Lädt Favoriten + Zuletzt-verwendet oder `null` (nichts da, defekt oder kein Browser). */
+/** Lädt Favoriten + Zuletzt-verwendet. */
 export function loadLibraryLocal(): StoredLibrary | null {
   if (!canStore()) return null;
   try {
+    let parsed: StoredLibrary | null = null;
     const raw = window.localStorage.getItem(LIBRARY_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredLibrary;
+    if (raw) {
+      parsed = JSON.parse(raw) as StoredLibrary;
+    } else if (window.multispiceDesktop?.loadAppDataSync) {
+      parsed = window.multispiceDesktop.loadAppDataSync(LIBRARY_KEY) as StoredLibrary | null;
+    }
     if (!isStringArray(parsed?.favorites) || !isStringArray(parsed?.recent)) return null;
     return { favorites: parsed.favorites, recent: parsed.recent };
   } catch {
@@ -160,8 +377,6 @@ export function loadLibraryLocal(): StoredLibrary | null {
   }
 }
 
-/* Für Import-Pfade (Datei-Dialog): dieselbe Ehrlichkeit wie beim Laden —
-   erst prüfen und normalisieren, dann in den Editor lassen. */
 export { isDoc as isValidProjectDoc, migrateDoc as normalizeProjectDoc };
 
 /* ------------------------------------------------------------------ */
@@ -177,9 +392,13 @@ export interface ProjectSlot extends StoredProject {
 function readSlots(): ProjectSlot[] {
   if (!canStore()) return [];
   try {
+    let parsed: ProjectSlot[] | null = null;
     const raw = window.localStorage.getItem(PROJECTS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as ProjectSlot[];
+    if (raw) {
+      parsed = JSON.parse(raw) as ProjectSlot[];
+    } else if (window.multispiceDesktop?.loadAppDataSync) {
+      parsed = window.multispiceDesktop.loadAppDataSync(PROJECTS_KEY) as ProjectSlot[] | null;
+    }
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((s) => s && typeof s.id === "string" && isDoc(s.doc));
   } catch {
@@ -191,18 +410,19 @@ function writeSlots(slots: ProjectSlot[]): boolean {
   if (!canStore()) return false;
   try {
     window.localStorage.setItem(PROJECTS_KEY, JSON.stringify(slots));
+    if (window.multispiceDesktop?.saveAppData) {
+      window.multispiceDesktop.saveAppData(PROJECTS_KEY, slots);
+    }
     return true;
   } catch {
     return false;
   }
 }
 
-/** Alle gespeicherten Projekte, neueste zuerst. */
 export function listProjectSlots(): ProjectSlot[] {
   return readSlots().sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
 }
 
-/** Aktuellen Stand als benanntes Projekt speichern (id = überschreiben). */
 export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string, instruments?: unknown[]): { ok: boolean; id: string } {
   const slots = readSlots();
   const slotId = id ?? "p_" + Math.random().toString(36).slice(2, 9);

@@ -28,4 +28,19 @@ contextBridge.exposeInMainWorld("multispiceDesktop", {
     ipcRenderer.on("multispice:child-closed", handler);
     return () => ipcRenderer.removeListener("multispice:child-closed", handler);
   },
+  saveFile(options) {
+    return ipcRenderer.invoke("multispice:save-file", options);
+  },
+  openFile(options) {
+    return ipcRenderer.invoke("multispice:open-file", options);
+  },
+  printSvg(options) {
+    return ipcRenderer.invoke("multispice:print-svg", options);
+  },
+  saveAppData(key, value) {
+    ipcRenderer.send("multispice:save-appdata", { key, value });
+  },
+  loadAppDataSync(key) {
+    return ipcRenderer.sendSync("multispice:load-appdata-sync", key);
+  },
 });

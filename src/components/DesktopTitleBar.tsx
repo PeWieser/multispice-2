@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Minus, Square, Copy, X } from "lucide-react";
-import { engine, useEditor } from "@/state/editor";
+import { WINDOW_SPECS, engine, useEditor } from "@/state/editor";
 import { RingBuffer } from "@/lib/sim/realtime";
 
 export interface DesktopChildWindowSpec {
@@ -12,6 +12,38 @@ export interface DesktopChildWindowSpec {
   title: string;
   width: number;
   height: number;
+}
+
+export interface DesktopSaveFileOptions {
+  filePath?: string | null;
+  defaultName?: string;
+  content: string;
+  encoding?: "utf8" | "base64";
+  title?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+}
+
+export interface DesktopSaveFileResult {
+  ok: boolean;
+  canceled?: boolean;
+  filePath?: string;
+  error?: string;
+}
+
+export interface DesktopOpenFileResult {
+  ok: boolean;
+  canceled?: boolean;
+  filePath?: string;
+  name?: string;
+  content?: string;
+  error?: string;
+}
+
+export interface DesktopPrintSvgOptions {
+  svg: string;
+  title?: string;
+  mode: "print" | "pdf";
+  defaultName?: string;
 }
 
 export interface MultispiceDesktopBridge {
@@ -24,6 +56,11 @@ export interface MultispiceDesktopBridge {
   sendSync: (payload: unknown) => void;
   onSync: (cb: (payload: unknown) => void) => () => void;
   onChildClosed: (cb: (id: string) => void) => () => void;
+  saveFile?: (opts: DesktopSaveFileOptions) => Promise<DesktopSaveFileResult>;
+  openFile?: (opts?: { title?: string; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<DesktopOpenFileResult>;
+  printSvg?: (opts: DesktopPrintSvgOptions) => Promise<DesktopSaveFileResult>;
+  saveAppData?: (key: string, value: unknown) => void;
+  loadAppDataSync?: (key: string) => unknown;
 }
 
 declare global {
@@ -127,13 +164,17 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
 
     const currentIds = instruments.map((w) => w.id);
     for (const w of instruments) {
+      // W135: Natürliches Seitenverhältnis des jeweiligen Geräts übergeben
+      const spec = WINDOW_SPECS[w.kind] ?? { w: 520, h: 360 };
+      const natW = w.kind === "scope" ? 1444 : w.kind === "funcgen" ? 1184 : spec.w;
+      const natH = w.kind === "scope" ? 740 : w.kind === "funcgen" ? 597 : spec.h + 28;
       bridge.openChildWindow({
         id: w.id,
         role: "instrument",
         kind: w.kind,
         title: w.title,
-        width: Math.max(360, Math.round(w.w)),
-        height: Math.max(280, Math.round(w.h + 28)),
+        width: natW,
+        height: natH,
       });
     }
     for (const oldId of prevInstIdsRef.current) {
@@ -198,6 +239,7 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
           instruments: st.instruments,
           selection: st.selection,
           theme: st.theme,
+          placingPartId: st.placingPartId,
           engineState: {
             time: engine.lastState.time,
             nets: engine.lastState.nets,
@@ -224,7 +266,12 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
         const st = useEditor.getState();
         if (msg.type === "request-initial") {
           broadcastState();
+        } else if (msg.type === "select-part" && typeof msg.partId === "string") {
+          // W132: Einfacher Klick in der Bibliothek wählt das Bauteil zum Platzieren,
+          // lässt das Bibliotheksfenster aber offen.
+          st.setPlacing(msg.partId);
         } else if (msg.type === "pick-part" && typeof msg.partId === "string") {
+          // W132: Klick auf „Platzieren“-Button oder Ziehen schließt die Bibliothek.
           wasLibraryOpenRef.current = false;
           st.setPlacing(msg.partId);
           useEditor.setState({ libraryOpen: false });
@@ -256,8 +303,19 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
         offClosed?.();
       };
     } else {
-      // Kindfenster (Instrument oder Bibliothek): Meldet sich bereit & empfängt Snapshots
-      bridge?.notifyChildReady?.();
+      // W134: Sobald die echte Kind-Oberfläche (LibraryPalette oder StandaloneInstrumentView)
+      // gemountet ist, entfernen wir das Boot-Shield (data-ms-child-boot) und zeigen
+      // das Fenster an -> niemals ein kurzes Aufblitzen des Hauptfensters!
+      let raf1 = 0;
+      let raf2 = 0;
+      if (role !== "main") {
+        raf1 = requestAnimationFrame(() => {
+          document.documentElement.removeAttribute("data-ms-child-boot");
+          raf2 = requestAnimationFrame(() => {
+            bridge?.notifyChildReady?.();
+          });
+        });
+      }
 
       const handleIncoming = (raw: unknown) => {
         const msg = raw as Record<string, unknown> | null;
@@ -304,6 +362,9 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
             (msg.selection as ReturnType<typeof useEditor.getState>["selection"]) ??
             useEditor.getState().selection,
           theme: (msg.theme as ReturnType<typeof useEditor.getState>["theme"]) ?? useEditor.getState().theme,
+          placingPartId:
+            (msg.placingPartId as ReturnType<typeof useEditor.getState>["placingPartId"]) ??
+            useEditor.getState().placingPartId,
         });
       };
 
@@ -313,6 +374,8 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
       sendMsg({ type: "request-initial", winId });
 
       return () => {
+        if (raf1) cancelAnimationFrame(raf1);
+        if (raf2) cancelAnimationFrame(raf2);
         bc?.removeEventListener("message", onBc);
         bc?.close();
         offIpc?.();
