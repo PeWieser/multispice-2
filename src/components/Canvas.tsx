@@ -31,6 +31,8 @@ import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
 import ShortcutSheet from "./ShortcutSheet";
+import EmptyCanvas from "./EmptyCanvas";
+import { canvasColor } from "@/lib/canvas-theme";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
@@ -43,11 +45,6 @@ function makeWireId(): string {
   return `w_${Date.now().toString(36)}_${wireIdSeq.toString(36)}`;
 }
 
-const css = (name: string, fallback: string) => {
-  if (typeof window === "undefined") return fallback;
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return v || fallback;
-};
 
 /** Mini-Wellenform im Hover-Tooltip: der Oszilloskop-Blick ohne Klick. */
 function Sparkline({ data }: { data: number[] }) {
@@ -68,13 +65,13 @@ function Sparkline({ data }: { data: number[] }) {
     }
     const span = max - min || 1;
     const yOf = (v: number) => h - 3 - ((v - min) / span) * (h - 6);
-    ctx.strokeStyle = css("--hairline-strong", "#b4b0a8");
+    ctx.strokeStyle = canvasColor("--hairline-strong");
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(2, yOf(0));
     ctx.lineTo(w - 2, yOf(0));
     ctx.stroke();
-    ctx.strokeStyle = css("--accent", "#1f5fd0");
+    ctx.strokeStyle = canvasColor("--accent");
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     data.forEach((v, i) => {
@@ -309,7 +306,7 @@ export default function Canvas() {
     const now = performance.now();
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = css("--canvas", "#0d1017");
+    ctx.fillStyle = canvasColor("--canvas");
     ctx.fillRect(0, 0, w, h);
 
     ctx.save();
@@ -325,13 +322,13 @@ export default function Canvas() {
       // entspricht; jede 5. Linie (50 px) als Hauptlinie.
       const step = view.zoom < 0.45 ? GRID * 5 : GRID;
       ctx.lineWidth = 1 / view.zoom;
-      ctx.strokeStyle = css("--grid-minor", "rgba(255,255,255,.05)");
+      ctx.strokeStyle = canvasColor("--grid-minor");
       ctx.beginPath();
       for (let x = Math.floor(x0 / step) * step; x < x1; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
       for (let y = Math.floor(y0 / step) * step; y < y1; y += step) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
       ctx.stroke();
       const big = step * 5;
-      ctx.strokeStyle = css("--grid-major", "rgba(255,255,255,.1)");
+      ctx.strokeStyle = canvasColor("--grid-major");
       ctx.beginPath();
       for (let x = Math.floor(x0 / big) * big; x < x1; x += big) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
       for (let y = Math.floor(y0 / big) * big; y < y1; y += big) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
@@ -356,22 +353,22 @@ export default function Canvas() {
         minY = Math.floor((minY - pad) / 50) * 50;
         maxX = Math.ceil((maxX + pad) / 50) * 50;
         maxY = Math.ceil((maxY + pad + 44) / 50) * 50;
-        ctx.strokeStyle = css("--hairline-strong", "#b4b0a8");
+        ctx.strokeStyle = canvasColor("--hairline-strong");
         ctx.lineWidth = 1.5 / view.zoom;
         ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
         // Titelstempel unten rechts
         const tw = 150, th = 36, tx = maxX - tw - 8, ty = maxY - th - 8;
-        ctx.fillStyle = css("--surface", "#fbfaf8");
+        ctx.fillStyle = canvasColor("--surface");
         ctx.fillRect(tx, ty, tw, th);
-        ctx.strokeStyle = css("--hairline-strong", "#b4b0a8");
+        ctx.strokeStyle = canvasColor("--hairline-strong");
         ctx.lineWidth = 1 / view.zoom;
         ctx.strokeRect(tx, ty, tw, th);
         ctx.textAlign = "left";
-        ctx.fillStyle = css("--ink", "#1c1f22");
+        ctx.fillStyle = canvasColor("--ink");
         ctx.font = `600 10px ${getComputedStyle(document.body).fontFamily}`;
         ctx.fillText(doc.name || "Unbenannt", tx + 6, ty + 13);
         ctx.font = "8px ui-monospace, monospace";
-        ctx.fillStyle = css("--ink-3", "#8a8f95");
+        ctx.fillStyle = canvasColor("--ink-3");
         ctx.fillText(new Date().toLocaleDateString("de-DE"), tx + 6, ty + 26);
         ctx.fillText("Blatt 1/1", tx + 90, ty + 26);
       }
@@ -666,14 +663,14 @@ export default function Canvas() {
       }
     }
 
-    const wireColor = css("--wire", "#7dd3fc");
-    const selColor = css("--wire-sel", "#fbbf24");
+    const wireColor = canvasColor("--wire");
+    const selColor = canvasColor("--wire-sel");
     const voltageColorFn = (v: number): string => {
       if (!showVoltageColors) return wireColor;
       const a = Math.min(Math.abs(v) / 12, 1);
       if (v > 0.15) return `rgb(${Math.round(80 + 175 * a)}, ${Math.round(190 - 90 * a)}, ${Math.round(255 - 180 * a)})`;
       if (v < -0.15) return `rgb(${Math.round(90 - 40 * a)}, ${Math.round(160 + 40 * a)}, 255)`;
-      return css("--ink-3", "#8a8f95");
+      return canvasColor("--ink-3");
     };
 
     // Human Design: Hover highlight for wires – makes editing discoverable
@@ -723,14 +720,14 @@ export default function Canvas() {
       })();
       // Wire custom color like Multisim – if set, use it unless selected/hovered
       const customColor = (wire as any).color as string | undefined;
-      let color = isSel ? selColor : (isHovered || isNetHovered) ? css("--teal","#22d3ee") : (customColor ?? wireColor);
-      if (isBus) color = isSel ? selColor : (isHovered || isNetHovered) ? css("--teal","#22d3ee") : (customColor ?? css("--violet", "#7a4fa3"));
+      let color = isSel ? selColor : (isHovered || isNetHovered) ? canvasColor("--teal") : (customColor ?? wireColor);
+      if (isBus) color = isSel ? selColor : (isHovered || isNetHovered) ? canvasColor("--teal") : (customColor ?? canvasColor("--violet"));
       if (wire.points.length) {
         const key = `${Math.round(wire.points[0].x)},${Math.round(wire.points[0].y)}`;
         const netName = netResult.pointNets[key];
         if (netName && live && showVoltageColors && !customColor && !isBus) {
           const netV = live.nets[netName] ?? 0;
-          color = isSel ? selColor : (isHovered || isNetHovered) ? css("--teal","#22d3ee") : voltageColorFn(netV);
+          color = isSel ? selColor : (isHovered || isNetHovered) ? canvasColor("--teal") : voltageColorFn(netV);
         }
       }
       // W13: Keine Glow-Konturen – Auswahl/Hover zeigen sich allein über
@@ -762,8 +759,8 @@ export default function Canvas() {
           ctx.fill();
           ctx.restore();
           // fill
-          ctx.fillStyle = isHoveredHandle ? "#ffffff" : css("--surface","#1a1f2e");
-          ctx.strokeStyle = isHoveredHandle ? css("--accent","#5b8cff") : isEnd ? css("--ok","#34d399") : css("--accent","#5b8cff");
+          ctx.fillStyle = isHoveredHandle ? "#ffffff" : canvasColor("--surface");
+          ctx.strokeStyle = isHoveredHandle ? canvasColor("--accent") : isEnd ? canvasColor("--ok") : canvasColor("--accent");
           ctx.lineWidth = (isHoveredHandle ? 2.2 : 1.5) * iz;
           ctx.beginPath();
           if (isEnd) {
@@ -785,14 +782,14 @@ export default function Canvas() {
           ctx.stroke();
           // inner dot for end points
           if (isEnd) {
-            ctx.fillStyle = isHoveredHandle ? css("--accent","#5b8cff") : css("--ok","#34d399");
+            ctx.fillStyle = isHoveredHandle ? canvasColor("--accent") : canvasColor("--ok");
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, (isHoveredHandle ? 2.5 : 1.8) * iz, 0, Math.PI*2);
             ctx.fill();
           }
           // index label for first few points when zoomed
           if (view.zoom > 0.8 && wire.points.length < 10) {
-            ctx.fillStyle = css("--ink-3","#64748b");
+            ctx.fillStyle = canvasColor("--ink-3");
             ctx.font = `${9*iz}px ui-monospace, monospace`;
             ctx.textAlign = "center";
             ctx.fillText(String(idx), pt.x, pt.y - (sz/2 + 8*iz));
@@ -813,14 +810,14 @@ export default function Canvas() {
           const msz = (isHoveredMid ? 10 : 6) * iz;
           ctx.save();
           ctx.fillStyle = isHoveredMid ? "#ffffff" : "rgba(255,255,255,0.75)";
-          ctx.strokeStyle = isHoveredMid ? css("--teal","#22d3ee") : css("--ink-3", "#8a8f95");
+          ctx.strokeStyle = isHoveredMid ? canvasColor("--teal") : canvasColor("--ink-3");
           ctx.lineWidth = 1.2 * iz;
           ctx.beginPath();
           ctx.arc(mx, my, msz/2, 0, Math.PI*2);
           ctx.fill();
           ctx.stroke();
           // plus icon
-          ctx.strokeStyle = isHoveredMid ? css("--teal","#22d3ee") : css("--ink-3", "#8a8f95");
+          ctx.strokeStyle = isHoveredMid ? canvasColor("--teal") : canvasColor("--ink-3");
           ctx.lineWidth = 1.2 * iz;
           ctx.beginPath();
           ctx.moveTo(mx - msz*0.25, my);
@@ -833,7 +830,7 @@ export default function Canvas() {
       }
       // If hovered but not selected, show subtle dot + hint for adding probe or selecting
       if (isHovered && !isSel) {
-        ctx.fillStyle = css("--teal","#22d3ee")+"AA";
+        ctx.fillStyle = canvasColor("--teal")+"AA";
         ctx.beginPath();
         ctx.arc(wire.points[0].x, wire.points[0].y, 4 / Math.max(view.zoom,0.4), 0, Math.PI*2);
         ctx.fill();
@@ -898,7 +895,7 @@ export default function Canvas() {
     // Verbindungspunkte. Eine bloße Kreuzung zweier Leitungen hat keinen Punkt
     // und ist deshalb auch nicht leitend (Multisim-Regel).
     const jz = 1 / Math.max(view.zoom, 0.4);
-    ctx.fillStyle = css("--wire", "#7dd3fc");
+    ctx.fillStyle = canvasColor("--wire");
     for (const j of netResult.junctions) {
       ctx.beginPath();
       ctx.arc(j.x, j.y, 3.4 * jz, 0, Math.PI * 2);
@@ -909,7 +906,7 @@ export default function Canvas() {
     const draggingWirePoint = Boolean((stateRef.current as any).wirePointDrag);
     if (showErcMarkers && !draggingWirePoint) {
       ctx.save();
-      ctx.strokeStyle = css("--err", "#b3372c");
+      ctx.strokeStyle = canvasColor("--err");
       ctx.lineWidth = 1.6 * jz;
       for (const e of netResult.openEnds) {
         ctx.beginPath();
@@ -946,7 +943,7 @@ export default function Canvas() {
         const pad = 4*iz;
         const h = 14*iz;
         // Use voltage color
-        const col = v > 0.5 ? css("--accent", "#1f5fd0") : v < -0.5 ? css("--err", "#b3372c") : css("--ink-3", "#8a8f95");
+        const col = v > 0.5 ? canvasColor("--accent") : v < -0.5 ? canvasColor("--err") : canvasColor("--ink-3");
         ctx.fillStyle = "rgba(13,16,23,0.85)";
         ctx.strokeStyle = col + "60";
         ctx.lineWidth = 1*iz;
@@ -979,7 +976,7 @@ export default function Canvas() {
         const tw = ctx.measureText(txt).width;
         const pad = 3*iz;
         const h = 12*iz;
-        const col = Math.abs(cur) > 0.01 ? css("--warn", "#a87a12") : css("--ink-3", "#8a8f95");
+        const col = Math.abs(cur) > 0.01 ? canvasColor("--warn") : canvasColor("--ink-3");
         ctx.fillStyle = "rgba(13,16,23,0.85)";
         ctx.strokeStyle = col + "50";
         ctx.lineWidth = 1*iz;
@@ -1024,7 +1021,7 @@ export default function Canvas() {
           }
         }
         // Draw red error marker
-        ctx.fillStyle = css("--err", "#b3372c");
+        ctx.fillStyle = canvasColor("--err");
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.5*iz;
         ctx.beginPath();
@@ -1037,7 +1034,7 @@ export default function Canvas() {
         ctx.fillText("!", mx, my + 3.5*iz);
         // Label
         ctx.font = `${9*iz}px ui-sans-serif`;
-        ctx.fillStyle = css("--err", "#b3372c");
+        ctx.fillStyle = canvasColor("--err");
         ctx.textAlign = "left";
         ctx.fillText(err.slice(0, 40), mx + 12*iz, my + 3*iz);
       }
@@ -1052,7 +1049,7 @@ export default function Canvas() {
             break;
           }
         }
-        ctx.fillStyle = css("--warn", "#a87a12");
+        ctx.fillStyle = canvasColor("--warn");
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.2*iz;
         ctx.beginPath();
@@ -1098,13 +1095,13 @@ export default function Canvas() {
             ctx.fill();
           }
           // Red border
-          ctx.strokeStyle = css("--err", "#b3372c");
+          ctx.strokeStyle = canvasColor("--err");
           ctx.lineWidth = 2*iz;
           ctx.setLineDash([4*iz,3*iz]);
           ctx.strokeRect(b.x - 2*iz, b.y - 2*iz, b.w + 4*iz, b.h + 4*iz);
           ctx.setLineDash([]);
           // Tooltip
-          ctx.fillStyle = css("--err", "#b3372c");
+          ctx.fillStyle = canvasColor("--err");
           ctx.font = `bold ${9*iz}px ui-sans-serif`;
           ctx.textAlign = "center";
           ctx.fillText(`⚠ ${formatValue(pwr,"W")} > ${maxP}W`, cx, b.y - 8*iz);
@@ -1119,14 +1116,14 @@ export default function Canvas() {
       const iz = 1 / Math.max(view.zoom, 0.3);
       ctx.save();
       ctx.fillStyle = "rgba(91,140,255,0.25)";
-      ctx.strokeStyle = css("--accent","#5b8cff");
+      ctx.strokeStyle = canvasColor("--accent");
       ctx.lineWidth = 2 * iz;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 10*iz, 0, Math.PI*2);
       ctx.fill();
       ctx.stroke();
       // inner dot
-      ctx.fillStyle = css("--accent","#5b8cff");
+      ctx.fillStyle = canvasColor("--accent");
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 3*iz, 0, Math.PI*2);
       ctx.fill();
@@ -1139,12 +1136,12 @@ export default function Canvas() {
       const txt = label.name || netResult.pointNets[`${Math.round(label.x)},${Math.round(label.y)}`] || "NET";
       const tw = ctx.measureText(txt).width;
       const isSel = selection.includes(label.id);
-      ctx.fillStyle = css("--surface-2", "#151a25");
+      ctx.fillStyle = canvasColor("--surface-2");
       roundRect(ctx, label.x + 8, label.y - 20, tw + 12, 16, 4); ctx.fill();
-      ctx.strokeStyle = isSel ? css("--wire-sel", "#c77a16") : css("--hairline-strong", "#333");
+      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
       ctx.lineWidth = (isSel ? 1.8 : 1) / view.zoom;
       ctx.stroke();
-      ctx.fillStyle = isSel ? css("--wire-sel", "#c77a16") : css("--teal", "#22d3ee");
+      ctx.fillStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--teal");
       ctx.textAlign = "left";
       ctx.fillText(txt, label.x + 14, label.y - 8);
       ctx.beginPath(); ctx.arc(label.x, label.y, 2.5, 0, Math.PI * 2); ctx.fill();
@@ -1175,7 +1172,7 @@ export default function Canvas() {
       ctx.fill();
 
       // Kartenkörper
-      ctx.fillStyle = css("--surface", "#161b26");
+      ctx.fillStyle = canvasColor("--surface");
       roundRect(ctx, cardX, cardY, cardW, cardH, 6);
       ctx.fill();
 
@@ -1184,24 +1181,24 @@ export default function Canvas() {
       ctx.beginPath();
       roundRect(ctx, cardX, cardY, cardW, cardH, 6);
       ctx.clip();
-      ctx.fillStyle = css("--wire-sel", "#f59e0b");
+      ctx.fillStyle = canvasColor("--wire-sel");
       ctx.fillRect(cardX, cardY, 3.5, cardH);
       ctx.restore();
 
       // Rahmen (hervorgehoben bei Auswahl)
-      ctx.strokeStyle = isSel ? css("--wire-sel", "#f59e0b") : css("--hairline-strong", "#334155");
+      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
       ctx.lineWidth = (isSel ? 1.8 : 1.1) / Math.max(view.zoom, 0.35);
       roundRect(ctx, cardX, cardY, cardW, cardH, 6);
       ctx.stroke();
 
       // Kopfzeile "NOTIZ"
       ctx.font = "700 8px ui-monospace, monospace";
-      ctx.fillStyle = css("--wire-sel", "#f59e0b");
+      ctx.fillStyle = canvasColor("--wire-sel");
       ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
 
       // Notiztext (ein- oder mehrzeilig)
       ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
-      ctx.fillStyle = css("--ink", "#e2e8f0");
+      ctx.fillStyle = canvasColor("--ink");
       for (let li = 0; li < lines.length; li++) {
         ctx.fillText(lines[li], cardX + 10, cardY + 16 + (li + 1) * lineH - 4);
       }
@@ -1222,10 +1219,10 @@ export default function Canvas() {
       const net = netResult.nets.find((n) => n.name === probeName);
       if (!net || !net.points.length) continue;
       const p = net.points[0];
-      ctx.strokeStyle = css("--violet", "#a78bfa"); ctx.lineWidth = 1.6 / view.zoom;
+      ctx.strokeStyle = canvasColor("--violet"); ctx.lineWidth = 1.6 / view.zoom;
       ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.stroke();
       if (live) {
-        ctx.fillStyle = css("--violet", "#a78bfa"); ctx.font = "600 10px ui-monospace, monospace";
+        ctx.fillStyle = canvasColor("--violet"); ctx.font = "600 10px ui-monospace, monospace";
         ctx.fillText(formatValue(live.nets[probeName] ?? 0, "V"), p.x + 10, p.y - 8);
       }
     }
@@ -1236,10 +1233,10 @@ export default function Canvas() {
       const j = (sr as any).junctionHover as { x: number; y: number };
       const connected = (st.doc.junctions ?? []).some((q) => Math.hypot(q.x - j.x, q.y - j.y) < 0.5);
       ctx.save();
-      ctx.strokeStyle = connected ? css("--err", "#b3372c") : css("--ok", "#4ade80");
+      ctx.strokeStyle = connected ? canvasColor("--err") : canvasColor("--ok");
       ctx.lineWidth = 1.8 / Math.max(view.zoom, 0.3);
       ctx.beginPath(); ctx.arc(j.x, j.y, 8 / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = connected ? css("--err", "#b3372c") : css("--ok", "#4ade80");
+      ctx.fillStyle = connected ? canvasColor("--err") : canvasColor("--ok");
       ctx.beginPath(); ctx.arc(j.x, j.y, 2.6 / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
@@ -1258,7 +1255,7 @@ export default function Canvas() {
       const preview = previewNetPath(draft.anchor, draft.corners, magnetHit ?? { x: cursor.x, y: cursor.y }, pathOpts);
       const zLine = 2 / Math.max(view.zoom, 0.3);
       // fester Teil (Anker + gesetzte Ecken)
-      ctx.strokeStyle = css("--wire-sel", "#c77a16"); ctx.lineWidth = zLine;
+      ctx.strokeStyle = canvasColor("--wire-sel"); ctx.lineWidth = zLine;
       ctx.beginPath();
       ctx.moveTo(draft.anchor.x, draft.anchor.y);
       for (const c of draft.corners) ctx.lineTo(c.x, c.y);
@@ -1270,7 +1267,7 @@ export default function Canvas() {
       for (let i = 1; i < preview.length; i++) ctx.lineTo(preview[i].x, preview[i].y);
       ctx.stroke(); ctx.setLineDash([]);
       // Anker- und Eckpunkte sichtbar machen
-      ctx.fillStyle = css("--wire-sel", "#c77a16");
+      ctx.fillStyle = canvasColor("--wire-sel");
       for (const p of [draft.anchor, ...draft.corners]) {
         ctx.beginPath(); ctx.arc(p.x, p.y, 3 / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.fill();
       }
@@ -1278,10 +1275,10 @@ export default function Canvas() {
       if (magnetHit && hover) {
         const r = hover.kind === "pin" ? 7 : 6;
         ctx.save();
-        ctx.strokeStyle = hover.kind === "wire" ? css("--teal", "#22d3ee") : css("--ok", "#4ade80");
+        ctx.strokeStyle = hover.kind === "wire" ? canvasColor("--teal") : canvasColor("--ok");
         ctx.lineWidth = 1.8 / Math.max(view.zoom, 0.3);
         ctx.beginPath(); ctx.arc(hover.x, hover.y, r / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = css("--ink-2", "#cbd5e1");
+        ctx.fillStyle = canvasColor("--ink-2");
         ctx.font = `${11 / Math.max(view.zoom, 0.5)}px ui-monospace, monospace`;
         ctx.fillText(hover.label, hover.x + 12 / Math.max(view.zoom, 0.5), hover.y - 8 / Math.max(view.zoom, 0.5));
         ctx.restore();
@@ -1317,7 +1314,7 @@ export default function Canvas() {
         if (Math.abs(snapped.x - cursor.x) > 0.1 || Math.abs(snapped.y - cursor.y) > 0.1) {
           ctx.save();
           ctx.fillStyle = "rgba(91,140,255,0.3)";
-          ctx.strokeStyle = css("--accent","#5b8cff");
+          ctx.strokeStyle = canvasColor("--accent");
           ctx.lineWidth = 1 / Math.max(view.zoom, 0.5);
           ctx.beginPath();
           ctx.arc(snapped.x, snapped.y, 4 / Math.max(view.zoom,0.5), 0, Math.PI*2);
@@ -1364,7 +1361,7 @@ export default function Canvas() {
       ctx.restore();
       if (gNet) {
         ctx.save();
-        ctx.strokeStyle = css("--teal", "#22d3ee");
+        ctx.strokeStyle = canvasColor("--teal");
         ctx.lineWidth = 1.6 / Math.max(view.zoom, 0.3);
         ctx.beginPath();
         ctx.arc(ax, ay, 7 / Math.max(view.zoom, 0.3), 0, Math.PI * 2);
@@ -1384,13 +1381,13 @@ export default function Canvas() {
         const previewTxt = "NETZ…";
         ctx.font = "600 11px ui-sans-serif, system-ui";
         const tw = ctx.measureText(previewTxt).width;
-        ctx.fillStyle = css("--surface-2", "#151a25");
+        ctx.fillStyle = canvasColor("--surface-2");
         roundRect(ctx, lx + 8, ly - 20, tw + 12, 16, 4);
         ctx.fill();
-        ctx.strokeStyle = css("--wire-sel", "#c77a16");
+        ctx.strokeStyle = canvasColor("--wire-sel");
         ctx.lineWidth = 1.4 / Math.max(view.zoom, 0.3);
         ctx.stroke();
-        ctx.fillStyle = css("--wire-sel", "#c77a16");
+        ctx.fillStyle = canvasColor("--wire-sel");
         ctx.textAlign = "left";
         ctx.fillText(previewTxt, lx + 14, ly - 8);
         ctx.beginPath();
@@ -1401,21 +1398,21 @@ export default function Canvas() {
         const cardY = cursor.y - 18;
         const cardW = 136;
         const cardH = 42;
-        ctx.fillStyle = css("--surface", "#161b26");
+        ctx.fillStyle = canvasColor("--surface");
         roundRect(ctx, cardX, cardY, cardW, cardH, 6);
         ctx.fill();
-        ctx.fillStyle = css("--wire-sel", "#f59e0b");
+        ctx.fillStyle = canvasColor("--wire-sel");
         ctx.fillRect(cardX, cardY + 3, 3.5, cardH - 6);
-        ctx.strokeStyle = css("--wire-sel", "#f59e0b");
+        ctx.strokeStyle = canvasColor("--wire-sel");
         ctx.lineWidth = 1.3 / Math.max(view.zoom, 0.35);
         roundRect(ctx, cardX, cardY, cardW, cardH, 6);
         ctx.stroke();
         ctx.font = "700 8px ui-monospace, monospace";
-        ctx.fillStyle = css("--wire-sel", "#f59e0b");
+        ctx.fillStyle = canvasColor("--wire-sel");
         ctx.textAlign = "left";
         ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
         ctx.font = "500 11px ui-sans-serif, system-ui";
-        ctx.fillStyle = css("--ink", "#e2e8f0");
+        ctx.fillStyle = canvasColor("--ink");
         ctx.fillText("Notiz platzieren …", cardX + 10, cardY + 30);
       }
       ctx.restore();
@@ -1423,8 +1420,8 @@ export default function Canvas() {
 
     if (sr.marquee) {
       const m = sr.marquee;
-      ctx.fillStyle = "color-mix(in srgb, " + css("--wire-sel", "#fbbf24") + " 12%, transparent)";
-      ctx.strokeStyle = css("--wire-sel", "#fbbf24");
+      ctx.fillStyle = "color-mix(in srgb, " + canvasColor("--wire-sel") + " 12%, transparent)";
+      ctx.strokeStyle = canvasColor("--wire-sel");
       ctx.lineWidth = 1.2 / view.zoom;
       ctx.setLineDash([6 / view.zoom, 4 / view.zoom]);
       ctx.fillRect(m.x0, m.y0, m.x1 - m.x0, m.y1 - m.y0);
@@ -1437,10 +1434,10 @@ export default function Canvas() {
     // ── Runde 11: Lineale (Screen-Raum, Ref-2-Chrome) ──
     if (st.showRulers) {
       const R = 16;
-      ctx.fillStyle = css("--surface", "#fbfaf8");
+      ctx.fillStyle = canvasColor("--surface");
       ctx.fillRect(0, 0, w, R);
       ctx.fillRect(0, 0, R, h);
-      ctx.strokeStyle = css("--hairline", "#cfccc5");
+      ctx.strokeStyle = canvasColor("--hairline");
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, R + 0.5); ctx.lineTo(w, R + 0.5);
@@ -1451,8 +1448,8 @@ export default function Canvas() {
       const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
       const norm = rawStep / mag;
       const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
-      ctx.fillStyle = css("--ink-3", "#8a8f95");
-      ctx.strokeStyle = css("--ink-3", "#8a8f95");
+      ctx.fillStyle = canvasColor("--ink-3");
+      ctx.strokeStyle = canvasColor("--ink-3");
       ctx.font = "8px ui-monospace, monospace";
       ctx.textAlign = "center";
       for (let wx = Math.floor(view.x / step) * step; wx < view.x + w / view.zoom; wx += step) {
@@ -1471,9 +1468,9 @@ export default function Canvas() {
         ctx.fillText(String(Math.round(wy)), 0, 0);
         ctx.restore();
       }
-      ctx.fillStyle = css("--surface", "#fbfaf8");
+      ctx.fillStyle = canvasColor("--surface");
       ctx.fillRect(0, 0, R, R);
-      ctx.strokeStyle = css("--hairline", "#cfccc5");
+      ctx.strokeStyle = canvasColor("--hairline");
       ctx.strokeRect(0.5, 0.5, R - 1, R - 1);
     }
   }, [cursor, snap, editing]);
@@ -2782,6 +2779,13 @@ export default function Canvas() {
 
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden" role="application" aria-label={adaptShortcut("Schaltplan Canvas – Bauteile platzieren, Leitungen ziehen, Probes setzen. Shortcuts: R Drehen, W Wire, F Fit, Leertaste Start, ⌘K Bibliothek, ? Hilfe", apple)}>
+      {selDoc.instances.length === 0 && selDoc.wires.length === 0 && !placingPartId && !placingProbeKind && (
+        <EmptyCanvas
+          onPlaceResistor={() => useEditor.getState().setPlacing("resistor")}
+          onOpenLibrary={() => useEditor.getState().toggleLibrary()}
+          onShowShortcuts={() => setShowHelp(true)}
+        />
+      )}
       <canvas
         id="schematic-canvas"
         ref={canvasRef}
@@ -3898,7 +3902,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   //     des Anzeigekästchens exakt zur Messspitze (ax, ay).
   const col = (probe.color && !LEGACY_PROBE_COLORS.has(probe.color as string))
     ? (probe.color as string)
-    : css(PROBE_CSSVAR[probe.kind] ?? "--warn", PROBE_HEX[probe.kind] ?? "#a87a12");
+    : canvasColor(PROBE_CSSVAR[probe.kind] ?? "--warn");
   const ax = probe.anchorX ?? probe.x;
   const ay = probe.anchorY ?? probe.y;
   const bx = probe.x;
@@ -4057,7 +4061,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
       const low = probe.thresholds?.low ?? 0.8;
       const high = probe.thresholds?.high ?? 2.0;
       const lvl = v > high ? "HIGH (1)" : v < low ? "LOW (0)" : "UNDEF (X)";
-      digCol = v > high ? css("--ok", "#2e7a4f") : v < low ? css("--err", "#b3372c") : css("--warn", "#a87a12");
+      digCol = v > high ? canvasColor("--ok") : v < low ? canvasColor("--err") : canvasColor("--warn");
       valueLines.push(`${lvl} · ${formatValue(v, "V")}`);
     }
   }
@@ -4121,7 +4125,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   if (distToAnchor > 2 * iz) {
     const angle = Math.atan2(ay - attachY, ax - attachX);
     ctx.save();
-    ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+    ctx.strokeStyle = selected ? canvasColor("--wire-sel") : col;
     ctx.lineWidth = (selected ? 1.5 : 1.15) * iz;
     if (!netName || probe.leader === "magnifier") {
       ctx.setLineDash([3.5 * iz, 2.5 * iz]);
@@ -4136,7 +4140,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     ctx.save();
     ctx.translate(ax, ay);
     ctx.rotate(angle);
-    ctx.fillStyle = selected ? css("--wire-sel", "#d97706") : col;
+    ctx.fillStyle = selected ? canvasColor("--wire-sel") : col;
     const as = 5.5 * iz;
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -4154,12 +4158,12 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.scale(iz, iz);
 
   if (hasCurrentDir) {
-    const strokeCol = selected ? css("--wire-sel", "#d97706") : col;
+    const strokeCol = selected ? canvasColor("--wire-sel") : col;
     ctx.save();
     ctx.rotate(effectiveRad);
 
     // 4a) Stromzangen-Hülse (Current Clamp Ring) um die Leitung bei (0, 0)
-    ctx.fillStyle = css("--surface", "#1a1f2e");
+    ctx.fillStyle = canvasColor("--surface");
     ctx.strokeStyle = strokeCol;
     ctx.lineWidth = selected ? 2.2 : 1.7;
     roundRect(ctx, -4.5, -7.5, 9, 15, 4);
@@ -4168,7 +4172,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
 
     // 4b) Kontrastreiches Richtungs-Pfeil-Schild ("I ━━▶") parallel zur Leitung
     const badgeY = -18;
-    ctx.fillStyle = css("--surface", "#1a1f2e");
+    ctx.fillStyle = canvasColor("--surface");
     ctx.strokeStyle = strokeCol;
     ctx.lineWidth = selected ? 2.0 : 1.5;
     roundRect(ctx, -18, badgeY - 7.5, 36, 15, 7.5);
@@ -4201,14 +4205,14 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   }
 
   // Kontaktpunkt auf der Leitung
-  ctx.fillStyle = css("--surface", "#1a1f2e");
-  ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.fillStyle = canvasColor("--surface");
+  ctx.strokeStyle = selected ? canvasColor("--wire-sel") : col;
   ctx.lineWidth = selected ? 1.8 : 1.4;
   ctx.beginPath();
   ctx.arc(0, 0, selected ? 4.2 : 3.2, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.fillStyle = selected ? canvasColor("--wire-sel") : col;
   ctx.beginPath();
   ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
   ctx.fill();
@@ -4220,7 +4224,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.scale(iz, iz);
 
   // Kästchen-Hintergrund & Rahmen
-  ctx.fillStyle = css("--surface", "#1a1f2e");
+  ctx.fillStyle = canvasColor("--surface");
   roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
   ctx.fill();
 
@@ -4241,7 +4245,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.stroke();
 
   // Außenrahmen (hervorgehoben bei Auswahl)
-  ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
+  ctx.strokeStyle = selected ? canvasColor("--wire-sel") : col;
   ctx.lineWidth = selected ? 2.2 : 1.4;
   roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
   ctx.stroke();
@@ -4256,7 +4260,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.textBaseline = "middle";
   ctx.fillText(glyph.slice(0, 2), 17, 12.2);
 
-  ctx.fillStyle = css("--ink", "#e2e8f0");
+  ctx.fillStyle = canvasColor("--ink");
   ctx.font = `700 12px ui-monospace, monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
@@ -4273,7 +4277,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.font = `600 13px ui-monospace, monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.fillStyle = !netName || !live ? css("--ink-3", "#94a3b8") : css("--ink", "#e2e8f0");
+  ctx.fillStyle = !netName || !live ? canvasColor("--ink-3") : canvasColor("--ink");
   valueLines.forEach((ln, idx) => {
     ctx.fillText(ln, padX, headerH + 5 + idx * lineH);
   });
@@ -4292,7 +4296,7 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     sym = getPartSymbol(part, resolved);
   } catch {}
   ctx.save(); ctx.translate(inst.x, inst.y); ctx.rotate((inst.rot*Math.PI)/180); if (inst.mirror) ctx.scale(-1,1);
-  const stroke=selected?css("--wire-sel","#fbbf24"):css("--symbol","#dbe4f7");
+  const stroke=selected?canvasColor("--wire-sel"):canvasColor("--symbol");
   ctx.strokeStyle=stroke; ctx.fillStyle=stroke; ctx.lineWidth=1.3; ctx.lineJoin="round"; ctx.lineCap="round"; // W27: dünnere Tinte wie die Referenz
   if (live && (part.interactive==="led" || part.interactive==="lamp")) {
     const i=Math.abs(live.currents[inst.label]??0); const bright=Math.min(1,i/0.015);
@@ -4384,29 +4388,29 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     }
   }
   for (const prim of sym) drawPrim(ctx, prim);
-  ctx.fillStyle=css("--pin","#64748b");
+  ctx.fillStyle=canvasColor("--pin");
   for (const pin of part.pins){ ctx.beginPath(); ctx.arc(pin.x,pin.y,1.5,0,Math.PI*2); ctx.fill(); } // W27: dezente Pin-Punkte
   if (part.interactive==="switch" || part.interactive==="button") {
     // W27: Ref-2-Schalter – dünner Hebel, gefüllte Lagerpunkte, neutrale Tinte
     const closed=(engine.controls[inst.label] ?? (inst.params.closed?1:0))>0.5;
-    ctx.strokeStyle=css("--symbol","#1c1f22"); ctx.lineWidth=1.3; ctx.lineCap="round";
+    ctx.strokeStyle=canvasColor("--symbol"); ctx.lineWidth=1.3; ctx.lineCap="round";
     ctx.beginPath();
     if (closed){ ctx.moveTo(-14,0); ctx.lineTo(14,0); }
     else { ctx.moveTo(-14,0); ctx.lineTo(11,-10); }
     ctx.stroke();
-    ctx.fillStyle=css("--symbol","#1c1f22");
+    ctx.fillStyle=canvasColor("--symbol");
     ctx.beginPath(); ctx.arc(-14,0,1.8,0,Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(14,0,1.8,0,Math.PI*2); ctx.fill();
   }
   if (part.interactive==="pot") {
     const pos=engine.controls[inst.label] ?? Number(inst.params.pos??0.5);
-    ctx.fillStyle=css("--teal","#22d3ee"); ctx.fillRect(-20+40*pos-1,-12,2,8);
+    ctx.fillStyle=canvasColor("--teal"); ctx.fillRect(-20+40*pos-1,-12,2,8);
   }
   // Fault visualization
   if ((inst as any).fault && (inst as any).fault !== "none") {
     ctx.save();
     const fault = (inst as any).fault;
-      ctx.strokeStyle = fault === "open" ? css("--warn","#a87a12") : fault === "short" ? css("--err","#b3372c") : css("--violet","#7a4fa3");
+      ctx.strokeStyle = fault === "open" ? canvasColor("--warn") : fault === "short" ? canvasColor("--err") : canvasColor("--violet");
       ctx.lineWidth = 1.4;
     ctx.setLineDash([3,3]);
     const b = { x: -20, y: -14, w: 40, h: 28 };
@@ -4423,14 +4427,14 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     ctx.save(); ctx.translate(inst.x, inst.y);
     const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;
     ctx.font="600 10.5px ui-sans-serif, system-ui"; ctx.textAlign="center";
-    ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--ink-2","#9aa5bd");
+    ctx.fillStyle=selected?canvasColor("--wire-sel"):canvasColor("--ink-2");
     ctx.fillText(inst.label,0,dy);
     const main=part.params[0];
     if (main && main.type==="number"){
       const val=Number(inst.params[main.key]??main.def);
       // W92: Wenn das Bauteil ausgewählt ist, wird auch sein Wert darunter
       // optisch in der Auswahlfarbe (--wire-sel) hervorgehoben!
-      ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--ink-3","#64708c");
+      ctx.fillStyle=selected?canvasColor("--wire-sel"):canvasColor("--ink-3");
       ctx.font=selected?"600 10.5px ui-monospace, monospace":"10px ui-monospace, monospace";
       ctx.fillText(formatValue(val,main.unit??""),0,dy+12);
     }
@@ -4441,7 +4445,7 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     const hasValueLabel = zoom>0.42 && part.mount!=="virtual";
     const main=part.params[0];
     const extraBottom = hasValueLabel ? (main && main.type==="number" ? 30 : 18) : 6;
-    ctx.strokeStyle=css("--wire-sel","#fbbf24");
+    ctx.strokeStyle=canvasColor("--wire-sel");
     ctx.setLineDash([4,3]);
     ctx.lineWidth=1.1;
     ctx.strokeRect(b.x-6, b.y-6, b.w+12, b.h+6+extraBottom);
