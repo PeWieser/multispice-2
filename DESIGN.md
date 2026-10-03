@@ -35,29 +35,17 @@
 
 ## §2 · Visuelle Architektur
 
-| Thema | Token | Wert (Dark) | Wert (Light) |
-|---|---|---|---|
-| Surface 1 (Hintergrund) | `--mw-surface-1` | `#0b0d12` | `#f4f6fb` |
-| Surface 2 (Panel) | `--mw-surface-2` | `#11151e` | `#ffffff` |
-| Surface 3 (Panel-2) | `--mw-surface-3` | `#151a25` | `#f7f9fd` |
-| Surface 4 (Elevated) | `--mw-surface-4` | `#1a2030` | `#eef1f8` |
-| Kante | `--mw-border` | `rgba(255,255,255,0.07)` | `rgba(12,22,48,0.10)` |
-| Akzent (nur aktiv) | `--mw-accent` | `#5b8cff` | `#2563eb` |
-| Akzent-Soft (12% opacity) | `--mw-accent-soft` | `rgba(91,140,255,0.12)` | `rgba(37,99,235,0.10)` |
+**Einzige Quelle:** `src/app/globals.css` (Tokens) + `src/components/ui/` (Primitives). Keine Hex-Werte in Komponenten, keine `text-[Npx]`, `rounded-[Npx]` oder `z-[N]`.
 
-**Typografie:**
-- Sans: Geist → SF Pro Display → Inter → system-ui
-- Mono: Geist Mono → SF Mono → JetBrains Mono → ui-monospace
-- Zahlen: Immer `font-variant-numeric: tabular-nums`
-
-**Icons:** Lucide, 1.7 px Strich, 15–16 px, optisch ausgerichtet.
-
-**Schatten:** 3 Tiefen-Layer (keine Deko-Schatten):
-- `--mw-shadow-1`: `0 1px 3px` (Buttons, Dropdowns)
-- `--mw-shadow-2`: `0 4px 16px` (Panels)
-- `--mw-shadow-3`: `0 16px 48px` (Floating Instrument-Fenster)
-
----
+- **Themes:** Hell = warmes „Zeichenpapier“ (app `#edece8`, surface `#fbfaf8`, Akzent `#1d5bd6`). Dunkel = Graphit (app `#111113`, surface `#1e1e21`, Akzent `#5b9dff`). Standard: `system`.
+- **Farb-Utilities:** `bg-app/surface/surface-2/surface-3`, `text-ink/ink-2/ink-3` (`ink-4` nur dekorativ), `border-hairline(-strong)`, `accent`/`accent-ink`, Status `ok/warn/err`, Kanäle `ch1–ch4`. Alle Textpaare erfüllen WCAG AA.
+- **Selektion:** genau eine Farbe – `--wire-sel` (Utility `selection`), auf Canvas und in der UI.
+- **Typo:** Inter (UI) + JetBrains Mono (Werte). Skala `2xs 11 · xs 12 · sm 13 · base 15 · lg 17`.
+- **Radien:** `control 6 · field 8 · panel 10 · window 14`. **Ebenen:** `z-canvas · z-floating · z-popover · z-modal · z-toast`.
+- **Bewegung:** `--dur-fast 120ms · --dur 160ms · --dur-slow 220ms`, `--ease-out`/`--ease-spring`.
+- **Canvas:** Farben nur über `canvasColor()` / `getCanvasTheme()` aus `src/lib/canvas-theme.ts` (gecacht pro Theme, Fallbacks = Tokens).
+- **Primitives:** `Button`, `IconButton` (aria-label Pflicht), `ToolGroup/ToolButton`, `Tooltip/Kbd`, `ModalShell/Dialog` (Fokusfalle, Esc), `Field`-Familie, `Menu`. Tastenkürzel nur aus `src/lib/shortcuts.ts`.
+- **Instrumente:** skeuomorphe Frontplatten bleiben bewusst eigenständig (Ausnahme), Fenster-Chrome und Dialoge nutzen die Primitives.
 
 ## §3 · Interaktionsdesign
 

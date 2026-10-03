@@ -1,3 +1,5 @@
+> **Überholt (2026-10):** Durch den UI-Qualitätsdurchgang ersetzt. Maßgeblich ist `DESIGN.md` §2.
+
 # Accessibility Audit – Multispice 2 – AA Standard
 
 > Datum: 2026-09-24 – Ziel: WCAG 2.2 AA, 44px Touch, Keyboard Only, Screenreader, Reduced Motion

@@ -1,3 +1,5 @@
+> **Überholt (2026-10):** Durch den UI-Qualitätsdurchgang ersetzt. Maßgeblich ist `DESIGN.md` §2.
+
 # Redesign Plan – Handcrafted, Minimal, Multisim-like
 
 ## 1. Leitbild

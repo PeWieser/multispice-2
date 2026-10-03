@@ -1,3 +1,5 @@
+> **Überholt (2026-10):** Durch den UI-Qualitätsdurchgang ersetzt. Maßgeblich ist `DESIGN.md` §2.
+
 # Steve-Jobs-Qualitätsaudit — Runde 3 („Insanely great oder nicht shippen“)
 
 > Datum: 2026-09-25 · Branch `arena/01a0d95e-multispice-2` · Stand: nach Build-Fix (PR #2)

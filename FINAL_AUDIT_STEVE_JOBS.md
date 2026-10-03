@@ -1,3 +1,5 @@
+> **Überholt (2026-10):** Durch den UI-Qualitätsdurchgang ersetzt. Maßgeblich ist `DESIGN.md` §2.
+
 # Final Audit – Fehlt noch was von Multisim? Würde Steve das veröffentlichen?
 
 > Datum: 2026-09-25, nach 101 Circuit Tests, tsc/build grün

@@ -1,3 +1,5 @@
+> **Überholt (2026-10):** Durch den UI-Qualitätsdurchgang ersetzt. Maßgeblich ist `DESIGN.md` §2.
+
 # Steve Jobs Perfektionismus Audit – Komplettes Detail Review
 
 > "Wenn du mehrere coole oder geniale Ideen zu was findest oder dir einfallen, dann frag mich" – hier sind die Findings nach Durchgang mit Perfektionistenbrille.
