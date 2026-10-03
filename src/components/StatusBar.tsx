@@ -49,7 +49,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
   return (
     <footer
       className="flex h-[30px] shrink-0 items-center gap-2 px-2.5 text-[11px] text-mute"
-      style={{ background: "var(--panel)", borderTop: "1px solid var(--border)" }}
+      style={{ background: "var(--surface)", borderTop: "1px solid var(--hairline)" }}
     >
       {/* Links: Schaltblatt-Reiter (+ legt ein neues Blatt an, Klick wechselt, Ziehen sortiert um, × schließt) */}
       <div
@@ -60,7 +60,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
         <button
           type="button"
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md border transition-colors"
-          style={{ background: "var(--panel-2)", borderColor: "var(--border)", color: "var(--text-dim)" }}
+          style={{ background: "var(--surface-2)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}
           title="Neues Schaltblatt"
           aria-label="Neues Schaltblatt"
           onClick={() => newDocument()}
@@ -68,7 +68,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
           <Plus size={13} />
         </button>
 
-        <div className="mx-0.5 h-4 w-px shrink-0" style={{ background: "var(--border)" }} />
+        <div className="mx-0.5 h-4 w-px shrink-0" style={{ background: "var(--hairline)" }} />
 
         {list.map((s) => {
           const active = s.id === docId;
@@ -127,13 +127,13 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
               }}
               className="group flex h-6 shrink-0 cursor-grab active:cursor-grabbing select-none items-center gap-1 rounded-md border px-2 text-[11px] transition-colors"
               style={{
-                background: active ? "var(--tool-active-bg)" : "var(--panel-2)",
+                background: active ? "var(--tool-active-bg)" : "var(--surface-2)",
                 borderColor: isDragOver
                   ? "var(--wire-sel)"
                   : active
                     ? "var(--tool-active-border)"
-                    : "var(--border)",
-                color: active ? "var(--tool-active-text)" : "var(--text-dim)",
+                    : "var(--hairline)",
+                color: active ? "var(--tool-active-text)" : "var(--ink-2)",
                 opacity: isDragged ? 0.55 : 1,
               }}
               title={`${name} (zum Verschieben ziehen)`}
@@ -191,7 +191,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
       <div className="flex shrink-0 items-center gap-2.5">
         <button
           type="button"
-          className="flex min-w-[100px] shrink-0 items-center justify-center gap-1 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]"
+          className="flex min-w-[100px] shrink-0 items-center justify-center gap-1 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
           style={
             bottomOpen
               ? {

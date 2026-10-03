@@ -199,7 +199,7 @@ function SubcircuitTopologyPreview({
     <canvas
       ref={ref}
       className="rounded-xl border"
-      style={{ borderColor: "var(--border)", background: "#0d1118" }}
+      style={{ borderColor: "var(--hairline)", background: "#0d1118" }}
     />
   );
 }
@@ -576,7 +576,7 @@ function SymbolCanvasEditor({
         {/* Zeichen-Werkzeugleiste */}
         <div
           className="flex flex-wrap items-center gap-1 rounded-xl border p-1.5"
-          style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+          style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
         >
           {(
             [
@@ -603,7 +603,7 @@ function SymbolCanvasEditor({
                         color: "var(--wire-sel, #f59e0b)",
                         border: "1px solid var(--wire-sel, #f59e0b)",
                       }
-                    : { color: "var(--text-dim)", border: "1px solid transparent" }
+                    : { color: "var(--ink-2)", border: "1px solid transparent" }
                 }
               >
                 {icon}
@@ -666,7 +666,7 @@ function SymbolCanvasEditor({
         </div>
 
         {/* Interaktives Zeichen-Canvas */}
-        <div className="flex flex-col items-center justify-center rounded-xl border p-2" style={{ borderColor: "var(--border)", background: "#090c12" }}>
+        <div className="flex flex-col items-center justify-center rounded-xl border p-2" style={{ borderColor: "var(--hairline)", background: "#090c12" }}>
           <canvas
             ref={canvasRef}
             className="cursor-crosshair rounded-lg"
@@ -684,7 +684,7 @@ function SymbolCanvasEditor({
       {/* Rechte Spalte: Element-Liste & Eigenschaften im Symbol */}
       <div
         className="flex flex-col rounded-xl border p-3"
-        style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+        style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
       >
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
@@ -708,7 +708,7 @@ function SymbolCanvasEditor({
         {selectedPrim && selectedPrimIdx !== null && (
           <div
             className="mb-3 space-y-2 rounded-lg border p-2.5 text-[11px]"
-            style={{ borderColor: "var(--wire-sel, #f59e0b)", background: "var(--panel-solid)" }}
+            style={{ borderColor: "var(--wire-sel, #f59e0b)", background: "var(--surface)" }}
           >
             <div className="font-semibold text-[var(--wire-sel)]">
               Ausgewählt: {selectedPrim.t.toUpperCase()} #{selectedPrimIdx + 1}
@@ -802,7 +802,7 @@ function SymbolCanvasEditor({
                         borderColor: "var(--wire-sel, #f59e0b)",
                         background: "color-mix(in srgb, var(--wire-sel, #f59e0b) 14%, transparent)",
                       }
-                    : { borderColor: "var(--border)", background: "var(--panel-solid)" }
+                    : { borderColor: "var(--hairline)", background: "var(--surface)" }
                 }
               >
                 <span className="truncate mono text-[10.5px]">{summary}</span>
@@ -952,7 +952,7 @@ function PackageTopView({
     <canvas
       ref={ref}
       className="rounded-xl border"
-      style={{ borderColor: "var(--border)", background: "#0d1118" }}
+      style={{ borderColor: "var(--hairline)", background: "#0d1118" }}
     />
   );
 }
@@ -1142,7 +1142,7 @@ export default function PartEditorDialog({
         {/* Obere Kopfzeile: Bauteil-Grunddaten + 4 Studio-Reiter */}
         <div
           className="flex flex-col gap-3 rounded-xl border p-3"
-          style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+          style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
         >
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-5">
             <div className="md:col-span-2">
@@ -1192,7 +1192,7 @@ export default function PartEditorDialog({
           </div>
 
           {/* 4 Studio-Reiter */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2.5" style={{ borderColor: "var(--border)" }}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2.5" style={{ borderColor: "var(--hairline)" }}>
             <div className="flex flex-wrap items-center gap-1">
               {(
                 [
@@ -1216,7 +1216,7 @@ export default function PartEditorDialog({
                             color: "var(--wire-sel, #f59e0b)",
                             border: "1px solid var(--wire-sel, #f59e0b)",
                           }
-                        : { color: "var(--text-dim)", border: "1px solid transparent" }
+                        : { color: "var(--ink-2)", border: "1px solid transparent" }
                     }
                   >
                     {icon}
@@ -1250,7 +1250,7 @@ export default function PartEditorDialog({
               {/* Vorlagen & Schaltplan-Übernahme */}
               <div
                 className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-2.5"
-                style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+                style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
               >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="flex items-center gap-1 text-[11px] font-semibold text-[var(--wire-sel)]">
@@ -1273,8 +1273,8 @@ export default function PartEditorDialog({
                   onClick={handleImportFromCurrentCanvas}
                   className="btn h-7 gap-1 px-2.5 text-[11px]"
                   style={{
-                    borderColor: "var(--accent-2, #22d3ee)",
-                    color: "var(--accent-2, #22d3ee)",
+                    borderColor: "var(--teal, #22d3ee)",
+                    color: "var(--teal, #22d3ee)",
                   }}
                   title="Übernimmt alle Bauteile und Netzlabels vom aktuellen Haupt-Schaltplan als Innenschaltung"
                 >
@@ -1316,7 +1316,7 @@ export default function PartEditorDialog({
               {/* Liste der internen Bauteile mit Knoten-Zuordnung */}
               <div
                 className="max-h-[340px] space-y-2 overflow-y-auto rounded-xl border p-2.5"
-                style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+                style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
               >
                 <datalist id="subcircuit-known-nodes">
                   {allKnownNodes.map((n) => (
@@ -1330,7 +1330,7 @@ export default function PartEditorDialog({
                     <div
                       key={`${el.id}_${idx}`}
                       className="rounded-xl border p-2.5 transition-colors"
-                      style={{ borderColor: "var(--border)", background: "var(--panel-solid)" }}
+                      style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
                     >
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
@@ -1425,14 +1425,14 @@ export default function PartEditorDialog({
                               key={nIdx}
                               className="flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10.5px]"
                               style={{
-                                borderColor: isExternalPort ? "var(--wire-sel, #f59e0b)" : "var(--border)",
-                                background: "var(--bg)",
+                                borderColor: isExternalPort ? "var(--wire-sel, #f59e0b)" : "var(--hairline)",
+                                background: "var(--app)",
                               }}
                             >
                               <span className="text-mute">{pLabel}:</span>
                               <input
                                 list="subcircuit-known-nodes"
-                                className="mono bg-transparent font-semibold text-[var(--text)] outline-none"
+                                className="mono bg-transparent font-semibold text-[var(--ink)] outline-none"
                                 style={{ width: 78 }}
                                 value={nodeVal}
                                 placeholder="Knoten …"
@@ -1462,7 +1462,7 @@ export default function PartEditorDialog({
             <div className="flex flex-col gap-3">
               <div
                 className="flex flex-col items-center rounded-xl border p-3"
-                style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+                style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
               >
                 <div className="mb-2 flex w-full items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
@@ -1474,7 +1474,7 @@ export default function PartEditorDialog({
                 </div>
                 <SubcircuitTopologyPreview pins={pins} subcircuit={subcircuit} />
                 <div className="mt-2 text-[10.5px] text-mute">
-                  Jeder Pin-Name (z. B. <span className="mono text-[var(--text)]">VCC, TRIG, THR, DIS, OUT, GND</span>) verbindet die Innenschaltung direkt mit dem äußeren Schaltplan-Pin.
+                  Jeder Pin-Name (z. B. <span className="mono text-[var(--ink)]">VCC, TRIG, THR, DIS, OUT, GND</span>) verbindet die Innenschaltung direkt mit dem äußeren Schaltplan-Pin.
                 </div>
               </div>
             </div>
@@ -1495,7 +1495,7 @@ export default function PartEditorDialog({
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_290px]">
             <div
               className="flex flex-col rounded-xl border p-3"
-              style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+              style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
             >
               <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -1547,7 +1547,7 @@ export default function PartEditorDialog({
                   <div
                     key={idx}
                     className="grid grid-cols-[26px_1fr_110px_120px_100px_110px_28px] items-center gap-1.5 rounded-lg border px-2 py-1.5"
-                    style={{ borderColor: "var(--border)", background: "var(--panel-solid)" }}
+                    style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
                   >
                     <span className="mono text-center text-[11px] font-bold text-mute">#{idx + 1}</span>
                     <input
@@ -1647,7 +1647,7 @@ export default function PartEditorDialog({
             {/* Rechte Spalte in Tab 3: Physische Gehäuse-Draufsicht */}
             <div
               className="flex flex-col items-center rounded-xl border p-3"
-              style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+              style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
             >
               <div className="mb-2 flex w-full items-center justify-between">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
@@ -1689,7 +1689,7 @@ export default function PartEditorDialog({
             {/* Eigene Bauteil-Parameter */}
             <div
               className="flex flex-col rounded-xl border p-3"
-              style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+              style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-mute">
@@ -1713,7 +1713,7 @@ export default function PartEditorDialog({
                   <div
                     key={idx}
                     className="grid grid-cols-[90px_1fr_65px_90px_28px] items-center gap-1.5 rounded-lg border px-2 py-1.5"
-                    style={{ borderColor: "var(--border)", background: "var(--panel-solid)" }}
+                    style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
                   >
                     <input
                       className="input mono h-7 px-2 text-[11px]"
@@ -1778,7 +1778,7 @@ export default function PartEditorDialog({
             {/* Gespeicherte eigene Bauteile */}
             <div
               className="flex flex-col rounded-xl border p-3"
-              style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}
+              style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}
             >
               <span className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-mute">
                 Gespeicherte eigene Bauteile ({savedParts.length})
@@ -1793,7 +1793,7 @@ export default function PartEditorDialog({
                     <div
                       key={sp.id}
                       className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
-                      style={{ borderColor: "var(--border)", background: "var(--panel-solid)" }}
+                      style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
                     >
                       <div className="min-w-0">
                         <div className="truncate text-[12px] font-semibold">{sp.name}</div>
@@ -1842,14 +1842,14 @@ export default function PartEditorDialog({
         {/* Fußzeile: Aktionsknöpfe */}
         <div
           className="flex flex-wrap items-center justify-between gap-2 border-t pt-3"
-          style={{ borderColor: "var(--border)" }}
+          style={{ borderColor: "var(--hairline)" }}
         >
           <div className="flex items-center gap-2 text-[11px] text-mute">
             <Cpu size={14} className="text-[var(--wire-sel)]" />
             <span>
               {editingId ? `Bearbeite Bauteil (${editingId})` : "Neues eigenes Bauteil"} ·{" "}
-              <strong className="text-[var(--text)]">{pins.length} Pins</strong> ·{" "}
-              <strong className="text-[var(--text)]">{subcircuit.length} Innenschaltungs-Elemente</strong>
+              <strong className="text-[var(--ink)]">{pins.length} Pins</strong> ·{" "}
+              <strong className="text-[var(--ink)]">{subcircuit.length} Innenschaltungs-Elemente</strong>
             </span>
           </div>
           <div className="flex items-center gap-2">

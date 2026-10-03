@@ -614,7 +614,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   placingRot: 0,
   placingMirror: false,
   view: { x: 60, y: 20, zoom: 1 },
-  theme: "light",
+  theme: "system",
   symbolStyle: "auto",
   showGrid: true,
   snap: true,

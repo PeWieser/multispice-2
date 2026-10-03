@@ -111,7 +111,7 @@ export function Menu({
         <div
           role="menu"
           className="rise absolute left-0 top-[calc(100%+6px)] z-50 w-max min-w-[220px] rounded-lg p-1"
-          style={{ background: "var(--panel-solid)", border: "1px solid var(--border)", boxShadow: "var(--shadow)" }}
+          style={{ background: "var(--surface)", border: "1px solid var(--hairline)", boxShadow: "var(--shadow-3)" }}
           onClick={() => onOpenChange(false)}
         >
           {children}
@@ -147,7 +147,7 @@ export function MenuItem({
   return (
     <button
       role="menuitem"
-      className="group/item relative flex h-[26px] w-full items-center justify-between gap-6 whitespace-nowrap rounded-[4px] px-2 text-left text-[12px] text-[var(--text)] hover:bg-[var(--accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--text)]"
+      className="group/item relative flex h-[26px] w-full items-center justify-between gap-6 whitespace-nowrap rounded-[4px] px-2 text-left text-[12px] text-[var(--ink)] hover:bg-[var(--accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--ink)]"
       style={danger ? { color: "var(--err)" } : undefined}
       onClick={onClick}
       disabled={disabled}
@@ -161,14 +161,14 @@ export function MenuItem({
         {hintText && <span className="mono shrink-0 text-[10.5px] text-mute group-hover/item:text-white/80">{hintText}</span>}
       </span>
       {tooltipText && (
-        <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-w-[300px] -translate-y-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover/item:block" style={{ background: "var(--panel-solid)", borderColor: "var(--border-strong)", color: "var(--text)" }}>{tooltipText}</span>
+        <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-w-[300px] -translate-y-1/2 whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-xl group-hover/item:block" style={{ background: "var(--surface)", borderColor: "var(--hairline-strong)", color: "var(--ink)" }}>{tooltipText}</span>
       )}
     </button>
   );
 }
 
 export function MenuSeparator() {
-  return <div className="my-1 h-px" style={{ background: "var(--border)" }} />;
+  return <div className="my-1 h-px" style={{ background: "var(--hairline)" }} />;
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,11 +220,11 @@ export function Dialog({
         aria-modal="true"
         aria-label={title}
         className="rise flex max-h-[86vh] w-full flex-col overflow-hidden rounded-xl"
-        style={{ maxWidth: wide ? 560 : 440, background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }}
+        style={{ maxWidth: wide ? 560 : 440, background: "var(--surface)", border: "1px solid var(--hairline-strong)", boxShadow: "var(--shadow-3)" }}
       >
         <div
           className="flex h-9 shrink-0 items-center justify-between gap-2 px-3"
-          style={{ borderBottom: "1px solid var(--border)" }}
+          style={{ borderBottom: "1px solid var(--hairline)" }}
         >
           <span className="truncate text-[12px] font-medium">{title}</span>
           <button
@@ -241,7 +241,7 @@ export function Dialog({
           <div className="shrink-0 px-4 pt-3 text-[11.5px] text-mute">{subtitle}</div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-3">{children}</div>
-        <div className="flex shrink-0 items-center justify-end gap-2 px-4 py-3" style={{ borderTop: "1px solid var(--border)" }}>
+        <div className="flex shrink-0 items-center justify-end gap-2 px-4 py-3" style={{ borderTop: "1px solid var(--hairline)" }}>
           {actions}
         </div>
       </div>
@@ -362,7 +362,7 @@ export function NetsField({
   return (
     <div className="block py-1.5">
       <FieldLabel aside={`${selected.length} gewählt`}>{label}</FieldLabel>
-      <div className="max-h-32 overflow-y-auto rounded-md p-1" style={{ border: "1px solid var(--border)", background: "color-mix(in srgb, var(--text) 3%, transparent)" }}>
+      <div className="max-h-32 overflow-y-auto rounded-md p-1" style={{ border: "1px solid var(--hairline)", background: "color-mix(in srgb, var(--ink) 3%, transparent)" }}>
         {nets.length === 0 && <div className="px-2 py-1.5 text-[12px] text-mute">Keine Netze — erst Bauteile verdrahten.</div>}
         {nets.map((n) => (
           <label key={n} className="tree-row flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[12px]">
@@ -421,7 +421,7 @@ export function Tooltip({
       {open && (
         <span
           className={`pointer-events-none absolute z-50 max-w-[260px] rounded-lg px-2.5 py-1.5 text-[11px] leading-snug shadow-xl ${sideClass}`}
-          style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", color: "var(--text)", whiteSpace: "pre-wrap" }}
+          style={{ background: "var(--surface)", border: "1px solid var(--hairline-strong)", color: "var(--ink)", whiteSpace: "pre-wrap" }}
           role="tooltip"
         >
           {contentText}
@@ -452,8 +452,8 @@ export function ToolButton({
         className="grid h-7 min-w-[32px] place-items-center rounded-md border px-2 text-[11px] font-medium transition-colors"
         style={
           active
-            ? { background: "var(--accent)", color: "var(--accent-contrast)", borderColor: "var(--accent)" }
-            : { background: "var(--panel-2)", color: "var(--text-dim)", borderColor: "var(--border)" }
+            ? { background: "var(--accent)", color: "var(--accent-ink)", borderColor: "var(--accent)" }
+            : { background: "var(--surface-2)", color: "var(--ink-2)", borderColor: "var(--hairline)" }
         }
         onClick={onClick}
         aria-label={label}

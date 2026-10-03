@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
 
 const DESCRIPTION =
   "Multispice: moderner EDA-Arbeitsplatz mit SPICE-Simulationskern – Schaltplan-Editor, Echtzeitsimulation, virtuelle Messgeräte, Monte-Carlo- und Rauschanalyse. Komplett im Browser, ohne Server.";
@@ -55,8 +59,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   // Browser-Zoom bewusst erlaubt (WCAG 1.4.4) – nur die Farben folgen dem System.
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#0b0d12" },
-    { media: "(prefers-color-scheme: light)", color: "#f2f4f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#111113" },
+    { media: "(prefers-color-scheme: light)", color: "#edece8" },
   ],
   width: "device-width",
   initialScale: 1,
@@ -64,7 +68,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="de" suppressHydrationWarning>
+    <html lang="de" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <body className="h-full antialiased">{children}</body>
     </html>
   );

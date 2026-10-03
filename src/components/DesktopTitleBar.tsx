@@ -77,7 +77,7 @@ export function isDesktopApp(): boolean {
 
 /**
  * W124: Maximal minimalistische Fensterleiste (wie bei macOS):
- * Kein Icon, kein Text, kein Farbverlauf – verschmilzt nahtlos mit var(--panel-solid)
+ * Kein Icon, kein Text, kein Farbverlauf – verschmilzt nahtlos mit var(--surface)
  * und besitzt nur eine dezente 1px-Trennlinie sowie rechts die Fenstersteuerung.
  */
 export default function DesktopTitleBar({
@@ -115,9 +115,9 @@ export default function DesktopTitleBar({
     <div
       className="flex h-7 shrink-0 select-none items-center justify-end px-2"
       style={{
-        background: "var(--panel-solid)",
-        borderBottom: "1px solid var(--border)",
-        color: "var(--text-dim)",
+        background: "var(--surface)",
+        borderBottom: "1px solid var(--hairline)",
+        color: "var(--ink-2)",
         WebkitAppRegion: "drag",
       } as React.CSSProperties}
     >
@@ -130,7 +130,7 @@ export default function DesktopTitleBar({
           onClick={() => handleControl("minimize")}
           title="Minimieren"
           aria-label="Fenster minimieren"
-          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
+          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
         >
           <Minus size={11} />
         </button>
@@ -139,7 +139,7 @@ export default function DesktopTitleBar({
           onClick={() => handleControl("maximize")}
           title={maximized ? "Wiederherstellen" : "Maximieren"}
           aria-label={maximized ? "Fenster wiederherstellen" : "Fenster maximieren"}
-          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
+          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
         >
           {maximized ? <Copy size={10} /> : <Square size={10} />}
         </button>

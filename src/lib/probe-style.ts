@@ -11,22 +11,22 @@ export const LEGACY_PROBE_COLORS = new Set([
 /** Probe-Art → CSS-Variable (für DOM/style). */
 export const PROBE_TOKEN: Record<string, string> = {
   voltage: "var(--warn)",
-  current: "var(--accent-2)",
+  current: "var(--teal)",
   voltage_current: "var(--warn)",
-  power: "var(--accent-3)",
+  power: "var(--violet)",
   diff: "var(--err)",
-  ref: "var(--text-mute)",
+  ref: "var(--ink-3)",
   digital: "var(--ok)",
 };
 
 /** Probe-Art → Token-Name (für css()-Auflösung im Canvas). */
 export const PROBE_CSSVAR: Record<string, string> = {
   voltage: "--warn",
-  current: "--accent-2",
+  current: "--teal",
   voltage_current: "--warn",
-  power: "--accent-3",
+  power: "--violet",
   diff: "--err",
-  ref: "--text-mute",
+  ref: "--ink-3",
   digital: "--ok",
 };
 

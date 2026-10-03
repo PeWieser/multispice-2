@@ -81,7 +81,7 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
       </div>
 
       {slots.length === 0 ? (
-        <div className="rounded-xl p-6 text-center text-[12px] text-mute" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+        <div className="rounded-xl p-6 text-center text-[12px] text-mute" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
           <FolderOpen size={18} className="mx-auto mb-2 opacity-60" />
           Noch keine gespeicherten Projekte.
           <br />
@@ -90,7 +90,7 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
       ) : (
         <div className="flex flex-col gap-1.5">
           {slots.map((s) => (
-            <div key={s.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+            <div key={s.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
               <div className="min-w-0 flex-1">
                 {editing === s.id ? (
                   <input

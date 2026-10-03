@@ -67,7 +67,7 @@ function Sparkline({ data }: { data: number[] }) {
     }
     const span = max - min || 1;
     const yOf = (v: number) => h - 3 - ((v - min) / span) * (h - 6);
-    ctx.strokeStyle = css("--border-strong", "#b4b0a8");
+    ctx.strokeStyle = css("--hairline-strong", "#b4b0a8");
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(2, yOf(0));
@@ -324,13 +324,13 @@ export default function Canvas() {
       // entspricht; jede 5. Linie (50 px) als Hauptlinie.
       const step = view.zoom < 0.45 ? GRID * 5 : GRID;
       ctx.lineWidth = 1 / view.zoom;
-      ctx.strokeStyle = css("--grid", "rgba(255,255,255,.05)");
+      ctx.strokeStyle = css("--grid-minor", "rgba(255,255,255,.05)");
       ctx.beginPath();
       for (let x = Math.floor(x0 / step) * step; x < x1; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
       for (let y = Math.floor(y0 / step) * step; y < y1; y += step) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
       ctx.stroke();
       const big = step * 5;
-      ctx.strokeStyle = css("--grid-strong", "rgba(255,255,255,.1)");
+      ctx.strokeStyle = css("--grid-major", "rgba(255,255,255,.1)");
       ctx.beginPath();
       for (let x = Math.floor(x0 / big) * big; x < x1; x += big) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
       for (let y = Math.floor(y0 / big) * big; y < y1; y += big) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
@@ -355,22 +355,22 @@ export default function Canvas() {
         minY = Math.floor((minY - pad) / 50) * 50;
         maxX = Math.ceil((maxX + pad) / 50) * 50;
         maxY = Math.ceil((maxY + pad + 44) / 50) * 50;
-        ctx.strokeStyle = css("--border-strong", "#b4b0a8");
+        ctx.strokeStyle = css("--hairline-strong", "#b4b0a8");
         ctx.lineWidth = 1.5 / view.zoom;
         ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
         // Titelstempel unten rechts
         const tw = 150, th = 36, tx = maxX - tw - 8, ty = maxY - th - 8;
-        ctx.fillStyle = css("--panel-solid", "#fbfaf8");
+        ctx.fillStyle = css("--surface", "#fbfaf8");
         ctx.fillRect(tx, ty, tw, th);
-        ctx.strokeStyle = css("--border-strong", "#b4b0a8");
+        ctx.strokeStyle = css("--hairline-strong", "#b4b0a8");
         ctx.lineWidth = 1 / view.zoom;
         ctx.strokeRect(tx, ty, tw, th);
         ctx.textAlign = "left";
-        ctx.fillStyle = css("--text", "#1c1f22");
+        ctx.fillStyle = css("--ink", "#1c1f22");
         ctx.font = `600 10px ${getComputedStyle(document.body).fontFamily}`;
         ctx.fillText(doc.name || "Unbenannt", tx + 6, ty + 13);
         ctx.font = "8px ui-monospace, monospace";
-        ctx.fillStyle = css("--text-mute", "#8a8f95");
+        ctx.fillStyle = css("--ink-3", "#8a8f95");
         ctx.fillText(new Date().toLocaleDateString("de-DE"), tx + 6, ty + 26);
         ctx.fillText("Blatt 1/1", tx + 90, ty + 26);
       }
@@ -672,7 +672,7 @@ export default function Canvas() {
       const a = Math.min(Math.abs(v) / 12, 1);
       if (v > 0.15) return `rgb(${Math.round(80 + 175 * a)}, ${Math.round(190 - 90 * a)}, ${Math.round(255 - 180 * a)})`;
       if (v < -0.15) return `rgb(${Math.round(90 - 40 * a)}, ${Math.round(160 + 40 * a)}, 255)`;
-      return css("--text-mute", "#8a8f95");
+      return css("--ink-3", "#8a8f95");
     };
 
     // Human Design: Hover highlight for wires – makes editing discoverable
@@ -722,14 +722,14 @@ export default function Canvas() {
       })();
       // Wire custom color like Multisim – if set, use it unless selected/hovered
       const customColor = (wire as any).color as string | undefined;
-      let color = isSel ? selColor : (isHovered || isNetHovered) ? css("--accent-2","#22d3ee") : (customColor ?? wireColor);
-      if (isBus) color = isSel ? selColor : (isHovered || isNetHovered) ? css("--accent-2","#22d3ee") : (customColor ?? css("--accent-3", "#7a4fa3"));
+      let color = isSel ? selColor : (isHovered || isNetHovered) ? css("--teal","#22d3ee") : (customColor ?? wireColor);
+      if (isBus) color = isSel ? selColor : (isHovered || isNetHovered) ? css("--teal","#22d3ee") : (customColor ?? css("--violet", "#7a4fa3"));
       if (wire.points.length) {
         const key = `${Math.round(wire.points[0].x)},${Math.round(wire.points[0].y)}`;
         const netName = netResult.pointNets[key];
         if (netName && live && showVoltageColors && !customColor && !isBus) {
           const netV = live.nets[netName] ?? 0;
-          color = isSel ? selColor : (isHovered || isNetHovered) ? css("--accent-2","#22d3ee") : voltageColorFn(netV);
+          color = isSel ? selColor : (isHovered || isNetHovered) ? css("--teal","#22d3ee") : voltageColorFn(netV);
         }
       }
       // W13: Keine Glow-Konturen – Auswahl/Hover zeigen sich allein über
@@ -761,7 +761,7 @@ export default function Canvas() {
           ctx.fill();
           ctx.restore();
           // fill
-          ctx.fillStyle = isHoveredHandle ? "#ffffff" : css("--panel-solid","#1a1f2e");
+          ctx.fillStyle = isHoveredHandle ? "#ffffff" : css("--surface","#1a1f2e");
           ctx.strokeStyle = isHoveredHandle ? css("--accent","#5b8cff") : isEnd ? css("--ok","#34d399") : css("--accent","#5b8cff");
           ctx.lineWidth = (isHoveredHandle ? 2.2 : 1.5) * iz;
           ctx.beginPath();
@@ -791,7 +791,7 @@ export default function Canvas() {
           }
           // index label for first few points when zoomed
           if (view.zoom > 0.8 && wire.points.length < 10) {
-            ctx.fillStyle = css("--text-mute","#64748b");
+            ctx.fillStyle = css("--ink-3","#64748b");
             ctx.font = `${9*iz}px ui-monospace, monospace`;
             ctx.textAlign = "center";
             ctx.fillText(String(idx), pt.x, pt.y - (sz/2 + 8*iz));
@@ -812,14 +812,14 @@ export default function Canvas() {
           const msz = (isHoveredMid ? 10 : 6) * iz;
           ctx.save();
           ctx.fillStyle = isHoveredMid ? "#ffffff" : "rgba(255,255,255,0.75)";
-          ctx.strokeStyle = isHoveredMid ? css("--accent-2","#22d3ee") : css("--text-mute", "#8a8f95");
+          ctx.strokeStyle = isHoveredMid ? css("--teal","#22d3ee") : css("--ink-3", "#8a8f95");
           ctx.lineWidth = 1.2 * iz;
           ctx.beginPath();
           ctx.arc(mx, my, msz/2, 0, Math.PI*2);
           ctx.fill();
           ctx.stroke();
           // plus icon
-          ctx.strokeStyle = isHoveredMid ? css("--accent-2","#22d3ee") : css("--text-mute", "#8a8f95");
+          ctx.strokeStyle = isHoveredMid ? css("--teal","#22d3ee") : css("--ink-3", "#8a8f95");
           ctx.lineWidth = 1.2 * iz;
           ctx.beginPath();
           ctx.moveTo(mx - msz*0.25, my);
@@ -832,7 +832,7 @@ export default function Canvas() {
       }
       // If hovered but not selected, show subtle dot + hint for adding probe or selecting
       if (isHovered && !isSel) {
-        ctx.fillStyle = css("--accent-2","#22d3ee")+"AA";
+        ctx.fillStyle = css("--teal","#22d3ee")+"AA";
         ctx.beginPath();
         ctx.arc(wire.points[0].x, wire.points[0].y, 4 / Math.max(view.zoom,0.4), 0, Math.PI*2);
         ctx.fill();
@@ -945,7 +945,7 @@ export default function Canvas() {
         const pad = 4*iz;
         const h = 14*iz;
         // Use voltage color
-        const col = v > 0.5 ? css("--accent", "#1f5fd0") : v < -0.5 ? css("--err", "#b3372c") : css("--text-mute", "#8a8f95");
+        const col = v > 0.5 ? css("--accent", "#1f5fd0") : v < -0.5 ? css("--err", "#b3372c") : css("--ink-3", "#8a8f95");
         ctx.fillStyle = "rgba(13,16,23,0.85)";
         ctx.strokeStyle = col + "60";
         ctx.lineWidth = 1*iz;
@@ -978,7 +978,7 @@ export default function Canvas() {
         const tw = ctx.measureText(txt).width;
         const pad = 3*iz;
         const h = 12*iz;
-        const col = Math.abs(cur) > 0.01 ? css("--warn", "#a87a12") : css("--text-mute", "#8a8f95");
+        const col = Math.abs(cur) > 0.01 ? css("--warn", "#a87a12") : css("--ink-3", "#8a8f95");
         ctx.fillStyle = "rgba(13,16,23,0.85)";
         ctx.strokeStyle = col + "50";
         ctx.lineWidth = 1*iz;
@@ -1138,12 +1138,12 @@ export default function Canvas() {
       const txt = label.name || netResult.pointNets[`${Math.round(label.x)},${Math.round(label.y)}`] || "NET";
       const tw = ctx.measureText(txt).width;
       const isSel = selection.includes(label.id);
-      ctx.fillStyle = css("--panel-2", "#151a25");
+      ctx.fillStyle = css("--surface-2", "#151a25");
       roundRect(ctx, label.x + 8, label.y - 20, tw + 12, 16, 4); ctx.fill();
-      ctx.strokeStyle = isSel ? css("--wire-sel", "#c77a16") : css("--border-strong", "#333");
+      ctx.strokeStyle = isSel ? css("--wire-sel", "#c77a16") : css("--hairline-strong", "#333");
       ctx.lineWidth = (isSel ? 1.8 : 1) / view.zoom;
       ctx.stroke();
-      ctx.fillStyle = isSel ? css("--wire-sel", "#c77a16") : css("--accent-2", "#22d3ee");
+      ctx.fillStyle = isSel ? css("--wire-sel", "#c77a16") : css("--teal", "#22d3ee");
       ctx.textAlign = "left";
       ctx.fillText(txt, label.x + 14, label.y - 8);
       ctx.beginPath(); ctx.arc(label.x, label.y, 2.5, 0, Math.PI * 2); ctx.fill();
@@ -1174,7 +1174,7 @@ export default function Canvas() {
       ctx.fill();
 
       // Kartenkörper
-      ctx.fillStyle = css("--panel-solid", "#161b26");
+      ctx.fillStyle = css("--surface", "#161b26");
       roundRect(ctx, cardX, cardY, cardW, cardH, 6);
       ctx.fill();
 
@@ -1188,7 +1188,7 @@ export default function Canvas() {
       ctx.restore();
 
       // Rahmen (hervorgehoben bei Auswahl)
-      ctx.strokeStyle = isSel ? css("--wire-sel", "#f59e0b") : css("--border-strong", "#334155");
+      ctx.strokeStyle = isSel ? css("--wire-sel", "#f59e0b") : css("--hairline-strong", "#334155");
       ctx.lineWidth = (isSel ? 1.8 : 1.1) / Math.max(view.zoom, 0.35);
       roundRect(ctx, cardX, cardY, cardW, cardH, 6);
       ctx.stroke();
@@ -1200,7 +1200,7 @@ export default function Canvas() {
 
       // Notiztext (ein- oder mehrzeilig)
       ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
-      ctx.fillStyle = css("--text", "#e2e8f0");
+      ctx.fillStyle = css("--ink", "#e2e8f0");
       for (let li = 0; li < lines.length; li++) {
         ctx.fillText(lines[li], cardX + 10, cardY + 16 + (li + 1) * lineH - 4);
       }
@@ -1221,10 +1221,10 @@ export default function Canvas() {
       const net = netResult.nets.find((n) => n.name === probeName);
       if (!net || !net.points.length) continue;
       const p = net.points[0];
-      ctx.strokeStyle = css("--accent-3", "#a78bfa"); ctx.lineWidth = 1.6 / view.zoom;
+      ctx.strokeStyle = css("--violet", "#a78bfa"); ctx.lineWidth = 1.6 / view.zoom;
       ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.stroke();
       if (live) {
-        ctx.fillStyle = css("--accent-3", "#a78bfa"); ctx.font = "600 10px ui-monospace, monospace";
+        ctx.fillStyle = css("--violet", "#a78bfa"); ctx.font = "600 10px ui-monospace, monospace";
         ctx.fillText(formatValue(live.nets[probeName] ?? 0, "V"), p.x + 10, p.y - 8);
       }
     }
@@ -1277,10 +1277,10 @@ export default function Canvas() {
       if (magnetHit && hover) {
         const r = hover.kind === "pin" ? 7 : 6;
         ctx.save();
-        ctx.strokeStyle = hover.kind === "wire" ? css("--accent-2", "#22d3ee") : css("--ok", "#4ade80");
+        ctx.strokeStyle = hover.kind === "wire" ? css("--teal", "#22d3ee") : css("--ok", "#4ade80");
         ctx.lineWidth = 1.8 / Math.max(view.zoom, 0.3);
         ctx.beginPath(); ctx.arc(hover.x, hover.y, r / Math.max(view.zoom, 0.3), 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = css("--text-dim", "#cbd5e1");
+        ctx.fillStyle = css("--ink-2", "#cbd5e1");
         ctx.font = `${11 / Math.max(view.zoom, 0.5)}px ui-monospace, monospace`;
         ctx.fillText(hover.label, hover.x + 12 / Math.max(view.zoom, 0.5), hover.y - 8 / Math.max(view.zoom, 0.5));
         ctx.restore();
@@ -1363,7 +1363,7 @@ export default function Canvas() {
       ctx.restore();
       if (gNet) {
         ctx.save();
-        ctx.strokeStyle = css("--accent-2", "#22d3ee");
+        ctx.strokeStyle = css("--teal", "#22d3ee");
         ctx.lineWidth = 1.6 / Math.max(view.zoom, 0.3);
         ctx.beginPath();
         ctx.arc(ax, ay, 7 / Math.max(view.zoom, 0.3), 0, Math.PI * 2);
@@ -1383,7 +1383,7 @@ export default function Canvas() {
         const previewTxt = "NETZ…";
         ctx.font = "600 11px ui-sans-serif, system-ui";
         const tw = ctx.measureText(previewTxt).width;
-        ctx.fillStyle = css("--panel-2", "#151a25");
+        ctx.fillStyle = css("--surface-2", "#151a25");
         roundRect(ctx, lx + 8, ly - 20, tw + 12, 16, 4);
         ctx.fill();
         ctx.strokeStyle = css("--wire-sel", "#c77a16");
@@ -1400,7 +1400,7 @@ export default function Canvas() {
         const cardY = cursor.y - 18;
         const cardW = 136;
         const cardH = 42;
-        ctx.fillStyle = css("--panel-solid", "#161b26");
+        ctx.fillStyle = css("--surface", "#161b26");
         roundRect(ctx, cardX, cardY, cardW, cardH, 6);
         ctx.fill();
         ctx.fillStyle = css("--wire-sel", "#f59e0b");
@@ -1414,7 +1414,7 @@ export default function Canvas() {
         ctx.textAlign = "left";
         ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
         ctx.font = "500 11px ui-sans-serif, system-ui";
-        ctx.fillStyle = css("--text", "#e2e8f0");
+        ctx.fillStyle = css("--ink", "#e2e8f0");
         ctx.fillText("Notiz platzieren …", cardX + 10, cardY + 30);
       }
       ctx.restore();
@@ -1436,10 +1436,10 @@ export default function Canvas() {
     // ── Runde 11: Lineale (Screen-Raum, Ref-2-Chrome) ──
     if (st.showRulers) {
       const R = 16;
-      ctx.fillStyle = css("--panel-solid", "#fbfaf8");
+      ctx.fillStyle = css("--surface", "#fbfaf8");
       ctx.fillRect(0, 0, w, R);
       ctx.fillRect(0, 0, R, h);
-      ctx.strokeStyle = css("--border", "#cfccc5");
+      ctx.strokeStyle = css("--hairline", "#cfccc5");
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, R + 0.5); ctx.lineTo(w, R + 0.5);
@@ -1450,8 +1450,8 @@ export default function Canvas() {
       const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
       const norm = rawStep / mag;
       const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
-      ctx.fillStyle = css("--text-mute", "#8a8f95");
-      ctx.strokeStyle = css("--text-mute", "#8a8f95");
+      ctx.fillStyle = css("--ink-3", "#8a8f95");
+      ctx.strokeStyle = css("--ink-3", "#8a8f95");
       ctx.font = "8px ui-monospace, monospace";
       ctx.textAlign = "center";
       for (let wx = Math.floor(view.x / step) * step; wx < view.x + w / view.zoom; wx += step) {
@@ -1470,9 +1470,9 @@ export default function Canvas() {
         ctx.fillText(String(Math.round(wy)), 0, 0);
         ctx.restore();
       }
-      ctx.fillStyle = css("--panel-solid", "#fbfaf8");
+      ctx.fillStyle = css("--surface", "#fbfaf8");
       ctx.fillRect(0, 0, R, R);
-      ctx.strokeStyle = css("--border", "#cfccc5");
+      ctx.strokeStyle = css("--hairline", "#cfccc5");
       ctx.strokeRect(0.5, 0.5, R - 1, R - 1);
     }
   }, [cursor, snap, editing]);
@@ -2908,7 +2908,7 @@ export default function Canvas() {
       {tooltip && (
         <div className="glass pointer-events-none absolute z-30 rounded-lg px-2.5 py-1.5 text-[11px] mono shadow-xl" style={{ left: tooltip.x + 14, top: tooltip.y + 14 }}>
           {tooltip.lines.map((l, i) => (
-            <div key={i} style={{ color: i === 0 ? "var(--text-mute)" : "var(--text)" }}>{l}</div>
+            <div key={i} style={{ color: i === 0 ? "var(--ink-3)" : "var(--ink)" }}>{l}</div>
           ))}
           {tooltip.spark && tooltip.spark.length > 8 && <Sparkline data={tooltip.spark} />}
         </div>
@@ -2941,7 +2941,7 @@ export default function Canvas() {
               left: leftPos,
               top: topPos,
               width: boxWidth,
-              background: "var(--panel-solid)",
+              background: "var(--surface)",
               border: "1.5px solid var(--wire-sel, #f59e0b)",
               boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
             }}
@@ -2968,15 +2968,15 @@ export default function Canvas() {
             <div
               className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1"
               style={{
-                background: "var(--bg)",
-                borderColor: "var(--border-strong)",
+                background: "var(--app)",
+                borderColor: "var(--hairline-strong)",
               }}
             >
               <input
                 ref={editInputRef}
                 autoFocus
                 type="text"
-                className="mono min-w-0 flex-1 bg-transparent text-[12.5px] font-medium text-[var(--text)] outline-none"
+                className="mono min-w-0 flex-1 bg-transparent text-[12.5px] font-medium text-[var(--ink)] outline-none"
                 defaultValue={editing.initial}
                 placeholder={
                   editing.kind === "label"
@@ -3004,9 +3004,9 @@ export default function Canvas() {
                 <span
                   className="mono shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold"
                   style={{
-                    background: "var(--panel-2)",
-                    color: "var(--text-dim)",
-                    border: "1px solid var(--border)",
+                    background: "var(--surface-2)",
+                    color: "var(--ink-2)",
+                    border: "1px solid var(--hairline)",
                   }}
                   title={`Einheit: ${unitLabel} (Präfixe k, m, u/µ, n, p, M erlaubt)`}
                 >
@@ -3030,7 +3030,7 @@ export default function Canvas() {
       )}
       {showHelp && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={()=>setShowHelp(false)}>
-          <div className="rounded-2xl p-5 w-full max-w-[560px] max-h-[80vh] overflow-auto" style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} onClick={e=>e.stopPropagation()}>
+          <div className="rounded-2xl p-5 w-full max-w-[560px] max-h-[80vh] overflow-auto" style={{ background: "var(--surface)", border: "1px solid var(--hairline-strong)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} onClick={e=>e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <div className="text-[14px] font-semibold">Tastenkürzel</div>
               <button className="btn h-7 w-7 p-0" onClick={()=>setShowHelp(false)}>✕</button>
@@ -3108,8 +3108,8 @@ export default function Canvas() {
           <div
             className="absolute bottom-3 left-1/2 z-30 flex max-w-[calc(100vw-110px)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto no-scrollbar rounded-xl border px-2 py-1.5 text-[11.5px] font-medium shadow-xl backdrop-blur-md"
             style={{
-              background: "color-mix(in srgb, var(--panel-solid) 94%, transparent)",
-              borderColor: "var(--border-strong)",
+              background: "color-mix(in srgb, var(--surface) 94%, transparent)",
+              borderColor: "var(--hairline-strong)",
               boxShadow: "0 10px 30px rgba(0,0,0,0.38)",
             }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -3373,7 +3373,7 @@ function ContextMenu({
   })();
 
   return (
-    <div className="fixed z-50 min-w-[280px] max-w-[320px] rounded-xl p-1.5 text-[12px] backdrop-blur-xl" style={{ ...stylePos, background: "color-mix(in srgb, var(--panel-solid) 92%, transparent)", border: "1px solid var(--border-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.08)" }}
+    <div className="fixed z-50 min-w-[280px] max-w-[320px] rounded-xl p-1.5 text-[12px] backdrop-blur-xl" style={{ ...stylePos, background: "color-mix(in srgb, var(--surface) 92%, transparent)", border: "1px solid var(--hairline-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.08)" }}
       onPointerDown={(e) => e.stopPropagation()}
       onContextMenu={(e)=>e.preventDefault()}
       role="menu"
@@ -3384,8 +3384,8 @@ function ContextMenu({
         const curFault = String(inst?.params.__fault ?? "");
         return (
           <>
-            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
-              <div className="h-7 w-7 rounded-md grid place-items-center text-[11px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>{inst?.label?.slice(0, 3) ?? "B"}</div>
+            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--surface-2)" }}>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[11px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--hairline)" }}>{inst?.label?.slice(0, 3) ?? "B"}</div>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold truncate">{part?.name ?? "Bauteil"} {inst?.label}</div>
                 <div className="text-[10px] text-mute truncate">{part?.category ?? ""}{netLabel}</div>
@@ -3469,8 +3469,8 @@ function ContextMenu({
         const lbl = doc.labels.find((l) => l.id === target.id);
         return (
           <>
-            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
-              <div className="h-7 w-7 rounded-md grid place-items-center text-[10px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>NET</div>
+            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--surface-2)" }}>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[10px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--hairline)" }}>NET</div>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold truncate">Netzlabel „{lbl?.name ?? ""}“</div>
                 <div className="text-[10px] text-mute truncate">Position ({lbl?.x ?? 0}, {lbl?.y ?? 0})</div>
@@ -3498,8 +3498,8 @@ function ContextMenu({
         const note = doc.notes.find((n) => n.id === target.id);
         return (
           <>
-            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
-              <div className="h-7 w-7 rounded-md grid place-items-center text-[10px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--border)" }}>TXT</div>
+            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--surface-2)" }}>
+              <div className="h-7 w-7 rounded-md grid place-items-center text-[10px] font-semibold mono" style={{ background: "var(--accent-soft)", border: "1px solid var(--hairline)" }}>TXT</div>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold truncate">Textnotiz</div>
                 <div className="text-[10px] text-mute truncate">{note?.text ?? ""}</div>
@@ -3528,7 +3528,7 @@ function ContextMenu({
         const pts = wire?.points.length ?? 0;
         return (
           <>
-            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
+            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--surface-2)" }}>
               <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "#22d3ee20", border: "1px solid #22d3ee40" }}>∿</div>
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold">Leitung {target.id.slice(0,6)}</div>
@@ -3578,7 +3578,7 @@ function ContextMenu({
                 ["#a78bfa", "Lila", "#a78bfa"],
                 ["#ec4899", "Pink", "#ec4899"],
               ].map(([col, label, dot]) => (
-                <button key={String(col)} className="h-7 w-7 rounded-full border-2 grid place-items-center text-[10px]" style={{ background: (col as string) ?? "var(--panel)", borderColor: ((doc.wires.find(w=>w.id===target.id) as any)?.color ?? null) === col ? "var(--accent)" : "var(--border)", boxShadow: ((doc.wires.find(w=>w.id===target.id) as any)?.color ?? null) === col ? "0 0 0 2px var(--accent-soft)" : "none" }} title={label as string} onClick={() => {
+                <button key={String(col)} className="h-7 w-7 rounded-full border-2 grid place-items-center text-[10px]" style={{ background: (col as string) ?? "var(--surface)", borderColor: ((doc.wires.find(w=>w.id===target.id) as any)?.color ?? null) === col ? "var(--accent)" : "var(--hairline)", boxShadow: ((doc.wires.find(w=>w.id===target.id) as any)?.color ?? null) === col ? "0 0 0 2px var(--accent-soft)" : "none" }} title={label as string} onClick={() => {
                   st.commit((d)=>{
                     const ww = d.wires.find(x=>x.id===target.id);
                     if (ww) {
@@ -3614,7 +3614,7 @@ function ContextMenu({
       })()}
       {target.kind === "probe" && (
         <>
-          <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
+          <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--surface-2)" }}>
             <div className="h-7 w-7 rounded-md grid place-items-center text-[12px] font-bold" style={{ background: (target.probe.color??"#fbbf24")+"20", color: target.probe.color??"#fbbf24", border: `1px solid ${(target.probe.color??"#fbbf24")}40` }}>{target.probe.kind[0].toUpperCase()}</div>
             <div className="min-w-0">
               <div className="text-[12px] font-semibold truncate">{target.probe.name ?? target.probe.kind.toUpperCase()} Probe</div>
@@ -3655,8 +3655,8 @@ function ContextMenu({
       )}
       {target.kind === "empty" && (
         <>
-          <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--panel-2)" }}>
-            <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>◍</div>
+          <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1" style={{ background: "var(--surface-2)" }}>
+            <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>◍</div>
             <div>
               <div className="text-[12px] font-semibold">Leinwand</div>
               <div className="text-[10px] text-mute">Netz {target.net ?? "–"} • {doc.instances.length} Bauteile</div>
@@ -3696,13 +3696,13 @@ function ContextMenu({
 
       <style>{`
         .row { display:flex; width:100%; align-items:center; gap:8px; border-radius:8px; padding:7px 10px; text-align:left; transition: all 0.12s ease; }
-        .row:hover { background: color-mix(in srgb, var(--text) 8%, transparent); transform: translateX(1px); }
+        .row:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); transform: translateX(1px); }
         .row[data-active=true] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); }
         .row.danger { color: var(--err); }
         .row.danger:hover { background: color-mix(in srgb, var(--err) 12%, transparent); }
-        .row.muted { color: var(--text-mute); }
-        .sep { height:1px; margin:6px 0; background: var(--border); }
-        .badge { display:grid; place-items:center; width:22px; height:22px; border-radius:6px; border:1px solid var(--border); background: var(--panel-2); font-size:10px; font-weight:700; }
+        .row.muted { color: var(--ink-3); }
+        .sep { height:1px; margin:6px 0; background: var(--hairline); }
+        .badge { display:grid; place-items:center; width:22px; height:22px; border-radius:6px; border:1px solid var(--hairline); background: var(--surface-2); font-size:10px; font-weight:700; }
       `}</style>
     </div>
   );
@@ -3721,25 +3721,25 @@ function ZoomButtons({ onFit }: { onFit: () => void }) {
       <div
         className="flex flex-col overflow-hidden rounded-lg shadow-sm backdrop-blur-md"
         style={{
-          background: "color-mix(in srgb, var(--panel-solid) 94%, transparent)",
-          border: "1px solid var(--border-strong)",
+          background: "color-mix(in srgb, var(--surface) 94%, transparent)",
+          border: "1px solid var(--hairline-strong)",
         }}
       >
         <button
           type="button"
-          className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-[var(--panel-2)] active:bg-[var(--elev)]"
-          style={{ color: "var(--text)" }}
+          className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-[var(--surface-2)] active:bg-[var(--surface-3)]"
+          style={{ color: "var(--ink)" }}
           onClick={() => setView({ zoom: Math.min(6, view.zoom * 1.25) })}
           title="Vergrößern (+)"
           aria-label="Vergrößern"
         >
           <Plus size={15} strokeWidth={2} />
         </button>
-        <div className="h-px w-full" style={{ background: "var(--border)" }} />
+        <div className="h-px w-full" style={{ background: "var(--hairline)" }} />
         <button
           type="button"
-          className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-[var(--panel-2)] active:bg-[var(--elev)]"
-          style={{ color: "var(--text)" }}
+          className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-[var(--surface-2)] active:bg-[var(--surface-3)]"
+          style={{ color: "var(--ink)" }}
           onClick={() => setView({ zoom: Math.max(0.12, view.zoom / 1.25) })}
           title="Verkleinern (−)"
           aria-label="Verkleinern"
@@ -3749,11 +3749,11 @@ function ZoomButtons({ onFit }: { onFit: () => void }) {
       </div>
       <button
         type="button"
-        className="w-8 h-7 rounded-lg shadow-sm backdrop-blur-md flex items-center justify-center font-mono text-[9.5px] font-semibold tracking-wider transition-colors hover:bg-[var(--panel-2)] active:bg-[var(--elev)]"
+        className="w-8 h-7 rounded-lg shadow-sm backdrop-blur-md flex items-center justify-center font-mono text-[9.5px] font-semibold tracking-wider transition-colors hover:bg-[var(--surface-2)] active:bg-[var(--surface-3)]"
         style={{
-          background: "color-mix(in srgb, var(--panel-solid) 94%, transparent)",
-          border: "1px solid var(--border-strong)",
-          color: "var(--text-dim)",
+          background: "color-mix(in srgb, var(--surface) 94%, transparent)",
+          border: "1px solid var(--hairline-strong)",
+          color: "var(--ink-2)",
         }}
         onClick={onFit}
         title="Schaltplan einpassen (F)"
@@ -4202,7 +4202,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
     ctx.rotate(effectiveRad);
 
     // 4a) Stromzangen-Hülse (Current Clamp Ring) um die Leitung bei (0, 0)
-    ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+    ctx.fillStyle = css("--surface", "#1a1f2e");
     ctx.strokeStyle = strokeCol;
     ctx.lineWidth = selected ? 2.2 : 1.7;
     roundRect(ctx, -4.5, -7.5, 9, 15, 4);
@@ -4211,7 +4211,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
 
     // 4b) Kontrastreiches Richtungs-Pfeil-Schild ("I ━━▶") parallel zur Leitung
     const badgeY = -18;
-    ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+    ctx.fillStyle = css("--surface", "#1a1f2e");
     ctx.strokeStyle = strokeCol;
     ctx.lineWidth = selected ? 2.0 : 1.5;
     roundRect(ctx, -18, badgeY - 7.5, 36, 15, 7.5);
@@ -4244,7 +4244,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   }
 
   // Kontaktpunkt auf der Leitung
-  ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+  ctx.fillStyle = css("--surface", "#1a1f2e");
   ctx.strokeStyle = selected ? css("--wire-sel", "#d97706") : col;
   ctx.lineWidth = selected ? 1.8 : 1.4;
   ctx.beginPath();
@@ -4263,7 +4263,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.scale(iz, iz);
 
   // Kästchen-Hintergrund & Rahmen
-  ctx.fillStyle = css("--panel-solid", "#1a1f2e");
+  ctx.fillStyle = css("--surface", "#1a1f2e");
   roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
   ctx.fill();
 
@@ -4299,7 +4299,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.textBaseline = "middle";
   ctx.fillText(glyph.slice(0, 2), 17, 12.2);
 
-  ctx.fillStyle = css("--text", "#e2e8f0");
+  ctx.fillStyle = css("--ink", "#e2e8f0");
   ctx.font = `700 12px ui-monospace, monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
@@ -4316,7 +4316,7 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
   ctx.font = `600 13px ui-monospace, monospace`;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.fillStyle = !netName || !live ? css("--text-mute", "#94a3b8") : css("--text", "#e2e8f0");
+  ctx.fillStyle = !netName || !live ? css("--ink-3", "#94a3b8") : css("--ink", "#e2e8f0");
   valueLines.forEach((ln, idx) => {
     ctx.fillText(ln, padX, headerH + 5 + idx * lineH);
   });
@@ -4443,13 +4443,13 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
   }
   if (part.interactive==="pot") {
     const pos=engine.controls[inst.label] ?? Number(inst.params.pos??0.5);
-    ctx.fillStyle=css("--accent-2","#22d3ee"); ctx.fillRect(-20+40*pos-1,-12,2,8);
+    ctx.fillStyle=css("--teal","#22d3ee"); ctx.fillRect(-20+40*pos-1,-12,2,8);
   }
   // Fault visualization
   if ((inst as any).fault && (inst as any).fault !== "none") {
     ctx.save();
     const fault = (inst as any).fault;
-      ctx.strokeStyle = fault === "open" ? css("--warn","#a87a12") : fault === "short" ? css("--err","#b3372c") : css("--accent-3","#7a4fa3");
+      ctx.strokeStyle = fault === "open" ? css("--warn","#a87a12") : fault === "short" ? css("--err","#b3372c") : css("--violet","#7a4fa3");
       ctx.lineWidth = 1.4;
     ctx.setLineDash([3,3]);
     const b = { x: -20, y: -14, w: 40, h: 28 };
@@ -4466,14 +4466,14 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     ctx.save(); ctx.translate(inst.x, inst.y);
     const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;
     ctx.font="600 10.5px ui-sans-serif, system-ui"; ctx.textAlign="center";
-    ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--text-dim","#9aa5bd");
+    ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--ink-2","#9aa5bd");
     ctx.fillText(inst.label,0,dy);
     const main=part.params[0];
     if (main && main.type==="number"){
       const val=Number(inst.params[main.key]??main.def);
       // W92: Wenn das Bauteil ausgewählt ist, wird auch sein Wert darunter
       // optisch in der Auswahlfarbe (--wire-sel) hervorgehoben!
-      ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--text-mute","#64708c");
+      ctx.fillStyle=selected?css("--wire-sel","#fbbf24"):css("--ink-3","#64708c");
       ctx.font=selected?"600 10.5px ui-monospace, monospace":"10px ui-monospace, monospace";
       ctx.fillText(formatValue(val,main.unit??""),0,dy+12);
     }

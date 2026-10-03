@@ -63,9 +63,9 @@ export default function BottomPanel() {
   if (!bottomOpen) return null;
 
   return (
-    <div className="relative flex flex-col" style={{ background: "var(--panel)", borderTop: "1px solid var(--border)", height: openH }}>
+    <div className="relative flex flex-col" style={{ background: "var(--surface)", borderTop: "1px solid var(--hairline)", height: openH }}>
       <div onPointerDown={startResize} className="absolute -top-1 left-0 right-0 z-10 h-2 cursor-ns-resize" title="Ziehen: Panel-Höhe" />
-      <div className="flex h-[34px] shrink-0 items-center gap-0.5 px-2" style={{ borderBottom: "1px solid var(--border)" }}>
+      <div className="flex h-[34px] shrink-0 items-center gap-0.5 px-2" style={{ borderBottom: "1px solid var(--hairline)" }}>
         {TABS.map(([id, label, icon]) => (
           <button key={id} className="tab" data-active={bottomTab === id} onClick={() => setBottomTab(id as TabId)}>
             <span className="flex items-center gap-1.5">
@@ -89,7 +89,7 @@ export default function BottomPanel() {
                   <span
                     style={{
                       color:
-                        l.level === "error" ? "var(--err)" : l.level === "warn" ? "var(--warn)" : l.level === "ok" ? "var(--ok)" : "var(--text-dim)",
+                        l.level === "error" ? "var(--err)" : l.level === "warn" ? "var(--warn)" : l.level === "ok" ? "var(--ok)" : "var(--ink-2)",
                     }}
                   >
                     {l.level === "error" ? "✕" : l.level === "warn" ? "⚠" : l.level === "ok" ? "✓" : "›"}
@@ -182,7 +182,7 @@ export default function BottomPanel() {
 
           {bottomTab === "probes" && (
             <div className="flex h-full flex-col md:flex-row">
-              <div className="flex-1 min-h-0 overflow-hidden border-r" style={{ borderColor: "var(--border)" }}>
+              <div className="flex-1 min-h-0 overflow-hidden border-r" style={{ borderColor: "var(--hairline)" }}>
                 <ProbeTable />
               </div>
               <div className="h-[140px] md:h-full md:w-[320px] shrink-0">
@@ -205,8 +205,8 @@ export default function BottomPanel() {
                 </thead>
                 <tbody className="mono">
                   {bom.map((r, i) => (
-                    <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td className="px-2 py-1" style={{ color: "var(--accent-2)" }}>
+                    <tr key={i} style={{ borderTop: "1px solid var(--hairline)" }}>
+                      <td className="px-2 py-1" style={{ color: "var(--teal)" }}>
                         {r.ref}
                       </td>
                       <td className="px-2 py-1 text-dim">{r.part}</td>
@@ -294,7 +294,7 @@ function LiveStrip() {
 
   return (
     <div className="h-full p-2">
-      <canvas ref={ref} className="h-full w-full rounded-lg" style={{ background: "var(--canvas)", border: "1px solid var(--border)" }} />
+      <canvas ref={ref} className="h-full w-full rounded-lg" style={{ background: "var(--canvas)", border: "1px solid var(--hairline)" }} />
     </div>
   );
 }

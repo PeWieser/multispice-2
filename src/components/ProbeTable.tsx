@@ -91,7 +91,7 @@ export default function ProbeTable() {
   return (
     <div className="h-full overflow-auto" role="region" aria-label="Messpunkte Tabelle – permanente Anzeige aller Probes">
       <table className="sr-only"><caption>Messwerte der Sonden – Name, Typ, Netz, Bezugspunkt, Vdc, Vrms, Vpp, Vavg und Frequenz.</caption></table>
-      <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 text-[10px] uppercase tracking-wide text-mute" style={{ background: "var(--panel)", borderBottom: "1px solid var(--border)" }}>
+      <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 text-[10px] uppercase tracking-wide text-mute" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
         <span>Messpunkte</span>
         <span className="ml-auto mono">{rows.length} Probes</span>
         <button
@@ -111,7 +111,7 @@ export default function ProbeTable() {
         </button>
       </div>
       <table className="w-full text-[11px]">
-        <thead className="sticky top-[33px] z-10 text-[10px] text-mute" style={{ background: "var(--panel-2)" }}>
+        <thead className="sticky top-[33px] z-10 text-[10px] text-mute" style={{ background: "var(--surface-2)" }}>
           <tr>
             <th className="px-2 py-1.5 text-left font-medium">Name</th>
             <th className="px-2 py-1.5 text-left font-medium">Typ</th>
@@ -128,21 +128,21 @@ export default function ProbeTable() {
           {rows.map((r) => (
             <tr
               key={r.id}
-              className="cursor-pointer hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+              className="cursor-pointer hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
               style={{
-                borderTop: "1px solid var(--border)",
+                borderTop: "1px solid var(--hairline)",
                 background: selection.includes(r.id) ? "color-mix(in srgb, var(--accent) 12%, transparent)" : undefined,
               }}
               onClick={() => setSelection([r.id])}
             >
               <td className="px-2 py-1.5 flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full shrink-0" style={{ background: r.color }} />
-                <span className="font-medium" style={{ color: "var(--text)" }}>
+                <span className="font-medium" style={{ color: "var(--ink)" }}>
                   {r.name}
                 </span>
               </td>
               <td className="px-2 py-1.5 text-dim">{r.kind}</td>
-              <td className="px-2 py-1.5" style={{ color: "var(--accent-2)" }}>
+              <td className="px-2 py-1.5" style={{ color: "var(--teal)" }}>
                 {r.net || "—"}
               </td>
               <td className="px-2 py-1.5 text-mute">{r.ref || "GND"}</td>

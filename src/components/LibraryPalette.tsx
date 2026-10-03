@@ -77,7 +77,7 @@ function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
     }
     ctx.restore();
   }, [part, size, symbolStylePref]);
-  return <canvas ref={ref} className="shrink-0 rounded-[5px]" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} />;
+  return <canvas ref={ref} className="shrink-0 rounded-[5px]" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} />;
 }
 
 // --- Advanced search with scoring ---
@@ -141,7 +141,7 @@ const PartRow = React.memo(function PartRow({
 
   return (
     <div
-      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)] cursor-pointer"
+      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)] cursor-pointer"
       style={
         active || selected
           ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }
@@ -175,7 +175,7 @@ const PartRow = React.memo(function PartRow({
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
           <span className="block truncate text-[12px] font-medium leading-[1.2]">{part.name}</span>
-          <span className="rounded px-1 py-0 text-[9px] mono" style={{ background: "var(--panel-2)", border: "1px solid var(--border)", color: "var(--text-dim)" }}>
+          <span className="rounded px-1 py-0 text-[9px] mono" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)", color: "var(--ink-2)" }}>
             {part.ref}
           </span>
           {datasheet?.direct && <span className="rounded bg-amber-500/20 px-1 py-0 text-[8px] text-amber-400">PDF</span>}
@@ -188,7 +188,7 @@ const PartRow = React.memo(function PartRow({
       </span>
       <div className="flex flex-col items-center gap-1 shrink-0">
         <button
-          className="grid h-6 w-6 place-items-center rounded-md hover:bg-[color-mix(in_srgb,var(--text)_10%,transparent)]"
+          className="grid h-6 w-6 place-items-center rounded-md hover:bg-[color-mix(in_srgb,var(--ink)_10%,transparent)]"
           onClick={(e) => {
             e.stopPropagation();
             const st = useEditor.getState();
@@ -202,7 +202,7 @@ const PartRow = React.memo(function PartRow({
           }}
           title={isFav ? "Favorit entfernen" : "Favorit hinzufügen"}
         >
-          <Star size={12} style={{ color: isFav ? "var(--warn)" : "var(--border-strong)" }} fill={isFav ? "currentColor" : "none"} />
+          <Star size={12} style={{ color: isFav ? "var(--warn)" : "var(--hairline-strong)" }} fill={isFav ? "currentColor" : "none"} />
         </button>
         {datasheet && (
           <a
@@ -243,14 +243,14 @@ function CatNode({
     <div>
       <div className="flex items-center">
         <button
-          className="grid h-6 w-4 shrink-0 place-items-center text-[9px] text-mute hover:text-[var(--text)]"
+          className="grid h-6 w-4 shrink-0 place-items-center text-[9px] text-mute hover:text-[var(--ink)]"
           style={{ marginLeft: depth * 10 }}
           onClick={() => setOpen((o) => !o)}
         >
           {node.children.length ? (open ? "▾" : "▸") : ""}
         </button>
         <button
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
           style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
           onClick={() => onSel(node.path)}
           title={node.name}
@@ -527,22 +527,22 @@ export default function LibraryPalette({
       }
       style={
         standalone
-          ? { background: "var(--panel-solid)" }
+          ? { background: "var(--surface)" }
           : {
               left: pos.x,
               top: pos.y,
               width: size.w,
               height: size.h,
-              background: "var(--panel-solid)",
-              border: "1px solid var(--border-strong)",
-              boxShadow: "var(--shadow)",
+              background: "var(--surface)",
+              border: "1px solid var(--hairline-strong)",
+              boxShadow: "var(--shadow-3)",
             }
       }
     >
       {!standalone && (
       <div
         className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3"
-        style={{ borderBottom: "1px solid var(--border)" }}
+        style={{ borderBottom: "1px solid var(--hairline)" }}
         onPointerDown={(e) => {
           dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y, w: paletteRef.current?.offsetWidth ?? 420 };
         }}
@@ -550,7 +550,7 @@ export default function LibraryPalette({
         <span className="text-[12px] font-medium flex items-center gap-1.5">
           <LayoutGrid size={12} /> Bibliothek
         </span>
-        <span className="flex items-center gap-1 rounded bg-[var(--panel-2)] px-1.5 py-0.5 text-[9px] text-mute border border-[var(--border)]">
+        <span className="flex items-center gap-1 rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[9px] text-mute border border-[var(--hairline)]">
           <Command size={9} />K
         </span>
         <div className="flex-1" />
@@ -587,7 +587,7 @@ export default function LibraryPalette({
           />
           {query && (
             <button
-              className="absolute right-2 top-1/2 -translate-y-1/2 grid h-5 w-5 place-items-center rounded-md hover:bg-[var(--panel-2)]"
+              className="absolute right-2 top-1/2 -translate-y-1/2 grid h-5 w-5 place-items-center rounded-md hover:bg-[var(--surface-2)]"
               onClick={() => setQuery("")}
             >
               <X size={11} />
@@ -608,23 +608,23 @@ export default function LibraryPalette({
 
       <div className="flex min-h-0 flex-1">
         {/* Spalte 1 – Navigation (Ref-1 Component Browser) */}
-        <div className="hidden w-[170px] shrink-0 flex-col overflow-y-auto border-r py-1 md:flex" style={{ borderColor: "var(--border)", background: "var(--panel-2)" }}>
+        <div className="hidden w-[170px] shrink-0 flex-col overflow-y-auto border-r py-1 md:flex" style={{ borderColor: "var(--hairline)", background: "var(--surface-2)" }}>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
             style={!query && tab === "all" && !selCat ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("all"); setSelCat(null); }}
           >
             <LayoutGrid size={12} /> Alle <span className="mono ml-auto text-[9px] text-mute">{PARTS.length}</span>
           </button>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
             style={!query && tab === "fav" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("fav"); setSelCat(null); }}
           >
             <Star size={12} /> Favoriten <span className="mono ml-auto text-[9px] text-mute">{favorites.length}</span>
           </button>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--text)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
             style={!query && tab === "recent" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("recent"); setSelCat(null); }}
           >
@@ -689,7 +689,7 @@ export default function LibraryPalette({
 
         {/* Detail Panel – right side of palette (floating palette + detail) */}
         {detailPart && (
-          <div className="hidden min-w-[240px] flex-1 flex-col overflow-y-auto border-l md:flex" style={{ borderColor: "var(--border)" }}>
+          <div className="hidden min-w-[240px] flex-1 flex-col overflow-y-auto border-l md:flex" style={{ borderColor: "var(--hairline)" }}>
             <div className="p-3 space-y-3">
               <div className="flex justify-center">
                 <SymbolPreview part={detailPart} size={96} />
@@ -701,21 +701,21 @@ export default function LibraryPalette({
                 </div>
                 <div className="mt-1 text-[11px] text-mute leading-snug">{detailPart.description ?? "Keine Beschreibung – generisches Bauteil"}</div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--panel)", borderColor: "var(--border)", color: "var(--text-dim)" }}>
+                  <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--surface)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}>
                     {detailPart.ref}
                   </span>
-                  <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--panel)", borderColor: "var(--border)", color: "var(--text-dim)" }}>
+                  <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--surface)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}>
                     {detailPart.mount}
                   </span>
                   {detailPart.footprint && (
-                    <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--panel)", borderColor: "var(--border)", color: "var(--text-dim)" }}>
+                    <span className="rounded-full px-2 py-0.5 text-[9px] border" style={{ background: "var(--surface)", borderColor: "var(--hairline)", color: "var(--ink-2)" }}>
                       {detailPart.footprint}
                     </span>
                   )}
                 </div>
               </div>
 
-              <div className="rounded-lg p-2.5" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+              <div className="rounded-lg p-2.5" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
                 <div className="text-[10px] uppercase tracking-wide text-mute mb-1.5">Parameter</div>
                 <div className="space-y-1">
                   {detailPart.params.slice(0, 5).map((pr) => (
@@ -738,7 +738,7 @@ export default function LibraryPalette({
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-medium border hover:opacity-90 transition-opacity"
-                        style={{ background: "var(--accent)", color: "var(--accent-contrast)", borderColor: "var(--accent)" }}
+                        style={{ background: "var(--accent)", color: "var(--accent-ink)", borderColor: "var(--accent)" }}
                       >
                         <FileText size={14} /> Datenblatt – {ds.manufacturer} {ds.direct ? "(PDF)" : ""}
                         <ExternalLink size={12} className="ml-auto" />
@@ -752,8 +752,8 @@ export default function LibraryPalette({
                     href={getDatasheetSearchUrl(detailPart.id, detailPart.name)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[10px] border hover:bg-[var(--panel)]"
-                    style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
+                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[10px] border hover:bg-[var(--surface)]"
+                    style={{ borderColor: "var(--hairline)", color: "var(--ink-2)" }}
                   >
                     <Search size={10} /> AllDatasheet
                   </a>
@@ -761,8 +761,8 @@ export default function LibraryPalette({
                     href={getOctopartUrl(detailPart.id)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[10px] border hover:bg-[var(--panel)]"
-                    style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
+                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[10px] border hover:bg-[var(--surface)]"
+                    style={{ borderColor: "var(--hairline)", color: "var(--ink-2)" }}
                   >
                     <ExternalLink size={10} /> Octopart
                   </a>
@@ -770,7 +770,7 @@ export default function LibraryPalette({
               </div>
 
               {detailPart.pins && detailPart.pins.length > 0 && (
-                <div className="rounded-lg p-2.5" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+                <div className="rounded-lg p-2.5" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
                   <div className="text-[10px] uppercase tracking-wide text-mute mb-1.5">Pins ({detailPart.pins.length})</div>
                   <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-[10px] text-dim">
                     {detailPart.pins.map((pn, i) => (
@@ -801,7 +801,7 @@ export default function LibraryPalette({
         onPointerDown={(e) => {
           resizeRef.current = { x: e.clientX, y: e.clientY, w: size.w, h: size.h };
         }}
-        style={{ background: "linear-gradient(135deg, transparent 50%, var(--border-strong) 50%)" }}
+        style={{ background: "linear-gradient(135deg, transparent 50%, var(--hairline-strong) 50%)" }}
       />
     </div>
   );

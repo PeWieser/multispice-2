@@ -80,7 +80,7 @@ function grid(ctx: CanvasRenderingContext2D, w: number, h: number, cols = 10, ro
   ctx.save();
   ctx.fillStyle = cssVar("--canvas", "#0d1017");
   ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = cssVar("--grid", "rgba(255,255,255,.06)");
+  ctx.strokeStyle = cssVar("--grid-minor", "rgba(255,255,255,.06)");
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let i = 1; i < cols; i++) {
@@ -92,7 +92,7 @@ function grid(ctx: CanvasRenderingContext2D, w: number, h: number, cols = 10, ro
     ctx.lineTo(w, (h * i) / rows);
   }
   ctx.stroke();
-  ctx.strokeStyle = cssVar("--grid-strong", "rgba(255,255,255,.12)");
+  ctx.strokeStyle = cssVar("--grid-major", "rgba(255,255,255,.12)");
   ctx.beginPath();
   ctx.moveTo(0, h / 2);
   ctx.lineTo(w, h / 2);
@@ -169,8 +169,8 @@ function Multimeter({ win }: { win: InstrumentWindow }) {
 
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
-      <div className="rounded-xl p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-        <div className="mono text-right text-[34px] font-semibold leading-none tabular-nums" style={{ color: running ? "var(--ok)" : "var(--text-mute)" }}>
+      <div className="rounded-xl p-3" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}>
+        <div className="mono text-right text-[34px] font-semibold leading-none tabular-nums" style={{ color: running ? "var(--ok)" : "var(--ink-3)" }}>
           {running ? formatValue(value, "") : "– – –"}
         </div>
         <div className="mono mt-1 text-right text-[12px] text-mute">{unit}</div>
@@ -255,7 +255,7 @@ function BodePlotter({ win }: { win: InstrumentWindow }) {
     (ctx: CanvasRenderingContext2D, w: number, h: number) => {
       grid(ctx, w, h, 12, 8);
       if (!data || !data.freq.length) {
-        ctx.fillStyle = cssVar("--text-mute", "#64708c");
+        ctx.fillStyle = cssVar("--ink-3", "#64708c");
         ctx.font = "11px ui-sans-serif";
         ctx.fillText("AC-Sweep starten …", 12, 20);
         return;
@@ -288,7 +288,7 @@ function BodePlotter({ win }: { win: InstrumentWindow }) {
       });
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = cssVar("--text-mute", "#64708c");
+      ctx.fillStyle = cssVar("--ink-3", "#64708c");
       ctx.font = "10px ui-monospace, monospace";
       ctx.fillText(`${maxDb.toFixed(0)} dB`, 4, 11);
       ctx.fillText(`${minDb.toFixed(0)} dB`, 4, h - 4);
@@ -315,7 +315,7 @@ function BodePlotter({ win }: { win: InstrumentWindow }) {
           {analysis.running ? "läuft …" : "Sweep starten"}
         </button>
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--border)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
         <Plot render={render} />
       </div>
       <div className="flex gap-3 text-[10.5px] text-mute">
@@ -357,7 +357,7 @@ function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
         const ch = engine.channel(net, samples);
         const y0 = i * rowH + rowH * 0.78;
         const y1 = i * rowH + rowH * 0.22;
-        ctx.strokeStyle = cssVar("--grid", "rgba(255,255,255,.06)");
+        ctx.strokeStyle = cssVar("--grid-minor", "rgba(255,255,255,.06)");
         ctx.beginPath();
         ctx.moveTo(0, i * rowH);
         ctx.lineTo(w, i * rowH);
@@ -380,7 +380,7 @@ function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
           } else ctx.lineTo(x, high ? y1 : y0);
         }
         ctx.stroke();
-        ctx.fillStyle = cssVar("--text-mute", "#64708c");
+        ctx.fillStyle = cssVar("--ink-3", "#64708c");
         ctx.font = "9.5px ui-monospace, monospace";
         ctx.fillText(net, 4, i * rowH + 11);
       });
@@ -390,7 +390,7 @@ function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
         const v = engine.lastState.nets[net] ?? 0;
         if (v > cfg.threshold) word |= 1 << i;
       });
-      ctx.fillStyle = cssVar("--accent-2", "#22d3ee");
+      ctx.fillStyle = cssVar("--teal", "#22d3ee");
       ctx.font = "600 12px ui-monospace, monospace";
       const text = cfg.radix === "hex" ? `0x${word.toString(16).toUpperCase().padStart(2, "0")}` : `0b${word.toString(2).padStart(cfg.channels.length, "0")}`;
       ctx.fillText(text, w - 90, 14);
@@ -427,7 +427,7 @@ function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
           <option value="bin">BIN</option>
         </select>
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--border)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
         <Plot render={render} />
       </div>
     </div>
@@ -486,8 +486,8 @@ function Wattmeter({ win }: { win: InstrumentWindow }) {
       </label>
       <div className="grid grid-cols-2 gap-1.5">
         <Stat label="Wirkleistung P" value={formatValue(p, "W")} color="var(--ok)" />
-        <Stat label="Scheinleistung S" value={formatValue(s, "VA")} color="var(--accent-2)" />
-        <Stat label="Blindleistung Q" value={formatValue(q, "var")} color="var(--accent-3)" />
+        <Stat label="Scheinleistung S" value={formatValue(s, "VA")} color="var(--teal)" />
+        <Stat label="Blindleistung Q" value={formatValue(q, "var")} color="var(--violet)" />
         <Stat label="Leistungsfaktor" value={pf.toFixed(3)} color="var(--warn)" />
         <Stat label="U rms" value={formatValue(vrms, "V")} />
         <Stat label="I rms" value={formatValue(irms, "A")} />
@@ -498,9 +498,9 @@ function Wattmeter({ win }: { win: InstrumentWindow }) {
 
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="rounded-lg p-2" style={{ background: "var(--panel-2)" }}>
+    <div className="rounded-lg p-2" style={{ background: "var(--surface-2)" }}>
       <div className="text-[9.5px] text-mute">{label}</div>
-      <div className="mono text-[15px] font-semibold" style={{ color: color ?? "var(--text)" }}>
+      <div className="mono text-[15px] font-semibold" style={{ color: color ?? "var(--ink)" }}>
         {value}
       </div>
     </div>
@@ -522,7 +522,7 @@ function IvAnalyzer() {
     (ctx: CanvasRenderingContext2D, w: number, h: number) => {
       grid(ctx, w, h, 10, 8);
       if (!data?.curves?.length) {
-        ctx.fillStyle = cssVar("--text-mute", "#64708c");
+        ctx.fillStyle = cssVar("--ink-3", "#64708c");
         ctx.font = "11px ui-sans-serif";
         ctx.fillText("Kennlinie aufnehmen …", 12, 20);
         return;
@@ -544,7 +544,7 @@ function IvAnalyzer() {
         });
         ctx.stroke();
       });
-      ctx.fillStyle = cssVar("--text-mute", "#64708c");
+      ctx.fillStyle = cssVar("--ink-3", "#64708c");
       ctx.font = "10px ui-monospace, monospace";
       ctx.fillText(`${formatValue(maxY, "A")}`, 4, 11);
       ctx.fillText(`${formatValue(minX, "V")}`, 4, h - 4);
@@ -586,7 +586,7 @@ function IvAnalyzer() {
           {analysis.running ? "misst …" : "Kennlinie"}
         </button>
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--border)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
         <Plot render={render} />
       </div>
     </div>
@@ -616,7 +616,7 @@ function SpectrumAnalyzer({ win }: { win: InstrumentWindow }) {
         ctx.fillStyle = `hsl(${200 - (db + 120) * 0.9}, 85%, 58%)`;
         ctx.fillRect(i * barW, h - bh, Math.max(barW - 0.4, 0.6), bh);
       }
-      ctx.fillStyle = cssVar("--text-mute", "#64708c");
+      ctx.fillStyle = cssVar("--ink-3", "#64708c");
       ctx.font = "10px ui-monospace, monospace";
       ctx.fillText(`0 … ${formatValue(sp.freq[n - 1] ?? 0, "Hz")}`, 6, h - 5);
     },
@@ -628,7 +628,7 @@ function SpectrumAnalyzer({ win }: { win: InstrumentWindow }) {
         <span>Signal</span>
         <NetSelect value={cfg.net} onChange={(v) => update(win.id, { config: { ...win.config, spec: { net: v } } })} />
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--border)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
         <Plot render={render} />
       </div>
     </div>
@@ -648,9 +648,9 @@ function PatternGenerator() {
         Treibt digitale Taktquellen und Pulsgeneratoren. Platziere »Taktgenerator (digital)« oder »Pulsquelle« im Schaltplan.
       </div>
       {clocks.map((c) => (
-        <div key={c.id} className="rounded-lg p-2" style={{ background: "var(--panel-2)" }}>
+        <div key={c.id} className="rounded-lg p-2" style={{ background: "var(--surface-2)" }}>
           <div className="mb-1 flex justify-between text-[11px]">
-            <span className="mono" style={{ color: "var(--accent-2)" }}>
+            <span className="mono" style={{ color: "var(--teal)" }}>
               {c.label}
             </span>
             <span className="mono text-mute">{formatValue(Number(c.params.freq ?? 1000), "Hz")}</span>
@@ -699,8 +699,8 @@ function FrequencyCounter({ win }: { win: InstrumentWindow }) {
 
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
-      <div className="rounded-xl p-3" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-        <div className="mono text-right text-[30px] font-semibold leading-none tabular-nums" style={{ color: running && f > 0 ? "var(--text)" : "var(--text-mute)" }}>
+      <div className="rounded-xl p-3" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}>
+        <div className="mono text-right text-[30px] font-semibold leading-none tabular-nums" style={{ color: running && f > 0 ? "var(--ink)" : "var(--ink-3)" }}>
           {running && f > 0 ? formatValue(f, "") : "– – –"}
         </div>
         <div className="mono mt-1 text-right text-[12px] text-mute">Hz</div>
@@ -847,7 +847,7 @@ function LogicConverter({ win }: { win: InstrumentWindow }) {
         <button className="btn btn-primary ml-auto" onClick={generateExpr}>→ Boolean</button>
         <button className="btn" onClick={generateCircuit}>→ Schaltung</button>
       </div>
-      <div className="grid gap-1 overflow-auto rounded-lg p-2" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
+      <div className="grid gap-1 overflow-auto rounded-lg p-2" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}>
         <div className="grid text-[10px] font-medium text-mute" style={{ gridTemplateColumns: `repeat(${inputs}, 24px) 32px` }}>
           {Array.from({length: inputs}).map((_,i)=> <span key={i} className="text-center">{String.fromCharCode(65+i)}</span>)}
           <span className="text-center">F</span>
@@ -857,7 +857,7 @@ function LogicConverter({ win }: { win: InstrumentWindow }) {
           return (
             <div key={r} className="grid items-center" style={{ gridTemplateColumns: `repeat(${inputs}, 24px) 32px` }}>
               {bits.split("").map((b,i)=> <span key={i} className="text-center mono">{b}</span>)}
-              <button className="h-6 rounded text-[11px] font-bold" style={{ background: table[r] ? "var(--ok)" : "var(--panel)", color: table[r] ? "#fff" : "var(--text-mute)", border: "1px solid var(--border)" }} onClick={()=>{
+              <button className="h-6 rounded text-[11px] font-bold" style={{ background: table[r] ? "var(--ok)" : "var(--surface)", color: table[r] ? "#fff" : "var(--ink-3)", border: "1px solid var(--hairline)" }} onClick={()=>{
                 const nt = [...table];
                 nt[r] = nt[r] ? 0 : 1;
                 set({ table: nt });
@@ -868,7 +868,7 @@ function LogicConverter({ win }: { win: InstrumentWindow }) {
       </div>
       <div>
         <div className="text-[10px] text-mute mb-1">Boolescher Ausdruck (SOP)</div>
-        <div className="rounded-lg p-2 mono text-[11px]" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>{cfg.expr || "– klicke → Boolean –"}</div>
+        <div className="rounded-lg p-2 mono text-[11px]" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>{cfg.expr || "– klicke → Boolean –"}</div>
       </div>
       <div className="text-[10px] text-mute">Wahrheitstabelle ↔ Boolesch ↔ Schaltung (SOP via Quine-McCluskey).</div>
     </div>
@@ -948,7 +948,7 @@ function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
         ctx.stroke();
       }
     } else {
-      ctx.fillStyle = "var(--text-mute)";
+      ctx.fillStyle = "var(--ink-3)";
       ctx.font = "11px ui-sans-serif";
       ctx.fillText("Führe AC-Analyse aus für S11/S21", 12, 20);
     }
@@ -961,7 +961,7 @@ function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
         <span>Out</span>
         <NetSelect value={cfg.outNet} onChange={v=> update(win.id, { config: { ...win.config, network: { ...cfg, outNet: v } } })} />
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--border)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
         <Plot render={render} />
       </div>
       <div className="text-[10px] text-mute">Übertragungsfunktion und Amplitudengang zwischen Eingangs- und Ausgangsnetz.</div>
@@ -1300,15 +1300,15 @@ function Window({ win }: { win: InstrumentWindow }) {
           width: win.w,
           height: win.minimized ? TITLE_H : win.h,
           zIndex: win.z,
-          background: "var(--panel-solid)",
-          border: "1px solid var(--border-strong)",
-          boxShadow: "var(--shadow)",
+          background: "var(--surface)",
+          border: "1px solid var(--hairline-strong)",
+          boxShadow: "var(--shadow-3)",
         }}
         onPointerDown={() => focusInstrument(win.id)}
       >
         <div
           className="flex h-9 shrink-0 cursor-grab select-none items-center gap-2 px-3"
-          style={{ borderBottom: "1px solid var(--border)", touchAction: "none" }}
+          style={{ borderBottom: "1px solid var(--hairline)", touchAction: "none" }}
           title="Ziehen (auch am Fensterhintergrund) bewegt das Fenster"
           onPointerDown={(e) => beginDrag(e)}
         >
@@ -1385,7 +1385,7 @@ function Window({ win }: { win: InstrumentWindow }) {
                     height="14"
                     viewBox="0 0 18 18"
                     aria-hidden
-                    style={{ transform: `rotate(${CORNER_ROT[c]}deg)`, color: "var(--text-mute)", opacity: 0.8 }}
+                    style={{ transform: `rotate(${CORNER_ROT[c]}deg)`, color: "var(--ink-3)", opacity: 0.8 }}
                   >
                     <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none">
                       <path d="M15 7 L7 15" />
@@ -1469,7 +1469,7 @@ export function DeviceBar() {
   return (
     <div
       className="pointer-events-auto absolute bottom-0 right-0 top-0 z-20 flex w-11 flex-col items-center gap-0.5 overflow-y-auto py-2"
-      style={{ background: "var(--panel-solid)", borderLeft: "1px solid var(--border)", scrollbarWidth: "none" }}
+      style={{ background: "var(--surface)", borderLeft: "1px solid var(--hairline)", scrollbarWidth: "none" }}
     >
       {items.map(([k, label]) => {
         // W29/W18: Oszi und FG-2500 starten die Symbol-Platzierung statt ein
@@ -1506,7 +1506,7 @@ export function DeviceBar() {
             style={
               active
                 ? { background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)" }
-                : { color: "var(--text-dim)" }
+                : { color: "var(--ink-2)" }
             }
           >
             {iconFor(k, 15)}
@@ -1514,7 +1514,7 @@ export function DeviceBar() {
         );
       })}
       <div className="h-2 shrink-0" />
-      <div className="w-6 shrink-0 border-t" style={{ borderColor: "var(--border)" }} />
+      <div className="w-6 shrink-0 border-t" style={{ borderColor: "var(--hairline)" }} />
       <button
         onClick={toggleInspector}
         title={adaptShortcut("Inspector (⌘I)", apple)}
@@ -1524,7 +1524,7 @@ export function DeviceBar() {
         style={
           isOpen("inspector")
             ? { background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)" }
-            : { color: "var(--text-dim)" }
+            : { color: "var(--ink-2)" }
         }
       >
         {iconFor("inspector", 15)}
@@ -1627,7 +1627,7 @@ export function StandaloneInstrumentView({
   );
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ background: "var(--panel-solid)" }}>
+    <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ background: "var(--surface)" }}>
       {isSelfFit ? (
         renderContent()
       ) : (

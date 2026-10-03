@@ -414,12 +414,12 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
 
         <div
           className="flex flex-1 flex-col justify-between rounded-lg p-4"
-          style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}
+          style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}
         >
           <div className="space-y-4">
-            <div className="flex items-baseline justify-between border-b pb-2.5" style={{ borderColor: "var(--border)" }}>
+            <div className="flex items-baseline justify-between border-b pb-2.5" style={{ borderColor: "var(--hairline)" }}>
               <div className="text-[13px] font-semibold">{active.title}</div>
-              <div className="mono rounded px-2 py-0.5 text-[11px]" style={{ background: "var(--panel)", border: "1px solid var(--border)", color: "var(--text-dim)" }}>
+              <div className="mono rounded px-2 py-0.5 text-[11px]" style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--ink-2)" }}>
                 {active.formula}
               </div>
             </div>
@@ -551,7 +551,7 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="mt-6 rounded-md p-3" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+          <div className="mt-6 rounded-md p-3" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>
             <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-mute">
               Dimensionierung
             </div>

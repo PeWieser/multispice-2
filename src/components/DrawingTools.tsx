@@ -65,8 +65,8 @@ export function DrawingTools() {
           key={capsule.id}
           className="flex items-center rounded-lg border p-0.5"
           style={{
-            background: "color-mix(in srgb, var(--bg) 70%, var(--panel))",
-            borderColor: "var(--border-strong)",
+            background: "color-mix(in srgb, var(--app) 70%, var(--surface))",
+            borderColor: "var(--hairline-strong)",
           }}
         >
           {capsule.items.map(({ tool: t, label, key, Icon }, idx) => {
@@ -76,7 +76,7 @@ export function DrawingTools() {
                 {idx > 0 && (
                   <div
                     className="mx-0.5 h-4 w-px shrink-0"
-                    style={{ background: "var(--border)" }}
+                    style={{ background: "var(--hairline)" }}
                   />
                 )}
                 <button
@@ -84,7 +84,7 @@ export function DrawingTools() {
                   className="grid h-7 w-9 shrink-0 place-items-center rounded-md border transition-colors"
                   style={{
                     background: active ? "var(--tool-active-bg)" : "transparent",
-                    color: active ? "var(--tool-active-text)" : "var(--text)",
+                    color: active ? "var(--tool-active-text)" : "var(--ink)",
                     borderColor: active ? "var(--tool-active-border)" : "transparent",
                     boxShadow: active
                       ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"

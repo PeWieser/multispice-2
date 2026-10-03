@@ -100,15 +100,15 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
   const canUndo = useEditor((s) => s.past.length > 0);
   const canRedo = useEditor((s) => s.future.length > 0);
   return (
-    <div className="flex h-[48px] shrink-0 items-center gap-1.5 px-2.5" style={{ background: "var(--panel-solid)", borderBottom: "1px solid var(--border)" }}>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={onMenu} aria-label="Menü">
+    <div className="flex h-[48px] shrink-0 items-center gap-1.5 px-2.5" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
+      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} onClick={onMenu} aria-label="Menü">
         <Menu size={18} />
       </button>
       <span className="text-[13px] font-semibold">Multispice</span>
       <div className="flex-1" />
       <button
         className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"
-        style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}
+        style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}
         disabled={!canUndo}
         onClick={undo}
         title="Rückgängig"
@@ -118,7 +118,7 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
       </button>
       <button
         className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"
-        style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}
+        style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}
         disabled={!canRedo}
         onClick={redo}
         title="Wiederholen"
@@ -126,13 +126,13 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
       >
         <Redo2 size={15} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={onSettings} title="Einstellungen">
+      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} onClick={onSettings} title="Einstellungen">
         <Settings size={16} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={toggleLibrary} title="Bibliothek">
+      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} onClick={toggleLibrary} title="Bibliothek">
         <Library size={16} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }} onClick={toggleRight} title="Inspector">
+      <button className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }} onClick={toggleRight} title="Inspector">
         <SlidersHorizontal size={16} />
       </button>
       <button
@@ -153,10 +153,10 @@ function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div
         className="relative flex flex-col rounded-t-2xl overflow-hidden animate-in slide-in-from-bottom duration-300"
-        style={{ height, background: "var(--panel-solid)", borderTop: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }}
+        style={{ height, background: "var(--surface)", borderTop: "1px solid var(--hairline-strong)", boxShadow: "var(--shadow-3)" }}
       >
-        <div className="flex h-10 shrink-0 items-center justify-between px-4" style={{ borderBottom: "1px solid var(--border)" }}>
-          <div className="h-1 w-8 rounded-full bg-[var(--border-strong)] mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
+        <div className="flex h-10 shrink-0 items-center justify-between px-4" style={{ borderBottom: "1px solid var(--hairline)" }}>
+          <div className="h-1 w-8 rounded-full bg-[var(--hairline-strong)] mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
           <span className="text-[12px] font-medium mt-2">{title}</span>
           <button className="btn h-7 w-7 p-0 mt-2" onClick={onClose}>
             <X size={14} />
@@ -173,7 +173,7 @@ function UndoToast() {
   const clear = useEditor((s) => s.clearToast);
   if (!toast) return null;
   return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 rounded-xl px-4 py-2.5 text-[12px] shadow-2xl backdrop-blur-xl" style={{ background: "color-mix(in srgb, var(--panel-solid) 92%, transparent)", border: "1px solid var(--border-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 rounded-xl px-4 py-2.5 text-[12px] shadow-2xl backdrop-blur-xl" style={{ background: "color-mix(in srgb, var(--surface) 92%, transparent)", border: "1px solid var(--hairline-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
       <span className="text-dim">{toast.message}</span>
       {toast.action && toast.actionLabel && (
         <button className="btn btn-primary h-7 px-3 text-[11px]" onClick={() => toast.action?.()}>
@@ -319,8 +319,8 @@ export default function Workbench() {
       <div
         className="flex h-screen w-screen flex-col overflow-hidden"
         style={{
-          background: "var(--panel-solid)",
-          border: "1px solid var(--border-strong)",
+          background: "var(--surface)",
+          border: "1px solid var(--hairline-strong)",
         }}
       >
         <DesktopTitleBar
@@ -344,8 +344,8 @@ export default function Workbench() {
       <div
         className="flex h-screen w-screen flex-col overflow-hidden"
         style={{
-          background: "var(--panel-solid)",
-          border: "1px solid var(--border-strong)",
+          background: "var(--surface)",
+          border: "1px solid var(--hairline-strong)",
         }}
       >
         <DesktopTitleBar
@@ -364,7 +364,7 @@ export default function Workbench() {
   // Mobile layout — W110: Nutzt exakt dieselbe ComponentStrip + DrawingTools wie Desktop/Tablet
   if (isMobile) {
     return (
-      <div className="flex h-[100dvh] w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
+      <div className="flex h-[100dvh] w-screen flex-col overflow-hidden" style={{ background: "var(--app)" }}>
         <MobileTopBar onMenu={() => setMobileMenuOpen(true)} onSettings={() => setSettingsOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -382,7 +382,7 @@ export default function Workbench() {
             {mobileMenuOpen && (
               <div className="fixed inset-0 z-50 flex">
                 <div className="absolute inset-0 bg-black/40" onClick={() => setMobileMenuOpen(false)} />
-                <div className="relative w-[280px] h-full overflow-auto p-4" style={{ background: "var(--panel-solid)", borderRight: "1px solid var(--border)" }}>
+                <div className="relative w-[280px] h-full overflow-auto p-4" style={{ background: "var(--surface)", borderRight: "1px solid var(--hairline)" }}>
                   <div className="flex items-center justify-between mb-4">
                     <span className="font-semibold">Menü</span>
                     <button className="btn h-7 w-7 p-0" onClick={() => setMobileMenuOpen(false)}>
@@ -395,7 +395,7 @@ export default function Workbench() {
             )}
           </div>
           {bottomOpen && (
-            <div className="h-[40vh] shrink-0 border-t overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--panel)" }}>
+            <div className="h-[40vh] shrink-0 border-t overflow-hidden" style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}>
               <BottomPanel />
             </div>
           )}
@@ -423,7 +423,7 @@ export default function Workbench() {
   // Tablet layout – similar to desktop but inspector as drawer, library as bottom sheet
   if (isTablet) {
     return (
-      <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
+      <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--app)" }}>
           <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
@@ -459,7 +459,7 @@ export default function Workbench() {
 
   // Desktop – original layout but with dvh and better flex
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--bg)" }}>
+    <div className="flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--app)" }}>
       {isDesktopRuntime && <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} />}
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
       <ComponentStrip tools={<DrawingTools />} />

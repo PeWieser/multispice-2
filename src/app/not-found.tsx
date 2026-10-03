@@ -2,8 +2,8 @@ import Link from "next/link";
 
 export default function NotFound() {
   return (
-    <div className="grid h-[100dvh] place-items-center p-6" style={{ background: "var(--bg)" }}>
-      <div className="w-full max-w-[420px] rounded-2xl p-8 text-center" style={{ background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)" }}>
+    <div className="grid h-[100dvh] place-items-center p-6" style={{ background: "var(--app)" }}>
+      <div className="w-full max-w-[420px] rounded-2xl p-8 text-center" style={{ background: "var(--surface)", border: "1px solid var(--hairline-strong)", boxShadow: "var(--shadow-3)" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/icon.svg" alt="" width={72} height={72} className="mx-auto mb-5 rounded-2xl" />
         <div className="mono text-[11px] uppercase tracking-[0.18em] text-mute">Fehler 404</div>

@@ -190,7 +190,7 @@ export default function MenuBar({
   return (
     <header
       className="flex h-9 shrink-0 items-center gap-0.5 px-2.5 text-[12px]"
-      style={{ background: "var(--panel)", borderBottom: "1px solid var(--border)" }}
+      style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}
     >
       <Menu label="Datei" {...menuProps("datei")}>
         <MenuItem onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
@@ -292,7 +292,7 @@ export default function MenuBar({
         ))}
       </Menu>
 
-      <div className="mx-2 h-4 w-px" style={{ background: "var(--border)" }} />
+      <div className="mx-2 h-4 w-px" style={{ background: "var(--hairline)" }} />
 
       <div className="flex items-center gap-0.5">
         <Tooltip content="Rückgängig (⌘Z)" side="bottom">
@@ -307,7 +307,7 @@ export default function MenuBar({
         </Tooltip>
       </div>
 
-      <div className="mx-1 h-4 w-px" style={{ background: "var(--border)" }} />
+      <div className="mx-1 h-4 w-px" style={{ background: "var(--hairline)" }} />
 
       <div className="flex items-center gap-1">
         <Tooltip content={running ? "Pause (Leertaste)" : "Start (Leertaste)"} side="bottom">

@@ -34,14 +34,14 @@ interface ProbeItem {
 
 const PRIMARY_PROBES: ProbeItem[] = [
   { k: "voltage", l: "V", t: "Spannungs-Probe", c: "var(--warn)", key: "V" },
-  { k: "current", l: "A", t: "Strom-Probe", c: "var(--accent-2)", key: "A" },
+  { k: "current", l: "A", t: "Strom-Probe", c: "var(--teal)", key: "A" },
 ];
 
 const EXTRA_PROBES: ProbeItem[] = [
   { k: "voltage_current", l: "V·A", t: "Spannung + Strom", c: "var(--warn)" },
-  { k: "power", l: "W", t: "Leistungs-Probe", c: "var(--accent-3)" },
+  { k: "power", l: "W", t: "Leistungs-Probe", c: "var(--violet)" },
   { k: "diff", l: "ΔV", t: "Differenz-Probe", c: "var(--err)" },
-  { k: "ref", l: "REF", t: "Referenz-Probe", c: "var(--text-mute)" },
+  { k: "ref", l: "REF", t: "Referenz-Probe", c: "var(--ink-3)" },
   { k: "digital", l: "D", t: "Digital-Probe", c: "var(--ok)" },
 ];
 
@@ -98,7 +98,7 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
   return (
     <div
       className="flex h-11 shrink-0 items-center gap-3 overflow-x-auto no-scrollbar border-b px-3.5"
-      style={{ borderColor: "var(--border)", background: "var(--panel)" }}
+      style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
     >
       <button
         type="button"
@@ -119,7 +119,7 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
         <span className="hidden sm:inline">Bibliothek</span>
       </button>
 
-      <div className="h-5 w-px shrink-0" style={{ background: "var(--border-strong)" }} />
+      <div className="h-5 w-px shrink-0" style={{ background: "var(--hairline-strong)" }} />
 
       {/* 1. Grundbauteile (R, C, L, VDC, GND) – großzügige Schaltzeichen-Kacheln */}
       <div className="flex shrink-0 items-center gap-1.5" role="group" aria-label="Schnell-Bauteile">
@@ -151,9 +151,9 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
               onDragStart={(e) => e.preventDefault()}
               className="grid h-8 w-10 shrink-0 place-items-center rounded-md border transition-colors"
               style={{
-                background: active ? "var(--tool-active-bg)" : "var(--panel-2)",
-                color: active ? "var(--tool-active-text)" : "var(--text)",
-                borderColor: active ? "var(--tool-active-border)" : "var(--border)",
+                background: active ? "var(--tool-active-bg)" : "var(--surface-2)",
+                color: active ? "var(--tool-active-text)" : "var(--ink)",
+                borderColor: active ? "var(--tool-active-border)" : "var(--hairline)",
                 boxShadow: active
                   ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"
                   : "none",
@@ -169,11 +169,11 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
         })}
       </div>
 
-      <div className="h-5 w-px shrink-0" style={{ background: "var(--border-strong)" }} />
+      <div className="h-5 w-px shrink-0" style={{ background: "var(--hairline-strong)" }} />
 
       {/* 2. Zeichenwerkzeuge (Auswahl, [Stift | Radiergummi | Knotenpunkt], [Netzname | Notiz]) */}
       {tools ? <div className="flex shrink-0 items-center">{tools}</div> : null}
-      {tools ? <div className="h-5 w-px shrink-0" style={{ background: "var(--border-strong)" }} /> : null}
+      {tools ? <div className="h-5 w-px shrink-0" style={{ background: "var(--hairline-strong)" }} /> : null}
 
       {/* 3. Messsonden (Probes) – V & A direkt + Dropdown für Spezial-Sonden */}
       <div className="flex shrink-0 items-center gap-1.5" role="group" aria-label="Messsonden">
@@ -188,11 +188,11 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
               style={{
                 borderColor: active
                   ? "var(--tool-active-border)"
-                  : `color-mix(in srgb, ${b.c} 42%, var(--border))`,
+                  : `color-mix(in srgb, ${b.c} 42%, var(--hairline))`,
                 background: active
                   ? "var(--tool-active-bg)"
-                  : `color-mix(in srgb, ${b.c} 10%, var(--panel-2))`,
-                color: active ? "var(--tool-active-text)" : "var(--text)",
+                  : `color-mix(in srgb, ${b.c} 10%, var(--surface-2))`,
+                color: active ? "var(--tool-active-text)" : "var(--ink)",
                 boxShadow: active
                   ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"
                   : "none",
@@ -223,10 +223,10 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
             borderColor: activeExtraProbe
               ? "var(--tool-active-border)"
               : probeMenuOpen
-                ? "var(--border-strong)"
-                : "var(--border)",
-            background: activeExtraProbe ? "var(--tool-active-bg)" : "var(--panel-2)",
-            color: activeExtraProbe ? "var(--tool-active-text)" : "var(--text-dim)",
+                ? "var(--hairline-strong)"
+                : "var(--hairline)",
+            background: activeExtraProbe ? "var(--tool-active-bg)" : "var(--surface-2)",
+            color: activeExtraProbe ? "var(--tool-active-text)" : "var(--ink-2)",
             boxShadow: activeExtraProbe
               ? "inset 0 0 0 1px color-mix(in srgb, var(--wire-sel) 35%, transparent)"
               : "none",
@@ -259,9 +259,9 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
               style={{
                 left: menuPos.left,
                 top: menuPos.top,
-                background: "var(--panel-solid)",
-                borderColor: "var(--border-strong)",
-                boxShadow: "var(--shadow)",
+                background: "var(--surface)",
+                borderColor: "var(--hairline-strong)",
+                boxShadow: "var(--shadow-3)",
               }}
             >
               <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-mute">
@@ -274,14 +274,14 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
                     key={b.k}
                     type="button"
                     role="menuitem"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-[color-mix(in_srgb,var(--text)_8%,transparent)]"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
                     style={
                       active
                         ? {
                             background: "var(--tool-active-bg)",
                             color: "var(--tool-active-text)",
                           }
-                        : { color: "var(--text)" }
+                        : { color: "var(--ink)" }
                     }
                     onClick={() => {
                       setPlacingProbe(active ? null : b.k);

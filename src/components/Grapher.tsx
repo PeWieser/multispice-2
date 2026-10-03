@@ -252,8 +252,8 @@ export function LinePlot({
       if (!ctx) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      const grid = cssVar("--grid", "rgba(128,140,165,.15)");
-      const mute = cssVar("--text-mute", "#64708c");
+      const grid = cssVar("--grid-minor", "rgba(128,140,165,.15)");
+      const mute = cssVar("--ink-3", "#64708c");
       ctx.fillStyle = cssVar("--canvas", "#0d1017");
       ctx.fillRect(0, 0, w, h);
 
@@ -321,7 +321,7 @@ export function LinePlot({
 
       // Cursors – like Multisim Grapher, draggable ΔT/ΔV
       if (cursors.x0 !== null) {
-        ctx.strokeStyle = cssVar("--accent-3", "#7a4fa3");
+        ctx.strokeStyle = cssVar("--violet", "#7a4fa3");
         ctx.setLineDash([6,4]);
         ctx.lineWidth = 1;
         const x = xOf(cursors.x0);
@@ -331,7 +331,7 @@ export function LinePlot({
         ctx.stroke();
         ctx.setLineDash([]);
         // handle
-        ctx.fillStyle = cssVar("--accent-3", "#7a4fa3");
+        ctx.fillStyle = cssVar("--violet", "#7a4fa3");
         ctx.fillRect(x-4, padT, 8, 12);
       }
       if (cursors.x1 !== null) {
@@ -352,15 +352,15 @@ export function LinePlot({
         const x1 = xOf(cursors.x1);
         const mid = (x0+x1)/2;
         const dx = Math.abs(cursors.x1 - cursors.x0);
-        ctx.fillStyle = "var(--panel-solid)";
-        ctx.strokeStyle = "var(--border-strong)";
+        ctx.fillStyle = "var(--surface)";
+        ctx.strokeStyle = "var(--hairline-strong)";
         ctx.lineWidth = 1;
         const txt = `ΔT=${dx.toExponential(2)}s ${dx>0 ? `1/ΔT=${(1/dx).toFixed(1)}Hz` : ""}`;
         ctx.font = "10px ui-monospace, monospace";
         const tw = ctx.measureText(txt).width;
         ctx.fillRect(mid - tw/2 - 6, padT + 16, tw + 12, 16);
         ctx.strokeRect(mid - tw/2 - 6, padT + 16, tw + 12, 16);
-        ctx.fillStyle = "var(--text)";
+        ctx.fillStyle = "var(--ink)";
         ctx.textAlign = "center";
         ctx.fillText(txt, mid, padT + 26);
       }
@@ -397,7 +397,7 @@ export function LinePlot({
       // Hover-Fadenkreuz mit Werten (hover ist Dep des Effekts, also immer frisch).
       const hv = hover;
       if (hv && hv.px >= padL && hv.px <= w - padR) {
-        ctx.strokeStyle = cssVar("--border-strong", "rgba(128,140,165,.4)");
+        ctx.strokeStyle = cssVar("--hairline-strong", "rgba(128,140,165,.4)");
         ctx.setLineDash([3, 3]);
         ctx.beginPath();
         ctx.moveTo(hv.px, padT);
@@ -437,8 +437,8 @@ export function LinePlot({
         let bx = hv.px + 12;
         if (bx + tw > w - 4) bx = hv.px - tw - 12;
         const by = Math.min(Math.max(hv.py - th / 2, 4), h - th - 4);
-        ctx.fillStyle = cssVar("--elev", "#1a2030");
-        ctx.strokeStyle = cssVar("--border-strong", "rgba(128,140,165,.4)");
+        ctx.fillStyle = cssVar("--surface-3", "#1a2030");
+        ctx.strokeStyle = cssVar("--hairline-strong", "rgba(128,140,165,.4)");
         ctx.beginPath();
         ctx.roundRect(bx, by, tw, th, 5);
         ctx.fill();

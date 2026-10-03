@@ -58,8 +58,8 @@ function MacSegmented<T extends string>({
     <div
       className="inline-flex rounded-[7px] p-0.5 text-[11px]"
       style={{
-        background: "var(--bg)",
-        border: "1px solid var(--border)",
+        background: "var(--app)",
+        border: "1px solid var(--hairline)",
       }}
     >
       {options.map((opt) => {
@@ -71,8 +71,8 @@ function MacSegmented<T extends string>({
             onClick={() => onChange(opt.value)}
             className="rounded-[5px] px-2.5 py-1 font-medium transition-all"
             style={{
-              background: active ? "var(--panel-2)" : "transparent",
-              color: active ? "var(--text)" : "var(--text-mute)",
+              background: active ? "var(--surface-2)" : "transparent",
+              color: active ? "var(--ink)" : "var(--ink-3)",
               boxShadow: active ? "0 1px 2px rgba(0,0,0,0.22)" : "none",
             }}
           >
@@ -101,9 +101,9 @@ function SettingsGroup({
       <div
         className="divide-y overflow-hidden rounded-[10px]"
         style={{
-          background: "var(--panel-2)",
-          border: "1px solid var(--border)",
-          borderColor: "var(--border)",
+          background: "var(--surface-2)",
+          border: "1px solid var(--hairline)",
+          borderColor: "var(--hairline)",
         }}
       >
         {children}
@@ -124,10 +124,10 @@ function SettingsRow({
   return (
     <div
       className="flex items-center justify-between gap-4 px-3.5 py-2.5"
-      style={{ borderColor: "var(--border)" }}
+      style={{ borderColor: "var(--hairline)" }}
     >
       <div className="min-w-0">
-        <div className="text-[12px] font-medium text-[var(--text)]">{title}</div>
+        <div className="text-[12px] font-medium text-[var(--ink)]">{title}</div>
         {subtitle && (
           <div className="mt-0.5 text-[11px] leading-snug text-mute">{subtitle}</div>
         )}
@@ -217,9 +217,9 @@ export default function SettingsDialog({
         aria-label="Einstellungen"
         className="flex h-[460px] max-h-[88vh] w-[660px] max-w-[96vw] flex-col overflow-hidden rounded-xl shadow-2xl"
         style={{
-          background: "var(--panel-solid)",
-          border: "1px solid var(--border-strong)",
-          boxShadow: "var(--shadow)",
+          background: "var(--surface)",
+          border: "1px solid var(--hairline-strong)",
+          boxShadow: "var(--shadow-3)",
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -227,10 +227,10 @@ export default function SettingsDialog({
         <div
           className="flex h-9 shrink-0 items-center justify-between gap-2 px-3"
           style={{
-            borderBottom: "1px solid var(--border)",
+            borderBottom: "1px solid var(--hairline)",
           }}
         >
-          <span className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--text)]">
+          <span className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--ink)]">
             <Settings size={13} className="text-mute" />
             <span>Einstellungen</span>
           </span>
@@ -251,8 +251,8 @@ export default function SettingsDialog({
           <aside
             className="flex shrink-0 gap-1 overflow-x-auto p-2 sm:w-[176px] sm:flex-col sm:overflow-visible sm:p-2.5"
             style={{
-              background: "var(--bg)",
-              borderRight: "1px solid var(--border)",
+              background: "var(--app)",
+              borderRight: "1px solid var(--hairline)",
             }}
           >
             {navItems.map((item) => {
@@ -267,7 +267,7 @@ export default function SettingsDialog({
                     background: active
                       ? "rgba(245, 158, 11, 0.16)"
                       : "transparent",
-                    color: active ? "var(--wire-sel, #f59e0b)" : "var(--text)",
+                    color: active ? "var(--wire-sel, #f59e0b)" : "var(--ink)",
                   }}
                 >
                   <span className="shrink-0 opacity-85">{item.icon}</span>
@@ -514,33 +514,33 @@ function SymbolPreviewCard({
     <div
       className="flex flex-col items-center rounded-[8px] p-2"
       style={{
-        background: "var(--bg)",
-        border: "1px solid var(--border)",
+        background: "var(--app)",
+        border: "1px solid var(--hairline)",
       }}
     >
       <svg width="88" height="36" viewBox="-44 -18 88 36">
         {kind === "R" &&
           (std === "iec" ? (
-            <g stroke="var(--comp)" strokeWidth="1.6" fill="none">
+            <g stroke="var(--symbol)" strokeWidth="1.6" fill="none">
               <line x1="-34" y1="0" x2="-16" y2="0" />
               <rect x="-16" y="-6" width="32" height="12" />
               <line x1="16" y1="0" x2="34" y2="0" />
             </g>
           ) : (
-            <g stroke="var(--comp)" strokeWidth="1.6" fill="none">
+            <g stroke="var(--symbol)" strokeWidth="1.6" fill="none">
               <polyline points="-34,0 -18,0 -14,-6 -8,6 -2,-6 4,6 10,-6 14,6 18,0 34,0" />
             </g>
           ))}
         {kind === "C" &&
           (std === "iec" ? (
-            <g stroke="var(--comp)" strokeWidth="1.6" fill="none">
+            <g stroke="var(--symbol)" strokeWidth="1.6" fill="none">
               <line x1="-30" y1="0" x2="-4" y2="0" />
-              <rect x="-7" y="-9" width="3" height="18" fill="var(--comp)" />
+              <rect x="-7" y="-9" width="3" height="18" fill="var(--symbol)" />
               <rect x="4" y="-9" width="3" height="18" />
               <line x1="7" y1="0" x2="30" y2="0" />
             </g>
           ) : (
-            <g stroke="var(--comp)" strokeWidth="1.6" fill="none">
+            <g stroke="var(--symbol)" strokeWidth="1.6" fill="none">
               <line x1="-30" y1="0" x2="-4" y2="0" />
               <line x1="-4" y1="-9" x2="-4" y2="9" />
               <path d="M 5,-9 Q 0,0 5,9" />
@@ -548,7 +548,7 @@ function SymbolPreviewCard({
             </g>
           ))}
         {kind === "OP" && (
-          <g stroke="var(--comp)" strokeWidth="1.4" fill="none">
+          <g stroke="var(--symbol)" strokeWidth="1.4" fill="none">
             <polygon points="-14,-11 -14,11 16,0" />
             <line x1="-26" y1="-5" x2="-14" y2="-5" />
             <line x1="-26" y1="5" x2="-14" y2="5" />
