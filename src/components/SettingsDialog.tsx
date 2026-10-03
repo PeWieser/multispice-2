@@ -33,7 +33,7 @@ function MacSwitch({
       onClick={onChange}
       className="relative inline-flex h-[20px] w-[36px] shrink-0 cursor-pointer items-center rounded-full transition-colors duration-150"
       style={{
-        background: checked ? "var(--wire-sel, #f59e0b)" : "rgba(120, 128, 140, 0.34)",
+        background: checked ? "var(--wire-sel)" : "rgba(120, 128, 140, 0.34)",
       }}
     >
       <span
@@ -209,7 +209,7 @@ export default function SettingsDialog({
                     background: active
                       ? "rgba(245, 158, 11, 0.16)"
                       : "transparent",
-                    color: active ? "var(--wire-sel, #f59e0b)" : "var(--ink)",
+                    color: active ? "var(--wire-sel)" : "var(--ink)",
                   }}
                 >
                   <span className="shrink-0 opacity-85">{item.icon}</span>

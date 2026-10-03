@@ -12,6 +12,7 @@ import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
 import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, engine, useEditor, useHud } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { DeviceFit, PanelProbe, WindowFitContext, type NaturalMeasure } from "./DeviceFit";
+import { IconButton } from "./ui";
 import {
   BENCH_PAD,
   CORNER_CURSOR,
@@ -106,7 +107,7 @@ function NetSelect({ value, onChange, allowNone }: { value: string; onChange: (v
   const netResult = useEditor((s) => s.netResult);
   const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   return (
-    <select className="input py-0.5 text-[11px]" value={value} onChange={(e) => onChange(e.target.value)}>
+    <select className="input py-0.5 text-2xs" value={value} onChange={(e) => onChange(e.target.value)}>
       {allowNone && <option value="">—</option>}
       {nets.map((n) => (
         <option key={n} value={n}>
@@ -169,11 +170,11 @@ function Multimeter({ win }: { win: InstrumentWindow }) {
 
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
-      <div className="rounded-xl p-3" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}>
+      <div className="rounded-xl p-3 bg-surface-2 border border-hairline">
         <div className="mono text-right text-[34px] font-semibold leading-none tabular-nums" style={{ color: running ? "var(--ok)" : "var(--ink-3)" }}>
           {running ? formatValue(value, "") : "– – –"}
         </div>
-        <div className="mono mt-1 text-right text-[12px] text-mute">{unit}</div>
+        <div className="mono mt-1 text-right text-xs text-ink-3">{unit}</div>
       </div>
       <div className="grid grid-cols-3 gap-1">
         {[
@@ -191,11 +192,11 @@ function Multimeter({ win }: { win: InstrumentWindow }) {
         ))}
       </div>
       <div className="grid grid-cols-2 gap-1.5">
-        <label className="text-[10.5px] text-mute">
+        <label className="text-2xs text-ink-3">
           Messpunkt +
           <NetSelect value={cfg.a} onChange={(v) => set({ a: v })} />
         </label>
-        <label className="text-[10.5px] text-mute">
+        <label className="text-2xs text-ink-3">
           Messpunkt −
           <NetSelect value={cfg.b} onChange={(v) => set({ b: v })} />
         </label>
@@ -221,9 +222,9 @@ function Knob({ label, unit, value, min, max, log, onChange }: { label: string; 
   const fromSlider = (v: number) => (log ? Math.pow(10, v) : v);
   return (
     <label className="block">
-      <div className="flex items-baseline justify-between text-[11px]">
-        <span className="text-dim">{label}</span>
-        <span className="mono text-mute">{formatValue(value, unit)}</span>
+      <div className="flex items-baseline justify-between text-2xs">
+        <span className="text-ink-2">{label}</span>
+        <span className="mono text-ink-3">{formatValue(value, unit)}</span>
       </div>
       <input
         type="range"
@@ -300,13 +301,13 @@ function BodePlotter({ win }: { win: InstrumentWindow }) {
 
   return (
     <div className="flex h-full flex-col gap-2 p-2">
-      <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] text-mute">
+      <div className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-3">
         <span>Ausgang</span>
         <NetSelect value={cfg.out} onChange={(v) => set({ out: v })} />
         <span>f</span>
-        <input className="input w-20 py-0.5 text-[11px] mono" value={cfg.fmin} onChange={(e) => set({ fmin: Number(e.target.value) })} />
+        <input className="input w-20 py-0.5 text-2xs mono" value={cfg.fmin} onChange={(e) => set({ fmin: Number(e.target.value) })} />
         <span>…</span>
-        <input className="input w-24 py-0.5 text-[11px] mono" value={cfg.fmax} onChange={(e) => set({ fmax: Number(e.target.value) })} />
+        <input className="input w-24 py-0.5 text-2xs mono" value={cfg.fmax} onChange={(e) => set({ fmax: Number(e.target.value) })} />
         <button
           className="btn btn-primary ml-auto"
           onClick={() => runAnalysis("ac", { outputs: [cfg.out], sweep: { start: cfg.fmin, stop: cfg.fmax, points: 24, type: "dec" } })}
@@ -315,10 +316,10 @@ function BodePlotter({ win }: { win: InstrumentWindow }) {
           {analysis.running ? "läuft …" : "Sweep starten"}
         </button>
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg border border-hairline">
         <Plot render={render} />
       </div>
-      <div className="flex gap-3 text-[10.5px] text-mute">
+      <div className="flex gap-3 text-2xs text-ink-3">
         <span style={{ color: "var(--ch1)" }}>— Amplitude (dB)</span>
         <span style={{ color: "var(--ch2)" }}>-- Phase (°)</span>
         {data && <span className="ml-auto mono">{data.freq.length} Punkte</span>}
@@ -400,10 +401,10 @@ function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
 
   return (
     <div className="flex h-full flex-col gap-2 p-2">
-      <div className="flex items-center gap-1.5 text-[10.5px] text-mute">
+      <div className="flex items-center gap-1.5 text-2xs text-ink-3">
         <span>Kanäle</span>
         <select
-          className="input w-auto py-0.5 text-[11px]"
+          className="input w-auto py-0.5 text-2xs"
           multiple={false}
           value=""
           onChange={(e) => {
@@ -421,13 +422,13 @@ function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
           leeren
         </button>
         <span className="ml-2">Schwelle</span>
-        <input className="input w-16 py-0.5 text-[11px] mono" value={cfg.threshold} onChange={(e) => set({ threshold: Number(e.target.value) })} />
-        <select className="input w-auto py-0.5 text-[11px]" value={cfg.radix} onChange={(e) => set({ radix: e.target.value as "hex" | "bin" })}>
+        <input className="input w-16 py-0.5 text-2xs mono" value={cfg.threshold} onChange={(e) => set({ threshold: Number(e.target.value) })} />
+        <select className="input w-auto py-0.5 text-2xs" value={cfg.radix} onChange={(e) => set({ radix: e.target.value as "hex" | "bin" })}>
           <option value="hex">HEX</option>
           <option value="bin">BIN</option>
         </select>
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg border border-hairline">
         <Plot render={render} />
       </div>
     </div>
@@ -465,18 +466,18 @@ function Wattmeter({ win }: { win: InstrumentWindow }) {
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
       <div className="grid grid-cols-2 gap-1.5">
-        <label className="text-[10.5px] text-mute">
+        <label className="text-2xs text-ink-3">
           Spannung an
           <NetSelect value={cfg.vnet} onChange={(x) => set({ vnet: x })} />
         </label>
-        <label className="text-[10.5px] text-mute">
+        <label className="text-2xs text-ink-3">
           Bezug
           <NetSelect value={cfg.gnd} onChange={(x) => set({ gnd: x })} />
         </label>
       </div>
-      <label className="text-[10.5px] text-mute">
+      <label className="text-2xs text-ink-3">
         Strom durch Bauteil
-        <select className="input py-0.5 text-[11px]" value={cfg.device} onChange={(e) => set({ device: e.target.value })}>
+        <select className="input py-0.5 text-2xs" value={cfg.device} onChange={(e) => set({ device: e.target.value })}>
           {doc.instances.map((x) => (
             <option key={x.id} value={x.label}>
               {x.label}
@@ -498,9 +499,9 @@ function Wattmeter({ win }: { win: InstrumentWindow }) {
 
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="rounded-lg p-2" style={{ background: "var(--surface-2)" }}>
-      <div className="text-[9.5px] text-mute">{label}</div>
-      <div className="mono text-[15px] font-semibold" style={{ color: color ?? "var(--ink)" }}>
+    <div className="rounded-lg p-2 bg-surface-2">
+      <div className="text-2xs text-ink-3">{label}</div>
+      <div className="mono text-base font-semibold" style={{ color: color ?? "var(--ink)" }}>
         {value}
       </div>
     </div>
@@ -555,9 +556,9 @@ function IvAnalyzer() {
 
   return (
     <div className="flex h-full flex-col gap-2 p-2">
-      <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] text-mute">
+      <div className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-3">
         <span>Bauteil</span>
-        <select className="input w-auto py-0.5 text-[11px]" value={device} onChange={(e) => setDevice(e.target.value)}>
+        <select className="input w-auto py-0.5 text-2xs" value={device} onChange={(e) => setDevice(e.target.value)}>
           {doc.instances.map((i) => (
             <option key={i.id} value={i.label}>
               {i.label}
@@ -565,7 +566,7 @@ function IvAnalyzer() {
           ))}
         </select>
         <span>Sweep-Quelle</span>
-        <select className="input w-auto py-0.5 text-[11px]" value={source} onChange={(e) => setSource(e.target.value)}>
+        <select className="input w-auto py-0.5 text-2xs" value={source} onChange={(e) => setSource(e.target.value)}>
           {doc.instances.map((i) => (
             <option key={i.id} value={i.label}>
               {i.label}
@@ -586,7 +587,7 @@ function IvAnalyzer() {
           {analysis.running ? "misst …" : "Kennlinie"}
         </button>
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg border border-hairline">
         <Plot render={render} />
       </div>
     </div>
@@ -624,11 +625,11 @@ function SpectrumAnalyzer({ win }: { win: InstrumentWindow }) {
   );
   return (
     <div className="flex h-full flex-col gap-2 p-2">
-      <div className="flex items-center gap-2 text-[10.5px] text-mute">
+      <div className="flex items-center gap-2 text-2xs text-ink-3">
         <span>Signal</span>
         <NetSelect value={cfg.net} onChange={(v) => update(win.id, { config: { ...win.config, spec: { net: v } } })} />
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg border border-hairline">
         <Plot render={render} />
       </div>
     </div>
@@ -644,16 +645,16 @@ function PatternGenerator() {
   const clocks = doc.instances.filter((i) => i.partId === "clockgen" || i.partId === "vpulse");
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
-      <div className="text-[11px] text-mute">
+      <div className="text-2xs text-ink-3">
         Treibt digitale Taktquellen und Pulsgeneratoren. Platziere »Taktgenerator (digital)« oder »Pulsquelle« im Schaltplan.
       </div>
       {clocks.map((c) => (
-        <div key={c.id} className="rounded-lg p-2" style={{ background: "var(--surface-2)" }}>
-          <div className="mb-1 flex justify-between text-[11px]">
-            <span className="mono" style={{ color: "var(--teal)" }}>
+        <div key={c.id} className="rounded-lg p-2 bg-surface-2">
+          <div className="mb-1 flex justify-between text-2xs">
+            <span className="mono text-teal">
               {c.label}
             </span>
-            <span className="mono text-mute">{formatValue(Number(c.params.freq ?? 1000), "Hz")}</span>
+            <span className="mono text-ink-3">{formatValue(Number(c.params.freq ?? 1000), "Hz")}</span>
           </div>
           <input
             type="range"
@@ -699,21 +700,21 @@ function FrequencyCounter({ win }: { win: InstrumentWindow }) {
 
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
-      <div className="rounded-xl p-3" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}>
+      <div className="rounded-xl p-3 bg-surface-2 border border-hairline">
         <div className="mono text-right text-[30px] font-semibold leading-none tabular-nums" style={{ color: running && f > 0 ? "var(--ink)" : "var(--ink-3)" }}>
           {running && f > 0 ? formatValue(f, "") : "– – –"}
         </div>
-        <div className="mono mt-1 text-right text-[12px] text-mute">Hz</div>
+        <div className="mono mt-1 text-right text-xs text-ink-3">Hz</div>
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         <Stat label="Periode" value={f > 0 ? formatValue(1 / f, "s") : "—"} />
         <Stat label="Tastgrad" value={f > 0 ? `${duty.toFixed(1)} %` : "—"} />
       </div>
-      <label className="text-[10.5px] text-mute">
+      <label className="text-2xs text-ink-3">
         Messknoten
         <NetSelect value={cfg.net} onChange={(v) => update(win.id, { config: { ...win.config, counter: { net: v } } })} />
       </label>
-      {!running && <div className="text-[11px] text-mute">Zählt, sobald die Simulation läuft.</div>}
+      {!running && <div className="text-2xs text-ink-3">Zählt, sobald die Simulation läuft.</div>}
     </div>
   );
 }
@@ -838,17 +839,17 @@ function LogicConverter({ win }: { win: InstrumentWindow }) {
   };
 
   return (
-    <div className="flex h-full flex-col gap-2 p-2.5 text-[11px]">
+    <div className="flex h-full flex-col gap-2 p-2.5 text-2xs">
       <div className="flex items-center gap-2">
-        <span className="text-mute">Eingänge</span>
+        <span className="text-ink-3">Eingänge</span>
         <select className="input w-20 py-0.5" value={inputs} onChange={e=> set({ inputs: Number(e.target.value), table: Array(1<<Number(e.target.value)).fill(0) })}>
           {[2,3,4,5,6,7,8].map(n=> <option key={n} value={n}>{n}</option>)}
         </select>
         <button className="btn btn-primary ml-auto" onClick={generateExpr}>→ Boolean</button>
         <button className="btn" onClick={generateCircuit}>→ Schaltung</button>
       </div>
-      <div className="grid gap-1 overflow-auto rounded-lg p-2" style={{ background: "var(--surface-2)", border: "1px solid var(--hairline)" }}>
-        <div className="grid text-[10px] font-medium text-mute" style={{ gridTemplateColumns: `repeat(${inputs}, 24px) 32px` }}>
+      <div className="grid gap-1 overflow-auto rounded-lg p-2 bg-surface-2 border border-hairline">
+        <div className="grid text-2xs font-medium text-ink-3" style={{ gridTemplateColumns: `repeat(${inputs}, 24px) 32px` }}>
           {Array.from({length: inputs}).map((_,i)=> <span key={i} className="text-center">{String.fromCharCode(65+i)}</span>)}
           <span className="text-center">F</span>
         </div>
@@ -857,7 +858,7 @@ function LogicConverter({ win }: { win: InstrumentWindow }) {
           return (
             <div key={r} className="grid items-center" style={{ gridTemplateColumns: `repeat(${inputs}, 24px) 32px` }}>
               {bits.split("").map((b,i)=> <span key={i} className="text-center mono">{b}</span>)}
-              <button className="h-6 rounded text-[11px] font-bold" style={{ background: table[r] ? "var(--ok)" : "var(--surface)", color: table[r] ? "#fff" : "var(--ink-3)", border: "1px solid var(--hairline)" }} onClick={()=>{
+              <button className="h-6 rounded text-2xs font-bold" style={{ background: table[r] ? "var(--ok)" : "var(--surface)", color: table[r] ? "#fff" : "var(--ink-3)", border: "1px solid var(--hairline)" }} onClick={()=>{
                 const nt = [...table];
                 nt[r] = nt[r] ? 0 : 1;
                 set({ table: nt });
@@ -867,10 +868,10 @@ function LogicConverter({ win }: { win: InstrumentWindow }) {
         })}
       </div>
       <div>
-        <div className="text-[10px] text-mute mb-1">Boolescher Ausdruck (SOP)</div>
-        <div className="rounded-lg p-2 mono text-[11px]" style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}>{cfg.expr || "– klicke → Boolean –"}</div>
+        <div className="text-2xs text-ink-3 mb-1">Boolescher Ausdruck (SOP)</div>
+        <div className="rounded-lg p-2 mono text-2xs bg-surface border border-hairline">{cfg.expr || "– klicke → Boolean –"}</div>
       </div>
-      <div className="text-[10px] text-mute">Wahrheitstabelle ↔ Boolesch ↔ Schaltung (SOP via Quine-McCluskey).</div>
+      <div className="text-2xs text-ink-3">Wahrheitstabelle ↔ Boolesch ↔ Schaltung (SOP via Quine-McCluskey).</div>
     </div>
   );
 }
@@ -905,7 +906,7 @@ function DistortionAnalyzer({ win }: { win: InstrumentWindow }) {
   }
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
-      <div className="flex items-center gap-2 text-[10.5px] text-mute">
+      <div className="flex items-center gap-2 text-2xs text-ink-3">
         <span>Signal</span>
         <NetSelect value={cfg.net} onChange={v=> update(win.id, { config: { ...win.config, distortion: { ...cfg, net: v } } })} />
         <span>Grund</span>
@@ -916,7 +917,7 @@ function DistortionAnalyzer({ win }: { win: InstrumentWindow }) {
         <Stat label="THD" value={`${thd.toFixed(2)} %`} color="var(--warn)" />
         <Stat label="SINAD" value={`${sinad.toFixed(1)} dB`} color="var(--ok)" />
       </div>
-      <div className="text-[10px] text-mute">Klirrfaktor (THD) und Signal-Rausch-Verhältnis (SINAD) über FFT-Analyse.</div>
+      <div className="text-2xs text-ink-3">Klirrfaktor (THD) und Signal-Rausch-Verhältnis (SINAD) über FFT-Analyse.</div>
     </div>
   );
 }
@@ -955,16 +956,16 @@ function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
   };
   return (
     <div className="flex h-full flex-col gap-2 p-2">
-      <div className="flex items-center gap-2 text-[10.5px] text-mute">
+      <div className="flex items-center gap-2 text-2xs text-ink-3">
         <span>In</span>
         <NetSelect value={cfg.inNet} onChange={v=> update(win.id, { config: { ...win.config, network: { ...cfg, inNet: v } } })} />
         <span>Out</span>
         <NetSelect value={cfg.outNet} onChange={v=> update(win.id, { config: { ...win.config, network: { ...cfg, outNet: v } } })} />
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
+      <div className="flex-1 overflow-hidden rounded-lg border border-hairline">
         <Plot render={render} />
       </div>
-      <div className="text-[10px] text-mute">Übertragungsfunktion und Amplitudengang zwischen Eingangs- und Ausgangsnetz.</div>
+      <div className="text-2xs text-ink-3">Übertragungsfunktion und Amplitudengang zwischen Eingangs- und Ausgangsnetz.</div>
     </div>
   );
 }
@@ -1294,44 +1295,42 @@ function Window({ win }: { win: InstrumentWindow }) {
     <WindowFitContext.Provider value={reportNatural}>
       <div
         ref={winRef}
-        className="win-in pointer-events-auto absolute left-0 top-0 flex flex-col overflow-hidden rounded-xl will-change-transform"
+        role="dialog"
+        aria-label={win.title}
+        className="win-in pointer-events-auto absolute left-0 top-0 flex flex-col overflow-hidden rounded-window border border-hairline-strong bg-surface shadow-3 will-change-transform"
         style={{
           transform: `translate3d(${win.x}px, ${win.y}px, 0)`,
           width: win.w,
           height: win.minimized ? TITLE_H : win.h,
           zIndex: win.z,
-          background: "var(--surface)",
-          border: "1px solid var(--hairline-strong)",
-          boxShadow: "var(--shadow-3)",
         }}
         onPointerDown={() => focusInstrument(win.id)}
       >
         <div
-          className="flex h-9 shrink-0 cursor-grab select-none items-center gap-2 px-3"
-          style={{ borderBottom: "1px solid var(--hairline)", touchAction: "none" }}
+          className="flex h-9 shrink-0 cursor-grab touch-none select-none items-center gap-2 border-b border-hairline pl-3 pr-1.5"
           title="Ziehen (auch am Fensterhintergrund) bewegt das Fenster"
           onPointerDown={(e) => beginDrag(e)}
         >
-          <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
+          <span className="grid size-5 place-items-center rounded-control bg-accent/20 text-accent">
             {iconFor(win.kind)}
           </span>
-          <span className="flex-1 truncate text-[12px] font-medium">{win.title}</span>
-          <button
-            className="btn px-1 py-0.5"
-            title="Minimieren"
+          <span className="flex-1 truncate text-xs font-medium text-ink">{win.title}</span>
+          <IconButton
+            size="sm"
+            aria-label={win.minimized ? "Wiederherstellen" : "Minimieren"}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}
           >
-            <Minus size={13} />
-          </button>
-          <button
-            className="btn px-1 py-0.5"
-            title="Schließen" aria-label="Schließen"
+            <Minus size={14} />
+          </IconButton>
+          <IconButton
+            size="sm"
+            aria-label="Schließen"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => closeInstrument(win.id)}
           >
-            <X size={13} />
-          </button>
+            <X size={14} />
+          </IconButton>
         </div>
         {!win.minimized && (
           <div
@@ -1514,7 +1513,7 @@ export function DeviceBar() {
         );
       })}
       <div className="h-2 shrink-0" />
-      <div className="w-6 shrink-0 border-t" style={{ borderColor: "var(--hairline)" }} />
+      <div className="w-6 shrink-0 border-t border-hairline" />
       <button
         onClick={toggleInspector}
         title={adaptShortcut("Inspector (⌘I)", apple)}
@@ -1627,7 +1626,7 @@ export function StandaloneInstrumentView({
   );
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ background: "var(--surface)" }}>
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-surface">
       {isSelfFit ? (
         renderContent()
       ) : (

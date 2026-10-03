@@ -1,5 +1,7 @@
 "use client";
 
+import { canvasColor } from "@/lib/canvas-theme";
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "./ui";
 import {
@@ -309,8 +311,8 @@ function SymbolCanvasEditor({
     activePrims.forEach((prim, idx) => {
       const isSel = idx === selectedPrimIdx;
       ctx.save();
-      ctx.strokeStyle = isSel ? "#f59e0b" : "#e2e8f0";
-      ctx.fillStyle = isSel ? "#f59e0b" : "#e2e8f0";
+      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : "#e2e8f0";
+      ctx.fillStyle = isSel ? canvasColor("--wire-sel") : "#e2e8f0";
       ctx.lineWidth = isSel ? 2.0 : 1.5;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -382,7 +384,7 @@ function SymbolCanvasEditor({
       const isPinSel = idx === selectedPinIdx;
       const roleColor = pSpec ? PIN_ROLE_COLORS[pSpec.role] : "#f59e0b";
       ctx.save();
-      ctx.fillStyle = isPinSel ? "#fbbf24" : roleColor;
+      ctx.fillStyle = isPinSel ? canvasColor("--wire-sel") : roleColor;
       ctx.strokeStyle = "#0d1118";
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -598,9 +600,9 @@ function SymbolCanvasEditor({
                 style={
                   active
                     ? {
-                        background: "color-mix(in srgb, var(--wire-sel, #f59e0b) 20%, transparent)",
-                        color: "var(--wire-sel, #f59e0b)",
-                        border: "1px solid var(--wire-sel, #f59e0b)",
+                        background: "color-mix(in srgb, var(--wire-sel) 20%, transparent)",
+                        color: "var(--wire-sel)",
+                        border: "1px solid var(--wire-sel)",
                       }
                     : { color: "var(--ink-2)", border: "1px solid transparent" }
                 }
@@ -706,7 +708,7 @@ function SymbolCanvasEditor({
         {selectedPrim && selectedPrimIdx !== null && (
           <div
             className="mb-3 space-y-2 rounded-lg border p-2.5 text-2xs"
-            style={{ borderColor: "var(--wire-sel, #f59e0b)", background: "var(--surface)" }}
+            style={{ borderColor: "var(--wire-sel)", background: "var(--surface)" }}
           >
             <div className="font-semibold text-selection">
               Ausgewählt: {selectedPrim.t.toUpperCase()} #{selectedPrimIdx + 1}
@@ -797,8 +799,8 @@ function SymbolCanvasEditor({
                 style={
                   active
                     ? {
-                        borderColor: "var(--wire-sel, #f59e0b)",
-                        background: "color-mix(in srgb, var(--wire-sel, #f59e0b) 14%, transparent)",
+                        borderColor: "var(--wire-sel)",
+                        background: "color-mix(in srgb, var(--wire-sel) 14%, transparent)",
                       }
                     : { borderColor: "var(--hairline)", background: "var(--surface)" }
                 }
@@ -1209,9 +1211,9 @@ export default function PartEditorDialog({
                     style={
                       active
                         ? {
-                            background: "color-mix(in srgb, var(--wire-sel, #f59e0b) 20%, transparent)",
-                            color: "var(--wire-sel, #f59e0b)",
-                            border: "1px solid var(--wire-sel, #f59e0b)",
+                            background: "color-mix(in srgb, var(--wire-sel) 20%, transparent)",
+                            color: "var(--wire-sel)",
+                            border: "1px solid var(--wire-sel)",
                           }
                         : { color: "var(--ink-2)", border: "1px solid transparent" }
                     }
@@ -1330,7 +1332,7 @@ export default function PartEditorDialog({
                         <div className="flex items-center gap-2">
                           <input
                             className="input mono h-6 px-2 text-2xs font-bold"
-                            style={{ width: 88, color: "var(--wire-sel, #f59e0b)" }}
+                            style={{ width: 88, color: "var(--wire-sel)" }}
                             value={el.id}
                             onChange={(e) => {
                               const v = e.target.value;
@@ -1419,7 +1421,7 @@ export default function PartEditorDialog({
                               key={nIdx}
                               className="flex items-center gap-1 rounded-lg border px-2 py-0.5 text-2xs"
                               style={{
-                                borderColor: isExternalPort ? "var(--wire-sel, #f59e0b)" : "var(--hairline)",
+                                borderColor: isExternalPort ? "var(--wire-sel)" : "var(--hairline)",
                                 background: "var(--app)",
                               }}
                             >

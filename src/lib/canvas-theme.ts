@@ -9,17 +9,17 @@ type Theme = "light" | "dark";
 const FALLBACK: Record<Theme, Record<string, string>> = {
   light: {
     "--app": "#edece8", "--surface": "#fbfaf8", "--surface-2": "#f3f2ee", "--surface-3": "#e8e7e2",
-    "--ink": "#1c1d1f", "--ink-2": "#53565b", "--ink-3": "#6a6d72",
+    "--ink": "#1c1d1f", "--ink-2": "#53565b", "--ink-3": "#5f6267",
     "--hairline": "rgba(40,32,16,0.12)", "--hairline-strong": "rgba(40,32,16,0.22)",
     "--accent": "#1d5bd6", "--accent-ink": "#ffffff",
-    "--ok": "#24744a", "--warn": "#8f6508", "--err": "#b0362b", "--teal": "#217374", "--violet": "#7044a0",
+    "--ok": "#24744a", "--warn": "#7d5806", "--err": "#b0362b", "--teal": "#1e6c6d", "--violet": "#7044a0",
     "--canvas": "#f7f6f1", "--grid-minor": "rgba(80,64,32,0.075)", "--grid-major": "rgba(80,64,32,0.15)",
-    "--wire": "#1d5bd6", "--wire-sel": "#c2730f", "--symbol": "#1c1d1f", "--pin": "#5b5e63",
+    "--wire": "#1d5bd6", "--wire-sel": "#a35a06", "--symbol": "#1c1d1f", "--pin": "#5b5e63",
     "--ch1": "#1d5bd6", "--ch2": "#c2730f", "--ch3": "#24744a", "--ch4": "#b0362b",
   },
   dark: {
     "--app": "#111113", "--surface": "#1e1e21", "--surface-2": "#27272b", "--surface-3": "#313136",
-    "--ink": "#f5f5f7", "--ink-2": "#a1a1a6", "--ink-3": "#8e8e93",
+    "--ink": "#f5f5f7", "--ink-2": "#a1a1a6", "--ink-3": "#9a9aa0",
     "--hairline": "rgba(255,255,255,0.09)", "--hairline-strong": "rgba(255,255,255,0.16)",
     "--accent": "#5b9dff", "--accent-ink": "#0b1424",
     "--ok": "#5cc28a", "--warn": "#e0ab47", "--err": "#ff7a6b", "--teal": "#5cc4c5", "--violet": "#b892e6",
