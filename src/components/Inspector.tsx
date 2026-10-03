@@ -352,8 +352,8 @@ export default function Inspector() {
                     type="button"
                     className="btn w-full gap-1.5"
                     style={{
-                      borderColor: "var(--wire-sel, #f59e0b)",
-                      color: "var(--wire-sel, #f59e0b)",
+                      borderColor: "var(--wire-sel)",
+                      color: "var(--wire-sel)",
                     }}
                     onClick={() => {
                       window.dispatchEvent(
