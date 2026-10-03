@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld("multispiceDesktop", {
   closeChildWindow(id) {
     ipcRenderer.send("multispice:close-child", id);
   },
+  notifyChildReady() {
+    ipcRenderer.send("multispice:child-ready");
+  },
   sendSync(payload) {
     ipcRenderer.send("multispice:sync", payload);
   },

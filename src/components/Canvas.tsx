@@ -134,9 +134,9 @@ function hitTestNote(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").
 function hitTestInstanceValueLabel(inst: Instance, p: Pt): boolean {
   const b = instanceBounds(inst);
   const cx = inst.x;
-  const topY = b.y + b.h - 2;
+  const topY = b.y + b.h + 4;
   const botY = b.y + b.h + 34;
-  return Math.abs(p.x - cx) <= Math.max(32, b.w * 0.65) && p.y >= topY && p.y <= botY;
+  return Math.abs(p.x - cx) <= Math.max(28, b.w * 0.55) && p.y >= topY && p.y <= botY;
 }
 
 function findInstanceByValueLabel(doc: SchematicDoc, p: Pt): Instance | null {
@@ -2488,7 +2488,9 @@ export default function Canvas() {
         return;
       }
     }
-    const hit = hitTestInstance(st.doc, world.x, world.y) ?? findInstanceByValueLabel(st.doc, world);
+    const bodyHit = hitTestInstance(st.doc, world.x, world.y);
+    const valueLabelHit = !bodyHit ? findInstanceByValueLabel(st.doc, world) : null;
+    const hit = bodyHit ?? valueLabelHit;
     if (hit) {
       st.setSelection([hit.id]);
       const part = PART_MAP[hit.partId];
@@ -2501,10 +2503,10 @@ export default function Canvas() {
         return;
       }
       const main = part?.params[0];
-      // W81/W91: Doppelklick auf ein Bauteil mit numerischem Hauptwert (z. B. Widerstand,
-      // Kondensator, Spule, Quelle) oder auf dessen Bezeichnung/Wert öffnet sofort die
-      // schnelle Inline-Werteingabe direkt auf dem Canvas!
-      if (main && main.type === "number" && !e.shiftKey) {
+      // W125: Nur ein Doppelklick gezielt auf den Wert/Bezeichner unter dem Bauteil
+      // (valueLabelHit) öffnet das Inline-Wertefeld; ein Doppelklick auf das Bauteil
+      // selbst (bodyHit) öffnet den Inspector.
+      if (valueLabelHit && main && main.type === "number" && !e.shiftKey) {
         const scr = toScreen({ x: hit.x, y: hit.y });
         const rawVal = Number(hit.params[main.key] ?? main.def);
         const formatted = Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : String(hit.params[main.key] ?? "");

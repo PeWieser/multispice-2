@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Cpu, Minus, Square, Copy, X, Activity } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Minus, Square, Copy, X } from "lucide-react";
 import { engine, useEditor } from "@/state/editor";
 import { RingBuffer } from "@/lib/sim/realtime";
-import { formatValue } from "@/lib/library/catalog";
 
 export interface DesktopChildWindowSpec {
   id: string;
@@ -21,6 +20,7 @@ export interface MultispiceDesktopBridge {
   windowControl: (action: "minimize" | "maximize" | "close") => void;
   openChildWindow: (spec: DesktopChildWindowSpec) => void;
   closeChildWindow: (id: string) => void;
+  notifyChildReady?: () => void;
   sendSync: (payload: unknown) => void;
   onSync: (cb: (payload: unknown) => void) => () => void;
   onChildClosed: (cb: (id: string) => void) => () => void;
@@ -37,15 +37,11 @@ export function isDesktopApp(): boolean {
 }
 
 /**
- * Maßgeschneiderte Fensterleiste im Stil von iTunes für Windows:
- * Rahmenloses OS-Fenster ohne Standard-Windows-Titelleiste, gebürstete dunkle
- * Metall-Optik, integriertes LCD-Status-Display in der Mitte (im Hauptfenster)
- * und eigene Fenster-Steuerknöpfe (Minimieren, Maximieren, Schließen).
+ * W124: Maximal minimalistische Fensterleiste (wie bei macOS):
+ * Kein Icon, kein Text, kein Farbverlauf – verschmilzt nahtlos mit var(--panel-solid)
+ * und besitzt nur eine dezente 1px-Trennlinie sowie rechts die Fenstersteuerung.
  */
 export default function DesktopTitleBar({
-  title,
-  subtitle,
-  compact = false,
   onCloseOverride,
 }: {
   title?: string;
@@ -53,13 +49,6 @@ export default function DesktopTitleBar({
   compact?: boolean;
   onCloseOverride?: () => void;
 }) {
-  const docName = useEditor((s) => s.doc.name);
-  const instCount = useEditor((s) => s.doc.instances.length);
-  const netCount = useEditor((s) => s.netResult.nets.length);
-  const simRunning = useEditor((s) => s.sim.running);
-  const simTick = useEditor((s) => s.sim.tick);
-  void simTick;
-  const simTime = engine.lastState.time;
   const [maximized, setMaximized] = useState(false);
 
   const handleControl = (action: "minimize" | "maximize" | "close") => {
@@ -75,60 +64,16 @@ export default function DesktopTitleBar({
 
   return (
     <div
-      className="flex h-8 shrink-0 select-none items-center justify-between px-2.5 text-[11.5px]"
+      className="flex h-7 shrink-0 select-none items-center justify-end px-2"
       style={{
-        background: "linear-gradient(180deg, #2c3340 0%, #1c212b 52%, #141820 100%)",
-        borderBottom: "1px solid #0b0e14",
-        boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.14)",
-        color: "#e2e8f0",
+        background: "var(--panel-solid)",
+        borderBottom: "1px solid var(--border)",
+        color: "var(--text-dim)",
         WebkitAppRegion: "drag",
       } as React.CSSProperties}
     >
-      {/* Links: App-Emblem + Fenstertitel */}
-      <div className="flex min-w-0 items-center gap-2">
-        <span
-          className="grid h-5 w-5 shrink-0 place-items-center rounded"
-          style={{
-            background: "linear-gradient(180deg, #f59e0b 0%, #b45309 100%)",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 1px 2px rgba(0,0,0,0.5)",
-            color: "#111827",
-          }}
-        >
-          <Cpu size={12} />
-        </span>
-        <span className="truncate font-semibold tracking-tight text-[#f1f5f9]">
-          {title ?? "MultiSpice Desktop"}
-        </span>
-        {subtitle && (
-          <span className="truncate text-[10.5px] text-[#94a3b8]">· {subtitle}</span>
-        )}
-      </div>
-
-      {/* Mitte: iTunes-for-Windows-inspiriertes LCD-Statusfenster (nur im Hauptfenster) */}
-      {!compact && (
-        <div
-          className="hidden md:flex items-center gap-2.5 rounded-md px-3 py-0.5 text-[10.5px] mono"
-          style={{
-            background: "linear-gradient(180deg, #0f141c 0%, #171f2c 100%)",
-            border: "1px solid rgba(255, 255, 255, 0.1)",
-            boxShadow: "inset 0 1px 3px rgba(0, 0, 0, 0.65)",
-            color: "#cbd5e1",
-          }}
-        >
-          <span className="font-medium text-[#f8fafc]">{docName || "Schaltplan"}</span>
-          <span className="text-[#475569]">|</span>
-          <span className="text-[#94a3b8]">{instCount} Bauteile · {netCount} Netze</span>
-          <span className="text-[#475569]">|</span>
-          <span className="flex items-center gap-1" style={{ color: simRunning ? "#4ade80" : "#94a3b8" }}>
-            <Activity size={11} />
-            {simRunning ? `LAUF · ${formatValue(simTime, "s")}` : "BEREIT"}
-          </span>
-        </div>
-      )}
-
-      {/* Rechts: Maßgeschneiderte iTunes-for-Windows-Fensterknöpfe */}
       <div
-        className="flex items-center gap-1"
+        className="flex items-center gap-0.5"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <button
@@ -136,11 +81,7 @@ export default function DesktopTitleBar({
           onClick={() => handleControl("minimize")}
           title="Minimieren"
           aria-label="Fenster minimieren"
-          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-white/10 active:bg-white/15"
-          style={{
-            border: "1px solid rgba(255,255,255,0.09)",
-            background: "linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.01) 100%)",
-          }}
+          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
         >
           <Minus size={11} />
         </button>
@@ -149,11 +90,7 @@ export default function DesktopTitleBar({
           onClick={() => handleControl("maximize")}
           title={maximized ? "Wiederherstellen" : "Maximieren"}
           aria-label={maximized ? "Fenster wiederherstellen" : "Fenster maximieren"}
-          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-white/10 active:bg-white/15"
-          style={{
-            border: "1px solid rgba(255,255,255,0.09)",
-            background: "linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.01) 100%)",
-          }}
+          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
         >
           {maximized ? <Copy size={10} /> : <Square size={10} />}
         </button>
@@ -162,11 +99,7 @@ export default function DesktopTitleBar({
           onClick={() => handleControl("close")}
           title="Schließen"
           aria-label="Fenster schließen"
-          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[#dc2626] hover:text-white active:bg-[#b91c1c]"
-          style={{
-            border: "1px solid rgba(255,255,255,0.12)",
-            background: "linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(185,28,28,0.18) 100%)",
-          }}
+          className="grid h-5 w-6 place-items-center rounded transition-colors hover:bg-[#dc2626] hover:text-white"
         >
           <X size={11} />
         </button>
@@ -182,13 +115,17 @@ export default function DesktopTitleBar({
 export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library", winId?: string) {
   const instruments = useEditor((s) => s.instruments);
   const libraryOpen = useEditor((s) => s.libraryOpen);
+  const wasLibraryOpenRef = useRef(false);
+  const prevInstIdsRef = useRef<string[]>([]);
 
-  // Hauptfenster: Öffnet/schließt native OS-Kindfenster für Messgeräte & Bibliothek
+  // Hauptfenster: Öffnet/schließt native OS-Kindfenster für Messgeräte
   useEffect(() => {
-    if (role !== "main" || !isDesktopApp()) return;
+    if (typeof window === "undefined" || !isDesktopApp()) return;
+    if (window.location.search.includes("desktopWindow=") || role !== "main") return;
     const bridge = window.multispiceDesktop;
     if (!bridge) return;
 
+    const currentIds = instruments.map((w) => w.id);
     for (const w of instruments) {
       bridge.openChildWindow({
         id: w.id,
@@ -196,16 +133,27 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
         kind: w.kind,
         title: w.title,
         width: Math.max(360, Math.round(w.w)),
-        height: Math.max(280, Math.round(w.h + 32)),
+        height: Math.max(280, Math.round(w.h + 28)),
       });
     }
+    for (const oldId of prevInstIdsRef.current) {
+      if (!currentIds.includes(oldId)) {
+        bridge.closeChildWindow(oldId);
+      }
+    }
+    prevInstIdsRef.current = currentIds;
   }, [role, instruments]);
 
+  // Hauptfenster: Öffnet/schließt das native OS-Kindfenster für die Bibliothek
+  // W126: Niemals beim ersten Mount closeChildWindow("library") feuern!
   useEffect(() => {
-    if (role !== "main" || !isDesktopApp()) return;
+    if (typeof window === "undefined" || !isDesktopApp()) return;
+    if (window.location.search.includes("desktopWindow=") || role !== "main") return;
     const bridge = window.multispiceDesktop;
     if (!bridge) return;
+
     if (libraryOpen) {
+      wasLibraryOpenRef.current = true;
       bridge.openChildWindow({
         id: "library",
         role: "library",
@@ -213,7 +161,8 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
         width: 780,
         height: 600,
       });
-    } else {
+    } else if (wasLibraryOpenRef.current) {
+      wasLibraryOpenRef.current = false;
       bridge.closeChildWindow("library");
     }
   }, [role, libraryOpen]);
@@ -221,6 +170,9 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
   // bidirektionale State-/Engine-Synchronisation
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const actualIsChild = window.location.search.includes("desktopWindow=");
+    const effectiveRole = actualIsChild ? (role === "main" ? "library" : role) : role;
+
     const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("multispice-desktop-sync") : null;
     const bridge = window.multispiceDesktop;
 
@@ -231,7 +183,7 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
       bridge?.sendSync(msg);
     };
 
-    if (role === "main") {
+    if (effectiveRole === "main") {
       const broadcastState = () => {
         const st = useEditor.getState();
         const buffersSnapshot: Record<string, { t: number[]; v: number[] }> = {};
@@ -273,12 +225,14 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
         if (msg.type === "request-initial") {
           broadcastState();
         } else if (msg.type === "pick-part" && typeof msg.partId === "string") {
+          wasLibraryOpenRef.current = false;
           st.setPlacing(msg.partId);
           useEditor.setState({ libraryOpen: false });
         } else if (msg.type === "update-instrument" && typeof msg.id === "string" && msg.patch) {
           st.updateInstrument(msg.id, msg.patch as Record<string, unknown>);
         } else if (msg.type === "child-closed" && typeof msg.id === "string") {
           if (msg.id === "library") {
+            wasLibraryOpenRef.current = false;
             useEditor.setState({ libraryOpen: false });
           } else {
             st.closeInstrument(msg.id);
@@ -302,7 +256,9 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
         offClosed?.();
       };
     } else {
-      // Kindfenster (Instrument oder Bibliothek): Empfängt Snapshots vom Hauptfenster
+      // Kindfenster (Instrument oder Bibliothek): Meldet sich bereit & empfängt Snapshots
+      bridge?.notifyChildReady?.();
+
       const handleIncoming = (raw: unknown) => {
         const msg = raw as Record<string, unknown> | null;
         if (!msg || msg.type !== "state-snapshot") return;

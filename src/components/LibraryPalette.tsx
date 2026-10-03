@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Search, Star, X, Grip, FileText, ExternalLink, Zap, LayoutGrid, List, Command, Clock, Plus } from "lucide-react";
+import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
@@ -269,7 +269,6 @@ export default function LibraryPalette({
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"all" | "fav" | "recent">("all");
   const [selected, setSelected] = useState<PartDef | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [selCat, setSelCat] = useState<string | null>(null);
   const [customRev, setCustomRev] = useState(0);
@@ -501,7 +500,6 @@ export default function LibraryPalette({
           dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y, w: paletteRef.current?.offsetWidth ?? 420 };
         }}
       >
-        <Grip size={12} className="text-mute" />
         <span className="text-[12px] font-medium flex items-center gap-1.5">
           <LayoutGrid size={12} /> Bibliothek
         </span>
@@ -521,13 +519,6 @@ export default function LibraryPalette({
               <span>Bauteil-Editor</span>
             </button>
           )}
-          <button
-            className="grid h-6 w-6 place-items-center rounded-md hover:bg-[var(--panel-2)]"
-            onClick={() => setViewMode((m) => (m === "list" ? "grid" : "list"))}
-            title={viewMode === "list" ? "Grid Ansicht" : "Listen Ansicht"}
-          >
-            {viewMode === "list" ? <LayoutGrid size={12} /> : <List size={12} />}
-          </button>
           <button className="btn px-1 py-0.5 h-6" onClick={toggle} title="Schließen (Esc)">
             <X size={13} />
           </button>
@@ -611,33 +602,9 @@ export default function LibraryPalette({
               <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute flex items-center gap-1.5">
                 <Command size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
               </div>
-              {viewMode === "grid" ? (
-                <div className="grid grid-cols-2 gap-1.5 p-1">
-                  {results.map((p, idx) => (
-                    <div
-                      key={p.id}
-                      className="rounded-lg p-2 border cursor-pointer hover:bg-[var(--panel-2)]"
-                      style={{ borderColor: idx===selectedIdx ? "var(--accent)" : "var(--border)", background: idx===selectedIdx ? "var(--accent-soft)" : "var(--panel)", boxShadow: idx===selectedIdx ? "0 0 0 2px var(--accent-soft)" : "none" }}
-                      onClick={() => { setSelectedIdx(idx); onPick(p.id); }}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/multispice-part", p.id);
-                        e.dataTransfer.effectAllowed = "copy";
-                        useHud.setState({ dragPart: p.id });
-                      }}
-                      onDragEnd={() => useHud.setState({ dragPart: null })}
-                    >
-                      <div className="flex justify-center mb-1.5">
-                        <SymbolPreview part={p} size={48} />
-                      </div>
-                      <div className="text-[11px] font-medium truncate">{p.name}</div>
-                      <div className="text-[9px] text-mute truncate">{p.ref} · {p.category.split("/").slice(-1)[0]}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                results.map((p, idx) => <PartRow key={p.id} part={p} onPick={onPick} selected={selected?.id === p.id || idx===selectedIdx} />)
-              )}
+              {results.map((p, idx) => (
+                <PartRow key={p.id} part={p} onPick={onPick} selected={selected?.id === p.id || idx === selectedIdx} />
+              ))}
             </div>
           ) : activeTab === "favorites" ? (
             <div>

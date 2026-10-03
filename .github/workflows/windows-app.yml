@@ -35,6 +35,7 @@ jobs:
           Copy-Item -Path desktop/package.json -Destination dist-win-app/package.json -Force
           Copy-Item -Path desktop/main.cjs -Destination dist-win-app/main.cjs -Force
           Copy-Item -Path desktop/preload.cjs -Destination dist-win-app/preload.cjs -Force
+          Copy-Item -Path public/favicon.png -Destination dist-win-app/icon.png -Force
           Copy-Item -Path out -Destination dist-win-app/out -Recurse -Force
 
       - name: Build Windows Portable .exe and NSIS Installer .exe

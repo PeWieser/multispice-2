@@ -13,12 +13,16 @@
   "build": {
     "appId": "de.multispice.desktop",
     "productName": "MultiSpice",
+    "compression": "store",
+    "icon": "icon.png",
     "files": [
       "main.cjs",
       "preload.cjs",
+      "icon.png",
       "out/**/*"
     ],
     "win": {
+      "icon": "icon.png",
       "target": [
         {
           "target": "portable",

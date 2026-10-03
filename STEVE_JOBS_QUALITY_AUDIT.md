@@ -2694,4 +2694,55 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
     3. **Ein-/Ausgangs-Pins & Gehäuse**: Pin-Konfigurator mit elektrischer Rolle (`IN`, `OUT`, `I/O`, `VCC`, `GND`), Pin-Markierungen (`Invertiert ○`, `Takt ▷`), Gehäuseseite, Knoten-Mapping zur Innenschaltung und physischer Gehäuse-Draufsicht (`PackageTopView` für `DIP-8`, `SOIC-8`, `DIP-14`, `DIP-16`, `TO-220`, `TO-92`, `0805`).
     4. **Parameter & Verwaltung**: Eigene Bauteil-Parameter, JSON-Export/Import und direkter Sprung aus dem Inspector (*„Im Bauteil-Studio bearbeiten“*).
 
+---
+
+## §39 — Runde 38 (`W124–W129`): Puristische Fensterleiste, Widerstand-Doppelklick nur auf Wert, Windows-Bibliotheksfenster-Fix, Library-Aufräumen, Dock-Entfernung & Windows-Favicon/Ladeanimation
+
+### 39.1 Analyse & Plan (`W124–W129`)
+
+1. **`W124` — Fensterbalken (`DesktopTitleBar.tsx`) komplett ohne Icon & ohne Text, minimal vom Rest abhebend (macOS-Stil)**:
+   - **Anforderung**: „Einmal soll nichts im Fenstertitel stehen. Kein Icon, kein Text. Und der fensterbalken soll sich nicht so sehr vom Rest abheben. maximal minimal. Wie bei macos.“
+   - **Lösung**:
+     - `DesktopTitleBar.tsx` enthält keinerlei Icon, keinen Titeltext und kein Statusdisplay mehr, sondern nur noch die ziehbare Fläche (`-webkit-app-region: drag`) und rechts die dezenten Fenstersteuerung-Buttons (`Minimieren`, `Maximieren`, `Schließen`).
+     - Die Hintergrundfarbe ist `var(--panel-solid)` mit einer hauchdünnen `1px solid var(--border)`-Unterkante (ohne metallischen Farbverlauf), sodass sie nahtlos mit dem Fenster verschmilzt.
+
+2. **`W125` — Doppelklick auf Widerstandskörper (nicht auf den Wert) darf nicht das Wertefenster öffnen (`src/components/Canvas.tsx`)**:
+   - **Ursache**: In `onDoubleClick` (und beim Touch-Doppeltipp in `onPointerDown`) wurde `const hit = hitTestInstance(...) ?? findInstanceByValueLabel(...)` ausgewertet und für jedes getroffene Bauteil mit numerischem Hauptwert das Inline-Wertefeld (`setEditing({ kind: "value", ... })`) geöffnet.
+   - **Lösung**:
+     - Nur ein Doppelklick **gezielt auf das Wert-/Bezeichner-Label unterhalb des Bauteils** (`findInstanceByValueLabel(st.doc, world)`) öffnet das Inline-Wertefeld (`setEditing({ kind: "value", ... })`).
+     - Ein Doppelklick auf das **Bauteilsymbol selbst** (`hitTestInstance(st.doc, world.x, world.y)`) öffnet dagegen den Inspector (`openInstrument("inspector")`) bzw. bei Oszilloskop/Funktionsgenerator das jeweilige Messgerät.
+
+3. **`W126` — Windows-App: Bibliothek-Fenster schließt sich nicht mehr sofort wieder & zeigt kein Hauptfenster-Aufblitzen (`src/components/DesktopTitleBar.tsx`, `src/components/Workbench.tsx`, `desktop/main.cjs`, `desktop/preload.cjs`)**:
+   - **Ursache**:
+     1. Beim Öffnen des Kindfensters `/?desktopWindow=library` lieferte `useSyncExternalStore` im ersten SSR-Hydrations-Tick den Server-Snapshot `""` (`role === "main"`). Dadurch lief `useDesktopMultiWindowSync("main")` im Kindfenster an, sah `libraryOpen === false` und rief `bridge.closeChildWindow("library")` auf – das Kindfenster schloss sich selbst sofort wieder!
+     2. Zudem zeigte `out/index.html` bis zur Client-Hydration kurzzeitig das vor-gerenderte Hauptfenster.
+   - **Lösung**:
+     - `preload.cjs` und `DesktopTitleBar.tsx` lesen `window.location.search` direkt aus; `useDesktopMultiWindowSync` prüft `window.location.search` synchron in jedem Effect und ruft `closeChildWindow("library")` nur noch auf, wenn `libraryOpen` im Hauptfenster von `true` auf `false` wechselt (`wasLibraryOpenRef.current && !libraryOpen`).
+     - `desktop/main.cjs` akzeptiert `open-child` / `close-child` ausschließlich vom `mainWindow` (`event.sender.id === mainWindow.webContents.id`) und zeigt Kindfenster erst nach `multispice:child-ready` (sobald `LibraryPalette` bzw. `StandaloneInstrumentView` gemountet ist), sodass niemals das Hauptfenster aufblitzt.
+
+4. **`W127` — Bibliothek (`src/components/LibraryPalette.tsx`): Listen/Grid-Umschalter oben rechts & Anfasser-Icon (`Grip`) oben links entfernen**:
+   - `<Grip size={12} />` oben links sowie der funktionslose Listen-/Grid-Umschalter-Button oben rechts werden komplett aus `LibraryPalette.tsx` entfernt.
+
+5. **`W128` — Fenster-ins-Dock-Einrasten überall entfernen (`src/components/Instruments.tsx`, `src/state/editor.ts`)**:
+   - Der Dock-Button (`PanelBottom`) in der Titelleiste aller Gerätefenster sowie die untere Dock-Leiste in `InstrumentLayer` werden vollständig entfernt; alle Fenster bleiben immer freie, unabhängige Fenster.
+
+6. **`W129` — Schnellerer Start der Portable-Version, Repo-Favicon statt Standard-Logo & minimalistische Ladeanimation (`desktop/package.json`, `desktop/main.cjs`, `.github/workflows/windows-app.yml`)**:
+   - `portable` erhält `"compression": "store"` (bzw. schnelles Entpacken ohne schwere LZMA-Dekomprimierung beim Start).
+   - Das Repo-Favicon (`public/favicon.png`, `512×512`) wird als Windows-App- und Fenster-Icon (`icon.png` in `build.win.icon` und `BrowserWindow({ icon })`) eingebunden.
+   - Beim Start zeigt `desktop/main.cjs` sofort eine minimalistische Ladeansicht mit dem Repo-Favicon und einem feinen Ladebalken auf `#0d1017`, bis die App bereit ist.
+
+### 39.2 Umsetzung & Verifikation (`W124–W129`)
+
+- **`W124` (`src/components/DesktopTitleBar.tsx`)**:
+  - Kein Icon, kein Text und kein mittleres Display mehr in der Titelleiste; Hintergrund `var(--panel-solid)` mit einer hauchdünnen `1px solid var(--border)`-Unterkante (minimal vom Rest abhebend wie bei macOS) und dezenten Fensterbuttons rechts.
+- **`W125` (`src/components/Canvas.tsx`)**:
+  - `onDoubleClick` unterscheidet strikt zwischen `bodyHit = hitTestInstance(...)` und `valueLabelHit = findInstanceByValueLabel(...)`: Nur ein Doppelklick gezielt auf den Wert unter dem Widerstand öffnet das Inline-Wertefeld; ein Doppelklick auf den Widerstandskörper selbst öffnet den Inspector.
+- **`W126` (`src/components/DesktopTitleBar.tsx`, `desktop/main.cjs`, `desktop/preload.cjs`)**:
+  - Kindfenster (`?desktopWindow=library` / `?desktopWindow=instrument`) lösen beim ersten SSR-Hydrations-Tick niemals `closeChildWindow("library")` aus (`wasLibraryOpenRef` + strikte URL-/Sender-Prüfung `event.sender.id === mainWindow.webContents.id`) und werden erst nach `multispice:child-ready` sichtbar geschaltet.
+- **`W127` (`src/components/LibraryPalette.tsx`)**:
+  - Anfasser-Icon (`Grip`) oben links und der Listen-/Grid-Umschalter oben rechts entfernt.
+- **`W128` (`src/components/Instruments.tsx`)**:
+  - Dock-Button (`PanelBottom`) und untere Dock-Leiste komplett entfernt.
+- **`W129` (`desktop/main.cjs`, `desktop/package.json`, `.github/workflows/windows-app.yml`)**:
+  - `public/favicon.png` (`512×512`) als Windows-`.exe`- und Fenster-Icon eingebunden, `"compression": "store"` für verzögerungsfreien Start der Portable-Version aktiviert und sofortiges minimalistisches Splash-Fenster (`createSplashWindow`) mit Repo-Favicon und feiner Ladeanimation beim Programmstart ergänzt.
 

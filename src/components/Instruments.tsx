@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, BarChart3, Binary, Gauge, LineChart, Minus, PanelBottom, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap,
+  Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { createPortal } from "react-dom";
@@ -11,7 +11,6 @@ import { spectrum } from "@/lib/sim/fft";
 import { estimateFrequency, mean, peakToPeak, rms } from "@/lib/sim/realtime";
 import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, engine, useEditor } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
-import { useIsMobile } from "@/lib/hooks/useMediaQuery";
 import { PanelProbe, WindowFitContext, type NaturalMeasure } from "./DeviceFit";
 import {
   BENCH_PAD,
@@ -26,11 +25,6 @@ import {
 } from "@/lib/windows/geometry";
 
 const CH_COLORS = ["var(--ch1)", "var(--ch2)", "var(--ch3)", "var(--ch4)"];
-
-/** Runde 19 (W33): Höhe der Statusleiste – die Dock-Zeile der Gerätefenster
- *  sitzt direkt darüber (mobil ist die Leiste etwas höher). */
-const STATUS_BAR_H = 26;
-const STATUS_BAR_H_MOBILE = 32;
 
 /* W24: SkeuoTek-Oszi (1:1-Port aus oszi/) – eigenes Chunk, kein SSR */
 const OsziScopeLazy = dynamic(() => import("./OsziScope"), { ssr: false });
@@ -1126,7 +1120,7 @@ function Window({ win }: { win: InstrumentWindow }) {
   // Updates während des Ziehens dürfen die DOM-Schreibvorgänge nicht zurücksetzen.
   useLayoutEffect(() => {
     const el = winRef.current;
-    if (!el || win.docked) return;
+    if (!el) return;
     const s = liveSize.current;
     if (s) {
       el.style.width = s.w + "px";
@@ -1222,17 +1216,9 @@ function Window({ win }: { win: InstrumentWindow }) {
     };
   }, [updateInstrument, win.id]);
 
-  /** W34: Zug starten – aus dem Titel, aus dem leeren Hintergrund oder aus dem Dock. */
+  /** W34: Zug starten – aus dem Titel oder aus dem leeren Hintergrund. */
   const beginDrag = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (win.docked) {
-      // Ein Zug an der Titelzeile löst das Fenster und zieht es gleich weiter.
-      const r = winRef.current?.getBoundingClientRect();
-      if (!r) return;
-      activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: r.left, wy: r.top };
-      updateInstrument(win.id, { docked: false, x: r.left, y: r.top });
-      return;
-    }
     activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: win.x, wy: win.y };
   };
 
@@ -1303,46 +1289,28 @@ function Window({ win }: { win: InstrumentWindow }) {
     <WindowFitContext.Provider value={reportNatural}>
       <div
         ref={winRef}
-        className={
-          win.docked
-            ? "win-in pointer-events-auto relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl"
-            : "win-in pointer-events-auto absolute left-0 top-0 flex flex-col overflow-hidden rounded-xl will-change-transform"
-        }
-        style={
-          win.docked
-            ? { background: "var(--panel-solid)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow)", height: win.minimized ? TITLE_H : undefined, flex: win.minimized ? "0 0 auto" : undefined, minWidth: win.minimized ? 160 : 300 }
-            : {
-                // W42: Position läuft über transform – der Wechsel „ziehen → loslassen"
-                // schreibt nie einen anderen Wert, also blitzt nichts auf.
-                transform: `translate3d(${win.x}px, ${win.y}px, 0)`,
-                width: win.w,
-                height: win.minimized ? TITLE_H : win.h,
-                zIndex: win.z,
-                background: "var(--panel-solid)",
-                border: "1px solid var(--border-strong)",
-                boxShadow: "var(--shadow)",
-              }
-        }
+        className="win-in pointer-events-auto absolute left-0 top-0 flex flex-col overflow-hidden rounded-xl will-change-transform"
+        style={{
+          transform: `translate3d(${win.x}px, ${win.y}px, 0)`,
+          width: win.w,
+          height: win.minimized ? TITLE_H : win.h,
+          zIndex: win.z,
+          background: "var(--panel-solid)",
+          border: "1px solid var(--border-strong)",
+          boxShadow: "var(--shadow)",
+        }}
         onPointerDown={() => focusInstrument(win.id)}
       >
         <div
-          className={`flex h-9 shrink-0 select-none items-center gap-2 px-3 ${win.docked ? "" : "cursor-grab"}`}
+          className="flex h-9 shrink-0 cursor-grab select-none items-center gap-2 px-3"
           style={{ borderBottom: "1px solid var(--border)", touchAction: "none" }}
-          title={win.docked ? "Im Dock – Ziehen löst das Fenster, der Dock-Knopf unten rechts hält es hier" : "Ziehen (auch am Fensterhintergrund) bewegt das Fenster – es bleibt immer greifbar"}
+          title="Ziehen (auch am Fensterhintergrund) bewegt das Fenster"
           onPointerDown={(e) => beginDrag(e)}
         >
           <span className="grid h-5 w-5 place-items-center rounded-md" style={{ background: "color-mix(in srgb, var(--accent) 22%, transparent)" }}>
             {iconFor(win.kind)}
           </span>
           <span className="flex-1 truncate text-[12px] font-medium">{win.title}</span>
-          <button
-            className="btn px-1 py-0.5"
-            title={win.docked ? "Aus dem Dock lösen – wird wieder freies Fenster" : "Ins Dock unten einrasten – Geräte teilen sich den unteren Rand"}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => updateInstrument(win.id, { docked: !win.docked })}
-          >
-            <PanelBottom size={13} />
-          </button>
           <button
             className="btn px-1 py-0.5"
             title="Minimieren"
@@ -1384,7 +1352,6 @@ function Window({ win }: { win: InstrumentWindow }) {
         )}
         {/* W43: vier Eck-Griffe – Geräte halten ihre Proportionen, Panels sind frei. */}
         {!win.minimized &&
-          !win.docked &&
           CORNERS.map((c) => {
             const top = c === "nw" || c === "ne";
             const size = top ? GRIP_TOP : GRIP_BOTTOM;
@@ -1547,10 +1514,7 @@ export function DeviceBar() {
  *  und werden nicht mehr am Canvas abgeschnitten. Menü-Dropdowns, Dialoge und
  *  Toasts (z-50/z-100) bleiben darüber. */
 export function InstrumentLayer() {
-  const isMobile = useIsMobile();
   const instruments = useEditor((s) => s.instruments);
-  const floating = instruments.filter((w) => !w.docked);
-  const docked = instruments.filter((w) => w.docked);
 
   // Runde 19 (W36): Escape legt eine aufgenommene Messleitung zurück – an einer
   // Stelle für alle Geräte (Oszi-Tastkopf wie FG-Kabel).
@@ -1574,28 +1538,10 @@ export function InstrumentLayer() {
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-40 flex flex-col">
       <div className="relative min-h-0 flex-1">
-        {floating.map((w) => (
+        {instruments.map((w) => (
           <Window key={w.id} win={w} />
         ))}
       </div>
-      {docked.length > 0 && (
-        <div
-          className="pointer-events-auto absolute inset-x-0 flex items-stretch gap-1 overflow-x-auto p-1"
-          style={{
-            bottom: isMobile ? STATUS_BAR_H_MOBILE : STATUS_BAR_H,
-            height: "min(38vh, 360px)",
-            minHeight: 140,
-            background: "color-mix(in srgb, var(--bg) 82%, transparent)",
-            borderTop: "1px solid var(--border-strong)",
-            backdropFilter: "blur(10px)",
-          }}
-          title="Geräte-Dock – Fenster teilen sich den unteren Rand; Ziehen an der Titelzeile löst sie wieder"
-        >
-          {docked.map((w) => (
-            <Window key={w.id} win={w} />
-          ))}
-        </div>
-      )}
     </div>,
     document.body,
   );
