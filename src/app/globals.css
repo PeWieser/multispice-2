@@ -254,78 +254,74 @@ body {
 }
 
 /* ---------- Buttons (§1: Jeder Button muss sich gegen die Frage behaupten) ---------- */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 7px;
-  padding: 5px 10px;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--ink-2);
-  border: 1px solid transparent;
-  transition: background var(--dur-fast) var(--ease),
-              color var(--dur-fast) var(--ease),
-              border-color var(--dur-fast) var(--ease),
-              transform 60ms var(--ease);
-  white-space: nowrap;
-  user-select: none;
-}
-.btn:hover {
-  background: color-mix(in srgb, var(--ink) 7%, transparent);
-  color: var(--ink);
-}
-.btn:active { transform: scale(0.98); }
-.btn[data-active="true"] {
-  background: var(--accent-soft);
-  color: var(--ink);
-  border-color: var(--accent-mid);
-}
-/* §1: disabled-Schalter ohne Grund → entfernt */
-.btn:disabled {
-  opacity: 0.30;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-.btn-primary {
-  background: var(--accent);
-  color: white;
-  border-color: color-mix(in srgb, var(--accent) 60%, black);
-}
-.btn-primary:hover { filter: brightness(1.08); color: white; }
-.btn-primary:active { transform: scale(0.97); }
-.btn-danger { color: var(--err); }
+@layer components {
+  /* Druck-Feedback + Fokusring für alle Primitive (ui/) */
+  .pressable {
+    transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out);
+  }
+  .pressable:active { transform: scale(0.96); }
+  .ring-focus:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* ---------- Inputs (§3: Jeder Klick bekommt eine Antwort) ---------- */
-.input {
-  width: 100%;
-  background: color-mix(in srgb, var(--ink) 5%, transparent);
-  border: 1px solid var(--hairline);
-  color: var(--ink);
-  border-radius: 6px;
-  padding: 5px 8px;
-  font-size: 12.5px;
-  transition: border-color var(--dur) var(--ease),
-              box-shadow var(--dur) var(--ease),
-              background var(--dur) var(--ease);
-}
-.input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-.input::placeholder { color: var(--ink-3); }
+  /* Frostige Werkzeug-Kapsel (Ref: Buttons and UX / studio tools) */
+  .capsule {
+    background: var(--chrome);
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    box-shadow: var(--shadow-1), var(--inset-top);
+  }
 
-select.input {
-  appearance: none;
-  padding-right: 24px;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
-    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
-  background-position: calc(100% - 14px) 12px, calc(100% - 9px) 12px;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
+  /* Legacy-Klasse .btn — gleiche Sprache wie <Button variant="ghost" size="sm"> */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 28px;
+    border-radius: var(--radius-control);
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+    white-space: nowrap;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .btn:hover { background: var(--surface-3); color: var(--ink); }
+  .btn:active { transform: scale(0.96); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn[data-active="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 0.5px var(--accent-mid);
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-1); }
+  .btn-primary:hover { background: var(--accent); color: var(--accent-ink); filter: brightness(1.1); }
+  .btn-danger { color: var(--err); }
+
+  .input {
+    width: 100%;
+    height: 30px;
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    color: var(--ink);
+    border-radius: var(--radius-field);
+    padding: 0 10px;
+    font-size: 13px;
+    transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+  }
+  .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .input::placeholder { color: var(--ink-3); }
+  select.input {
+    appearance: none;
+    padding-right: 26px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+      linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 12px, calc(100% - 9px) 12px;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
 }
 
 /* ---------- Slider (§3: Direkte Manipulation) ---------- */

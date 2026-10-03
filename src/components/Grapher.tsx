@@ -5,7 +5,7 @@ import { Download, ImageDown } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { ANALYSIS_MAP } from "@/lib/sim/analysis_defs";
 import { useEditor } from "@/state/editor";
-import { downloadBlob, downloadText, safeName } from "./ui";
+import { downloadBlob, downloadText, safeName } from "@/lib/download";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 const cssVar = (n: string, f: string) => {

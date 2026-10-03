@@ -7,7 +7,8 @@ import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
 import { toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, useEditor } from "@/state/editor";
 import { exportSvg, exportPng, exportPdf, printSchematicSheet } from "@/lib/export/sheet";
-import { Menu, MenuItem, MenuSeparator, downloadText, safeName, Tooltip } from "./ui";
+import { Menu, MenuItem, MenuSeparator, Tooltip } from "./ui";
+import { downloadText, safeName } from "@/lib/download";
 import { openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 
 const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete"] as const;

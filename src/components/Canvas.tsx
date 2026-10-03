@@ -30,6 +30,7 @@ import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
+import ShortcutSheet from "./ShortcutSheet";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
@@ -3028,51 +3029,7 @@ export default function Canvas() {
           }}
         />
       )}
-      {showHelp && (
-        <div className="absolute inset-0 z-40 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={()=>setShowHelp(false)}>
-          <div className="rounded-2xl p-5 w-full max-w-[560px] max-h-[80vh] overflow-auto" style={{ background: "var(--surface)", border: "1px solid var(--hairline-strong)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-[14px] font-semibold">Tastenkürzel</div>
-              <button className="btn h-7 w-7 p-0" onClick={()=>setShowHelp(false)}>✕</button>
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-[11px]">
-              <div>
-                <div className="text-[10px] uppercase text-mute mb-1">Canvas</div>
-                <div className="space-y-1">
-                  <div className="flex justify-between"><span>W Wire</span><kbd className="kbd">W</kbd></div>
-                  <div className="flex justify-between"><span>Bauteil drehen</span><kbd className="kbd">R</kbd> / <kbd className="kbd">{adaptShortcut("⇧R", apple)}</kbd> / <kbd className="kbd">{adaptShortcut("⌘R", apple)}</kbd></div>
-                  <div className="flex justify-between"><span>Spiegeln</span><kbd className="kbd">M</kbd></div>
-                  <div className="flex justify-between"><span>Grid / Snap</span><kbd className="kbd">G</kbd> / <kbd className="kbd">{adaptShortcut("⇧G", apple)}</kbd></div>
-                  <div className="flex justify-between"><span>Zoom / Pan</span><kbd className="kbd">Rad</kbd> / <kbd className="kbd">{adaptShortcut("⇧Rad", apple)}</kbd></div>
-                  <div className="flex justify-between"><span>Touch</span><span className="text-mute">2 Finger = Zoom + Pan, lang halten = Menü</span></div>
-                  <div className="flex justify-between"><span>Löschen</span><kbd className="kbd">Entf</kbd></div>
-                  <div className="flex justify-between"><span>Duplizieren</span><kbd className="kbd">{adaptShortcut("⌘D", apple)}</kbd></div>
-                  <div className="flex justify-between"><span>Alles wählen</span><kbd className="kbd">{adaptShortcut("⌘A", apple)}</kbd></div>
-                  <div className="flex justify-between"><span>Rückgängig/Wiederholen</span><kbd className="kbd">{adaptShortcut("⌘Z", apple)}</kbd> / <kbd className="kbd">{adaptShortcut("⇧⌘Z", apple)}</kbd></div>
-                  <div className="flex justify-between"><span>Fit View</span><kbd className="kbd">F</kbd></div>
-                  <div className="flex justify-between"><span>Simulation Start/Pause</span><kbd className="kbd">Leertaste</kbd></div>
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase text-mute mb-1">Probes & Library</div>
-                <div className="space-y-1">
-                  <div className="flex justify-between"><span>Bibliothek</span><kbd className="kbd">{adaptShortcut("⌘K", apple)}</kbd></div>
-                  <div className="flex justify-between"><span>V-Probe</span><kbd className="kbd">V</kbd> + Klick</div>
-                  <div className="flex justify-between"><span>A-Probe (Strom)</span><kbd className="kbd">A</kbd> + Klick</div>
-                  <div className="flex justify-between"><span>Label setzen</span><kbd className="kbd">L</kbd></div>
-                  <div className="flex justify-between"><span>Notiz</span><kbd className="kbd">T</kbd></div>
-                  <div className="flex justify-between"><span>Pan Tool</span><kbd className="kbd">H</kbd></div>
-                  <div className="flex justify-between"><span>Wire Anfasser</span><span className="text-mute">Hover + Ziehen, Doppelklick löschen</span></div>
-                  <div className="flex justify-between"><span>Net hervorheben</span><span className="text-mute">Hover Leitung</span></div>
-                  <div className="flex justify-between"><span>Kontextmenü</span><span className="text-mute">Rechtsklick</span></div>
-                  <div className="flex justify-between"><span>Hilfe</span><kbd className="kbd">?</kbd></div>
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 text-[10px] text-mute">Tipp: Halte <kbd className="kbd">Alt</kbd> im Live-Modus für Spannungs-Tooltip, ziehe Oszilloskop-Fenster mit rAF für 60fps, Library drag ist will-change transform.</div>
-          </div>
-        </div>
-      )}
+      {showHelp && <ShortcutSheet onClose={() => setShowHelp(false)} />}
       {armedPin && leadArmed && (
         <div
           className="pointer-events-none absolute z-10 animate-pulse"

@@ -1,3 +1,5 @@
+import { ModalShell } from "../ui";
+
 interface Props { onClose: () => void }
 
 /* W30: Kurzanleitung 1:1 aus oszi v2 – nur die Abschnitte zur Signalquelle
@@ -12,8 +14,8 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 
 export default function HelpOverlay({ onClose }: Props) {
   return (
-    <div className="otx-scope fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-[880px] overflow-auto rounded-2xl bg-gradient-to-b from-[#f7f7f5] to-[#e6e6e2] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <ModalShell label="OTX2074 – Kurzanleitung" onClose={onClose} maxWidth={880} className="otx-scope max-h-[90vh]">
+      <div className="overflow-auto bg-gradient-to-b from-[#f7f7f5] to-[#e6e6e2] p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-[22px] font-black italic text-[#1e3f8f]">OTX2074 – Kurzanleitung</h2>
           <button className="sk-btn" style={{ width: 80, height: 30 }} onClick={onClose}>Schließen</button>
@@ -71,6 +73,6 @@ export default function HelpOverlay({ onClose }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }

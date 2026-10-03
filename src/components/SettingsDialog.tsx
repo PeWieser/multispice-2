@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Activity, Crosshair, Grid3X3, Settings, SlidersHorizontal, X } from "lucide-react";
+import { useState } from "react";
+import { Activity, Crosshair, Grid3X3, SlidersHorizontal } from "lucide-react";
+import { DialogHeader, ModalShell } from "./ui";
 import { ThemePref, useEditor } from "@/state/editor";
 import {
   loadHoverConfig,
@@ -162,15 +163,6 @@ export default function SettingsDialog({
   const showRated = useEditor((s) => s.showRated);
   const st = useEditor.getState;
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
   if (!open) return null;
 
   const updateHover = (patch: Partial<ProbeHoverConfig>) => {
@@ -207,44 +199,8 @@ export default function SettingsDialog({
     symbolStyle === "auto" ? detectLocaleSymbol() : symbolStyle;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3 backdrop-blur-[2px]"
-      onMouseDown={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Einstellungen"
-        className="flex h-[460px] max-h-[88vh] w-[660px] max-w-[96vw] flex-col overflow-hidden rounded-xl shadow-2xl"
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--hairline-strong)",
-          boxShadow: "var(--shadow-3)",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {/* W111: Einheitliche obere Fensterleiste wie alle anderen App-Fenster */}
-        <div
-          className="flex h-9 shrink-0 items-center justify-between gap-2 px-3"
-          style={{
-            borderBottom: "1px solid var(--hairline)",
-          }}
-        >
-          <span className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--ink)]">
-            <Settings size={13} className="text-mute" />
-            <span>Einstellungen</span>
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Schließen (Esc)"
-            aria-label="Schließen"
-            className="btn h-6 px-1 py-0.5"
-          >
-            <X size={13} />
-          </button>
-        </div>
-
+    <ModalShell label="Einstellungen" onClose={onClose} maxWidth={680} className="h-[480px] max-h-[88vh]">
+      <DialogHeader title="Einstellungen" onClose={onClose} />
         {/* macOS Split View: Sidebar + Content */}
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
           {/* Sidebar */}
@@ -496,8 +452,7 @@ export default function SettingsDialog({
             )}
           </main>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
 
