@@ -17,5 +17,8 @@ export default defineConfig([
     "reference 2/**",
     "oszi v2/**",
     "function generator/**",
+    "Multimeter/**",
+    "UI and UX ref/**",
+    "desktop/**",
   ]),
 ]);
