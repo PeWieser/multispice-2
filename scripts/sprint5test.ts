@@ -6,6 +6,7 @@ import { strict as assert } from "node:assert";
 import { formatValue, parseValue } from "../src/lib/format";
 import { formatValue as catFormat, parseValue as catParse } from "../src/lib/library/catalog";
 import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "../src/lib/keyboard";
+import { analysisLabel, completionNote, simLiveText, summarizeCircuit } from "../src/lib/a11y";
 
 let n = 0;
 const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
@@ -63,6 +64,51 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
   // Pfeil-Faktor beim Platzieren
   assert.equal(PLACE_ARROW_SHIFT_FACTOR, 5);
   ok("S5.3 Esc-Kette");
+}
+
+// ---------- S5.4: Screenreader-Texte ----------
+{
+  assert.equal(analysisLabel("ac"), "AC-Analyse");
+  assert.equal(analysisLabel("tran"), "Transientenanalyse");
+  assert.equal(analysisLabel("xyz"), "xyz");
+  assert.equal(analysisLabel(""), "Analyse");
+  ok("S5.4 Analyse-Labels");
+  // Zusammenfassungs-Snapshots
+  const I = (partId: string) => ({ partId });
+  const N = (name: string) => ({ name });
+  assert.equal(
+    summarizeCircuit([I("resistor"), I("resistor"), I("resistor"), I("opamp_lm741")], [N("0"), N("OUT")], [], []),
+    "3× Widerstand, 1× LM741, 2 Netze, ERC still",
+  );
+  assert.equal(summarizeCircuit([], [], [], []), "keine Bauteile, 0 Netze, ERC still");
+  assert.equal(
+    summarizeCircuit([I("resistor")], [N("0")], ["Kurzschluss"], ["offenes Ende", "Pin frei"]),
+    "1× Widerstand, 1 Netz, ERC: 1 Fehler, 2 Warnungen",
+  );
+  assert.equal(
+    summarizeCircuit([I("nope")], [N("0")], [], ["w"]),
+    "1× nope, 1 Netz, ERC: 1 Warnung",
+  );
+  ok("S5.4 Zusammenfassung");
+  // Sim-Live-Region
+  const base = { running: false, liveOk: true, analysisKind: "", analysisRunning: false };
+  assert.equal(simLiveText(base), "Simulation bereit");
+  assert.equal(simLiveText({ ...base, running: true }), "Simulation läuft");
+  assert.equal(simLiveText({ ...base, liveOk: false, liveMessage: "singulär" }), "Simulationsfehler: singulär");
+  assert.equal(simLiveText({ ...base, liveOk: false }), "Simulationsfehler: keine Konvergenz");
+  assert.equal(
+    simLiveText({ ...base, running: true, analysisKind: "ac", analysisRunning: true }),
+    "Analyse AC-Analyse läuft …",
+  );
+  assert.equal(
+    simLiveText({ ...base, analysisKind: "tran", analysisError: "boom" }),
+    "Analyse Transientenanalyse fehlgeschlagen: boom",
+  );
+  assert.equal(completionNote(true, false, undefined, "ac"), "Analyse AC-Analyse abgeschlossen");
+  assert.equal(completionNote(true, false, "x", "ac"), null);
+  assert.equal(completionNote(false, false, undefined, "ac"), null);
+  assert.equal(completionNote(true, true, undefined, "ac"), null);
+  ok("S5.4 Sim-Texte");
 }
 
 console.log(`sprint5test: ${n} checks OK`);

@@ -19,6 +19,7 @@ import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
 import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "@/lib/keyboard";
+import { summarizeCircuit } from "@/lib/a11y";
 import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
 import { findInstanceByValueLabel, findPinInfo, getNetObstacles, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
 import { drawInstance, drawProbe } from "./Canvas/render";
@@ -2660,6 +2661,7 @@ export default function Canvas() {
   const selection = useEditor((s) => s.selection);
   const netDrawing = useHud((s) => s.netDrawing);
   const selDoc = useEditor((s) => s.doc);
+  const selNetResult = useEditor((s) => s.netResult);
   const selId0 = selection[0];
   const selInst0 = selection.length === 1 ? selDoc.instances.find((i) => i.id === selId0) : undefined;
   const selProbe0 = selection.length === 1 ? selDoc.probes.find((p) => p.id === selId0) : undefined;
@@ -2713,7 +2715,7 @@ export default function Canvas() {
         id="schematic-canvas"
         ref={canvasRef}
         className="block h-full w-full touch-none"
-        aria-label="Schaltplan Zeichenfläche"
+        aria-label={`Schaltplan: ${summarizeCircuit(selDoc.instances, selNetResult.nets, selNetResult.errors, selNetResult.warnings)}`}
         tabIndex={0}
         style={{ cursor: tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default", background: "var(--canvas)" }}
         onWheel={onWheel}

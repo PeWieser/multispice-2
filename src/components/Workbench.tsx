@@ -12,6 +12,7 @@ import DrawingTools from "./DrawingTools";
 import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
 import FirstRunSpotlight from "./FirstRunSpotlight";
+import ScreenReaderStatus from "./ScreenReaderStatus";
 import { engine, useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { Menu, X, Library, Settings, SlidersHorizontal, Play, Pause, Undo2, Redo2 } from "lucide-react";
@@ -363,6 +364,7 @@ export default function Workbench() {
   if (isMobile) {
     return (
       <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-app">
+        <ScreenReaderStatus />
         <MobileTopBar onMenu={() => setMobileMenuOpen(true)} onSettings={() => setSettingsOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -468,6 +470,7 @@ export default function Workbench() {
       >
         Zum Schaltplan springen
       </a>
+      <ScreenReaderStatus />
       {isDesktopRuntime && <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} />}
       <header className="contents">
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
