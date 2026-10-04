@@ -7,6 +7,15 @@ import { formatValue, parseValue } from "../src/lib/format";
 import { formatValue as catFormat, parseValue as catParse } from "../src/lib/library/catalog";
 import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "../src/lib/keyboard";
 import { analysisLabel, completionNote, simLiveText, summarizeCircuit } from "../src/lib/a11y";
+import {
+  SHARE_URL_LIMIT,
+  b64urlToBytes,
+  buildShareUrl,
+  bytesToB64url,
+  decodeSharePayload,
+  encodeSharePayload,
+  parseShareHash,
+} from "../src/lib/share";
 
 let n = 0;
 const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
@@ -109,6 +118,39 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
   assert.equal(completionNote(false, false, undefined, "ac"), null);
   assert.equal(completionNote(true, true, undefined, "ac"), null);
   ok("S5.4 Sim-Texte");
+}
+
+// ---------- S5.5: Link-Teilen ----------
+{
+  // base64url-Roundtrip (alle Restlängen 0..2)
+  for (const len of [0, 1, 2, 3, 4, 5, 100, 1000]) {
+    const bytes = Uint8Array.from({ length: len }, (_, i) => (i * 37 + 11) % 256);
+    assert.deepEqual(b64urlToBytes(bytesToB64url(bytes)), bytes);
+  }
+  assert.match(bytesToB64url(Uint8Array.from([255, 254, 253])), /^[A-Za-z0-9\-_]+$/);
+  assert.throws(() => b64urlToBytes("!"), /beschädigt/);
+  assert.throws(() => b64urlToBytes("abcde"), /Länge/);
+  ok("S5.5 base64url");
+  // Codec-Roundtrip inkl. Umlaute/Ω/µ
+  const docs = [
+    '{"format":"multispice-project","doc":{"name":"Grüße Ωµ","instances":[]}}',
+    JSON.stringify({ big: "x".repeat(50000) }),
+  ];
+  for (const d of docs) assert.equal(decodeSharePayload(encodeSharePayload(d)), d);
+  // Kompression greift (wiederholtes Muster schrumpft massiv)
+  assert.ok(encodeSharePayload(docs[1]).length < docs[1].length / 10);
+  assert.throws(() => decodeSharePayload("!!!"), /beschädigt/);
+  assert.throws(() => decodeSharePayload(bytesToB64url(Uint8Array.from([1, 2, 3]))), /.+/);
+  ok("S5.5 Codec-Roundtrip");
+  // Hash-Format + Limit
+  assert.equal(parseShareHash("#s=abc"), "abc");
+  assert.equal(parseShareHash("s=abc"), "abc");
+  assert.equal(parseShareHash("#x=abc"), null);
+  assert.equal(parseShareHash("#s="), null);
+  assert.equal(parseShareHash(""), null);
+  assert.equal(buildShareUrl("https://x.test/app", "abc"), "https://x.test/app#s=abc");
+  assert.equal(SHARE_URL_LIMIT, 100_000);
+  ok("S5.5 Hash + Limit");
 }
 
 console.log(`sprint5test: ${n} checks OK`);

@@ -31,7 +31,8 @@ const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar)
 const StandaloneInstrumentView = dynamic(() => import("./Instruments").then((m) => m.StandaloneInstrumentView), { ssr: false });
 import { loadCustomParts } from "@/lib/library/customParts";
 import { docToSvg, printSchematicSheet } from "@/lib/export/sheet";
-import { openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
+import { loadTextContentInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
+import { decodeSharePayload, parseShareHash } from "@/lib/share";
 import DesktopTitleBar, { isDesktopApp, useDesktopMultiWindowSync } from "./DesktopTitleBar";
 import type { InstrumentKind } from "@/state/editor";
 
@@ -287,7 +288,18 @@ export default function Workbench() {
 
   useEffect(() => {
     loadCustomParts();
-    useEditor.getState().restoreLocalProject();
+    // S5.5: Share-Link im Hash gewinnt gegen das lokale Auto-Save.
+    const payload = typeof window !== "undefined" ? parseShareHash(window.location.hash) : null;
+    if (payload) {
+      try {
+        loadTextContentInEditor(decodeSharePayload(payload), "link.msx.json");
+      } catch (e) {
+        useEditor.getState().log("error", `Share-Link ungültig: ${(e as Error).message}`);
+        useEditor.getState().restoreLocalProject();
+      }
+    } else {
+      useEditor.getState().restoreLocalProject();
+    }
   }, []);
 
   useEffect(() => {

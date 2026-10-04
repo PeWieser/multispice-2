@@ -10,6 +10,7 @@
     "test": "tsx scripts/importtest.ts && tsx scripts/simtest.ts && tsx scripts/sprint1test.ts && tsx scripts/sprint2test.ts && tsx src/lib/tests/circuit_scenarios_full.ts && tsx scripts/check-pin-congruence.ts && tsx scripts/windowtest.ts && tsx scripts/wiretest.ts && tsx scripts/ozsitest.ts && tsx scripts/presettest.ts && tsx scripts/sprint3test.ts && tsx scripts/sprint4test.ts && tsx scripts/sprint5test.ts"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "lucide-react": "^1.48.0",
     "next": "16.2.6",
     "react": "19.2.6",

@@ -9,7 +9,9 @@ import { InstrumentKind, useEditor } from "@/state/editor";
 import { exportSvg, exportPng, exportPdf, printSchematicSheet } from "@/lib/export/sheet";
 import { Menu, MenuItem, MenuSeparator, Tooltip } from "./ui";
 import PresetGallery from "./PresetGallery";
-import { downloadText, safeName } from "@/lib/download";
+import { copyTextToClipboard, downloadText, safeName } from "@/lib/download";
+import { buildProjectEnvelopeJson } from "@/lib/storage";
+import { SHARE_HASH_KEY, SHARE_URL_LIMIT, buildShareUrl, encodeSharePayload } from "@/lib/share";
 import { openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 
 const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete"] as const;
@@ -97,6 +99,30 @@ export default function MenuBar({
     void st().saveProject(undefined, { saveAs: true });
   };
 
+  // S5.5: Link-Teilen — komprimierte Schaltung in die Zwischenablage;
+  // über ~100 kB ehrlich Datei statt Link.
+  const shareLink = () => {
+    const json = buildProjectEnvelopeJson(st().doc, st().instruments);
+    const payload = encodeSharePayload(json);
+    if (payload.length > SHARE_URL_LIMIT) {
+      downloadText(`${base}.msx.json`, json, "application/json");
+      st().setToast({ message: `Zu groß für einen Link (${Math.round(payload.length / 1024)} kB) – Datei gespeichert.` });
+      st().log("warn", `Link-Teilen: ${payload.length} Zeichen > Limit ${SHARE_URL_LIMIT} – Datei exportiert.`);
+      return;
+    }
+    const url = buildShareUrl(window.location.origin + window.location.pathname, payload);
+    void copyTextToClipboard(url).then((ok) => {
+      if (ok) {
+        st().setToast({ message: "Link in Zwischenablage kopiert." });
+        st().log("ok", `Link geteilt (${payload.length} Zeichen im Hash).`);
+      } else {
+        // Fallback: Hash setzen, damit der Link aus der Adressleiste kopierbar ist.
+        window.location.hash = `${SHARE_HASH_KEY}=${payload}`;
+        st().setToast({ message: "Kopieren fehlgeschlagen – Link steht in der Adressleiste." });
+      }
+    });
+  };
+
   const importFile = (file: File) => {
     void openFileInEditor(file);
   };
@@ -122,6 +148,7 @@ export default function MenuBar({
           <button className="btn w-full justify-start" onClick={exportSpice}>Export SPICE (.cir)</button>
           <button className="btn w-full justify-start" onClick={exportJson}>Export JSON</button>
           <button className="btn w-full justify-start" onClick={printSheet}>Drucken / PDF …</button>
+          <button className="btn w-full justify-start" onClick={shareLink}>Link teilen …</button>
         </div>
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Bearbeiten</div>
@@ -226,6 +253,8 @@ export default function MenuBar({
         </MenuItem>
         <MenuSeparator />
         <MenuItem hint="⌘P" onClick={printSheet}>Drucken …</MenuItem>
+        <MenuSeparator />
+        <MenuItem onClick={shareLink}>Link teilen …</MenuItem>
       </Menu>
 
       {/* W108: Aufgeräumtes Bearbeiten-Menü ohne die 8 Ausrichtungs-Einzelzeilen */}
