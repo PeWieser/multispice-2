@@ -1,4 +1,4 @@
-/* Runde 11 (W19) & Runde 39 (W131): Echter Blatt-Export & Vektor-Druck.
+/* Runde 11 (W19) & Runde 39 (W131): Echter Entwurf-Export & Vektor-Druck.
  * SVG wird aus dem Dokument-Modell erzeugt (Symbole = dieselben Primitive wie
  * der Canvas) – Export-Qualität ohne Runtime-Umbau. PNG rastert das SVG,
  * PDF & Drucken nutzen unter Windows den nativen Electron-PDF/Druck-Dienst und
@@ -138,7 +138,7 @@ export async function exportSvg(doc: SchematicDoc): Promise<boolean> {
     const res = await window.multispiceDesktop.saveFile({
       defaultName: name,
       content: svg,
-      title: "Schaltblatt als SVG exportieren",
+      title: "Entwurf als SVG exportieren",
       filters: [{ name: "SVG-Vektorgrafik (*.svg)", extensions: ["svg"] }],
     });
     return Boolean(res.ok);
@@ -169,7 +169,7 @@ export function exportPng(doc: SchematicDoc, scale = 2) {
         defaultName: name,
         content: base64,
         encoding: "base64",
-        title: "Schaltblatt als PNG exportieren",
+        title: "Entwurf als PNG exportieren",
         filters: [{ name: "PNG-Grafik (*.png)", extensions: ["png"] }],
       });
       return;
@@ -187,7 +187,7 @@ export function exportPng(doc: SchematicDoc, scale = 2) {
 }
 
 /**
- * W131: Exportiert das Schaltblatt als PDF oder öffnet den Druckdialog.
+ * W131: Exportiert den Entwurf als PDF oder öffnet den Druckdialog.
  * - Unter Windows (Electron): Erzeugt über `printToPDF` eine echte Vektor-PDF-Datei
  *   mit nativem Speicherdialog.
  * - Im Browser: Nutzt das synchrone Inline-Vektor-Druckblatt (`window.print()`),
@@ -213,8 +213,8 @@ export async function exportPdf(doc: SchematicDoc): Promise<boolean> {
 }
 
 /**
- * W131: Druckt das Schaltblatt.
- * - Unter Windows (Electron): Öffnet den nativen Windows-Druckdialog mit dem Vektor-Blatt.
+ * W131: Druckt den Entwurf.
+ * - Unter Windows (Electron): Öffnet den nativen Windows-Druckdialog mit dem Entwurf als Vektor.
  * - Im Browser: Öffnet `window.print()` mit dem synchron gerenderten Vektor-`PrintSheet`.
  */
 export async function printSchematicSheet(doc: SchematicDoc): Promise<boolean> {

@@ -3,7 +3,7 @@
 # Steve-Jobs-Qualitätsaudit — Runde 3 („Insanely great oder nicht shippen“)
 
 > Datum: 2026-09-25 · Branch `arena/01a0d95e-multispice-2` · Stand: nach Build-Fix (PR #2)
-> Vorgänger: `DESIGN_AUDIT_STEVE_JOBS.md` (Detail-Runde), `FINAL_AUDIT_STEVE_JOBS.md` (Funktionsabgleich Multisim)
+> Vorgänger (archiviert unter `docs/archiv/`): `DESIGN_AUDIT_STEVE_JOBS.md` (Detail-Runde), `FINAL_AUDIT_STEVE_JOBS.md` (Funktionsabgleich Multisim)
 > Für den schnellen Einstieg (Auftrag, Runden 15–18, Regeln, Lagekarte): **[UEBERGABE.md](UEBERGABE.md)**
 > Dieses Audit prüft nicht Features, sondern **jede Oberfläche, mit der ein Mensch das Produkt berührt** —
 > inklusive der Flächen, die niemand sieht („die Rückseite des Schranks“).
@@ -2870,3 +2870,135 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
 
 
 
+## §42 — Sprint 1 („Vertrauen"): Ehrliche Simulation, echte Übertragungsgrößen, aufgeräumte Doku (S1.1–S1.8)
+
+> Datum: 2026-10-03 · Branch `arena/01a1028e-multispice-2` · Auftrag: Deep-Dive-Fazit
+> („100-%-Multisim-Alternative" + „Apple-Qualität") → Sprint 1 aus der Roadmap.
+> Regel: Erst Plan ins Audit, dann Implementierung; Verifikation vor jedem Commit
+> (`tsc`, `eslint`, `npm test`, `next build`).
+
+### 42.1 Befund (Code-geprüft, keine Schätzung)
+
+- **S1.1** `runTransferFunction` gibt `inputResistance: 1000, outputResistance: 10`
+  hartcodiert zurück; nur die Verstärkung (finite Differenz) ist echt.
+- **S1.2** `runSensitivity` ignoriert `mode: "ac"` (immer DC), die UI bietet AC an.
+- **S1.3** `runPoleZero` gibt hartcodierte „Dummy poles/zeros for demo" zurück.
+  Schlimmster Vertrauensbruch im Repo: erfundene Analyseergebnisse.
+- **S1.4** `buildAcMatrix`: `F`/`H`/`J`/`SCR`/`TRIAC`/`VSWITCH` fallen in
+  `default: break` und werden im AC-Kleinsignal **still** ignoriert.
+  (Hintergrund: `operatingPoint()` ruft `updateEvents()` auf — die
+  `st.extra.on`-Zustände von VSWITCH/SCR/TRIAC sind nach dem OP gültig und
+  damit linearisierbar. F/H nutzen im DC-Kern eine Sense-Leitwert-Näherung
+  `gsense = 1e6`, die sich in AC exakt nachbilden lässt.)
+- **S1.5** Der „Network Analyzer" plottet reinen AC-Gain, spricht aber von
+  S11/S21 — ohne Port-Normierung, ohne Z₀.
+- **S1.6** `onpage_connector`/`offpage_connector` existieren nur als
+  `partId`-Zeichenkette in `buildNets` (Mechanismus vollständig), aber als
+  **kein platzierbares Bauteil**; Blätter („Sheets") sind unabhängige
+  Dokumente und werden einzeln simuliert. Off-Page über Blätter ist damit
+  heute unmöglich; die alten Audit-Docs behaupten das Gegenteil.
+- **S1.7** `DESIGN.md` verspricht einen Gerber-Export („RS-274X Platzhalter");
+  im Code existiert kein Gerber. Doku ≠ Wahrheit.
+- **S1.8** ~20 Audit-/Plan-`.md`s an der Repo-Wurzel, teils widersprüchlich
+  („92 %", „Steve würde veröffentlichen"). Niemand weiß, was gilt.
+- Nebenbefund: Der Grapher zeigt `tf`/`sensitivity`/`pz`/`param`/`fourier`/
+  `noisefigure` als rohen JSON-Dump.
+
+### 42.2 Plan (S1.1–S1.8)
+
+- **S1.1 Transferfunktion** (`analyses.ts`): Verstärkung wie bisher (finite
+  Differenz am OP); Rin/Rout zusätzlich per **Testquellen-Methode** am
+  linearisierten OP (unabhängige Quellen nullen, Teststrom einprägen,
+  U/I messen). Ergebnis: `{ gain, inputResistance, outputResistance, ok }`.
+- **S1.2 Sensitivität** (`analyses.ts` + `analysis_defs.ts`): AC-Modus =
+  normierte Sensitivität von |H(f)| an einer wählbaren Frequenz
+  (neues Feld, nur im AC-Modus relevant); DC wie bisher. Modus wird
+  ausgewertet, nicht ignoriert.
+- **S1.3 Pol-/Nullstellen** (`analyses.ts` + Def): Echte Extraktion per
+  **Levy-Anpassung** einer rationalen Funktion an den gemessenen
+  AC-Frequenzgang (Ordnung wählbar, Default 2) + **Durand-Kerner**-
+  Nullstellensuche; dazu die **Anpassungsgüte** (RMS-Fehler in dB), damit
+  die Näherung ehrlich bleibt. Grapher: PN-Karte (SVG) + Liste + Güte.
+- **S1.4 AC-Vervollständigung** (`analyses.ts` + `runner.ts`): JFET wie
+  MOSFET linearisieren (gm/gds aus OP-Spannungen); F/H als gesteuerte
+  Quellen mit `gain·gsense` + Sense-Leitwert (konsistent zum DC-Kern);
+  VSWITCH/SCR/TRIAC mit OP-Schaltzustand als Leitwert; Warnungen für
+  Näherungen (`DIGITAL`/`GATE`/`MCU`/`TIMER555` als 1 nS gegen Masse,
+  Schalter im OP-Zustand) über `report.warnings` in die Konsole.
+- **S1.5 S-Parameter** (`analyses.ts` + `Instruments.tsx`): `runSParams`
+  (Quelle Vs=2 mit Serien-Z₀, Last-Z₀ am Ausgang; S11 aus Zin,
+  S21 = V2) + Geräte-UI mit Z₀-Einstellung, |S11|/|S21| in dB + Phase.
+- **S1.6 Verbinder** (`catalog.ts` + Docs): `onpage_connector` als echtes
+  Bauteil (1 Pin, Namens-Parameter, keine Devices — reine Netzbindung);
+  Off-Page/blattübergreifend = Roadmap Sprint 3 (eigene User-Entscheidung,
+  siehe SPRINTS.md). Tab-Begriff „Schaltblätter" wird nach User-Antwort
+  entweder behalten (echte Blätter, Sprint 3) oder ehrlich umbenannt.
+- **S1.7 DESIGN.md ≡ Code**: Gerber-Anspruch entfernen, Nicht-Ziele
+  (PCB-Layout/Export, Multisim-Binärimport, 3D-Breadboard, Ladder)
+  dokumentieren; jede Sprint-1-Änderung als Befund→Maßnahme eintragen.
+- **S1.8 Doku-Archiv**: Überholte Audit-/Plan-Docs per `git mv` nach
+  `docs/archiv/` (+ Hinweis-README); an der Wurzel bleiben README, DESIGN,
+  MANIFEST, UEBERGABE, SPRINTS, STEVE_JOBS_QUALITY_AUDIT (Protokoll),
+  CLOUDFLARE sowie die Test-/A11y-Referenzen.
+- **Grapher**: eigene Renderer für `tf` (Kennwerte), `sensitivity`
+  (Tabelle) und `pz` (PN-Karte) statt JSON-Dump.
+- **Tests**: `scripts/simtest.ts` erweitern (TF an Spannungsteiler,
+  S-Parameter an Dämpfungsglied, PZ am RC-Tiefpass, AC mit JFET/F/H/
+  VSWITCH/SCR, Sensitivität AC/DC) — alles gegen analytische Werte.
+
+### 42.3 Umsetzung & Verifikation (2026-10-03, Sprint 1 abgeschlossen)
+
+- **S1.1** ✅ `runTransferFunction`: Verstärkung aus AC-Kleinsignal
+  (der Kern liest `source.dc`, kein Perturbations-Hack nötig); Rin per
+  Teststrom bei stromlos geschaltetem Eingang, Rout per Teststrom bei
+  kurzgeschlossenem Eingang — verifiziert am Teiler (2 kΩ / 500 Ω exakt).
+- **S1.2** ✅ `runSensitivity`: AC-Modus = normierte Sensitivität von |H|
+  an wählbarer Testfrequenz (neues Feld `frequency`); ohne AC-Quelle wird
+  `ac=1` an der Eingangsquelle gesetzt und als Warnung offengelegt.
+- **S1.3** ✅ `runPoleZero`: Levy-Fit (Ordnung wählbar, Default 2) +
+  Durand-Kerner; Güte in dB, Überordnung wird beschnitten (Warnung),
+  Wurzeln außerhalb des Sweep-Bands gezählt (`outside`). Verifiziert am
+  RC-Tiefpass (Pol −1000 exakt) und RLC-Bandpass (Paar −5000 ± j31225).
+- **S1.4** ✅ AC-Matrix: JFET (gm/gds), F (Steuerklemmen in Reihe —
+  das Sense-Element ist das interne Amperemeter, keine `gsense`-Näherung
+  nötig; behebt zugleich den Phantom-Branch), H, VSWITCH/SCR/TRIAC
+  (Ron/Roff aus OP). Abweichung vom Plan (§42.2): F/H ohne `gsense`,
+  dafür exakt. Digital-Bausteine → ehrliche Warnung (1-nS-Näherung).
+- **S1.5** ✅ `runSParams` (neu, eigene Analyse-Definition mit Z₀-Feld):
+  Vs=2 mit Serien-Z₀, Last-Z₀; S11 aus Zin, S21 = V2. Network Analyzer
+  konfiguriert Ports/Z₀/Sweep und plottet echte S11/S21 (dB + Phase).
+- **S1.6** ✅ `onpage_connector` als virtuelles Bauteil (keine Devices,
+  reine Netzbindung; gleicher Name = gleiches Netz, pro Tab);
+  Inline-Umbenennung per Doppelklick + Platzhalter im Editor. README/
+  DESIGN ehrlich zu Blättern; Richtungsentscheid → Sprint 3.
+- **S1.7** ✅ DESIGN.md: Gerber-Zeilen gestrichen (Code enthielt null
+  Gerber-Zeilen), Nicht-Ziele dokumentiert, Sprint-1-Tabelle
+  (Befund→Maßnahme) eingetragen.
+- **S1.8** ✅ 13 Docs per `git mv` nach `docs/archiv/` (+ Index-README);
+  Wurzel: README, DESIGN, MANIFEST, UEBERGABE, SPRINTS, Audit-Protokoll,
+  CLOUDFLARE, TEST_MATRIX, CIRCUIT_TEST_MATRIX, ACCESSIBILITY_AUDIT.
+  `TEST_MATRIX_HERZ_UND_NIEREN.md` war ein älteres Duplikat (Inhalt ⊂
+  TEST_MATRIX.md + §16 dort) → archiviert.
+- **Grapher** ✅ Renderer für `tf` (Kennwert-Karten), `sensitivity`
+  (Tabelle), `pz` (PN-Karte + Liste + Güte), `sparams` (Bode + CSV).
+- **Tests** ✅ Abweichung vom Plan: statt `simtest.ts` zu erweitern, neue
+  Suite `scripts/sprint1test.ts` (41 Checks gegen analytische Werte, alle
+  grün); `simtest.ts` + Szenarien-Runner melden Exit-Code 1 bei Fehlern;
+  101 Szenarien (`circuit_scenarios_full.ts`, 101/101 grün verifiziert) in
+  `npm test` aufgenommen — zuvor liefen sie in keiner Kette.
+- **Verifikation**: `tsc --noEmit` ✅ · `eslint src` ✅ ·
+  `npm test` ✅ (alle 9 Ketten grün, 230+ PASS) · `next build` ❌ nur durch
+  Google-Fonts-Fetch (Sandbox offline; pre-existing, `layout.tsx`
+  unberührt von Sprint 1) — kein Code-Fehler.
+- **Offen aus Sprint 1**: visuelle Verifikation im Dev-Server (Sandbox:
+  kein Server verfügbar); Build-Check mit Netz.
+- **Nachtrag 2026-10-04 (Blatt-Entscheid, User)**: Tabs = unabhängige
+  Entwürfe. Umgesetzt: Nutzer-Texte „Schaltblatt/Schaltblätter/Blatt" →
+  „Entwurf/Entwürfe" (StatusBar, MenuBar-Logs, Editor-Logs, Export-Titel,
+  Verbinder-Beschreibung); totes Duplikat `SheetTabs.tsx` gelöscht;
+  toter `offpage_connector`-Ast aus `buildNets` entfernt; CIRCUIT_TEST_MATRIX-
+  Zeile korrigiert. Behalten: interne Bezeichner (`sheets`, `SheetEntry`,
+  `openSheet`, `PrintSheet` — kein Nutzer-Nutzen beim Umbau), Zeichenblatt-
+  Metapher (Blattrand, Titelstempel, „Blatt 1/1" als Einblatt-Konvention),
+  Datenblatt/ShortcutSheet (fachlich korrekt). Historische „Schaltblatt"-
+  Stellen in diesem Protokoll (§§1–41) bleiben als Log unverändert.

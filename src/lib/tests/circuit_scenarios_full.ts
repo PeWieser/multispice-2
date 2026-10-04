@@ -476,4 +476,5 @@ if (typeof require !== "undefined" && require.main === module) {
   for (const [cat, data] of categories) {
     console.log(`  ${cat}: ${data.pass}/${data.total} PASS`);
   }
+  if (failed.length) process.exit(1);
 }

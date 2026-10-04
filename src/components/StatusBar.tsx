@@ -33,7 +33,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
   const [dragSheetId, setDragSheetId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
-  // Geöffnete Schaltblätter (das aktuelle Blatt steht immer in der Liste)
+  // Geöffnete Entwürfe (der aktuelle Entwurf steht immer in der Liste)
   const current = sheets.find((s) => s.id === docId) ?? { id: docId, name: docName, doc: null as never };
   const list = sheets.some((s) => s.id === docId) ? sheets : [current, ...sheets];
   const benannt = (id: string, name: string) => (id === docId ? docName || name : name);
@@ -50,17 +50,17 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
     <footer
       className="flex h-[30px] shrink-0 items-center gap-2 px-2.5 text-2xs text-ink-3 bg-surface border-t border-hairline"
     >
-      {/* Links: Schaltblatt-Reiter (+ legt ein neues Blatt an, Klick wechselt, Ziehen sortiert um, × schließt) */}
+      {/* Links: Entwurf-Reiter (+ legt einen neuen Entwurf an, Klick wechselt, Ziehen sortiert um, × schließt) */}
       <div
         className="flex min-w-0 items-center gap-1 overflow-x-auto no-scrollbar"
         role="tablist"
-        aria-label="Geöffnete Schaltblätter"
+        aria-label="Geöffnete Entwürfe"
       >
         <button
           type="button"
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md border transition-colors bg-surface-2 border-hairline text-ink-2"
-          title="Neues Schaltblatt"
-          aria-label="Neues Schaltblatt"
+          title="Neuer Entwurf"
+          aria-label="Neuer Entwurf"
           onClick={() => newDocument()}
         >
           <Plus size={13} />
@@ -148,12 +148,12 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
               <button
                 type="button"
                 className="grid h-4 w-4 place-items-center rounded opacity-60 hover:opacity-100"
-                title="Blatt schließen"
-                aria-label={`Blatt ${name} schließen`}
+                title="Entwurf schließen"
+                aria-label={`Entwurf ${name} schließen`}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (sheets.length <= 1) {
-                    log("warn", "Das letzte Blatt bleibt offen – lege erst ein neues an (＋)");
+                    log("warn", "Der letzte Entwurf bleibt offen – lege erst einen neuen an (＋)");
                     return;
                   }
                   const idx = sheets.findIndex((s2) => s2.id === s.id);

@@ -25,6 +25,7 @@ export default function InlineEditor({
   inputRef,
   openedAt,
   onCommit,
+  placeholder,
 }: {
   editing: InlineEdit;
   badge: string;
@@ -34,6 +35,7 @@ export default function InlineEditor({
   inputRef: RefObject<HTMLInputElement | null>;
   openedAt: RefObject<number>;
   onCommit: (text: string | null) => void;
+  placeholder?: string;
 }) {
   const width = editing.kind === "text" ? 248 : 196;
   const vw = viewport.w > 0 ? viewport.w : 800;
@@ -63,7 +65,7 @@ export default function InlineEditor({
           aria-label={caption}
           className="mono min-w-0 flex-1 bg-transparent text-sm font-medium text-ink outline-none"
           defaultValue={editing.initial}
-          placeholder={PLACEHOLDER[editing.kind]}
+          placeholder={placeholder ?? PLACEHOLDER[editing.kind]}
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === "Enter") onCommit((e.target as HTMLInputElement).value);

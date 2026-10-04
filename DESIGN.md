@@ -3,6 +3,27 @@
 > Jedes Feature mit: Befund → Maßnahme → Status.
 > Grundlage: Design-Manifest §1–§5.
 > Update 2026-09-24: Settings UI, MenuBar Tooltips, Skeuomorphes Oszilloskop, Accessibility AA, Herz-und-Nieren Testmatrix.
+> Update 2026-10-03 (Sprint 1 – Vertrauen): TF/Sensitivität/PZ/S-Parameter echt, Network Analyzer ehrlich, On-Page-Verbinder als Bauteil, Gerber-Fiktion gestrichen, Nicht-Ziele dokumentiert.
+
+## Neu 2026-10-03 – Sprint 1 (Vertrauen)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Transferfunktion | Rin/Rout waren hartcodierte Dummies (1 kΩ / 50 Ω) | Testquellen-Methode im Kleinsignal-Arbeitspunkt (Eingang stromlos schalten, Ausgang kurzschließen); Hinweis „Kleinsignal im DC-Arbeitspunkt" im Dialog; eigene TF-Karte im Grapher | ✅ Done |
+| Sensitivität AC | AC-Modus ignorierte die Anregung, gab DC-Werte aus | Echte AC-Sensitivität an wählbarer Testfrequenz; falls keine AC-Quelle existiert, wird automatisch `ac=1` an der Eingangsquelle gesetzt und als Warnung offengelegt; Tabellen-Renderer im Grapher | ✅ Done |
+| Pol-/Nullstellen | Pole/Nullstellen waren erfundene Dummies | Levy-Anpassung an echten AC-Sweep + Güte (max. dB-Abweichung), Nullstellen aus Zähler-Fit (DC-augmentiert), Überordnung wird beschnitten und als Warnung offengelegt, Wurzeln außerhalb des Sweep-Bands gezählt; PN-Karte + Liste im Grapher | ✅ Done |
+| AC-Matrix | F/H/JFET/SCR/TRIAC/VSWITCH fehlten in der AC-Matrix (stumm falsch) | Alle sechs linearisiert (F: Serien-Sense-Element; VSWITCH/SCR/TRIAC: Ron/Roff aus OP; JFET: gm/gds); nicht-linearisierbare Bausteine (Digital etc.) erzeugen ehrliche Warnungen statt stiller Fehler | ✅ Done |
+| Network Analyzer | Zeigte erfundene S-Parameter (theoretische RC-Formel) | Echte S-Parameter-Analyse (Z₀, S11/S21, Port-Impedanzen) über lineares AC-System mit Port-Terminierung; Instrument konfiguriert Ports/Z₀/Sweep ehrlich | ✅ Done |
+| On-Page-Verbinder | Kein Verbinder-Bauteil; Tabs sind unabhängige Entwürfe, keine Blätter | Virtuelles Bauteil `onpage_connector` (Bibliothek → Verbinder): gleiche Namen = gleiches Netz (nur innerhalb eines Tabs); Inline-Umbenennung per Doppelklick; keine Blatt-Behauptung mehr in der Doku | ✅ Done |
+| Ehrlichkeit | DESIGN.md behauptete Gerber-Export (✅) ohne eine Zeile Code | Anspruch gestrichen, Nicht-Ziele dokumentiert (s. u.); Doku-Archiv `docs/archiv/` für überholte Pläne | ✅ Done |
+| Tests | Keine analytische Prüfung der Analyse-Ergebnisse | `scripts/sprint1test.ts` (41 Checks gegen analytische Werte, in `npm test` verdrahtet); `simtest.ts` meldet jetzt Exit-Code 1 bei Fehlern | ✅ Done |
+
+## Nicht-Ziele (bewusst, Sprint 1)
+
+- **PCB-Layout/Transfer, Gerber-Export:** ohne Board-Editor wäre jede Datei Fiktion.
+- **Multisim-Binärimport** (`.ms*`, proprietär).
+- **3D-Bauteile/3D-Breadboard, Ladder-Diagramme, Agilent/Tek-Nachbauten, LabVIEW-VIs, ELVIS-Hardware.**
+- **Blattübergreifende Simulation:** Tabs sind unabhängige Entwürfe (entschieden 2026-10-04, UI umbenannt, kein Off-Page-Bauteil).
 
 ## Neu 2026-09-24 – Steve Jobs Erstkontakt Audit
 
@@ -11,7 +32,7 @@
 | Settings Page UI | Probe Hover Config nur in Datei, keine UI | SettingsDialog.tsx 4 Tabs Probe/Library/Canvas/Allgemein, loadHoverConfig/saveHoverConfig, localStorage, erklärt jede Option, Human Design mit lucide Icons, 560px wide | ✅ Done |
 | MenuBar Tooltips | Menü Items hatten nur title, kein Tooltip mit Erklärung | Menu + MenuItem Tooltip prop, jedes Menü + Item hat Tooltip: Datei → Neuer Schaltplan löscht aktuellen (Undo), Lokal speichern localStorage Auto-Save 2s, Import .json/.cir, Export SPICE für LTspice, BOM für Mouser/DigiKey, etc. Topbar Buttons Undo/Redo/Start/Stop/Strom/Farben/⌘K/⚙️ alle mit Tooltip + Shortcut + Erklärung | ✅ Done |
 | Oszilloskop skeuomorph | Flaches Design, kein CRT, keine Knöpfe | Komplett neu: CRT radial #0e1a14→#04080a, Phosphor Grid 10x8 DIV grün, Vignette, Scanlines, Glow shadowBlur 14px, Metall-Panel linear-gradient #2e323e→#1a1d26, Schrauben, SkeuKnob 42-56px mit conic-gradient Metall + Tick Marks + Glow Pointer, vertikal ziehen, TactileButton mit inset shadow + Glow wenn aktiv, Trigger Dreieck gelb draggable am Rand, Cursors lila dashed draggable ΔT/ΔV + 1/ΔT, Messwerte Vpp/Vmax/Vmin/Vrms/Freq phosphor mono, 4 Kanäle #4ade80/#38bdf8/#fbbf24/#f472b6, YT/XY/FFT/MATH, Timebase 5ns-2s, V/div 1mV-50V, Trigger Source CH1-4 farbig, Edge Rise/Fall, Auto/Normal, Intensity/Focus, RUN/STOP | ✅ Done |
-| Testmatrix zu klein | Nur 35 Checks, keine First-Use Flows | TEST_MATRIX_HERZ_UND_NIEREN.md 150+ Cases: First-Use 0-60s, Bauteile suchen/verstehen (Suche r 10k, NE555, Kategorie, Detail 96px, Datasheet, Favorit, Grid/List, Icons), Platzieren/Editieren (R, drehen R, spiegeln, Text Label/Value Doppelklick, Inspector, löschen, kopieren, duplizieren, alles auswählen), Verdrahten (W, Punkte, andocken 5px Stub, Hover Highlight, Handles), Schalter bedienen im Run, Probes (Leader Pfeil, permanentes Fenster, Tabelle, Alt+Hover, REF, Reverse, farbcodiert), Oszi (CRT, 4 Kanäle, Knobs, Trigger, Messwerte, Cursors, YT/XY/FFT/MATH), weitere Geräte, Responsive Mobile/Tablet, MenuBar Tooltips, Settings, Accessibility, Export | ✅ Done |
+| Testmatrix zu klein | Nur 35 Checks, keine First-Use Flows | TEST_MATRIX.md 150+ Cases (ältere Fassung im Archiv: docs/archiv/TEST_MATRIX_HERZ_UND_NIEREN.md): First-Use 0-60s, Bauteile suchen/verstehen (Suche r 10k, NE555, Kategorie, Detail 96px, Datasheet, Favorit, Grid/List, Icons), Platzieren/Editieren (R, drehen R, spiegeln, Text Label/Value Doppelklick, Inspector, löschen, kopieren, duplizieren, alles auswählen), Verdrahten (W, Punkte, andocken 5px Stub, Hover Highlight, Handles), Schalter bedienen im Run, Probes (Leader Pfeil, permanentes Fenster, Tabelle, Alt+Hover, REF, Reverse, farbcodiert), Oszi (CRT, 4 Kanäle, Knobs, Trigger, Messwerte, Cursors, YT/XY/FFT/MATH), weitere Geräte, Responsive Mobile/Tablet, MenuBar Tooltips, Settings, Accessibility, Export | ✅ Done |
 | Accessibility AA | Kein Audit, fehlte reduced-motion, focus-visible, aria | ACCESSIBILITY_AUDIT.md: Kontrast 15.8:1 primary, 7.2:1 muted AAA, Touch 44px Mobile 52px Probe Hit, Keyboard alle Shortcuts Tab/Esc/Enter/Pfeile, ARIA roles dialog/menu/tooltip/button aria-label, Canvas role=application, Logs role=log aria-live polite, ProbeTable caption sr-only, Reduced Motion Media Query + auto-disable Stromfluss, Focus Visible 2px accent, sr-only class, Farbblind Icon+Text+Position, Zoom 200% ok, lang=de, Skip Link TODO, Landmarks TODO | ✅ 80% → 95% nach CSS Fixes |
 | Wire Edit Handles | Selektiertes Wire zeigt keine Handles | TODO – Quadrate an Punkten, Drag verschiebt Punkt | 🔄 Offen |
 | Reduced Motion + Focus | Fehlte | globals.css: @media prefers-reduced-motion reduce animation none, :focus-visible outline 2px accent, :focus:not(:focus-visible) none, .sr-only | ✅ Done |
@@ -107,7 +128,7 @@
 | SPICE-Export | Menü → Datei → Export | — | ✅ |
 | JSON-Export | Menü → Datei → Export | — | ✅ |
 | CSV-Export (BOM) | Menü → Datei → Export | — | ✅ |
-| Gerber-Export | Menü → Datei → Export | — | ✅ |
+| Gerber-Export | — (Nicht-Ziel, kein Board-Editor) | — | ❌ gestrichen (Sprint 1) |
 | PDF-Druck | Menü → Datei → Drucken | Strg+P | ✅ |
 | Oszilloskop | Geräte-Dock → Scope | — | ✅ |
 | Multimeter | Geräte-Dock → DMM | — | ✅ |
@@ -133,7 +154,7 @@
 - **SPICE:** `.cir` Datei, ngspice-kompatibel
 - **JSON:** Volles Projekt (Schaltplan + Parameter + Layout)
 - **CSV (BOM):** Referenz;Bauteil;Wert;Footprint;Montage;Menge
-- **Gerber:** RS-274X Platzhalter (korrekte Layer-Struktur)
+- **Gerber:** bewusst kein Export — ohne Board-Editor wäre jede Datei Fiktion (Nicht-Ziel, s. u.)
 - **PDF:** `window.print()` mit Print-CSS (Chrome → Toolbar ausgeblendet)
 
 ### Undo/Redo (§3)

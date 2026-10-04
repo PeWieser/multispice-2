@@ -116,7 +116,7 @@ export interface SchematicDoc {
   junctions?: Junction[];
 }
 
-// Das allererste Blatt bekommt eine feste ID, damit Server-HTML (statischer
+// Der allererste Entwurf bekommt eine feste ID, damit Server-HTML (statischer
 // Export) und Client-Hydration übereinstimmen. Alle weiteren sind zufällig.
 let firstDoc = true;
 
@@ -508,10 +508,11 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     groups.set(root, arr);
   }
 
-  // on-page / off-page connectors: same name = same net (virtual connection)
+  // On-Page-Verbinder: gleicher Name = gleiches Netz (virtuelle Verbindung,
+  // pro Entwurf — Sprint-1-Entscheid: keine Blätter, kein Off-Page)
   const connectorGroups = new Map<string, string[]>(); // name -> root[]
   for (const inst of doc.instances) {
-    if (inst.partId === "onpage_connector" || inst.partId === "offpage_connector") {
+    if (inst.partId === "onpage_connector") {
       const name = String(inst.params.name ?? "NET_A").trim() || "NET_A";
       const pos = pinPosition(inst, 0);
       const root = uf.find(key(pos.x, pos.y));
@@ -537,7 +538,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     groups.set(root, arr);
   }
 
-  // naming: ground first, then labels, then auto, then onpage/offpage names
+  // naming: ground first, then labels, then auto, then connector names
   const rootName = new Map<string, string>();
   for (const inst of doc.instances) {
     if (inst.partId === "gnd") {
@@ -549,7 +550,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     const root = uf.find(key(l.x, l.y));
     if (rootName.get(root) !== "0") rootName.set(root, l.name.trim() || rootName.get(root) || "");
   }
-  // onpage/offpage names have priority over auto
+  // connector names have priority over auto
   for (const [name, roots] of connectorGroups) {
     if (roots.length) {
       const root = uf.find(roots[0]);

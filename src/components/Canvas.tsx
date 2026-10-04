@@ -1970,7 +1970,16 @@ export default function Canvas() {
       const clean = text.trim();
       if (cur.kind === "value" && cur.instId) {
         const inst0 = st.doc.instances.find((i) => i.id === cur.instId);
-        const key = inst0 ? PART_MAP[inst0.partId]?.params[0]?.key : undefined;
+        const main0 = inst0 ? PART_MAP[inst0.partId]?.params[0] : undefined;
+        const key = main0?.key;
+        if (inst0 && key && main0?.type === "text") {
+          st.commit((d) => {
+            const ins = d.instances.find((i) => i.id === cur.instId);
+            if (ins) ins.params[key] = clean;
+          });
+          st.log("ok", `${inst0.label} = „${clean}“`);
+          return;
+        }
         const v = parseSpiceValue(clean);
         if (inst0 && key && Number.isFinite(v)) {
           st.commit((d) => {
@@ -2550,10 +2559,12 @@ export default function Canvas() {
       // W125: Nur ein Doppelklick gezielt auf den Wert/Bezeichner unter dem Bauteil
       // (valueLabelHit) öffnet das Inline-Wertefeld; ein Doppelklick auf das Bauteil
       // selbst (bodyHit) öffnet den Inspector.
-      if (valueLabelHit && main && main.type === "number" && !e.shiftKey) {
+      if (valueLabelHit && main && (main.type === "number" || main.type === "text") && !e.shiftKey) {
         const scr = toScreen({ x: hit.x, y: hit.y });
         const rawVal = Number(hit.params[main.key] ?? main.def);
-        const formatted = Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : String(hit.params[main.key] ?? "");
+        const formatted = main.type === "text"
+          ? String(hit.params[main.key] ?? main.def ?? "")
+          : Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : String(hit.params[main.key] ?? "");
         editingDone.current = false;
         editingOpenedAt.current = performance.now();
         setEditing({
@@ -2741,7 +2752,7 @@ export default function Canvas() {
       (selProbe0.kind === "current" || selProbe0.kind === "power" || selProbe0.kind === "voltage_current"),
   );
   const mainParam0 = selInst0 ? PART_MAP[selInst0.partId]?.params[0] : undefined;
-  const canInlineEdit0 = Boolean((selInst0 && mainParam0?.type === "number") || selLabel0 || selNote0);
+  const canInlineEdit0 = Boolean((selInst0 && (mainParam0?.type === "number" || mainParam0?.type === "text")) || selLabel0 || selNote0);
 
   // W66: Werkzeugwechsel beendet ein angefangenes Netz – kein Zustand, der
   // unsichtbar weiterläuft, wenn der Nutzer z. B. auf „Auswahl" umschaltet.
@@ -2926,6 +2937,7 @@ export default function Canvas() {
             inputRef={editInputRef}
             openedAt={editingOpenedAt}
             onCommit={commitEditing}
+            placeholder={editing.kind === "value" && editMainParam?.type === "text" ? "z. B. VCC, NET_A" : undefined}
           />
         );
       })()}
@@ -3123,9 +3135,11 @@ export default function Canvas() {
                       if (selInst0 && mainParam0) {
                         const scr = toScreen({ x: selInst0.x, y: selInst0.y });
                         const rawVal = Number(selInst0.params[mainParam0.key] ?? mainParam0.def);
-                        const formatted = Number.isFinite(rawVal)
-                          ? formatValue(rawVal, "").trim()
-                          : String(selInst0.params[mainParam0.key] ?? "");
+                        const formatted = mainParam0.type === "text"
+                          ? String(selInst0.params[mainParam0.key] ?? mainParam0.def ?? "")
+                          : Number.isFinite(rawVal)
+                            ? formatValue(rawVal, "").trim()
+                            : String(selInst0.params[mainParam0.key] ?? "");
                         setEditing({
                           kind: "value",
                           instId: selInst0.id,
@@ -3160,7 +3174,7 @@ export default function Canvas() {
                       }
                     }}
                   >
-                    ✎ Wert
+                    {selInst0 && mainParam0?.type === "text" ? "✎ Name" : "✎ Wert"}
                   </button>
                 )}
                 <button
@@ -3920,9 +3934,19 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     }
     ctx.restore();
   }
+  if (zoom>0.42 && part.id==="onpage_connector") {
+    // S1.6: Virtuelle Bauteile bekommen sonst kein Schild — der Verbinder
+    // braucht seinen Netznamen aber sichtbar (der Name IST die Verbindung).
+    ctx.save(); ctx.translate(inst.x, inst.y);
+    const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;
+    ctx.font="600 10.5px ui-monospace, monospace"; ctx.textAlign="center";
+    ctx.fillStyle=selected?canvasColor("--wire-sel"):canvasColor("--ink-2");
+    ctx.fillText(String(inst.params.name??"NET_A"),0,dy);
+    ctx.restore();
+  }
   if (selected){
     const b=instanceBounds(inst);
-    const hasValueLabel = zoom>0.42 && part.mount!=="virtual";
+    const hasValueLabel = zoom>0.42 && (part.mount!=="virtual" || part.id==="onpage_connector");
     const main=part.params[0];
     const extraBottom = hasValueLabel ? (main && main.type==="number" ? 30 : 18) : 6;
     ctx.strokeStyle=canvasColor("--wire-sel");

@@ -32,10 +32,10 @@ import { openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile"
 import DesktopTitleBar, { isDesktopApp, useDesktopMultiWindowSync } from "./DesktopTitleBar";
 import type { InstrumentKind } from "@/state/editor";
 
-/** R8 & W131: Echtes Vektor-Schaltblatt für window.print() – Rahmen, Kopf, Stempel.
+/** R8 & W131: Echter Vektor-Entwurf für window.print() – Rahmen, Kopf, Stempel.
  *  Rendert das papierweiße Vektor-SVG aus docToSvg(doc, { frame: false }) direkt
  *  synchron im DOM, sodass sowohl „Drucken …" als auch Strg+P sofort ein
- *  gestochen scharfes Schaltblatt ohne dunklen Hintergrund drucken. */
+ *  gestochen scharfen Entwurf ohne dunklen Hintergrund drucken. */
 function PrintSheet() {
   const doc = useEditor((s) => s.doc);
   const nets = useEditor((s) => s.netResult.nets);
@@ -302,7 +302,7 @@ export default function Workbench() {
         e.preventDefault();
         void openProjectViaNativeDialogIfAvailable();
       }
-      // W131: Strg+P / ⌘P druckt das Schaltblatt
+      // W131: Strg+P / ⌘P druckt den Entwurf
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
         if (window.multispiceDesktop?.printSvg) {
           e.preventDefault();
@@ -476,7 +476,7 @@ export default function Workbench() {
           <BottomPanel />
         </div>
       </main>
-      {/* W96: Eine einzige schlanke Fußleiste (links geöffnete Blätter, rechts Prüfung & Sim-Zeit). */}
+      {/* W96: Eine einzige schlanke Fußleiste (links geöffnete Entwürfe, rechts Prüfung & Sim-Zeit). */}
       <StatusBar />
       {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}

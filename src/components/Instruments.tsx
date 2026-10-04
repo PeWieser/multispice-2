@@ -927,45 +927,101 @@ function DistortionAnalyzer({ win }: { win: InstrumentWindow }) {
 /* ------------------------------------------------------------------ */
 function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
+  const runAnalysis = useEditor((s) => s.runAnalysis);
+  const analysis = useEditor((s) => s.analysis);
   const netResult = useEditor((s) => s.netResult);
-  const nets = netResult.nets.map(n=>n.name);
-  const cfg = (win.config.network as { inNet: string; outNet: string }) ?? { inNet: nets.find(n=>n!=="0") ?? "", outNet: nets[1] ?? "" };
-  const render = (ctx: CanvasRenderingContext2D, w:number, h:number) => {
-    grid(ctx,w,h,10,6);
-    // Simple: show gain vs freq from AC analysis if available, else dummy
-    const analysis = useEditor.getState().analysis;
-    if (analysis.kind === "ac" && (analysis.data as any)?.curves) {
-      const curves = (analysis.data as any).curves as Array<{ x:number[]; y:number[] }>;
-      const curve = curves[0];
-      if (curve) {
-        ctx.strokeStyle = "#a78bfa";
-        ctx.lineWidth = 1.5;
+  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
+  const cfg = (win.config.network as { inNet: string; outNet: string; z0: number; fmin: number; fmax: number }) ?? {
+    inNet: nets.find((n) => n !== "0") ?? "",
+    outNet: nets[1] ?? "",
+    z0: 50,
+    fmin: 10,
+    fmax: 1e6,
+  };
+  const set = (p: Partial<typeof cfg>) => update(win.id, { config: { ...win.config, network: { ...cfg, ...p } } });
+  const data =
+    analysis.kind === "sparams"
+      ? (analysis.data as { freq: number[]; s11db: number[]; s21db: number[]; z0: number } | undefined)
+      : undefined;
+
+  const render = useCallback(
+    (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+      grid(ctx, w, h, 12, 8);
+      if (!data || !data.freq.length) {
+        ctx.fillStyle = cssVar("--ink-3", "#64708c");
+        ctx.font = "11px ui-sans-serif";
+        ctx.fillText("Sweep starten …", 12, 20);
+        return;
+      }
+      const f0 = Math.log10(data.freq[0]);
+      const f1 = Math.log10(data.freq[data.freq.length - 1]);
+      const all = [...data.s11db, ...data.s21db];
+      const maxDb = Math.max(...all, 6);
+      const minDb = Math.min(...all, -60);
+      const xOf = (f: number) => ((Math.log10(f) - f0) / (f1 - f0)) * w;
+      const yOf = (m: number) => h - ((m - minDb) / (maxDb - minDb)) * h;
+      const trace = (ys: number[], style: string, dash: number[]) => {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash(dash);
         ctx.beginPath();
-        curve.x.forEach((fx,i)=>{
-          const px = (Math.log10(fx) - Math.log10(curve.x[0])) / Math.log10(curve.x[curve.x.length-1]/curve.x[0]) * w;
-          const py = h - (curve.y[i] + 40)/80 * h;
-          if (i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        ys.forEach((m, i) => {
+          const x = xOf(data.freq[i]);
+          const y = yOf(m);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
         });
         ctx.stroke();
-      }
-    } else {
-      ctx.fillStyle = "var(--ink-3)";
-      ctx.font = "11px ui-sans-serif";
-      ctx.fillText("Führe AC-Analyse aus für S11/S21", 12, 20);
-    }
-  };
+        ctx.setLineDash([]);
+      };
+      trace(data.s11db, cssVar("--ch1", "#38bdf8"), []);
+      trace(data.s21db, cssVar("--ch2", "#f472b6"), [4, 3]);
+      ctx.fillStyle = cssVar("--ink-3", "#64708c");
+      ctx.font = "10px ui-monospace, monospace";
+      ctx.fillText(`${maxDb.toFixed(0)} dB`, 4, 11);
+      ctx.fillText(`${minDb.toFixed(0)} dB`, 4, h - 4);
+    },
+    [data],
+  );
+
   return (
     <div className="flex h-full flex-col gap-2 p-2">
-      <div className="flex items-center gap-2 text-2xs text-ink-3">
-        <span>In</span>
-        <NetSelect value={cfg.inNet} onChange={v=> update(win.id, { config: { ...win.config, network: { ...cfg, inNet: v } } })} />
-        <span>Out</span>
-        <NetSelect value={cfg.outNet} onChange={v=> update(win.id, { config: { ...win.config, network: { ...cfg, outNet: v } } })} />
+      <div className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-3">
+        <span>Port 1</span>
+        <NetSelect value={cfg.inNet} onChange={(v) => set({ inNet: v })} />
+        <span>Port 2</span>
+        <NetSelect value={cfg.outNet} onChange={(v) => set({ outNet: v })} />
+        <span>Z₀</span>
+        <input className="input w-16 py-0.5 text-2xs mono" value={cfg.z0} onChange={(e) => set({ z0: Number(e.target.value) })} />
+        <span>Ω</span>
+        <span>f</span>
+        <input className="input w-20 py-0.5 text-2xs mono" value={cfg.fmin} onChange={(e) => set({ fmin: Number(e.target.value) })} />
+        <span>…</span>
+        <input className="input w-24 py-0.5 text-2xs mono" value={cfg.fmax} onChange={(e) => set({ fmax: Number(e.target.value) })} />
+        <button
+          className="btn btn-primary ml-auto"
+          onClick={() =>
+            runAnalysis("sparams", {
+              inNode: cfg.inNet,
+              outNode: cfg.outNet,
+              outputs: [cfg.outNet],
+              z0: cfg.z0,
+              sweep: { start: cfg.fmin, stop: cfg.fmax, points: 24, type: "dec" },
+            })
+          }
+          disabled={analysis.running}
+        >
+          {analysis.running ? "läuft …" : "Sweep starten"}
+        </button>
       </div>
       <div className="flex-1 overflow-hidden rounded-lg border border-hairline">
         <Plot render={render} />
       </div>
-      <div className="text-2xs text-ink-3">Übertragungsfunktion und Amplitudengang zwischen Eingangs- und Ausgangsnetz.</div>
+      <div className="flex gap-3 text-2xs text-ink-3">
+        <span style={{ color: "var(--ch1)" }}>— S11 (dB)</span>
+        <span style={{ color: "var(--ch2)" }}>-- S21 (dB)</span>
+        {data && <span className="ml-auto mono">Z₀ = {data.z0} Ω · {data.freq.length} Punkte</span>}
+      </div>
     </div>
   );
 }

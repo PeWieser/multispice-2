@@ -207,8 +207,8 @@ export default function MenuBar({
         <MenuSeparator />
         <MenuItem onClick={exportSpice}>Export SPICE (.cir)</MenuItem>
         <MenuItem onClick={exportJson}>Export JSON</MenuItem>
-        <MenuItem onClick={() => { void exportSvg(st().doc).then((ok) => { if (ok) st().log("ok", "Schaltblatt als SVG exportiert"); }); }}>Export SVG</MenuItem>
-        <MenuItem onClick={() => { exportPng(st().doc); st().log("ok", "Schaltblatt als PNG exportiert"); }}>Export PNG</MenuItem>
+        <MenuItem onClick={() => { void exportSvg(st().doc).then((ok) => { if (ok) st().log("ok", "Entwurf als SVG exportiert"); }); }}>Export SVG</MenuItem>
+        <MenuItem onClick={() => { exportPng(st().doc); st().log("ok", "Entwurf als PNG exportiert"); }}>Export PNG</MenuItem>
         <MenuItem
           onClick={() => {
             void exportPdf(st().doc).then((ok) => {

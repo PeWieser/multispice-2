@@ -9,6 +9,7 @@
 
 import { buildNets, SchematicDoc } from "@/lib/schematic/model";
 import {
+  acLinearizationWarnings,
   runAcSweep,
   runDcSweep,
   runFourier,
@@ -20,6 +21,7 @@ import {
   runParamSweep,
   runPoleZero,
   runSensitivity,
+  runSParams,
   runTempSweep,
   runThd,
   runTransferFunction,
@@ -47,6 +49,10 @@ export interface AnalysisPayload {
   measureDeviceId?: string;
   param?: string;
   mode?: string;
+  order?: number;
+  z0?: number;
+  frequency?: number;
+  inNode?: string;
 }
 
 export interface AnalysisReport {
@@ -176,7 +182,13 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
       break;
     }
     case "sensitivity": {
-      const r = runSensitivity(netlist, options, outNode, (payload.mode as any) ?? "dc");
+      const r = runSensitivity(
+        netlist,
+        options,
+        outNode,
+        payload.mode === "ac" ? "ac" : "dc",
+        payload.frequency ?? 1000,
+      );
       result = r;
       summary = { count: r.sensitivities.length, ok: r.ok };
       break;
@@ -188,9 +200,20 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
       break;
     }
     case "pz": {
-      const r = runPoleZero(netlist, options, outNode, payload.sourceId ?? "");
+      const r = runPoleZero(netlist, options, outNode, payload.sourceId ?? "", {
+        order: payload.order ?? 2,
+        fmin: sweep.start,
+        fmax: sweep.stop,
+        points: sweep.points,
+      });
       result = r;
       summary = { poles: r.poles.length, zeros: r.zeros.length, ok: r.ok };
+      break;
+    }
+    case "sparams": {
+      const r = runSParams(netlist, options, sweep, payload.inNode ?? outNode, outNode, payload.z0 ?? 50);
+      result = r;
+      summary = { points: r.freq.length, ok: r.ok };
       break;
     }
     case "noisefigure": {
@@ -203,13 +226,22 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
       throw new Error(`Unbekannte Analyse "${kind}"`);
   }
 
+  // S1.4: AC-basierte Analysen nennen ihre Näherungen beim Namen.
+  const acKinds = new Set(["ac", "noise", "noisefigure", "pz", "tf", "sparams"]);
+  const acWarn =
+    acKinds.has(kind) || (kind === "sensitivity" && payload.mode === "ac") ? acLinearizationWarnings(netlist) : [];
+  const autoDrive = kind === "sensitivity" ? (result as { autoDrive?: string }).autoDrive : undefined;
+  if (autoDrive) {
+    acWarn.push(`AC-Anregung: Quelle ${autoDrive} wurde mit ac = 1 angeregt (keine AC-Quelle in der Schaltung).`);
+  }
+
   return {
     kind,
     durationMs: Date.now() - started,
     result,
     nets: built.nets.map((n) => n.name),
     errors: built.errors,
-    warnings: built.warnings,
+    warnings: [...built.warnings, ...acWarn],
     summary,
   };
 }

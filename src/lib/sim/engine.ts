@@ -378,11 +378,10 @@ export class Simulator {
           st.br = nNodes + branch++;
           this.branchNames.push(d.id);
           break;
-        case "F":
-          // current controlled current source needs the controlling branch (a 0V source)
-          st.br = nNodes + branch++;
-          this.branchNames.push(d.id + ":ctrl");
-          break;
+        // Hinweis: "F" (CCCS) braucht keinen Zweig — der Steuerstrom wird über
+        // den internen 1-µΩ-Sense-Leitwert zwischen den Steuerklemmen gemessen
+        // (Steuerklemmen in Reihe schalten!). Ein ungenutzter Zweig würde die
+        // Matrix singulär machen.
         case "OPAMP":
         case "COMPARATOR":
           st.br = nNodes + branch++;
@@ -845,6 +844,8 @@ export class Simulator {
         }
         case "F": {
           // CCCS with internal sense resistor on control branch
+          // (Steuerklemmen in Reihe schalten — der Sense-Leitwert IST das
+          // Strommessgerät; parallel zu einem idealen Kurzschluss misst er 0).
           const cp = this.idx(d.nodes[2]);
           const cm = this.idx(d.nodes[3]);
           const beta = p(d, "gain", 1);
@@ -852,6 +853,7 @@ export class Simulator {
           this.stampConductance(m, cp, cm, gsense);
           const ic = (this.vOf(cp) - this.vOf(cm)) * gsense;
           this.stampCurrent(m, n0, n1, beta * ic);
+          st.extra!.id = beta * ic;
           break;
         }
         /* ---------------- switches ---------------- */

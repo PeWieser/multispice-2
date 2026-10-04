@@ -87,7 +87,7 @@ Nach Kategorie:
 - Fault: Open → Warning + Bauteil entfernt, Short → 1mΩ Brücke + Warning, Leakage → 10k parallel
 - Rated: LED blow-up wenn R zu klein, Fuse blow-up wenn I>1A
 - Buses: 8-bit dicker lila, isBus flag
-- On-Page/Off-Page: gleiche Namen → gleiches Netz via UF union
+- On-Page-Verbinder: gleiche Namen → gleiches Netz via UF union (pro Entwurf; kein Off-Page — Sprint-1-Entscheid)
 - Fast Autoconnect: Platzieren zwischen Drähten auto-verdrahtet <20px
 - 7-Seg: animiert, zeigt 0-F
 - Logic Converter: Quine-McCluskey minimiert SOP → kürzerer Ausdruck

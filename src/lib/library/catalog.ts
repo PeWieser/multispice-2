@@ -5976,6 +5976,20 @@ add({
 
 
 add({
+  id: "onpage_connector",
+  name: "Netzverbinder (On-Page)",
+  ref: "J",
+  category: "Verbinder",
+  tags: ["verbinder", "on-page", "onpage", "netz", "virtuell", "netzname"],
+  description: "Verbindet Netze ohne Leitung: Alle Verbinder mit gleichem Netznamen in diesem Entwurf sind elektrisch verbunden (z. B. VCC an mehreren Stellen). Keine Stücklisten-Position.",
+  mount: "virtual",
+  pins: [{ name: "1", x: -30, y: 0 }],
+  symbol: [L(-30, 0, -12, 0), L(-12, -10, 16, -10, 26, 0, 16, 10, -12, 10, -12, -10)],
+  params: [{ key: "name", label: "Netzname", type: "text", def: "NET_A" }],
+  toDevices: () => [],
+});
+
+add({
   id: "connector_2",
   name: "Stiftleiste 2-polig",
   ref: "J",

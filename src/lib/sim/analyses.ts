@@ -3,7 +3,7 @@
  *  .OP  .DC  .TRAN  .AC  .NOISE  .FOUR/THD  Monte-Carlo, Worst-Case, Temp-Sweep
  */
 
-import { ComplexMatrix } from "./linalg";
+import { ComplexMatrix, RealMatrix } from "./linalg";
 import {
   Device,
   Netlist,
@@ -344,12 +344,53 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
         if (n1 >= 0 && cmn >= 0) cm.add(n1, cmn, gm, 0);
         break;
       }
+      case "F": {
+        // CCCS: Der DC-Kern misst den Steuerstrom über einen Sense-Leitwert
+        // (gsense, siehe engine.ts) — in AC exakt nachgebildet: Strom
+        // beta·gsense·(Vcp−Vcm) von n0 nach n1 plus Sense-Leitwert.
+        const cp = nodeIdx(sim, d.nodes[2]);
+        const cmn = nodeIdx(sim, d.nodes[3]);
+        const gsense = 1e6;
+        const gm = par(d, "gain", 1) * gsense;
+        acStampG(cm, cp, cmn, gsense, 0);
+        if (n0 >= 0 && cp >= 0) cm.add(n0, cp, gm, 0);
+        if (n0 >= 0 && cmn >= 0) cm.add(n0, cmn, -gm, 0);
+        if (n1 >= 0 && cp >= 0) cm.add(n1, cp, -gm, 0);
+        if (n1 >= 0 && cmn >= 0) cm.add(n1, cmn, gm, 0);
+        break;
+      }
+      case "H": {
+        // CCVS: V(n0)−V(n1) = rm·gsense·(Vcp−Vcm), wie E gestempelt.
+        const br = st.br;
+        const cp = nodeIdx(sim, d.nodes[2]);
+        const cmn = nodeIdx(sim, d.nodes[3]);
+        const gsense = 1e6;
+        const gain = par(d, "gain", 1) * gsense;
+        acStampG(cm, cp, cmn, gsense, 0);
+        if (n0 >= 0) {
+          cm.add(n0, br, 1, 0);
+          cm.add(br, n0, 1, 0);
+        }
+        if (n1 >= 0) {
+          cm.add(n1, br, -1, 0);
+          cm.add(br, n1, -1, 0);
+        }
+        if (cp >= 0) cm.add(br, cp, -gain, 0);
+        if (cmn >= 0) cm.add(br, cmn, gain, 0);
+        break;
+      }
       case "SWITCH":
       case "PUSHBUTTON":
       case "DIPSWITCH":
       case "RELAY_CONTACT": {
         const closed = (sim.controls[d.id] ?? par(d, "closed", 0)) > 0.5;
         acStampG(cm, n0, n1, closed ? 1 / Math.max(par(d, "ron", 0.01), 1e-6) : 1e-12, 0);
+        break;
+      }
+      case "VSWITCH": {
+        // Kleinsignal am OP-Schaltzustand (updateEvents läuft im operatingPoint).
+        const on = (st.extra?.on ?? 0) > 0.5;
+        acStampG(cm, n0, n1, on ? 1 / Math.max(par(d, "ron", 1), 1e-6) : 1 / Math.max(par(d, "roff", 1e9), 1), 0);
         break;
       }
       case "D":
@@ -409,6 +450,46 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
         acStampG(cm, ng, nd, 0, omega * par(d, "cgd", 2e-12));
         break;
       }
+      case "J": {
+        // JFET: gm/gds aus den OP-Spannungen (gleiche Bereichslogik wie im
+        // DC-Kern; pch kürzt sich in der Jacobi-Matrix wie dort heraus).
+        const nd = nodeIdx(sim, d.nodes[0]);
+        const ng = nodeIdx(sim, d.nodes[1]);
+        const ns = nodeIdx(sim, d.nodes[2]);
+        const pch = par(d, "pjf", 0) > 0.5 ? -1 : 1;
+        const beta = par(d, "beta", 1e-4);
+        const vto = -Math.abs(par(d, "vto", 2));
+        const lambda = par(d, "lambda", 0.01);
+        const vgs = pch * (sim.vOf(ng) - sim.vOf(ns));
+        const vds = pch * (sim.vOf(nd) - sim.vOf(ns));
+        let gm = 0;
+        let gds = 1e-12;
+        const vov = vgs - vto;
+        if (vov > 0) {
+          if (vds < vov) {
+            gm = 2 * beta * vds * (1 + lambda * vds);
+            gds = Math.max(2 * beta * (vov - vds) * (1 + lambda * vds), 1e-12);
+          } else {
+            gm = 2 * beta * vov * (1 + lambda * vds);
+            gds = Math.max(beta * vov * vov * lambda, 1e-12);
+          }
+        }
+        if (nd >= 0 && ng >= 0) cm.add(nd, ng, gm, 0);
+        if (nd >= 0 && ns >= 0) cm.add(nd, ns, -gm, 0);
+        if (ns >= 0 && ng >= 0) cm.add(ns, ng, -gm, 0);
+        if (ns >= 0) cm.add(ns, ns, gm, 0);
+        acStampG(cm, nd, ns, gds, 0);
+        acStampG(cm, ng, ns, 0, omega * par(d, "cgs", 2e-12));
+        acStampG(cm, ng, nd, 0, omega * par(d, "cgd", 2e-12));
+        break;
+      }
+      case "SCR":
+      case "TRIAC": {
+        // Kleinsignal am OP-Schaltzustand (exakt wie im DC-Kern gestempelt).
+        const on = (st.extra?.on ?? 0) > 0.5;
+        acStampG(cm, n0, n1, on ? 1 / Math.max(par(d, "ron", 0.1), 1e-6) : 1e-9, 0);
+        break;
+      }
       case "OPAMP":
       case "COMPARATOR": {
         const np = nodeIdx(sim, d.nodes[0]);
@@ -440,7 +521,10 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
       case "GATE":
       case "DIGITAL":
       case "MCU":
-      case "TIMER555": {
+      case "TIMER555":
+      case "SEVENSEG": {
+        // Verhaltensmodelle haben kein Kleinsignalmodell: 1 nS gegen Masse.
+        // (Siehe acLinearizationWarnings — der Nutzer erfährt davon.)
         for (let i = 0; i < d.nodes.length; i++) {
           acStampG(cm, nodeIdx(sim, d.nodes[i]), -1, 1e-9, 0);
         }
@@ -459,6 +543,29 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
     if (inject.b >= 0) cm.addRhs(inject.b, 1, 0);
   }
   return cm;
+}
+
+/**
+ * Ehrliche AC-Grenzen: Verhaltensmodelle ohne Kleinsignalmodell werden als
+ * 1 nS gegen Masse genähert. Der Runner hängt diese Hinweise an jede
+ * AC-basierte Analyse (AC, Rauschen, TF, PZ, S-Parameter, Sensitivität-AC).
+ */
+export function acLinearizationWarnings(netlist: Netlist): string[] {
+  const byType = new Map<string, string[]>();
+  for (const d of netlist.devices) {
+    if (d.type === "GATE" || d.type === "DIGITAL" || d.type === "MCU" || d.type === "TIMER555" || d.type === "SEVENSEG") {
+      const arr = byType.get(d.type) ?? [];
+      arr.push(d.id);
+      byType.set(d.type, arr);
+    }
+  }
+  const out: string[] = [];
+  for (const [type, ids] of byType) {
+    const shown = ids.slice(0, 4).join(", ");
+    const more = ids.length > 4 ? ` (+${ids.length - 4} weitere)` : "";
+    out.push(`AC-Näherung: ${type}-Bausteine (${shown}${more}) werden als 1 nS gegen Masse genähert — kein Kleinsignalmodell.`);
+  }
+  return out;
 }
 
 export interface AcResult {
@@ -932,6 +1039,12 @@ export function runFourier(
 export interface SensitivityResult {
   sensitivities: Array<{ device: string; param: string; sensitivity: number }>;
   ok: boolean;
+  mode: "dc" | "ac";
+  /** AC-Modus: Messfrequenz, Betrag der Basis-Übertragung, ggf. Auto-Anregung. */
+  frequency?: number;
+  base?: number;
+  autoDrive?: string;
+  message?: string;
 }
 
 export function runSensitivity(
@@ -939,9 +1052,11 @@ export function runSensitivity(
   options: Partial<SimOptions>,
   outNode: string,
   mode: "dc" | "ac" = "dc",
+  frequency = 1000,
 ): SensitivityResult {
+  if (mode === "ac") return runSensitivityAc(netlist, options, outNode, frequency);
   const op = runOperatingPoint(netlist, options);
-  if (!op.ok) return { sensitivities: [], ok: false };
+  if (!op.ok) return { sensitivities: [], ok: false, mode, message: op.message };
   const base = op.nodes[outNode] ?? 0;
   const sensitivities: SensitivityResult["sensitivities"] = [];
   for (const dev of netlist.devices) {
@@ -961,7 +1076,64 @@ export function runSensitivity(
     }
   }
   sensitivities.sort((a,b)=> Math.abs(b.sensitivity) - Math.abs(a.sensitivity));
-  return { sensitivities, ok: true };
+  return { sensitivities, ok: true, mode };
+}
+
+/**
+ * AC-Sensitivität: normierte Empfindlichkeit von |H(f)| gegenüber jedem
+ * Bauteilparameter — (d|H|/|H|)/(dp/p), finite Differenz am OP.
+ * Ohne AC-Anregung in der Schaltung wird die erste unabhängige Quelle mit
+ * ac=1 angeregt (als autoDrive offengelegt, nicht verschwiegen).
+ */
+function runSensitivityAc(
+  netlist: Netlist,
+  options: Partial<SimOptions>,
+  outNode: string,
+  frequency: number,
+): SensitivityResult {
+  const f = Number.isFinite(frequency) && frequency > 0 ? frequency : 1000;
+  const sweep: SweepSpec = { start: f, stop: f, points: 2, type: "lin" };
+  const magOf = (nl: Netlist): number => {
+    const ac = runAcSweep(nl, options, sweep, [outNode]);
+    if (!ac.ok) return NaN;
+    return ac.mag[outNode]?.[0] ?? 0;
+  };
+  let work = netlist;
+  let autoDrive: string | undefined;
+  let base = magOf(work);
+  if (!Number.isFinite(base) || Math.abs(base) < 1e-18) {
+    const drv = netlist.devices.find((d) => d.type === "V") ?? netlist.devices.find((d) => d.type === "I");
+    if (!drv) return { sensitivities: [], ok: false, mode: "ac", frequency: f, message: "Keine Quelle für die AC-Anregung in der Schaltung." };
+    work = cloneNetlist(netlist);
+    const target = work.devices.find((d) => d.id === drv.id)!;
+    target.source = { ...(target.source ?? { kind: "dc", dc: 0 }), acMag: 1, acPhase: 0 };
+    autoDrive = drv.id;
+    base = magOf(work);
+    if (!Number.isFinite(base) || Math.abs(base) < 1e-18) {
+      return { sensitivities: [], ok: false, mode: "ac", frequency: f, autoDrive, message: `Keine Übertragung bei ${f} Hz (|H| ≈ 0) — Sensitivität nicht definiert.` };
+    }
+  }
+  const sensitivities: SensitivityResult["sensitivities"] = [];
+  for (const dev of work.devices) {
+    for (const key of Object.keys(dev.params)) {
+      // Die Anregung selbst gehört nicht zur Schaltung: acMag/acPhase von
+      // der Störung ausnehmen (ihre „Sensitivität" wäre trivial 1/0).
+      if (key === "acMag" || key === "acPhase") continue;
+      const orig = dev.params[key];
+      if (typeof orig !== "number" || !Number.isFinite(orig) || orig === 0) continue;
+      const delta = orig * 0.01;
+      const cloned = cloneNetlist(work);
+      const cd = cloned.devices.find((d) => d.id === dev.id);
+      if (!cd) continue;
+      cd.params[key] = orig + delta;
+      const v2 = magOf(cloned);
+      if (!Number.isFinite(v2)) continue;
+      const sens = ((v2 - base) / delta) * (orig / base);
+      sensitivities.push({ device: dev.id, param: key, sensitivity: sens });
+    }
+  }
+  sensitivities.sort((a, b) => Math.abs(b.sensitivity) - Math.abs(a.sensitivity));
+  return { sensitivities, ok: true, mode: "ac", frequency: f, base, autoDrive };
 }
 
 /* ------------------------------------------------------------------ */
@@ -972,6 +1144,7 @@ export interface TfResult {
   inputResistance: number;
   outputResistance: number;
   ok: boolean;
+  message?: string;
 }
 
 export function runTransferFunction(
@@ -981,19 +1154,69 @@ export function runTransferFunction(
   sourceId: string,
 ): TfResult {
   const op = runOperatingPoint(netlist, options);
-  if (!op.ok) return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false };
-  // Simplified TF: perturb source and measure out
-  const base = op.nodes[outNode] ?? 0;
-  const cloned: Netlist = JSON.parse(JSON.stringify(netlist));
-  const src = cloned.devices.find(d=>d.id===sourceId);
-  if (!src) return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false };
-  const orig = src.params.dc ?? src.params.v ?? 1;
-  src.params.dc = orig + 0.001;
-  const op2 = runOperatingPoint(cloned, options);
-  if (!op2.ok) return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false };
-  const v2 = op2.nodes[outNode] ?? 0;
-  const gain = (v2 - base) / 0.001;
-  return { gain, inputResistance: 1000, outputResistance: 10, ok: true };
+  if (!op.ok) return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: op.message };
+  const src0 = netlist.devices.find((d) => d.id === sourceId);
+  if (!src0 || !src0.source) {
+    return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: `Eingangsquelle ${sourceId || "(keine)"} nicht gefunden.` };
+  }
+  // Verstärkung + Eingangswiderstand: Kleinsignal am selben Arbeitspunkt
+  // (quasi-DC). Die Quelle selbst regt mit ac=1 an — Vorspannung bleibt.
+  const inProbe = cloneNetlist(netlist);
+  for (const d of inProbe.devices) {
+    if (d.source) d.source = { ...d.source, acMag: d.id === sourceId ? 1 : 0, acPhase: 0 };
+  }
+  const simIn = new Simulator(inProbe, options);
+  const opIn = simIn.operatingPoint();
+  if (!opIn.ok) return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: opIn.message };
+  const cmIn = buildAcMatrix(simIn, 2 * Math.PI * 1e-3);
+  const solIn = cmIn.solve();
+  if (!solIn) {
+    return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: "TF: singuläre Kleinsignalmatrix." };
+  }
+  const oIn = nodeIdx(simIn, outNode);
+  const gain = oIn >= 0 ? solIn.re[oIn] : 0;
+  let inputResistance = Number.POSITIVE_INFINITY;
+  {
+    const cm = cmIn;
+    const sol = solIn;
+    const srcDev = simIn.netlist.devices.find((d) => d.id === sourceId);
+    if (srcDev) {
+      const pa = nodeIdx(simIn, srcDev.nodes[0]);
+      const pb = nodeIdx(simIn, srcDev.nodes[1]);
+      const va = pa >= 0 ? { re: sol.re[pa], im: sol.im[pa] } : { re: 0, im: 0 };
+      const vb = pb >= 0 ? { re: sol.re[pb], im: sol.im[pb] } : { re: 0, im: 0 };
+      const dv = { re: va.re - vb.re, im: va.im - vb.im };
+      if (srcDev.type === "I") {
+        // Stromeinprägung 1 A: Z = U/1.
+        inputResistance = dv.re;
+      } else if (srcDev.state && srcDev.state.br >= 0) {
+        // Spannungsquelle: Zweigstrom zeigt per MNA-Stempel in die Quelle
+        // hinein — der Laststrom ist das Negative davon.
+        const br = srcDev.state.br;
+        const ib = { re: -sol.re[br], im: -sol.im[br] };
+        const denom = ib.re * ib.re + ib.im * ib.im;
+        if (denom > 1e-36) inputResistance = (dv.re * ib.re + dv.im * ib.im) / denom;
+      }
+    }
+  }
+  // Ausgangsseite: Teststrom 1 A in den Ausgang (Eingangsquelle AC-kurz,
+  // Thévenin-Bedingung), alle Anregungen null.
+  const outProbe = cloneNetlist(netlist);
+  for (const d of outProbe.devices) {
+    if (d.source) d.source = { ...d.source, acMag: 0, acPhase: 0 };
+  }
+  const simOut = new Simulator(outProbe, options);
+  const opOut = simOut.operatingPoint();
+  let outputResistance = Number.POSITIVE_INFINITY;
+  if (opOut.ok) {
+    const oIdx = nodeIdx(simOut, outNode);
+    if (oIdx >= 0) {
+      const cm = buildAcMatrix(simOut, 2 * Math.PI * 1e-3, { a: -1, b: oIdx });
+      const sol = cm.solve();
+      if (sol) outputResistance = sol.re[oIdx];
+    }
+  }
+  return { gain, inputResistance, outputResistance, ok: true };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1003,23 +1226,241 @@ export interface PzResult {
   poles: Array<{ real: number; imag: number }>;
   zeros: Array<{ real: number; imag: number }>;
   ok: boolean;
+  /** Ordnung, RMS-Anpassungsfehler (dB), gekürzte Paare, Band, Wurzeln jenseits. */
+  order: number;
+  fitErrorDb: number;
+  pruned: number;
+  outside: number;
+  fmin: number;
+  fmax: number;
+  message?: string;
 }
 
+export interface PoleZeroOptions {
+  order?: number;
+  fmin?: number;
+  fmax?: number;
+  /** Punkte pro Dekade für den internen AC-Sweep. */
+  points?: number;
+}
+
+/**
+ * Pol-/Nullstellen aus dem gemessenen AC-Frequenzgang: Levy-Anpassung einer
+ * rationalen Funktion N(s)/D(s) an H(jω) + Nullstellensuche (Durand-Kerner).
+ * Das ist eine Näherung — die Anpassungsgüte (fitErrorDb) steht deshalb im
+ * Ergebnis und in der Anzeige, nicht im Kleingedruckten.
+ */
 export function runPoleZero(
   netlist: Netlist,
   options: Partial<SimOptions>,
   outNode: string,
   sourceId: string,
+  pzOpts: PoleZeroOptions = {},
 ): PzResult {
-  // Simplified: estimate poles from AC sweep phase jumps
-  const ac = runAcSweep(netlist, options, { start: 1, stop: 1e6, points: 100, type: "dec" }, [outNode]);
-  if (!ac.ok) return { poles: [], zeros: [], ok: false };
-  // Dummy poles/zeros for demo
-  return {
-    poles: [{ real: -1000, imag: 0 }, { real: -2000, imag: 1000 }, { real: -2000, imag: -1000 }],
-    zeros: [{ real: -500, imag: 0 }],
-    ok: true,
+  const order = Math.min(6, Math.max(1, Math.round(pzOpts.order ?? 2)));
+  const fmin = pzOpts.fmin && pzOpts.fmin > 0 ? pzOpts.fmin : 10;
+  const fmax = pzOpts.fmax && pzOpts.fmax > fmin ? pzOpts.fmax : 1e6;
+  const perDec = Math.min(60, Math.max(6, Math.round(pzOpts.points ?? 20)));
+  const fail = (message: string): PzResult =>
+    ({ poles: [], zeros: [], ok: false, order, fitErrorDb: NaN, pruned: 0, outside: 0, fmin, fmax, message });
+  // Genau eine Anregung: die gewählte Quelle (alle anderen AC-Quellen null).
+  const work = cloneNetlist(netlist);
+  const src = work.devices.find((d) => d.id === sourceId);
+  if (!src || !src.source) return fail(`Eingangsquelle ${sourceId || "(keine)"} nicht gefunden.`);
+  for (const d of work.devices) {
+    if (d.source) d.source = { ...d.source, acMag: d.id === sourceId ? 1 : 0, acPhase: 0 };
+  }
+  const ac = runAcSweep(work, options, { start: fmin, stop: fmax, points: perDec, type: "dec" }, [outNode]);
+  if (!ac.ok) return fail(ac.message ?? "AC-Sweep für die PZ-Extraktion fehlgeschlagen.");
+  const mags = ac.mag[outNode] ?? [];
+  const phases = ac.phase[outNode] ?? [];
+  const peak = mags.reduce((m, v) => Math.max(m, v), 0);
+  if (!(peak > 1e-18)) return fail(`Keine Übertragung im Band (${outNode} ≈ 0 V) — keine Pole bestimmbar.`);
+  const H = mags.map((m, i) => {
+    const ph = ((phases[i] ?? 0) * Math.PI) / 180;
+    return { re: (m / peak) * Math.cos(ph), im: (m / peak) * Math.sin(ph) };
+  });
+  const fit = levyFit(ac.freq, H, order);
+  if (!fit) return fail("Rationale Anpassung singulär — Ordnung verringern oder Band prüfen.");
+  const w0 = 2 * Math.PI * Math.sqrt(fmin * fmax);
+  let poles = polyRoots(fit.den).map((r) => ({ real: r.re * w0, imag: r.im * w0 }));
+  let zeros = polyRoots(fit.num).map((r) => ({ real: r.re * w0, imag: r.im * w0 }));
+  // Nahezu koinzidente Pol-/Nullstellen heben sich (Überordnung) — kürzen.
+  let pruned = 0;
+  const keptP: typeof poles = [];
+  const usedZ = new Array(zeros.length).fill(false);
+  for (const p of poles) {
+    const pm = Math.hypot(p.real, p.imag);
+    let best = -1;
+    let bestD = 0.02 * Math.max(pm, 1e-30);
+    for (let j = 0; j < zeros.length; j++) {
+      if (usedZ[j]) continue;
+      const z = zeros[j];
+      const dd = Math.hypot(p.real - z.real, p.imag - z.imag);
+      const tol = 0.02 * Math.max(pm, Math.hypot(z.real, z.imag), 1e-30);
+      if (dd <= tol && dd <= bestD) { best = j; bestD = dd; }
+    }
+    if (best >= 0) { usedZ[best] = true; pruned++; }
+    else keptP.push(p);
+  }
+  poles = keptP;
+  zeros = zeros.filter((_, j) => !usedZ[j]);
+  // Vertrauensband: Wurzeln jenseits von 100·Bandoberkante sind aus
+  // In-Band-Daten nicht bestimmbar (typisch: Schein-Nullstellen bei ±∞ bei
+  // Systemen ohne Durchgriff) — zählen, nicht verschweigen.
+  const wMax = 2 * Math.PI * fmax * 100;
+  let outside = 0;
+  const inside = (r: { real: number; imag: number }) => {
+    const keep = Math.hypot(r.real, r.imag) <= wMax;
+    if (!keep) outside++;
+    return keep;
   };
+  poles = poles.filter(inside);
+  zeros = zeros.filter(inside);
+  const byPos = (a: { real: number; imag: number }, b: { real: number; imag: number }) =>
+    a.real - b.real || Math.abs(a.imag) - Math.abs(b.imag);
+  poles.sort(byPos);
+  zeros.sort(byPos);
+  return { poles, zeros, ok: true, order, fitErrorDb: fit.errDb, pruned, outside, fmin, fmax };
+}
+
+/** Levy-Anpassung: min Σ|D(σ)H − N(σ)|², σ = s/ω0, monisches D. */
+function levyFit(
+  freq: number[],
+  H: Array<{ re: number; im: number }>,
+  order: number,
+): { num: number[]; den: number[]; errDb: number } | null {
+  const n = order;
+  const m = order;
+  const w0 = 2 * Math.PI * Math.sqrt(Math.max(freq[0], 1e-12) * Math.max(freq[freq.length - 1], 1e-12));
+  const rows: number[][] = [];
+  const rhs: number[] = [];
+  for (let k = 0; k < freq.length; k++) {
+    const w = (2 * Math.PI * freq[k]) / w0;
+    // σ^p für σ = j·w (rein imaginär): Potenzen geschlossen.
+    const pw: Array<{ re: number; im: number }> = [{ re: 1, im: 0 }];
+    for (let p = 1; p <= Math.max(m, n); p++) {
+      const q = pw[p - 1];
+      pw.push({ re: -w * q.im, im: w * q.re });
+    }
+    const h = H[k];
+    const rowRe: number[] = [];
+    const rowIm: number[] = [];
+    for (let i = 0; i <= m; i++) { rowRe.push(pw[i].re); rowIm.push(pw[i].im); }
+    for (let j = 0; j < n; j++) {
+      // −H·σ^j
+      rowRe.push(-(h.re * pw[j].re - h.im * pw[j].im));
+      rowIm.push(-(h.re * pw[j].im + h.im * pw[j].re));
+    }
+    rows.push(rowRe, rowIm);
+    rhs.push(h.re * pw[n].re - h.im * pw[n].im, h.re * pw[n].im + h.im * pw[n].re);
+  }
+  // Normalgleichungen (AᵀA)x = Aᵀb mit leichter Tikhonov-Dämpfung.
+  const u = m + 1 + n;
+  const ata = new RealMatrix(u);
+  const atb = new Float64Array(u);
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    const b = rhs[r];
+    for (let i = 0; i < u; i++) {
+      atb[i] += row[i] * b;
+      for (let j = i; j < u; j++) ata.add(i, j, row[i] * row[j]);
+    }
+  }
+  // Untere Hälfte spiegeln (AᵀA ist symmetrisch), Dämpfung, rechte Seite.
+  for (let i = 0; i < u; i++) {
+    for (let j = 0; j < i; j++) ata.add(i, j, ata.a[j * u + i]);
+  }
+  for (let i = 0; i < u; i++) {
+    ata.add(i, i, 1e-9 * (1 + Math.abs(ata.a[i * u + i])));
+    ata.addRhs(i, atb[i]);
+  }
+  const sol = ata.solve();
+  if (!sol) return null;
+  const num = Array.from(sol.slice(0, m + 1));
+  const den = [...Array.from(sol.slice(m + 1, m + 1 + n)), 1];
+  // Anpassungsgüte: RMS der Betragsabweichung in dB (pro Punkt gedeckelt).
+  let acc = 0;
+  let cnt = 0;
+  for (let k = 0; k < freq.length; k++) {
+    const w = (2 * Math.PI * freq[k]) / w0;
+    const ev = (c: number[]) => {
+      let re = 0;
+      let im = 0;
+      let pr = 1;
+      let pi = 0;
+      for (let p = 0; p < c.length; p++) {
+        re += c[p] * pr;
+        im += c[p] * pi;
+        const nr = -w * pi;
+        const ni = w * pr;
+        pr = nr;
+        pi = ni;
+      }
+      return { re, im };
+    };
+    const N = ev(num);
+    const D = ev(den);
+    const dm = D.re * D.re + D.im * D.im;
+    if (!(dm > 1e-300)) continue;
+    const hm = Math.hypot(H[k].re, H[k].im);
+    if (!(hm > 1e-30)) continue;
+    const fm = Math.hypot(N.re, N.im) / Math.sqrt(dm);
+    if (!(fm > 1e-30)) continue;
+    const diff = Math.max(-60, Math.min(60, 20 * Math.log10(fm / hm)));
+    acc += diff * diff;
+    cnt++;
+  }
+  return { num, den, errDb: cnt ? Math.sqrt(acc / cnt) : NaN };
+}
+
+/** Nullstellen eines reellen Polynoms (Koeffizienten aufsteigend), Durand-Kerner. */
+function polyRoots(coeffs: number[]): Array<{ re: number; im: number }> {
+  let deg = coeffs.length - 1;
+  while (deg > 0 && Math.abs(coeffs[deg]) < 1e-300) deg--;
+  if (deg <= 0) return [];
+  const c = coeffs.slice(0, deg + 1).map((v) => v / coeffs[deg]);
+  const roots: Array<{ re: number; im: number }> = [];
+  for (let k = 0; k < deg; k++) {
+    const a = (2 * Math.PI * k) / deg + 0.4;
+    roots.push({ re: 0.4 * Math.cos(a), im: 0.4 * Math.sin(a) });
+  }
+  const evalP = (z: { re: number; im: number }) => {
+    let re = c[deg];
+    let im = 0;
+    for (let p = deg - 1; p >= 0; p--) {
+      const nr = re * z.re - im * z.im + c[p];
+      const ni = re * z.im + im * z.re;
+      re = nr;
+      im = ni;
+    }
+    return { re, im };
+  };
+  for (let it = 0; it < 300; it++) {
+    let worst = 0;
+    for (let k = 0; k < deg; k++) {
+      let dr = 1;
+      let di = 0;
+      for (let j = 0; j < deg; j++) {
+        if (j === k) continue;
+        const ar = roots[k].re - roots[j].re;
+        const ai = roots[k].im - roots[j].im;
+        const nr = dr * ar - di * ai;
+        const ni = dr * ai + di * ar;
+        dr = nr;
+        di = ni;
+      }
+      const dm = dr * dr + di * di;
+      if (!(dm > 1e-300)) continue;
+      const p = evalP(roots[k]);
+      const cr = (p.re * dr + p.im * di) / dm;
+      const ci = (p.im * dr - p.re * di) / dm;
+      roots[k] = { re: roots[k].re - cr, im: roots[k].im - ci };
+      worst = Math.max(worst, Math.hypot(cr, ci));
+    }
+    if (worst < 1e-12) break;
+  }
+  return roots;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1043,4 +1484,67 @@ export function runNoiseFigure(
   // NF = 10*log10(1 + noise/noise_floor) simplified
   const nf = noise.freq.map((_,i)=> 10*Math.log10(1 + (noise.outputNoise?.[i] ?? 0) / 1e-18));
   return { freq: noise.freq, nf, ok: true };
+}
+
+/* ------------------------------------------------------------------ */
+/* S-parameters (two-port, Norton drive, matched load)                  */
+/* ------------------------------------------------------------------ */
+
+export interface SParamResult {
+  freq: number[];
+  s11db: number[];
+  s11ph: number[];
+  s21db: number[];
+  s21ph: number[];
+  z0: number;
+  ok: boolean;
+  message?: string;
+}
+
+/**
+ * Echte Streuparameter: Port 1 wird mit einer Norton-Quelle (1 A in den
+ * Port, Z₀ parallel) angeregt, Port 2 ist mit Z₀ abgeschlossen. Die DC-
+ * Vorspannung bleibt unangetastet (reine AC-Anregung, alle ac-Quellen null).
+ * Mit a1 = Is·√Z₀/2, Is = 1: S11 = 2V1/Z₀ − 1, S21 = 2V2/Z₀.
+ */
+export function runSParams(
+  netlist: Netlist,
+  options: Partial<SimOptions>,
+  sweep: SweepSpec,
+  inNode: string,
+  outNode: string,
+  z0 = 50,
+): SParamResult {
+  const z = Number.isFinite(z0) && z0 > 0 ? z0 : 50;
+  const fail = (message: string): SParamResult =>
+    ({ freq: [], s11db: [], s11ph: [], s21db: [], s21ph: [], z0: z, ok: false, message });
+  const work = cloneNetlist(netlist);
+  for (const d of work.devices) {
+    if (d.source) d.source = { ...d.source, acMag: 0, acPhase: 0 };
+  }
+  const sim = new Simulator(work, options);
+  const op = sim.operatingPoint();
+  if (!op.ok) return fail(op.message ?? "Arbeitspunkt nicht gefunden.");
+  const iIdx = nodeIdx(sim, inNode);
+  const oIdx = nodeIdx(sim, outNode);
+  if (iIdx < 0) return fail(`Eingangsnetz ${inNode} unbekannt.`);
+  if (oIdx < 0) return fail(`Ausgangsnetz ${outNode} unbekannt.`);
+  const out: SParamResult = { freq: [], s11db: [], s11ph: [], s21db: [], s21ph: [], z0: z, ok: true };
+  for (const f of sweepValues(sweep)) {
+    const cm = buildAcMatrix(sim, 2 * Math.PI * f, { a: -1, b: iIdx });
+    acStampG(cm, iIdx, -1, 1 / z, 0);
+    acStampG(cm, oIdx, -1, 1 / z, 0);
+    const sol = cm.solve();
+    if (!sol) return { ...out, ok: false, message: `S-Parameter: singuläre Matrix bei ${f.toPrecision(4)} Hz` };
+    const v1 = { re: sol.re[iIdx], im: sol.im[iIdx] };
+    const v2 = { re: sol.re[oIdx], im: sol.im[oIdx] };
+    const s11 = { re: (2 * v1.re) / z - 1, im: (2 * v1.im) / z };
+    const s21 = { re: (2 * v2.re) / z, im: (2 * v2.im) / z };
+    out.freq.push(f);
+    out.s11db.push(20 * Math.log10(Math.max(Math.hypot(s11.re, s11.im), 1e-18)));
+    out.s11ph.push((Math.atan2(s11.im, s11.re) * 180) / Math.PI);
+    out.s21db.push(20 * Math.log10(Math.max(Math.hypot(s21.re, s21.im), 1e-18)));
+    out.s21ph.push((Math.atan2(s21.im, s21.re) * 180) / Math.PI);
+  }
+  return out;
 }

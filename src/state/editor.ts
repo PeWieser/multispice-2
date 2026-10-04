@@ -294,11 +294,11 @@ export interface EditorState {
   bumpTick: (fps: number) => void;
   loadPreset: (id: string) => void;
   newDocument: () => void;
-  /** W72: Blatt aus der Dateileiste öffnen. */
+  /** W72: Entwurf aus der Dateileiste öffnen. */
   openSheet: (id: string) => void;
-  /** W72: Blattname in der Dateileiste nachführen (Umbenennen im Inspector). */
+  /** W72: Entwurfsname in der Dateileiste nachführen (Umbenennen im Inspector). */
   renameSheet: (id: string, name: string) => void;
-  /** W98c: Reihenfolge der Blätter in der Dateileiste per Drag & Drop ändern. */
+  /** W98c: Reihenfolge der Entwürfe in der Dateileiste per Drag & Drop ändern. */
   reorderSheets: (fromId: string, toId: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
@@ -312,8 +312,9 @@ let logId = 1;
 const now = () => new Date().toLocaleTimeString("de-DE", { hour12: false });
 
 /**
- * W72: Die Dateileiste zeigt die geöffneten Blätter als Reiter. Bis daraus
- * echte Projekte werden, steht hier die Liste der geöffneten Blätter; die
+ * W72: Die Dateileiste zeigt die geöffneten Entwürfe als Reiter. Jeder Reiter
+ * ist ein unabhängiger Entwurf (Sprint-1-Entscheid, keine Blätter); hier steht
+ * die Liste der geöffneten Entwürfe; die
  * Verweise auf die Simulations-Objekte (`engine.doc`, Geräte, Netzprüfung)
  * werden beim Wechsel über `applyDoc` aktualisiert – sonst würde eine
  * umgestellte `useEditor.getState().doc` nicht neu vernetzt.
@@ -325,7 +326,7 @@ export interface SheetEntry {
 }
 export const sheets: SheetEntry[] = [];
 
-/** W72: ein Blatt in den Bearbeitungszustand bringen (inkl. Netzprüfung, Simulation, Geräte). */
+/** W72: einen Entwurf in den Bearbeitungszustand bringen (inkl. Netzprüfung, Simulation, Geräte). */
 export function applyDoc(doc: SchematicDoc, opts: { pushHistory?: boolean } = {}): void {
   const st = useEditor.getState();
   const wasRunning = st.sim.running;
@@ -1710,11 +1711,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   newDocument: () => {
-    // W72: „+" legt ein neues leeres Schaltblatt an und öffnet es als Reiter.
+    // W72: „+" legt einen neuen leeren Entwurf an und öffnet ihn als Reiter.
     engine.running = false;
     clearActiveSaveTarget();
-    // Das offene Blatt bleibt als Reiter erhalten (auch wenn es noch nicht in
-    // der Liste steht) – „+" öffnet ein zusätzliches Blatt, keine Ersetzung.
+    // Der offene Entwurf bleibt als Reiter erhalten (auch wenn er noch nicht in
+    // der Liste steht) – „+" öffnet einen zusätzlichen Entwurf, keine Ersetzung.
     const aktuell = get().doc;
     if (!sheets.some((s2) => s2.id === aktuell.id)) sheets.push({ id: aktuell.id, name: aktuell.name, doc: aktuell });
     const doc = emptyDoc();
@@ -1722,22 +1723,22 @@ export const useEditor = create<EditorState>((set, get) => ({
     sheets.push(entry);
     applyDoc(doc, { pushHistory: true });
     set({ sim: { ...get().sim, running: false } });
-    get().log("ok", `Neues Schaltblatt „${doc.name}“ angelegt`);
+    get().log("ok", `Neuer Entwurf „${doc.name}“ angelegt`);
   },
 
   openSheet: (id) => {
     const entry = sheets.find((s2) => s2.id === id);
     if (!entry) return;
-    // Das aktuelle Blatt behält seinen Stand (inkl. Namen) in der Liste.
+    // Der aktuelle Entwurf behält seinen Stand (inkl. Namen) in der Liste.
     const aktiv = sheets.find((s2) => s2.id === get().doc.id);
     if (aktiv) {
       aktiv.doc = get().doc;
       aktiv.name = get().doc.name || aktiv.name;
     }
     applyDoc(entry.doc, { pushHistory: false });
-    // Undo gehört zum Blatt: Verlauf nicht über Blattgrenzen tragen.
+    // Undo gehört zum Entwurf: Verlauf nicht über Entwurfsgrenzen tragen.
     set({ past: [], future: [] });
-    get().log("info", `Blatt „${entry.name}“ geöffnet`);
+    get().log("info", `Entwurf „${entry.name}“ geöffnet`);
   },
 
   renameSheet: (id, name) => {
@@ -1813,14 +1814,14 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   restoreLocalProject: () => {
-    // W72: Das beim Start geladene Blatt ist der erste Reiter.
+    // W72: Der beim Start geladene Entwurf ist der erste Reiter.
     const first = get().doc;
     if (!sheets.length) sheets.push({ id: first.id, name: first.name, doc: first });
     const stored = loadProjectLocal();
     if (stored) {
       const doc = stored.doc as any;
       if (!Array.isArray(doc.probes)) doc.probes = [];
-      // W72: Der wiederhergestellte Stand ist das erste Blatt in der Dateileiste.
+      // W72: Der wiederhergestellte Stand ist der erste Entwurf in der Dateileiste.
       const restored = stored.doc as SchematicDoc;
       normalizeDocGeometry(restored);
       // W98d: Falls im localStorage noch ein durch das frühere straightenWirePoints

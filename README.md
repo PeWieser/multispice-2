@@ -14,7 +14,7 @@ Typografie und Farbe als Information. Der Maßstab: „Insanely great“ oder ni
 
 ## Funktionen (Auszug)
 
-- **Schematic Capture**: Grid/Snap, Zoom zum Cursor, Rubber-Banding, Auto-Routing (Manhattan + A*), Junctions, Busse, On-/Off-Page-Connectors, ERC mit Zoom-to-Error
+- **Schematic Capture**: Grid/Snap, Zoom zum Cursor, Rubber-Banding, Auto-Routing (Manhattan + A*), Junctions, Busse, On-Page-Connectors (namensgleich = gleiches Netz, pro Tab), ERC mit Zoom-to-Error
 - **Bibliothek**: 400+ kuratierte Bauteile, Command Palette (⌘K), Favoriten, Suche wie „r 10k“, handgezeichnete farbcodierte Symbole
 - **Simulation**: Transientenanalyse im Browser (MNA + Newton-Raphson), OP, AC, Sweep, Monte-Carlo, Rauschen, FFT
 - **Messgeräte**: 4-Kanal-Oszilloskop (OTX2074, mit Messleitungen), Multimeter, Funktionsgenerator FG-2500, Bode-Plotter — live während der Simulation
@@ -27,8 +27,8 @@ Typografie und Farbe als Information. Der Maßstab: „Insanely great“ oder ni
   Projekt-JSON (validiert)
 - **Projekt-Manager**: benannte Snapshots im Browser (öffnen/umbenennen/löschen) plus
   Auto-Save-Arbeitskopie (2 s nach jeder Änderung)
-- **Qualität**: 100+ Circuit-Szenarien als Testmatrix, Importer-Smoke-Tests (`npx tsx scripts/importtest.ts`),
-  TypeScript strict, statischer Export
+- **Qualität**: 101 Circuit-Szenarien als enforced Testmatrix (`npm test`), analytische Analyse-Tests
+  (`scripts/sprint1test.ts`), TypeScript strict, statischer Export
 
 ## Entwickeln
 
@@ -36,6 +36,7 @@ Typografie und Farbe als Information. Der Maßstab: „Insanely great“ oder ni
 npm install
 npm run dev        # http://localhost:3000
 npm run typecheck  # tsc --noEmit
+npm test           # alle Testketten (inkl. 101 Szenarien + Analyse-Regression)
 npm run build      # statischer Export nach out/
 npx serve out      # Build lokal prüfen
 ```

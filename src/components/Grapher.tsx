@@ -828,6 +828,166 @@ export default function Grapher() {
     );
   }
 
+  if (analysis.kind === "tf") {
+    const gain = Number(d.gain);
+    const rin = Number(d.inputResistance);
+    const rout = Number(d.outputResistance);
+    const fmtR = (v: number) => (Number.isFinite(v) ? formatValue(v, "Ω") : "∞");
+    const gainDb = gain !== 0 ? 20 * Math.log10(Math.abs(gain)) : Number.NEGATIVE_INFINITY;
+    return (
+      <div className="flex h-full flex-col">
+        {head("Kleinsignal am DC-Arbeitspunkt", () =>
+          downloadText(`${base}_tf.csv`, ["Kennwert;Wert", `Verstaerkung;${gain}`, `Rin_Ohm;${rin}`, `Rout_Ohm;${rout}`].join("\n"), "text/csv"),
+          false,
+        )}
+        <div className="grid flex-1 grid-cols-3 content-start gap-2 overflow-auto px-3 pb-2">
+          {[
+            { k: "Verstärkung", v: Number.isFinite(gain) ? `× ${gain.toPrecision(4)}` : "–", s: Number.isFinite(gainDb) ? `${gainDb.toFixed(2)} dB` : "–" },
+            { k: "Eingangswiderstand", v: fmtR(rin), s: "an der Quelle" },
+            { k: "Ausgangswiderstand", v: fmtR(rout), s: "Thévenin, Eingang AC-kurz" },
+          ].map((c) => (
+            <div key={c.k} className="rounded-panel border border-hairline bg-surface-2 p-2.5">
+              <div className="text-2xs uppercase tracking-wide text-ink-3">{c.k}</div>
+              <div className="mono mt-1 text-lg font-semibold">{c.v}</div>
+              <div className="mono text-2xs text-ink-3">{c.s}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (analysis.kind === "sensitivity") {
+    const sens = (d.sensitivities as Array<{ device: string; param: string; sensitivity: number }>) ?? [];
+    const mode = String(d.mode ?? (meta as Record<string, unknown>).mode ?? "dc");
+    const freq = Number(d.frequency);
+    return (
+      <div className="flex h-full flex-col">
+        {head(
+          mode === "ac" ? `AC · |H| bei ${formatValue(freq, "Hz")}` : "DC · Arbeitspunkt",
+          () =>
+            downloadText(
+              `${base}_sens.csv`,
+              ["Bauteil;Parameter;Empfindlichkeit", ...sens.map((s) => `${s.device};${s.param};${s.sensitivity}`)].join("\n"),
+              "text/csv",
+            ),
+          false,
+        )}
+        <div className="mono min-h-0 flex-1 overflow-auto px-3 pb-2 text-2xs">
+          <div className="mb-1 text-2xs uppercase text-ink-3">Normierte Empfindlichkeiten (dU/U)/(dp/p)</div>
+          {sens.slice(0, 60).map((s) => (
+            <div key={s.device + s.param} className="flex justify-between gap-2">
+              <span className="text-ink-3">{s.device}.{s.param}</span>
+              <span>{s.sensitivity.toPrecision(4)}</span>
+            </div>
+          ))}
+          {typeof d.autoDrive === "string" && d.autoDrive && (
+            <div className="mt-2 text-ink-3">AC-Anregung: {String(d.autoDrive)} (automatisch, ac = 1).</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (analysis.kind === "pz") {
+    const poles = (d.poles as Array<{ real: number; imag: number }>) ?? [];
+    const zeros = (d.zeros as Array<{ real: number; imag: number }>) ?? [];
+    const all = [...poles, ...zeros];
+    const peak = all.reduce((m, r) => Math.max(m, Math.abs(r.real), Math.abs(r.imag)), 0);
+    const R = peak > 0 ? peak * 1.15 : 1;
+    const X = (v: number) => 150 + (v / R) * 130;
+    const Y = (v: number) => 110 - (v / R) * 90;
+    const fmtS = (r: { real: number; imag: number }) => {
+      const f0 = Math.hypot(r.real, r.imag) / (2 * Math.PI);
+      const s = `${r.real.toPrecision(4)}${r.imag >= 0 ? " + j" : " − j"}${Math.abs(r.imag).toPrecision(4)}`;
+      return `${s}  ·  f₀ ${formatValue(f0, "Hz")}`;
+    };
+    return (
+      <div className="flex h-full flex-col">
+        {head(
+          `Ordnung ${String(d.order ?? "?")} · Anpassung ±${Number(d.fitErrorDb).toPrecision(2)} dB RMS`,
+          () =>
+            downloadText(
+              `${base}_pz.csv`,
+              [
+                "Typ;Real_1_s;Imag_1_s",
+                ...poles.map((p) => `Pol;${p.real};${p.imag}`),
+                ...zeros.map((z) => `Nullstelle;${z.real};${z.imag}`),
+              ].join("\n"),
+              "text/csv",
+            ),
+          false,
+        )}
+        <div className="grid min-h-0 flex-1 grid-cols-[300px_1fr] gap-3 overflow-auto px-3 pb-2">
+          <svg viewBox="0 0 300 220" className="h-auto w-full shrink-0" role="img" aria-label="Pol-Nullstellen-Karte">
+            <rect x="8" y="8" width="284" height="204" rx="8" fill="none" stroke="var(--hairline-strong)" />
+            <line x1={X(-R)} y1={Y(0)} x2={X(R)} y2={Y(0)} stroke="var(--hairline-strong)" />
+            <line x1={X(0)} y1={Y(R)} x2={X(0)} y2={Y(-R)} stroke="var(--hairline-strong)" />
+            <text x={X(R) - 4} y={Y(0) - 6} textAnchor="end" fontSize="9" fill="var(--ink-3)">σ</text>
+            <text x={X(0) + 6} y={Y(R) + 12} fontSize="9" fill="var(--ink-3)">jω</text>
+            {zeros.map((z, i) => (
+              <circle key={`z${i}`} cx={X(z.real)} cy={Y(z.imag)} r="5" fill="none" stroke="var(--ok)" strokeWidth="2" />
+            ))}
+            {poles.map((p, i) => (
+              <g key={`p${i}`} stroke="var(--err)" strokeWidth="2">
+                <line x1={X(p.real) - 5} y1={Y(p.imag) - 5} x2={X(p.real) + 5} y2={Y(p.imag) + 5} />
+                <line x1={X(p.real) - 5} y1={Y(p.imag) + 5} x2={X(p.real) + 5} y2={Y(p.imag) - 5} />
+              </g>
+            ))}
+          </svg>
+          <div className="mono min-w-0 text-2xs">
+            <div className="mb-1 text-2xs uppercase text-ink-3">Pole (×)</div>
+            {poles.length === 0 && <div className="text-ink-3">–</div>}
+            {poles.map((p, i) => (
+              <div key={i} className="truncate">{fmtS(p)}</div>
+            ))}
+            <div className="mb-1 mt-2 text-2xs uppercase text-ink-3">Nullstellen (○)</div>
+            {zeros.length === 0 && <div className="text-ink-3">–</div>}
+            {zeros.map((z, i) => (
+              <div key={i} className="truncate">{fmtS(z)}</div>
+            ))}
+            <div className="mt-2 text-ink-3">
+              {Number(d.pruned) > 0 && <div>Gekürzt (koinzident): {String(d.pruned)}</div>}
+              {Number(d.outside) > 0 && <div>Außerhalb des Vertrauensbands: {String(d.outside)}</div>}
+              <div>Band {formatValue(Number(d.fmin), "Hz")} … {formatValue(Number(d.fmax), "Hz")}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (analysis.kind === "sparams") {
+    const freq = (d.freq as number[]) ?? [];
+    const s11db = (d.s11db as number[]) ?? [];
+    const s11ph = (d.s11ph as number[]) ?? [];
+    const s21db = (d.s21db as number[]) ?? [];
+    const s21ph = (d.s21ph as number[]) ?? [];
+    return (
+      <div className="flex h-full flex-col">
+        {head(`Z₀ = ${formatValue(Number(d.z0), "Ω")} · ${freq.length} Punkte`, () =>
+          downloadText(
+            `${base}_sparam.csv`,
+            toCsv(["f_Hz", "S11_dB", "S11_deg", "S21_dB", "S21_deg"], [freq, s11db, s11ph, s21db, s21ph]),
+            "text/csv",
+          ),
+        )}
+        <div className="px-3"><Legend names={["S11", "S21"]} /></div>
+        <div className="min-h-0 flex-1 px-2 pb-2">
+          <LinePlot
+            panels={[
+              { series: [{ name: "S11", x: freq, y: s11db }, { name: "S21", x: freq, y: s21db }], yLabel: "dB" },
+              { series: [{ name: "S11", x: freq, y: s11ph }, { name: "S21", x: freq, y: s21ph }], yLabel: "°" },
+            ]}
+            xLabel="f (Hz)"
+            logX
+            onCanvas={(c) => (canvasRef.current = c)}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <pre className="mono h-full overflow-auto p-3 text-2xs leading-relaxed text-ink-2">{JSON.stringify(analysis.data, null, 2).slice(0, 8000)}</pre>
   );

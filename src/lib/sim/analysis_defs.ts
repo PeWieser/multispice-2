@@ -294,19 +294,20 @@ export const ANALYSIS_DEFS: AnalysisDef[] = [
     kind: "sensitivity",
     title: "Sensitivitätsanalyse",
     spice: ".sens",
-    hint: "Welche Bauteile beeinflussen Ausgang am meisten? – Unabdingbar für Design.",
+    hint: "Welche Bauteile beeinflussen den Ausgang am meisten? DC: Arbeitspunkt; AC: |H(f)|.",
     fields: [
       { key: "out", kind: "net", label: "Messknoten" },
       { key: "mode", kind: "select", label: "Modus", def: "dc", options: [{ value: "dc", label: "DC" }, { value: "ac", label: "AC" }] },
+      { key: "freq", kind: "number", label: "Frequenz (nur AC-Modus)", unit: "Hz", def: 1000 },
     ],
-    build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], mode: str(v.mode) || "dc" }),
-    validate: (v, ctx) => needNet(v, ctx),
+    build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], mode: str(v.mode) || "dc", frequency: num(v.freq, 1000) }),
+    validate: (v, ctx) => needNet(v, ctx) ?? ((str(v.mode) || "dc") === "ac" ? positive(v, "freq", "Frequenz") : null),
   },
   {
     kind: "tf",
     title: "Transferfunktion",
     spice: ".tf",
-    hint: "Übertragungsfunktion Vout/Vin, Eingangs-/Ausgangswiderstand.",
+    hint: "Kleinsignal-Kennwerte am DC-Arbeitspunkt: Verstärkung, Ein-/Ausgangswiderstand.",
     fields: [
       { key: "out", kind: "net", label: "Ausgangsknoten" },
       { key: "source", kind: "source", label: "Eingangsquelle" },
@@ -318,13 +319,48 @@ export const ANALYSIS_DEFS: AnalysisDef[] = [
     kind: "pz",
     title: "Pol-Nullstellen",
     spice: ".pz",
-    hint: "Pole und Nullstellen der Übertragungsfunktion.",
+    hint: "Pole/Nullstellen aus Anpassung an den AC-Frequenzgang — inkl. Anpassungsgüte.",
     fields: [
       { key: "out", kind: "net", label: "Ausgangsknoten" },
       { key: "source", kind: "source", label: "Eingangsquelle" },
+      { key: "fmin", kind: "number", label: "Startfrequenz", unit: "Hz", def: 10 },
+      { key: "fmax", kind: "number", label: "Stoppfrequenz", unit: "Hz", def: 1e6 },
+      { key: "order", kind: "int", label: "Ordnung", def: 2, min: 1, max: 6 },
     ],
-    build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], sourceId: str(v.source) }),
-    validate: (v, ctx) => needNet(v, ctx) ?? needSource(v, ctx),
+    build: (v) => ({
+      outNode: str(v.out),
+      outputs: [str(v.out)],
+      sourceId: str(v.source),
+      order: Math.round(num(v.order, 2)),
+      sweep: { start: num(v.fmin, 10), stop: num(v.fmax, 1e6), points: 20, type: "dec" as const },
+    }),
+    validate: (v, ctx) => needNet(v, ctx) ?? needSource(v, ctx) ?? positive(v, "fmin", "Startfrequenz") ?? positive(v, "fmax", "Stoppfrequenz"),
+  },
+  {
+    kind: "sparams",
+    title: "S-Parameter",
+    spice: ".sparam",
+    hint: "Streuparameter S11/S21 am Zweitor — Port 1 angeregt, Port 2 mit Z₀ abgeschlossen.",
+    fields: [
+      { key: "in", kind: "net", label: "Eingangsnetz (Port 1)" },
+      { key: "out", kind: "net", label: "Ausgangsnetz (Port 2)" },
+      { key: "fmin", kind: "number", label: "Startfrequenz", unit: "Hz", def: 10 },
+      { key: "fmax", kind: "number", label: "Stoppfrequenz", unit: "Hz", def: 1e6 },
+      { key: "z0", kind: "number", label: "Bezugswiderstand Z₀", unit: "Ω", def: 50 },
+    ],
+    build: (v) => ({
+      outNode: str(v.out),
+      outputs: [str(v.out)],
+      inNode: str(v.in),
+      z0: num(v.z0, 50),
+      sweep: { start: num(v.fmin, 10), stop: num(v.fmax, 1e6), points: 20, type: "dec" as const },
+    }),
+    validate: (v, ctx) => {
+      const i = str(v.in);
+      if (!i) return "Ein Eingangsnetz wählen.";
+      if (!ctx.nets.includes(i)) return `Netz „${i}“ gibt es nicht mehr.`;
+      return needNet(v, ctx) ?? positive(v, "fmin", "Startfrequenz") ?? positive(v, "fmax", "Stoppfrequenz") ?? positive(v, "z0", "Bezugswiderstand Z₀");
+    },
   },
   {
     kind: "noisefigure",
