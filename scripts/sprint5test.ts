@@ -16,6 +16,9 @@ import {
   encodeSharePayload,
   parseShareHash,
 } from "../src/lib/share";
+import { DEFAULT_WIZARD_PARAMS, WIZARDS, buildWizard, calcWizard } from "../src/lib/wizards";
+import { buildNets } from "../src/lib/schematic/model";
+import { runOperatingPoint } from "../src/lib/sim/analyses";
 
 let n = 0;
 const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
@@ -151,6 +154,21 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
   assert.equal(buildShareUrl("https://x.test/app", "abc"), "https://x.test/app#s=abc");
   assert.equal(SHARE_URL_LIMIT, 100_000);
   ok("S5.5 Hash + Limit");
+}
+
+// ---------- S5.6a: Wizard-Builder (extrahiert) bauen + OP-konvergieren ----------
+{
+  assert.equal(WIZARDS.length, 12);
+  for (const wiz of WIZARDS) {
+    const doc = buildWizard(wiz.id, { ...DEFAULT_WIZARD_PARAMS });
+    assert.ok(doc.instances.length > 0, `${wiz.id}: keine Bauteile`);
+    const built = buildNets(doc);
+    assert.ok(built.netlist.devices.length > 0, `${wiz.id}: keine Devices`);
+    const op = runOperatingPoint(built.netlist, {});
+    assert.ok(op.ok, `${wiz.id}: OP divergiert (${op.message ?? "?"})`);
+    assert.ok(calcWizard(wiz.id, { ...DEFAULT_WIZARD_PARAMS }).length > 0, `${wiz.id}: keine Calc-Zeilen`);
+  }
+  ok("S5.6a 12 Wizards bauen + OP-ok");
 }
 
 console.log(`sprint5test: ${n} checks OK`);
