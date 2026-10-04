@@ -12,7 +12,9 @@ export type WizardKind =
   | "555_astable"
   | "bjt_ce"
   | "halfwave"
-  | "buck_converter";
+  | "buck_converter"
+  | "led_resistor"
+  | "schmitt_trigger";
 
 export interface WizardEntry {
   id: WizardKind;
@@ -34,6 +36,8 @@ export const WIZARDS: WizardEntry[] = [
   { id: "bjt_ce", title: "NPN-Emitterverstärker", group: "Grundschaltungen", formula: "A_u ≈ −RC / RE" },
   { id: "halfwave", title: "Einweg-Gleichrichter", group: "Grundschaltungen", formula: "U_dc ≈ U_s − 0,7 V" },
   { id: "buck_converter", title: "Abwärtswandler (Buck)", group: "Grundschaltungen", formula: "U_aus ≈ D · U_ein" },
+  { id: "led_resistor", title: "LED-Vorwiderstand", group: "Grundschaltungen", formula: "R = (U_V − U_F) / I" },
+  { id: "schmitt_trigger", title: "Schmitt-Trigger (invertierend)", group: "Operationsverstärker", formula: "V_th = ±V_sat · R1 / (R1 + R2)" },
 ];
 
 /** Geteilter Eingabe-Parametersatz aller Wizards (jeder nutzt seine Teilmenge). */
@@ -47,6 +51,10 @@ export interface WizardParams {
   c: number;
   l: number;
   duty: number;
+  /** LED-Flussspannung (V) */
+  vf: number;
+  /** LED-Strom (mA) */
+  iled: number;
 }
 
 export const DEFAULT_WIZARD_PARAMS: WizardParams = {
@@ -59,6 +67,8 @@ export const DEFAULT_WIZARD_PARAMS: WizardParams = {
   c: 1e-7,
   l: 1e-3,
   duty: 50,
+  vf: 2,
+  iled: 20,
 };
 
 /** [Name, formatierter Wert]-Zeilen der Dimensionierungs-Vorschau. */

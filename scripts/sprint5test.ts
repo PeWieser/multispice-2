@@ -16,7 +16,7 @@ import {
   encodeSharePayload,
   parseShareHash,
 } from "../src/lib/share";
-import { DEFAULT_WIZARD_PARAMS, WIZARDS, buildWizard, calcWizard } from "../src/lib/wizards";
+import { DEFAULT_WIZARD_PARAMS, WIZARDS, buildWizard, calcWizard, nearestE12 } from "../src/lib/wizards";
 import { buildNets } from "../src/lib/schematic/model";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
 
@@ -53,6 +53,10 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
   assert.equal(formatValue(0.001, ""), "1 m");
   assert.equal(formatValue(0, "V"), "0 V");
   assert.equal(formatValue(NaN, "V"), "—");
+  // S5.6b: keine signifikanten Nullen fressen (150 Ω ≠ 15 Ω)
+  assert.equal(formatValue(150, "Ω"), "150 Ω");
+  assert.equal(formatValue(470, ""), "470");
+  assert.equal(formatValue(100, ""), "100");
   ok("S5.2 format SI");
   // catalog.ts re-exportiert dieselbe Implementierung
   assert.equal(catParse("1M"), 1e6);
@@ -158,7 +162,7 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
 
 // ---------- S5.6a: Wizard-Builder (extrahiert) bauen + OP-konvergieren ----------
 {
-  assert.equal(WIZARDS.length, 12);
+  assert.equal(WIZARDS.length, 14);
   for (const wiz of WIZARDS) {
     const doc = buildWizard(wiz.id, { ...DEFAULT_WIZARD_PARAMS });
     assert.ok(doc.instances.length > 0, `${wiz.id}: keine Bauteile`);
@@ -169,6 +173,46 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
     assert.ok(calcWizard(wiz.id, { ...DEFAULT_WIZARD_PARAMS }).length > 0, `${wiz.id}: keine Calc-Zeilen`);
   }
   ok("S5.6a 12 Wizards bauen + OP-ok");
+}
+
+// ---------- S5.6b: LED-Rechner + Schmitt-Trigger ----------
+{
+  // E12-Normwerte
+  assert.equal(nearestE12(150), 150);
+  assert.equal(nearestE12(149), 150);
+  assert.equal(nearestE12(1000), 1000);
+  assert.equal(nearestE12(5000), 4700);
+  assert.equal(nearestE12(0), 0);
+  assert.equal(nearestE12(-5), 0);
+  ok("S5.6b E12");
+  // LED-Dimensionierung (5 V, 2 V, 20 mA → 150 Ω exakt, E12 150 Ω)
+  const led = calcWizard("led_resistor", { ...DEFAULT_WIZARD_PARAMS });
+  assert.deepEqual(
+    led.map(([k, v]) => [k, v]),
+    [
+      ["Versorgung U_V", "5 V"],
+      ["Flussspannung U_F", "2 V"],
+      ["Strom I", "20 mA"],
+      ["Rechnerisch R", "150Ω"],
+      ["Gewählt (E12)", "150Ω"],
+      ["Verlustleistung R", "60 mW"],
+    ],
+  );
+  // Schmitt-Hysterese (10k/10k an ±15 V → ±6.5 V)
+  const st = calcWizard("schmitt_trigger", { ...DEFAULT_WIZARD_PARAMS });
+  assert.deepEqual(
+    st.map(([k, v]) => [k, v]),
+    [
+      ["Versorgung", "±15 V (fest)"],
+      ["Eingang", "10 V, 100 Hz (fest)"],
+      ["Eingang R1", "10 kΩ"],
+      ["Rückkopplung R2", "10 kΩ"],
+      ["Schaltschwelle Vth+", "+6.50 V"],
+      ["Schaltschwelle Vth−", "−6.50 V"],
+      ["Hysterese", "13.00 V"],
+    ],
+  );
+  ok("S5.6b Calc-Snapshots");
 }
 
 console.log(`sprint5test: ${n} checks OK`);

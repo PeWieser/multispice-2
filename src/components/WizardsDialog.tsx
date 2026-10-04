@@ -76,9 +76,9 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              {(kind === "voltage_divider" || kind === "halfwave" || kind === "buck_converter") && (
+              {(kind === "voltage_divider" || kind === "halfwave" || kind === "buck_converter" || kind === "led_resistor") && (
                 <label className="space-y-1 text-2xs text-ink-2">
-                  <span>Eingangsspannung U_ein (V)</span>
+                  <span>{kind === "led_resistor" ? "Versorgung U_V (V)" : "Eingangsspannung U_ein (V)"}</span>
                   <input
                     className="input mono"
                     type="number"
@@ -156,14 +156,17 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
                 kind === "opamp_noninverter" ||
                 kind === "opamp_inverter" ||
                 kind === "bjt_ce" ||
-                kind === "halfwave") && (
+                kind === "halfwave" ||
+                kind === "schmitt_trigger") && (
                 <label className="space-y-1 text-2xs text-ink-2">
                   <span>
                     {kind === "bjt_ce"
                       ? "Kollektorwiderstand RC (Ω)"
                       : kind === "halfwave"
                         ? "Lastwiderstand RL (Ω)"
-                        : "Widerstand R1 (Ω)"}
+                        : kind === "schmitt_trigger"
+                          ? "Teiler R1 (Ω, → GND)"
+                          : "Widerstand R1 (Ω)"}
                   </span>
                   <input
                     className="input mono"
@@ -174,9 +177,9 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
                 </label>
               )}
 
-              {(kind === "voltage_divider" || kind === "bjt_ce") && (
+              {(kind === "voltage_divider" || kind === "bjt_ce" || kind === "schmitt_trigger") && (
                 <label className="space-y-1 text-2xs text-ink-2">
-                  <span>{kind === "bjt_ce" ? "Emitterwiderstand RE (Ω)" : "Widerstand R2 (Ω)"}</span>
+                  <span>{kind === "bjt_ce" ? "Emitterwiderstand RE (Ω)" : kind === "schmitt_trigger" ? "Rückkopplung R2 (Ω)" : "Widerstand R2 (Ω)"}</span>
                   <input
                     className="input mono"
                     type="number"
@@ -196,6 +199,32 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
                     max={95}
                     value={params.duty}
                     onChange={(e) => setParams({ ...params, duty: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {kind === "led_resistor" && (
+                <label className="space-y-1 text-2xs text-ink-2">
+                  <span>Flussspannung U_F (V)</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    step="0.1"
+                    value={params.vf}
+                    onChange={(e) => setParams({ ...params, vf: Number(e.target.value) })}
+                  />
+                </label>
+              )}
+
+              {kind === "led_resistor" && (
+                <label className="space-y-1 text-2xs text-ink-2">
+                  <span>Strom I (mA)</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    step="1"
+                    value={params.iled}
+                    onChange={(e) => setParams({ ...params, iled: Number(e.target.value) })}
                   />
                 </label>
               )}

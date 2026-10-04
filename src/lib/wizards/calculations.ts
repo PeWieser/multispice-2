@@ -101,10 +101,53 @@ if (kind === "halfwave") {
     ["Lastwiderstand RL", `${formatValue(params.r1)}Ω`],
   ];
 }
+if (kind === "led_resistor") {
+  const i = Math.max(0.1, params.iled) / 1000;
+  const rExact = Math.max(0, (params.vin - params.vf) / i);
+  const rE12 = nearestE12(rExact);
+  const pR = i * i * rE12;
+  return [
+    ["Versorgung U_V", `${params.vin} V`],
+    ["Flussspannung U_F", `${params.vf} V`],
+    ["Strom I", `${params.iled} mA`],
+    ["Rechnerisch R", `${formatValue(rExact)}Ω`],
+    ["Gewählt (E12)", `${formatValue(rE12)}Ω`],
+    ["Verlustleistung R", `${formatValue(pR)}W`],
+  ];
+}
+if (kind === "schmitt_trigger") {
+  const r1 = Math.max(100, params.r1);
+  const r2 = Math.max(100, params.r2);
+  // LM741 an ±15 V sättigt bei ca. ±13 V (Näherung für die Dimensionierung).
+  const vsat = 13;
+  const vth = (vsat * r1) / (r1 + r2);
+  return [
+    ["Versorgung", "±15 V (fest)"],
+    ["Eingang", "10 V, 100 Hz (fest)"],
+    ["Eingang R1", `${formatValue(r1)}Ω`],
+    ["Rückkopplung R2", `${formatValue(r2)}Ω`],
+    ["Schaltschwelle Vth+", `+${vth.toFixed(2)} V`],
+    ["Schaltschwelle Vth−", `−${vth.toFixed(2)} V`],
+    ["Hysterese", `${(2 * vth).toFixed(2)} V`],
+  ];
+}
 return [
   ["Eingangsspannung", `${params.vin} V`],
   ["Tastgrad D", `${params.duty} %`],
   ["Ausgangsspannung", `≈ ${((params.vin * params.duty) / 100).toFixed(1)} V`],
 ];
 
+}
+
+/** Nächster E12-Normwert (1.0, 1.2, 1.5, …, 8.2 × 10er-Potenz). */
+export function nearestE12(r: number): number {
+  if (!(r > 0) || !Number.isFinite(r)) return 0;
+  const e12 = [1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2];
+  const exp = Math.floor(Math.log10(r));
+  const mant = r / Math.pow(10, exp);
+  let best = e12[0];
+  for (const v of e12) {
+    if (Math.abs(v - mant) < Math.abs(best - mant)) best = v;
+  }
+  return best * Math.pow(10, exp);
 }

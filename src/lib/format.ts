@@ -54,7 +54,12 @@ export function formatValue(v: number, unit = "", digits = 3): string {
     [1e-15, "f"],
   ];
   for (const [f, p] of prefixes) {
-    if (a >= f) return `${(v / f).toPrecision(digits).replace(/\.?0+$/, "")} ${p}${unit}`.trim();
+    if (a >= f) {
+      // Nur Nachkomma-Nullen kürzen („150" ist exakt, „4.70" → „4.7").
+      const str = (v / f).toPrecision(digits);
+      const trimmed = str.includes(".") ? str.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "") : str;
+      return `${trimmed} ${p}${unit}`.trim();
+    }
   }
   return `${v.toExponential(2)} ${unit}`.trim();
 }

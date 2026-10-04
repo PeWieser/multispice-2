@@ -2,6 +2,7 @@ import { emptyDoc, type SchematicDoc } from "../schematic/model";
 import { normalizeDocGeometry } from "../schematic/netdraw";
 import { presetById } from "../schematic/tools";
 import { makeInst, makeWire, nid } from "./shared";
+import { nearestE12 } from "./calculations";
 import type { WizardKind, WizardParams } from "./types";
 
 /** S5.6: Schaltungs-Builder — rein, aus WizardsDialog umgezogen. */
@@ -170,6 +171,64 @@ if (kind === "voltage_divider") {
     }
     if (i.label === "RL") i.params.r = Math.max(10, params.r1);
   }
+} else if (kind === "led_resistor") {
+  // S5.6b: V1 → R1(E12) → D1 → GND (Anode links, horizontal).
+  const iLed = Math.max(0.1, params.iled) / 1000;
+  const rExact = Math.max(0, (params.vin - params.vf) / iLed);
+  const rVal = Math.max(1, nearestE12(rExact));
+  doc = emptyDoc("LED-Vorwiderstand");
+  doc.instances.push(
+    makeInst("vdc", "V1", 200, 320, { dc: params.vin }),
+    makeInst("resistor", "R1", 330, 240, { r: rVal }),
+    makeInst("led", "D1", 450, 240, { vf: params.vf, color: "red" }),
+    makeInst("gnd", "GND1", 480, 400),
+    makeInst("gnd", "GND2", 200, 420),
+  );
+  doc.wires.push(
+    makeWire(200, 290, 200, 240, 300, 240),
+    makeWire(360, 240, 420, 240),
+    makeWire(480, 240, 480, 380),
+    makeWire(200, 350, 200, 400),
+  );
+  doc.labels.push(
+    { id: nid("l"), x: 200, y: 240, name: "IN" },
+    { id: nid("l"), x: 390, y: 240, name: "OUT" },
+  );
+} else if (kind === "schmitt_trigger") {
+  // S5.6b: Nichtinvertierender Schmitt-Komparator (LM741, ±15 V):
+  // V1 direkt an IN−, Teiler R2(OUT→IN+)/R1(IN+→GND) setzt Vth = ±Vsat·R1/(R1+R2).
+  // Kreuzungsfrei: IN−-Draht auf y=270, IN+-Netz auf y=250 mit R1 links außen.
+  const r1 = Math.max(100, params.r1);
+  const r2 = Math.max(100, params.r2);
+  doc = emptyDoc("Schmitt-Trigger");
+  doc.instances.push(
+    makeInst("vac", "V1", 200, 300, { amplitude: 10, freq: 100, acMag: 1 }),
+    makeInst("resistor", "R1", 140, 380, { r: r1 }, 90),
+    makeInst("resistor", "R2", 440, 150, { r: r2 }),
+    makeInst("opamp_lm741", "U1", 420, 260),
+    makeInst("vdc", "VP", 660, 130, { dc: 15 }),
+    makeInst("vdc", "VN", 660, 430, { dc: -15 }),
+    makeInst("gnd", "GND1", 200, 400),
+    makeInst("gnd", "GND2", 140, 440),
+    makeInst("gnd", "GND3", 660, 200),
+    makeInst("gnd", "GND4", 660, 500),
+  );
+  doc.wires.push(
+    makeWire(200, 270, 380, 270),
+    makeWire(380, 250, 140, 250, 140, 350),
+    makeWire(380, 250, 380, 150, 410, 150),
+    makeWire(470, 150, 540, 150, 540, 260, 460, 260),
+    makeWire(140, 410, 140, 420),
+    makeWire(200, 330, 200, 380),
+    makeWire(420, 230, 420, 100, 660, 100),
+    makeWire(660, 160, 660, 180),
+    makeWire(420, 290, 420, 400, 660, 400),
+    makeWire(660, 460, 660, 480),
+  );
+  doc.labels.push(
+    { id: nid("l"), x: 200, y: 270, name: "IN" },
+    { id: nid("l"), x: 540, y: 260, name: "OUT" },
+  );
 } else {
   doc = presetById("buck")!.build();
   doc.name = "Abwärtswandler (Buck)";
