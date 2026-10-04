@@ -6125,6 +6125,24 @@ add({
   toDevices: () => [],
 });
 
+/* ---------------- S5.6c · Beschreibungsbox (Dokumentation, pinlos) ---------------- */
+add({
+  id: "descbox",
+  name: "Beschreibungsbox",
+  ref: "TB",
+  category: "Dokumentation",
+  tags: ["notiz", "text", "beschreibung", "dokumentation", "live", "messwert"],
+  description: "Textkasten für die Doku: {V(NETZ)}, {I(BAUTEIL)} und {P(BAUTEIL)} werden im Betrieb durch echte Messwerte ersetzt. Keine Stücklisten-Position.",
+  mount: "virtual",
+  pins: [],
+  symbol: [RECT(-90, -40, 180, 80, 6)],
+  params: [
+    { key: "text", label: "Text", type: "text", def: "Ausgang: {V(OUT)}" },
+    { key: "size", label: "Schriftgröße", type: "number", def: 11 },
+  ],
+  toDevices: () => [],
+});
+
 /* ---------------- S3.1 · Bus-Tap & Bus-Splitter ----------------
  * Elektrisches Modell (ehrlich, s. DESIGN): Die Bus-Leitung ist ein rein
  * visuelles Bündel + Deklaration. Elektrisch wirken NUR Tap/Splitter per

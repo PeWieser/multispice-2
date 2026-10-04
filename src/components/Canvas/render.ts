@@ -6,6 +6,7 @@ import { LEGACY_PROBE_COLORS, PROBE_CSSVAR } from "@/lib/probe-style";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { canvasColor } from "@/lib/canvas-theme";
 import { hexAlpha, roundRect } from "./geometry";
+import { resolveLiveText } from "@/lib/descbox";
 import { nearestNetName } from "./hitTest";
 
 export function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selected:boolean, zoom:number, live:any, netResult:any, netCurrentMap:Map<string,number>) {
@@ -404,8 +405,67 @@ export function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe
   ctx.restore();
 }
 
+/**
+ * S5.6c: Beschreibungsbox-Karte — Notizkarten-Look (W117), aber Petrol-Akzent
+ * und Live-Platzhalter ({V(OUT)} …). Rotation wird ignoriert (Doku-Kasten);
+ * die Trefferbox bleibt das Symbol-Rechteck (180×80, min. Kartengröße).
+ */
+export function drawDescBox(ctx: CanvasRenderingContext2D, inst: Instance, selected:boolean, zoom:number, live:any) {
+  const textDef = String(PART_MAP["descbox"]?.params.find((p) => p.key === "text")?.def ?? "");
+  const sizeDef = Number(PART_MAP["descbox"]?.params.find((p) => p.key === "size")?.def ?? 11);
+  const sz = Math.max(8, Math.min(24, Number(inst.params.size ?? sizeDef)));
+  const lines = resolveLiveText(String(inst.params.text ?? textDef), live).split(/\r?\n/);
+  const lineH = sz + 5;
+  ctx.save();
+  ctx.textAlign = "left";
+  ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
+  let maxTw = 48;
+  for (const ln of lines) {
+    const wLn = ctx.measureText(ln).width;
+    if (wLn > maxTw) maxTw = wLn;
+  }
+  const cardW = Math.max(180, Math.ceil(maxTw + 24));
+  const cardH = Math.max(80, 18 + lines.length * lineH + 8);
+  const cardX = inst.x - cardW / 2;
+  const cardY = inst.y - cardH / 2;
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.24)";
+  roundRect(ctx, cardX + 1.5, cardY + 2, cardW, cardH, 6);
+  ctx.fill();
+
+  ctx.fillStyle = canvasColor("--surface");
+  roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+  ctx.clip();
+  ctx.fillStyle = canvasColor("--teal");
+  ctx.fillRect(cardX, cardY, 3.5, cardH);
+  ctx.restore();
+
+  ctx.strokeStyle = selected ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
+  ctx.lineWidth = (selected ? 1.8 : 1.1) / Math.max(zoom, 0.35);
+  roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+  ctx.stroke();
+
+  ctx.font = "700 8px ui-monospace, monospace";
+  ctx.fillStyle = canvasColor("--teal");
+  ctx.fillText("INFO", cardX + 10, cardY + 11);
+
+  ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
+  ctx.fillStyle = canvasColor("--ink");
+  for (let li = 0; li < lines.length; li++) {
+    ctx.fillText(lines[li], cardX + 10, cardY + 16 + (li + 1) * lineH - 4);
+  }
+  ctx.restore();
+}
+
 export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:boolean, zoom:number, live:any) {
   const part=PART_MAP[inst.partId]; if (!part) return;
+  // S5.6c: Beschreibungsbox rendert eine eigene Karte (kein Symbol/Label darunter).
+  if (inst.partId === "descbox") { drawDescBox(ctx, inst, selected, zoom, live); return; }
   // ISO/ANSI symbol style – auto by browser locale (DE -> IEC rectangle, US -> ANSI zigzag)
   let sym = part.symbol;
   try {

@@ -17,7 +17,9 @@ import {
   parseShareHash,
 } from "../src/lib/share";
 import { DEFAULT_WIZARD_PARAMS, WIZARDS, buildWizard, calcWizard, nearestE12 } from "../src/lib/wizards";
-import { buildNets } from "../src/lib/schematic/model";
+import { buildNets, emptyDoc } from "../src/lib/schematic/model";
+import { PART_MAP } from "../src/lib/library/catalog";
+import { resolveLiveText } from "../src/lib/descbox";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
 
 let n = 0;
@@ -213,6 +215,30 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
     ],
   );
   ok("S5.6b Calc-Snapshots");
+}
+
+// ---------- S5.6c: Beschreibungsbox ----------
+{
+  const live = { nets: { OUT: 3.3, IN: 5 }, currents: { R1: 0.02 }, power: { R1: 0.04 } };
+  assert.equal(resolveLiveText("Ausgang: {V(OUT)}", live), "Ausgang: 3.3 V");
+  assert.equal(resolveLiveText("{V(IN)} → {I(R1)} / {P(R1)}", live), "5 V → 20 mA / 40 mW");
+  assert.equal(resolveLiveText("{V(XX)}", live), "—");
+  assert.equal(resolveLiveText("{I(XX)}", live), "—");
+  assert.equal(resolveLiveText("{V(OUT)}", null), "—");
+  assert.equal(resolveLiveText("kein {Platzhalter} hier {V( offen", live), "kein {Platzhalter} hier {V( offen");
+  assert.equal(resolveLiveText("a{V( OUT )}b", live), "a3.3 Vb");
+  ok("S5.6c Live-Platzhalter");
+  // Bauteil registriert, pinlos, baut fehlerfrei (kein Device)
+  const part = PART_MAP["descbox"];
+  assert.ok(part, "descbox fehlt im Katalog");
+  assert.equal(part.pins.length, 0);
+  assert.deepEqual(part.toDevices({} as never, {} as never), []);
+  const doc = emptyDoc("box");
+  doc.instances.push({ id: "tb1", partId: "descbox", label: "TB1", x: 0, y: 0, rot: 0, params: { text: "U={V(OUT)}" } });
+  const built = buildNets(doc);
+  assert.deepEqual(built.errors, []);
+  assert.equal(built.netlist.devices.length, 0);
+  ok("S5.6c Bauteil + Build");
 }
 
 console.log(`sprint5test: ${n} checks OK`);
