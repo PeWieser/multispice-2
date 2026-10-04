@@ -10,9 +10,13 @@ import {
   SimOptions,
   Simulator,
   depletionCap,
+  meyerCaps,
+  mosCoxWL,
   sourceValue,
   tempScaledBF,
   tempScaledIS,
+  tempScaledKP,
+  tempScaledVTO,
 } from "./engine";
 import { fourier, spectrum } from "./fft";
 
@@ -487,12 +491,16 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
         const nd = nodeIdx(sim, d.nodes[0]);
         const ng = nodeIdx(sim, d.nodes[1]);
         const ns = nodeIdx(sim, d.nodes[2]);
-        const kp = par(d, "kp", 2e-5);
+        // S4.3: temperaturskaliert + Meyer wie im DC-Kern (Helfer teilen).
+        const tempC = sim.options.temperature;
+        const tnomM = par(d, "tnom", 27);
+        const kp = tempScaledKP(par(d, "kp", 2e-5), tempC, tnomM, par(d, "bex", 0));
         const w = par(d, "w", 1e-4);
         const l = par(d, "l", 1e-5);
         const beta = (kp * w) / l;
         const vgs = st.vprev[0];
-        const vth = Math.abs(par(d, "vto", 2));
+        const vds = st.vprev[1];
+        const vth = Math.abs(tempScaledVTO(par(d, "vto", 2), tempC, tnomM, par(d, "tcv", 0)));
         const vov = Math.max(vgs - vth, 0);
         const gm = beta * vov;
         const gds = Math.max(0.5 * beta * vov * vov * par(d, "lambda", 0.02), 1e-9);
@@ -501,8 +509,9 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
         if (ns >= 0 && ng >= 0) cm.add(ns, ng, -gm, 0);
         if (ns >= 0) cm.add(ns, ns, gm, 0);
         acStampG(cm, nd, ns, gds, 0);
-        acStampG(cm, ng, ns, 0, omega * par(d, "cgs", 5e-12));
-        acStampG(cm, ng, nd, 0, omega * par(d, "cgd", 2e-12));
+        const [mgs, mgd] = meyerCaps(mosCoxWL(w, l, par(d, "tox", 0)), vgs - vth, Math.abs(vds), vds < 0);
+        acStampG(cm, ng, ns, 0, omega * (par(d, "cgs", 5e-12) + par(d, "cgso", 0) * w + mgs));
+        acStampG(cm, ng, nd, 0, omega * (par(d, "cgd", 2e-12) + par(d, "cgdo", 0) * w + mgd));
         break;
       }
       case "J": {

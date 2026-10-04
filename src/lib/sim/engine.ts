@@ -338,6 +338,31 @@ export function tempScaledKP(kp: number, tempC: number, tnomC: number, bex: numb
   return kp * Math.pow(t / t0, -bex);
 }
 
+/** S4.3: Oxidkapazität W·L·εox/TOX (TOX = 0 → Meyer aus). */
+export function mosCoxWL(w: number, l: number, tox: number): number {
+  return tox > 0 && w > 0 && l > 0 ? ((3.453e-11 / tox) * w * l) : 0;
+}
+
+/**
+ * S4.3: Meyer-Kapazitäten [CGS, CGD] aus Arbeitspunkt-Bereich.
+ * Cutoff 0/0, linear Cox/2 je, Sättigung 2Cox/3 + 0 (vertauscht bei VDS < 0).
+ * Intrinsisch, addiert sich auf feste CGS/CGD-Params + CGSO/CGDO-Überlapp.
+ */
+export function meyerCaps(coxWL: number, vov: number, vdsA: number, reverse: boolean): [number, number] {
+  let cgs = 0;
+  let cgd = 0;
+  if (coxWL > 0 && vov > 0) {
+    if (vdsA < vov) {
+      cgs = 0.5 * coxWL;
+      cgd = 0.5 * coxWL;
+    } else {
+      cgs = (2 / 3) * coxWL;
+      cgd = 0;
+    }
+  }
+  return reverse ? [cgd, cgs] : [cgs, cgd];
+}
+
 /** SPICE-Sperrschichtkapazität mit FC-Depletion-Grenze (MJ = 0 → fix C0). */
 export function depletionCap(c0: number, vd: number, vj: number, mj: number, fc: number): number {
   if (!(c0 > 0)) return 0;
@@ -1092,11 +1117,13 @@ export class Simulator {
           const ng = this.idx(d.nodes[1]);
           const ns = this.idx(d.nodes[2]);
           const pmos = p(d, "pmos", 0) > 0.5 ? -1 : 1;
-          const kp = p(d, "kp", 2e-5);
+          // S4.3: KP/VTO temperaturskaliert (Engine-Defaults 0 = SPICE L1 ohne Temp).
+          const tnomM = p(d, "tnom", 27);
+          const kp = tempScaledKP(p(d, "kp", 2e-5), ctx.temp, tnomM, p(d, "bex", 0));
           const w = p(d, "w", 1e-4);
           const l = p(d, "l", 1e-5);
           const beta = (kp * w) / l;
-          const vto = p(d, "vto", 2) * pmos;
+          const vto = tempScaledVTO(p(d, "vto", 2), ctx.temp, tnomM, p(d, "tcv", 0)) * pmos;
           const lambda = p(d, "lambda", 0.02);
           const vgsRaw = pmos * (this.vOf(ng) - this.vOf(ns));
           const vdsRaw = pmos * (this.vOf(nd) - this.vOf(ns));
@@ -1140,8 +1167,10 @@ export class Simulator {
           this.stampCurrent(m, nd, ns, pmos * ieq);
           st.extra!.id = pmos * id;
           if (ctx.transient) {
-            const cgs = p(d, "cgs", 5e-12);
-            const cgd = p(d, "cgd", 2e-12);
+            // S4.3: fix + Überlapp (CGSO/CGDO·W) + Meyer intrinsisch (TOX > 0).
+            const [mgs, mgd] = meyerCaps(mosCoxWL(w, l, p(d, "tox", 0)), vov, vdsA, reverse);
+            const cgs = p(d, "cgs", 5e-12) + p(d, "cgso", 0) * w + mgs;
+            const cgd = p(d, "cgd", 2e-12) + p(d, "cgdo", 0) * w + mgd;
             const { a0 } = this.integrationCoeffs(ctx.dt);
             const g1 = a0 * cgs;
             const g2 = a0 * cgd;
