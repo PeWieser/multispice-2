@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: Sprint 3 läuft (seit 2026-10-04). Details im Audit-Protokoll (§44).
+> Stand: Sprint 3 abgeschlossen (2026-10-04). Details im Audit-Protokoll (§44).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -70,7 +70,7 @@ Ziel: Die App fühlt sich an wie Hardware, nicht wie eine Webseite.
 - Verifikation: `tsc` ✅, `eslint` ✅, `npm test` ✅ (260 PASS);
   `next build` nur Google-Fonts-Fetch (Sandbox offline, pre-existing).
 
-## Sprint 3 — Struktur (läuft)
+## Sprint 3 — Struktur (✅ abgeschlossen 2026-10-04)
 
 Ziel: Multisim-Parität im Aufbau großer Entwürfe.
 
@@ -78,15 +78,30 @@ Ziel: Multisim-Parität im Aufbau großer Entwürfe.
       unabhängige Entwürfe — UI-Texte umbenannt („Entwurf/Entwürfe"),
       toter `SheetTabs`-Duplikat gelöscht, `offpage_connector`-Ast aus
       `buildNets` entfernt (kein blattübergreifend, kein Off-Page-Bauteil)
-- [ ] S3.1 Busse voll (User-Entscheid): Tap/Splitter, dynamische Pins, Deklaration + Validierung
-- [ ] S3.2 Custom-Parts = Hierarchie (User-Entscheid): „Auswahl als Bauteil", exaktes Mapping, Limits-Doku
-- [ ] S3.3 Re-Annotate (Leserichtung, undo-fähig)
-- [ ] S3.4 Pin-Typen + dokumentierter ERC-Regelsatz
-- [ ] S3.5 KiCad-Import (`.kicad_sch`) + SPICE-Coverage (E/G/F/H/J)
-- [ ] S3.6 E/G/F/H-Bauteile verifizieren + testen (de facto vorhanden)
-- [ ] Tests + Verifikation (tsc/eslint/test/build)
+- [x] S3.1 Busse voll (User-Entscheid): Tap/Splitter, dynamische Pins, Deklaration + Validierung
+- [x] S3.2 Custom-Parts = Hierarchie (User-Entscheid): „Auswahl als Bauteil", exaktes Mapping, Limits-Doku
+- [x] S3.3 Re-Annotate (Leserichtung, undo-fähig)
+- [x] S3.4 Pin-Typen + dokumentierter ERC-Regelsatz
+- [x] S3.5 KiCad-Import (`.kicad_sch`) + SPICE-Coverage (E/G/F/H/J)
+- [x] S3.6 E/G/F/H-Bauteile verifizieren + testen (de facto vorhanden)
+- [x] Tests + Verifikation (tsc/eslint/test/build)
 
-**Gemacht:** (wird nach Abschluss eingetragen)
+**Gemacht:**
+- Bus-Tap + Bus-Splitter (2/4/8/16 Bit, dynamische Pins) per Namensbindung
+  (`D[3]`); Bus-Draht leitet nicht (dick violett + Schild); Breiten-Prüfung.
+- „Auswahl als Bauteil…" (`extractSelectionAsPart`): exakte Ports, GND
+  global, Fehler statt Stillem, kein Nesting.
+- „Referenzen neu nummerieren" (Bearbeiten-Menü): pro Präfix leserichtig
+  ab 1, freie Namen bleiben, Undo-fähig.
+- ERC E1–E4 + Pin-Typen; kalibriert (MCU = GPIO/passiv); alle 8 Vorlagen
+  ERC-still (555-CTRL 10 n, Zähler-RST→GND); W98d grün.
+- `.kicad_sch`-Minimal-Parser (Drehungs-Suche, Pin-Snap, ehrliche Limits);
+  SPICE E→vcvs, G→vccs, F→cccs, H→ccvs, J→jfet (+ Modell-Heuristiken).
+- Router-Fix: keine geteilten Knicke zwischen Netzen (stiller Kurzschluss
+  behoben); W61-Lücke als Known Limit mit Warnung (Sprint-5-Kandidat).
+- E/G/F/H-Abbildung verifiziert (E-Folger 1 V → 2 V im OP-Test).
+- Bonus-Fix: `newDocument` schrieb Entwurf nicht zurück (Datenverlust).
+- `scripts/sprint3test.ts`: 41 Checks, alle grün, in `npm test` verdrahtet.
 
 ## Sprint 4 — Modelle (offen, laufend)
 
