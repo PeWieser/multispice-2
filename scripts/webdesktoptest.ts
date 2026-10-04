@@ -5,7 +5,14 @@
  */
 import { strict as assert } from "node:assert";
 import { createRequire } from "node:module";
-import { createSyncDedupe, withSyncNonce } from "../src/lib/desktopSync";
+import {
+  applyChildMessageToMain,
+  createSyncDedupe,
+  setDocParamSynced,
+  setLeadArmedSynced,
+  withSyncNonce,
+} from "../src/lib/desktopSync";
+import { useEditor } from "../src/state/editor";
 import { downloadBlob } from "../src/lib/download";
 import { emptyDoc } from "../src/lib/schematic/model";
 import { getActiveDesktopFilePath, loadProjectLocal } from "../src/lib/storage";
@@ -109,6 +116,65 @@ async function main() {
     clearWindow();
     assert.equal(got, "multispice-open-file");
     ok("WDA-2 Öffnen-Event");
+  }
+
+
+  // ---------- Okt-26: Geräte-Sync Kind→Haupt ----------
+  {
+    // Empfänger (rein): gültig/ungültig/unbekannt
+    const calls: Array<{ fn: string; arg: unknown }> = [];
+    const fake = {
+      setLeadArmed: (a: unknown) => calls.push({ fn: "lead", arg: a }),
+      setParam: (id: string, key: string, v: unknown) => calls.push({ fn: "param", arg: [id, key, v] }),
+    };
+    assert.equal(applyChildMessageToMain(fake, { type: "arm-lead", lead: { instanceId: "i1", pinIndex: 2, name: "CH3", color: "red", hack: 1 } }), true);
+    assert.deepEqual(calls[0], { fn: "lead", arg: { instanceId: "i1", pinIndex: 2, name: "CH3", color: "red" } });
+    assert.equal(applyChildMessageToMain(fake, { type: "arm-lead", lead: { instanceId: "i1" } }), false);
+    assert.equal(applyChildMessageToMain(fake, { type: "disarm-lead" }), true);
+    assert.deepEqual(calls[1], { fn: "lead", arg: null });
+    assert.equal(applyChildMessageToMain(fake, { type: "set-doc-param", instanceId: "i1", key: "fgstate", value: "{}" }), true);
+    assert.deepEqual(calls[2], { fn: "param", arg: ["i1", "fgstate", "{}"] });
+    assert.equal(applyChildMessageToMain(fake, { type: "set-doc-param", instanceId: "i1", key: "x", value: { o: 1 } }), false);
+    assert.equal(applyChildMessageToMain(fake, { type: "pick-part", partId: "r" }), false);
+    ok("Okt-26 Kind→Haupt-Empfänger");
+  }
+  {
+    // Sender: Hauptrolle schweigt, Kindrolle spiegelt (mit Nonce)
+    const sent: unknown[] = [];
+    setWindow({
+      location: { search: "" },
+      multispiceDesktop: { sendSync: (m: unknown) => sent.push(m) },
+    });
+    setLeadArmedSynced({ instanceId: "i9", pinIndex: 0 });
+    assert.equal(useEditor.getState().leadArmed?.instanceId, "i9");
+    assert.equal(sent.length, 0);
+    useEditor.getState().setLeadArmed(null);
+    setWindow({
+      location: { search: "?desktopWindow=instrument&winId=inst_1" },
+      multispiceDesktop: { sendSync: (m: unknown) => sent.push(m) },
+    });
+    setLeadArmedSynced({ instanceId: "i9", pinIndex: 1, name: "CH2", color: "yellow" });
+    assert.equal(sent.length, 1);
+    const arm = sent[0] as Record<string, unknown>;
+    assert.equal(arm["type"], "arm-lead");
+    assert.equal(typeof arm["__nonce"], "string");
+    assert.deepEqual(arm["lead"], { instanceId: "i9", pinIndex: 1, name: "CH2", color: "yellow" });
+    setLeadArmedSynced(null);
+    assert.equal((sent[1] as Record<string, unknown>)["type"], "disarm-lead");
+    useEditor.getState().setLeadArmed(null);
+    // Doc-Param: lokal + gespiegelt
+    const doc = emptyDoc("sync");
+    doc.instances.push({ id: "c1", partId: "clockgen", label: "C1", x: 0, y: 0, rot: 0, params: { freq: 1000 } } as never);
+    useEditor.setState({ doc });
+    setDocParamSynced("c1", "freq", 2000);
+    assert.equal(useEditor.getState().doc.instances.find((i) => i.id === "c1")?.params.freq, 2000);
+    const sp = sent[sent.length - 1] as Record<string, unknown>;
+    assert.equal(sp["type"], "set-doc-param");
+    assert.equal(sp["instanceId"], "c1");
+    assert.equal(sp["key"], "freq");
+    assert.equal(sp["value"], 2000);
+    clearWindow();
+    ok("Okt-26 Kind→Haupt-Sender");
   }
 
   console.log(`webdesktoptest: ${n} checks OK`);

@@ -20,6 +20,7 @@ import { CH_COLORS, clamp, defaultSettings, type ChannelSettings, type Env, type
 import { PLUG_CURSOR } from "@/components/cursors";
 import { engine as simEngine, useEditor, type InstrumentWindow } from "@/state/editor";
 import { DeviceFit, useReportNatural } from "./DeviceFit";
+import { setLeadArmedSynced } from "@/lib/desktopSync";
 import { BENCH_PAD } from "@/lib/windows/geometry";
 import { LeadBanner } from "./LeadBanner";
 
@@ -177,12 +178,12 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
       const st = useEditor.getState();
       const cur = st.leadArmed;
       if (cur && cur.instanceId === instId && cur.pinIndex === k) {
-        st.setLeadArmed(null); // zurück auf die BNC → Messung laut Verdrahtung
+        setLeadArmedSynced(null); // zurück auf die BNC → Messung laut Verdrahtung
         return;
       }
       setParked((p) => p.map((v, i) => (i === k ? null : v))); // von ⎍/⏚ abziehen
       click('plug');
-      st.setLeadArmed({ instanceId: instId, pinIndex: k, name: `CH${k + 1}`, color: CH_COLORS[k] });
+      setLeadArmedSynced({ instanceId: instId, pinIndex: k, name: `CH${k + 1}`, color: CH_COLORS[k] });
     },
     [win.instanceId],
   );
@@ -193,7 +194,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
       if (!cur || cur.instanceId !== win.instanceId || (id !== "comp" && id !== "gnd")) return;
       setParked((p) => p.map((v, i) => (i === cur.pinIndex ? id : v)));
       click('plug');
-      st.setLeadArmed(null);
+      setLeadArmedSynced(null);
     },
     [win.instanceId],
   );
@@ -290,7 +291,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
           color={CH_COLORS[held]}
           title={`Tastkopf CH${held + 1} in der Hand –`}
           hint="klicke auf eine Leitung oder einen Pin im Schaltplan (die Messleitung wird hingelegt), auf die Klemmen ⎍/⏚ am Gerät oder zurück auf die BNC-Buchse."
-          onCancel={() => useEditor.getState().setLeadArmed(null)}
+          onCancel={() => setLeadArmedSynced(null)}
         />
       )}
       <div

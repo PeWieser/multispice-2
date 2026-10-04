@@ -69,7 +69,11 @@ export const CORNER_ROT: Record<Corner, number> = { nw: 180, ne: 90, sw: 270, se
  * Position („Aufblitzen" nach dem Loslassen, Befund Runde 20).
  */
 export function Window({ win }: { win: InstrumentWindow }) {
-  const { updateInstrument, closeInstrument, focusInstrument } = useEditor();
+  // Okt-26: Gezielte Selektoren statt Voll-Abo — vorher renderte jedes Fenster
+  // bei JEDEM Store-Update neu (auch Tastatur/Realtime), was Flackern begünstigt.
+  const updateInstrument = useEditor((s) => s.updateInstrument);
+  const closeInstrument = useEditor((s) => s.closeInstrument);
+  const focusInstrument = useEditor((s) => s.focusInstrument);
   const winRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [measure, setMeasure] = useState<NaturalMeasure | null>(null);

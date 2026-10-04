@@ -11,6 +11,21 @@ export function getNetObstacles(doc: SchematicDoc): Array<{ x: number; y: number
   });
 }
 
+/** Alle Pin-Positionen aller Bauteile — das Routing kreuzt keinen davon. */
+export function getNetPinPoints(doc: SchematicDoc): Pt[] {
+  const out: Pt[] = [];
+  for (const inst of doc.instances) {
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    const pins = partPins(part, inst.params);
+    for (let i = 0; i < pins.length; i++) {
+      const p = pinPosition(inst, i);
+      out.push({ x: p.x, y: p.y });
+    }
+  }
+  return out;
+}
+
 export function hitTestLabel(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").NetLabel | null {
   for (let i = doc.labels.length - 1; i >= 0; i--) {
     const l = doc.labels[i];

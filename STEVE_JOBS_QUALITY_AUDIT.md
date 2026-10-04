@@ -3416,3 +3416,19 @@ abgesichert (`scripts/webdesktoptest.ts`, 5 Checks, in `npm test`).
 Nebenbei: zwei nachträgliche tsc-Fehler in Testskripten gefixt
 (S5.8-`as never`, S5.9-Junction-`id`) — Lehre: `tsc` läuft ab sofort auch
 *nach* jeder Test-Editierung, nicht nur davor.
+
+## §48 · Detailrunde Nutzerwünsche (2026-10-04)
+
+Sieben Punkte aus der Nutzerbeobachtung — geprüft, sechs gefixt, einer braucht
+eine Rückfrage. Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(wiretest 139 PASS inkl. 9 neuer Routing-Checks, webdesktoptest 7 Checks).
+
+| # | Punkt | Ergebnis |
+|---|-------|----------|
+| 1 | Menüpunkte flackern beim Drüberfahren | GEFIXT. Ursache: `.rise`-Animation spielte bei jedem Hover-Wechsel zwischen offenen Menüs neu. `Menu` kennt jetzt `instant` (Menüleiste setzt es bei Hover-/Pfeil-/Klick-Wechsel). |
+| 2 | Stift-/Radiergummi-Cursor billig | NEU GEZEICHNET (`cursors.ts`): technischer Stift (Schwarz/Akzentrille, Metallkonus), Radiergummi (Elfenbein/Blau, dezent geneigt), beide mit hellem Saum für dunkle Flächen. Hotspots unverändert an Spitze/Vorderkante. |
+| 3 | Kein Begrüßungswizard bei neuem Dokument | ENTFERNT. `EmptyCanvas` („Leerer Schaltplan / Widerstand platzieren“) gelöscht; neues Dokument = blanker Canvas. (Damit auch die falsche US-Zickzack-Darstellung weg.) |
+| 4 | Fenster blitzt nach Verschieben an alter Position | TEILFIX + RÜCKFRAGE. Beide Drag-Implementierungen sind bereits gehärtet (DOM-Direktschrieb + Commit); statisch nicht reproduzierbar. Gefixt: `Window` nutzte ein Voll-Store-Abo (jedes Fenster renderte bei jedem Store-Update neu). Frage: welches Fenster (Gerät/Bibliothek), welcher Browser? |
+| 5 | Desktop: Oszi/FG ohne Ein-/Ausgang, keine Messleitungen | GEFIXT. Drei Lücken: (a) `leadArmed` lebte nur im Kind-Store → neue Nachrichten `arm-lead`/`disarm-lead`, Haupt-Canvas legt die Leitung; (b) `leadArmed` jetzt im State-Snapshot (Platzieren/Abbrechen entwaffnet auch das Kind-Banner); (c) `set-doc-param` spiegelt FG-Zustand + Quellen-Parameter (Takt/Puls) ins Haupt-Doc, sonst simulierte die Engine veraltete Werte. Empfänger als reine Funktion (`applyChildMessageToMain`) + Sender-Verträge getestet. |
+| 6 | Leitungen: kürzeste freie Route, live, keine Pin-/Bauteil-Kreuzung | GEFIXT. Pins sind jetzt Hindernisse (A* mit ±4-px-Pad — bei 24-px-Raster bleibt ein Korridor; Start-/Zielpin ausgenommen/erreichbar); A* läuft immer wenn beide L-Knicks blockiert sind (vorher nur ohne Ecken); manuelle Ecken bleiben Fixpunkte (Vorschau-Knick wird beim Klick übernommen wie bisher). 9 neue Checks. |
+| 7 | Portable startet nicht (nichts beim Doppelklick) | GEFIXT (statisch; CI baut). Hauptverdacht bestätigt: .NET-Framework-`ZipArchive` versteht keine SFX-vorangestellten Daten + Trailer → „Central Directory corrupt“ → stiller Close. Jetzt: `SubStream`-Hülle (exakte Zip-Bytes), Fehler-Log (`%TEMP%\MultiSpice-Portable.log`), sichtbare Fehlermeldung statt stillem Verschwinden, Sofort-Absturz-Erkennung (Exit-Code). |

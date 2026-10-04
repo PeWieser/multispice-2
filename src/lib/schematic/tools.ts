@@ -49,14 +49,21 @@ function segHits(a: Pt, b: Pt, boxes: Rect[]): boolean {
  * halbe Rasterweite daneben liegen – hier wird die kurze Reststrecke in der
  * Richtung fortgeführt, aus der die Leitung kommt.
  */
-function attachExactEnd(path: Pt[], end: Pt, obstacles: Rect[]): Pt[] {
+function attachExactEnd(path: Pt[], end: Pt, obstacles: Rect[], pins: Pt[] = []): Pt[] {
   const last = path[path.length - 1];
   if (Math.abs(last.x - end.x) < 0.01 && Math.abs(last.y - end.y) < 0.01) return path;
   const prev = path[path.length - 2] ?? last;
   const cameHorizontal = Math.abs(prev.x - last.x) >= Math.abs(prev.y - last.y);
   const first = cameHorizontal ? { x: end.x, y: last.y } : { x: last.x, y: end.y };
   const other = cameHorizontal ? { x: last.x, y: end.y } : { x: end.x, y: last.y };
-  const legs = (bend: Pt) => [segHits(last, bend, obstacles), segHits(bend, end, obstacles)];
+  // Nachbarpins meiden — der Zielpin selbst (Ankunft) ist ausgenommen.
+  const boxes: Rect[] = [
+    ...obstacles,
+    ...pins
+      .filter((q) => Math.hypot(q.x - end.x, q.y - end.y) > 5)
+      .map((q) => ({ x: q.x - 3, y: q.y - 3, w: 6, h: 6 })),
+  ];
+  const legs = (bend: Pt) => [segHits(last, bend, boxes), segHits(bend, end, boxes)];
   const [h1a, h1b] = legs(first);
   const [h2a, h2b] = legs(other);
   const hit1 = h1a || h1b;
@@ -77,7 +84,7 @@ function attachExactEnd(path: Pt[], end: Pt, obstacles: Rect[]): Pt[] {
  * wird exakt angeschlossen – Leitungen beginnen und enden dadurch punktgenau
  * am Pin, auch wenn der Pin nicht auf dem 10-px-Raster liegt.
  */
-export function routeOrthogonal(start: Pt, end: Pt, obstacles: Rect[], grid = GRID): Pt[] {
+export function routeOrthogonal(start: Pt, end: Pt, obstacles: Rect[], grid = GRID, pins: Pt[] = []): Pt[] {
   // Gitterpunkt in Startrichtung wählen (nicht der nächstgelegene): sonst schießt
   // die Leitung am Ende ein Stück über den Pin hinaus und kommt zurück.
   const toward = (v: number, from: number) => {
@@ -88,7 +95,7 @@ export function routeOrthogonal(start: Pt, end: Pt, obstacles: Rect[], grid = GR
   };
   const s = { x: start.x, y: start.y };
   const e = { x: toward(end.x, start.x), y: toward(end.y, start.y) };
-  if (s.x === e.x && s.y === e.y) return attachExactEnd([s], end, obstacles);
+  if (s.x === e.x && s.y === e.y) return attachExactEnd([s], end, obstacles, pins);
 
   const pad = grid;
   const minX = Math.min(s.x, e.x) - 12 * grid;
@@ -96,12 +103,20 @@ export function routeOrthogonal(start: Pt, end: Pt, obstacles: Rect[], grid = GR
   const minY = Math.min(s.y, e.y) - 12 * grid;
   const maxY = Math.max(s.y, e.y) + 12 * grid;
 
+  // Pin-Freiräume: nur ±4 px — bei 24-px-Pinraster bleibt zwischen Nachbarpins
+  // ein begehbarer Korridor; Start-/Zielpin sind über die Toleranz erreichbar.
+  const pinPad = 4;
   const blocked = (x: number, y: number) => {
     if (x < minX || x > maxX || y < minY || y > maxY) return true;
+    const nearStart = Math.abs(x - s.x) <= grid && Math.abs(y - s.y) <= grid;
+    const nearEnd = Math.abs(x - e.x) <= grid && Math.abs(y - e.y) <= grid;
     for (const o of obstacles) {
       if (x > o.x - pad && x < o.x + o.w + pad && y > o.y - pad && y < o.y + o.h + pad) {
-        const nearStart = Math.abs(x - s.x) <= grid && Math.abs(y - s.y) <= grid;
-        const nearEnd = Math.abs(x - e.x) <= grid && Math.abs(y - e.y) <= grid;
+        if (!nearStart && !nearEnd) return true;
+      }
+    }
+    for (const q of pins) {
+      if (Math.abs(x - q.x) < pinPad && Math.abs(y - q.y) < pinPad) {
         if (!nearStart && !nearEnd) return true;
       }
     }
@@ -153,7 +168,7 @@ export function routeOrthogonal(start: Pt, end: Pt, obstacles: Rect[], grid = GR
     }
   }
   // fallback: L shape
-  return attachExactEnd(cleanRoute([s, { x: e.x, y: s.y }, e]), end, obstacles);
+  return attachExactEnd(cleanRoute([s, { x: e.x, y: s.y }, e]), end, obstacles, pins);
 }
 
 export function obstaclesFor(doc: SchematicDoc, ignoreIds: string[] = []): Rect[] {

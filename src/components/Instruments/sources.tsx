@@ -4,10 +4,10 @@ import dynamic from "next/dynamic";
 import { formatValue } from "@/lib/library/catalog";
 import { InstrumentWindow, useEditor } from "@/state/editor";
 import { grid } from "./shared";
+import { setDocParamSynced } from "@/lib/desktopSync";
 
 export function PatternGenerator() {
   const doc = useEditor((s) => s.doc);
-  const setParam = useEditor((s) => s.setParam);
   const clocks = doc.instances.filter((i) => i.partId === "clockgen" || i.partId === "vpulse");
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
@@ -29,7 +29,7 @@ export function PatternGenerator() {
             max={6}
             step={0.02}
             value={Math.log10(Number(c.params.freq ?? 1000))}
-            onChange={(e) => setParam(c.id, "freq", Math.pow(10, Number(e.target.value)))}
+            onChange={(e) => setDocParamSynced(c.id, "freq", Math.pow(10, Number(e.target.value)))}
           />
           {c.partId === "vpulse" && (
             <input
@@ -38,7 +38,7 @@ export function PatternGenerator() {
               min={1}
               max={99}
               value={Number(c.params.duty ?? 50)}
-              onChange={(e) => setParam(c.id, "duty", Number(e.target.value))}
+              onChange={(e) => setDocParamSynced(c.id, "duty", Number(e.target.value))}
             />
           )}
         </div>

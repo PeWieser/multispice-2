@@ -19,6 +19,67 @@ using System.Windows.Forms;
 
 namespace MultiSpicePortable
 {
+    /// <summary>
+    /// Okt-26: Begrenzte Nur-Lese-Sicht auf einen Strom-Abschnitt. Das .NET
+    /// Framework-ZipArchive versteht keine SFX-vorangestellten Daten (der
+    /// Stub verschiebt alle Central-Directory-Offsets) und stolpert über den
+    /// angehängten Trailer — mit dieser Hülle sieht es exakt die
+    /// payload.zip-Bytes. Vorher: "Central Directory corrupt" → stiller
+    /// Close → "es kommt nix beim Doppelklick".
+    /// </summary>
+    internal sealed class SubStream : Stream
+    {
+        private readonly Stream baseStream;
+        private readonly long start;
+        private readonly long length;
+        private long position;
+
+        public SubStream(Stream baseStream, long start, long length)
+        {
+            this.baseStream = baseStream;
+            this.start = start;
+            this.length = length;
+            this.position = 0;
+        }
+
+        public override bool CanRead { get { return true; } }
+        public override bool CanSeek { get { return baseStream.CanSeek; } }
+        public override bool CanWrite { get { return false; } }
+        public override long Length { get { return length; } }
+        public override long Position
+        {
+            get { return position; }
+            set { Seek(value, SeekOrigin.Begin); }
+        }
+
+        public override void Flush() { }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            long remaining = length - position;
+            if (remaining <= 0) return 0;
+            if (count > remaining) count = (int)remaining;
+            baseStream.Seek(start + position, SeekOrigin.Begin);
+            int read = baseStream.Read(buffer, offset, count);
+            position += read;
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            long target = origin == SeekOrigin.Begin ? offset
+                : origin == SeekOrigin.Current ? position + offset
+                : length + offset;
+            if (target < 0) target = 0;
+            if (target > length) target = length;
+            position = target;
+            return position;
+        }
+
+        public override void SetLength(long value) { throw new NotSupportedException(); }
+        public override void Write(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
+    }
+
     internal sealed class SplashForm : Form
     {
         private static readonly string[] Messages = new string[]
@@ -42,6 +103,8 @@ namespace MultiSpicePortable
         private int tickCount = 0;
         private Process childProcess = null;
         private int childSeenMainWindowTicks = 0;
+        private int childLaunchTick = -1;
+        private bool childEarlyExitReported = false;
         private bool dragging = false;
         private Point dragStart;
 
@@ -133,6 +196,16 @@ namespace MultiSpicePortable
                 {
                     if (childProcess.HasExited)
                     {
+                        // Okt-26: Sofort-Absturz (z. B. fehlende Laufzeit) wird
+                        // gemeldet statt still zu verschwinden.
+                        if (!childEarlyExitReported && childLaunchTick >= 0 && (tickCount - childLaunchTick) < 100)
+                        {
+                            childEarlyExitReported = true;
+                            int code = 0;
+                            try { code = childProcess.ExitCode; } catch { }
+                            FailAndClose("Die Anwendung wurde sofort nach dem Start beendet (Code " + code + ").\n\nMögliche Ursachen: blockierte EXE, fehlende Windows-Laufzeit oder beschädigter Download.");
+                            return;
+                        }
                         this.Close();
                         return;
                     }
@@ -238,6 +311,31 @@ namespace MultiSpicePortable
             }
         }
 
+        private static void LogPortableError(string step, Exception ex)
+        {
+            try
+            {
+                string logPath = Path.Combine(Path.GetTempPath(), "MultiSpice-Portable.log");
+                string line = DateTime.Now.ToString("s") + " [" + step + "] " + ex.GetType().FullName + ": " + ex.Message + Environment.NewLine + ex.StackTrace + Environment.NewLine;
+                File.AppendAllText(logPath, line);
+            }
+            catch { }
+        }
+
+        private void FailAndClose(string message)
+        {
+            try
+            {
+                this.BeginInvoke((MethodInvoker)delegate
+                {
+                    try { MessageBox.Show(this, message, "MultiSpice Portable", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                    catch { }
+                    try { this.Close(); } catch { }
+                });
+            }
+            catch { }
+        }
+
         private void PrepareAndLaunchApp()
         {
             try
@@ -275,7 +373,14 @@ namespace MultiSpicePortable
 
                 if (!File.Exists(exePath) || !File.Exists(readyMarker))
                 {
-                    if (zipOffset > 0)
+                    long zipLength = -1;
+                    try
+                    {
+                        FileInfo selfInfo = new FileInfo(selfPath);
+                        zipLength = selfInfo.Length - zipOffset - 24;
+                    }
+                    catch { }
+                    if (zipOffset > 0 && zipLength > 0)
                     {
                         if (Directory.Exists(runtimeRoot))
                         {
@@ -284,9 +389,8 @@ namespace MultiSpicePortable
                         Directory.CreateDirectory(runtimeRoot);
 
                         using (FileStream fs = new FileStream(selfPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                        {
-                            fs.Seek(zipOffset, SeekOrigin.Begin);
-                            using (ZipArchive archive = new ZipArchive(fs, ZipArchiveMode.Read, true))
+                        using (SubStream sub = new SubStream(fs, zipOffset, zipLength))
+                        using (ZipArchive archive = new ZipArchive(sub, ZipArchiveMode.Read, true))
                             {
                                 foreach (ZipArchiveEntry entry in archive.Entries)
                                 {
@@ -304,7 +408,6 @@ namespace MultiSpicePortable
                                     entry.ExtractToFile(destPath, true);
                                 }
                             }
-                        }
                         File.WriteAllText(readyMarker, buildId);
                     }
                 }
@@ -320,15 +423,18 @@ namespace MultiSpicePortable
                         UseShellExecute = false
                     };
                     childProcess = Process.Start(psi);
+                    childLaunchTick = tickCount;
                 }
                 else
                 {
-                    this.BeginInvoke((MethodInvoker)delegate { this.Close(); });
+                    LogPortableError("launch", new FileNotFoundException("MultiSpice.exe fehlt nach dem Entpacken: " + exePath));
+                    FailAndClose("Die Anwendung konnte nicht entpackt werden (Ziel fehlt).\n\nDetails stehen in %TEMP%\\MultiSpice-Portable.log — bitte die Portable-EXE erneut herunterladen.");
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                try { this.BeginInvoke((MethodInvoker)delegate { this.Close(); }); } catch { }
+                LogPortableError("prepare", ex);
+                FailAndClose("Start fehlgeschlagen: " + ex.Message + "\n\nDetails stehen in %TEMP%\\MultiSpice-Portable.log");
             }
         }
     }

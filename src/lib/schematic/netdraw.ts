@@ -253,6 +253,8 @@ export interface NetPathOptions {
   flipBend?: boolean;
   /** Bauteil-BBoxen, die beim Zeichnen nicht geschnitten werden sollen. */
   obstacles?: Rect[];
+  /** Fremde Pin-Punkte, die nicht gekreuzt werden sollen (Kurzschluss-Gefahr). */
+  pinPoints?: Pt[];
 }
 
 function segHitsObstacle(a: Pt, b: Pt, boxes: Rect[]): boolean {
@@ -290,7 +292,13 @@ export function buildNetPath(anchor: Pt, corners: Pt[], target: Pt, opts?: NetPa
 
     const bendH = { x: target.x, y: last.y };
     const bendV = { x: last.x, y: target.y };
-    const boxes = opts?.obstacles ?? [];
+    // Start-/Zielpin sind ausgenommen (dort beginnt/endet die Leitung legal).
+    // 8 px: das 4-px-Raster der Trefferprobe trifft das 6-px-Innere garantiert
+    // (bei 6 px fielen Proben exakt auf die Kante und wurden übersehen).
+    const pinRects: Rect[] = (opts?.pinPoints ?? [])
+      .filter((q) => Math.hypot(q.x - last.x, q.y - last.y) > 6 && Math.hypot(q.x - target.x, q.y - target.y) > 6)
+      .map((q) => ({ x: q.x - 4, y: q.y - 4, w: 8, h: 8 }));
+    const boxes = [...(opts?.obstacles ?? []), ...pinRects];
     if (boxes.length > 0) {
       const pref = horizontalFirst ? bendH : bendV;
       const alt = horizontalFirst ? bendV : bendH;
@@ -300,8 +308,10 @@ export function buildNetPath(anchor: Pt, corners: Pt[], target: Pt, opts?: NetPa
         pts.push(alt, { x: target.x, y: target.y });
         return cleanWirePoints(pts);
       }
-      if (hitPref && hitAlt && corners.length === 0) {
-        const routed = routeOrthogonal(last, target, boxes);
+      // Kürzeste freie Route (A*) — auch nach manuell gesetzten Ecken, dann ab
+      // der letzten Ecke. Manuelle Ecken bleiben stehen (Fixpunkte).
+      if (hitPref && hitAlt) {
+        const routed = routeOrthogonal(last, target, opts?.obstacles ?? [], GRID, opts?.pinPoints ?? []);
         if (routed.length >= 2) {
           return cleanWirePoints([...pts.slice(0, -1), ...routed]);
         }
@@ -378,7 +388,7 @@ export function netClick(
   draft: NetDraft | null,
   world: Pt,
   snapPt: Pt,
-  opts: { magnet: number; allowStartOnEmpty: boolean; startOnWire?: boolean; obstacles?: Rect[] },
+  opts: { magnet: number; allowStartOnEmpty: boolean; startOnWire?: boolean; obstacles?: Rect[]; pinPoints?: Pt[] },
 ): NetClickResult | null {
   if (!draft) {
     const target = findNetTarget(doc, world, opts.magnet);
@@ -405,6 +415,7 @@ export function netClick(
     preferDir: draft.corners.length === 0 ? draft.preferDir : undefined,
     flipBend: draft.flipBend,
     obstacles: opts.obstacles,
+    pinPoints: opts.pinPoints,
   };
   if (target && Math.hypot(target.x - ref.x, target.y - ref.y) > 0.01) {
     return {

@@ -72,6 +72,58 @@ const orth = (pts: Array<{ x: number; y: number }>) => pts.every((p, i) => i ===
   check("W50 auf dem Raster: unverändert gerade", routeOrthogonal({ x: 100, y: 100 }, { x: 300, y: 100 }, []).length === 2);
 }
 
+/* ---------------- Routing meidet Pins (Okt 26) ---------------- */
+{
+  const avoids = (pts: Array<{ x: number; y: number }>, pins: Array<{ x: number; y: number }>) => {
+    const s = pts[0];
+    const e = pts[pts.length - 1];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      for (let t = 0; t <= 1.0001; t += 0.05) {
+        const x = a.x + (b.x - a.x) * t;
+        const y = a.y + (b.y - a.y) * t;
+        if (Math.hypot(x - s.x, y - s.y) < 6 || Math.hypot(x - e.x, y - e.y) < 6) continue;
+        for (const q of pins) if (Math.hypot(x - q.x, y - q.y) < 3) return false;
+      }
+    }
+    return true;
+  };
+  // A*: fremder Pin mitten auf der Strecke → Umweg, orthogonal, exakt am Ziel.
+  const pins = [{ x: 200, y: 100 }];
+  const r = routeOrthogonal({ x: 100, y: 100 }, { x: 300, y: 100 }, [], 10, pins);
+  check("Route meidet den Pin", avoids(r, pins), JSON.stringify(r));
+  check("Route mit Pin: orthogonal", orth(r), JSON.stringify(r));
+  check("Route mit Pin: Ende exakt", r[r.length - 1].x === 300 && r[r.length - 1].y === 100);
+  // Verlauf: ein L-Knick über Pin → Alternativ-Knick (kurz, frei).
+  const p2 = buildNetPath({ x: 100, y: 100 }, [], { x: 200, y: 200 }, { pinPoints: [{ x: 150, y: 100 }] });
+  check("Verlauf weicht auf freien Knick aus", avoids(p2, [{ x: 150, y: 100 }]), JSON.stringify(p2));
+  check("Verlauf endet exakt", p2[p2.length - 1].x === 200 && p2[p2.length - 1].y === 200);
+  // Verlauf: beide Knicks über Pins → A* ab letztem Punkt.
+  const pins3 = [{ x: 150, y: 100 }, { x: 100, y: 150 }];
+  const p3 = buildNetPath({ x: 100, y: 100 }, [], { x: 200, y: 200 }, { pinPoints: pins3 });
+  check("Verlauf routet um beide Pins", avoids(p3, pins3), JSON.stringify(p3));
+  check("Verlauf (A*) endet exakt", p3[p3.length - 1].x === 200 && p3[p3.length - 1].y === 200);
+  // Eigener Start-/Zielpin löst kein Ausweichen aus (gerade Strecke).
+  const p4 = buildNetPath({ x: 100, y: 100 }, [], { x: 300, y: 100 }, { pinPoints: [{ x: 100, y: 100 }, { x: 300, y: 100 }] });
+  check("Start-/Zielpin bleiben direkt", p4.length === 2, JSON.stringify(p4));
+  // Manuelle Ecke bleibt Fixpunkt (Route läuft durch sie), Rest wird ab dort geroutet.
+  const pins5 = [{ x: 230, y: 100 }, { x: 200, y: 140 }];
+  const p5 = buildNetPath({ x: 100, y: 100 }, [{ x: 200, y: 100 }], { x: 260, y: 180 }, { pinPoints: pins5 });
+  const through = (pts: Array<{ x: number; y: number }>, q: { x: number; y: number }) =>
+    pts.some((p) => Math.hypot(p.x - q.x, p.y - q.y) < 0.5) ||
+    pts.some((p, i) => {
+      if (i === 0) return false;
+      const a = pts[i - 1];
+      const cross = Math.abs((q.x - a.x) * (p.y - a.y) - (q.y - a.y) * (p.x - a.x)) < 0.5;
+      const inBox = q.x >= Math.min(a.x, p.x) - 0.5 && q.x <= Math.max(a.x, p.x) + 0.5 && q.y >= Math.min(a.y, p.y) - 0.5 && q.y <= Math.max(a.y, p.y) + 0.5;
+      return cross && inBox;
+    });
+  check("Manuelle Ecke bleibt Fixpunkt", through(p5, { x: 200, y: 100 }), JSON.stringify(p5));
+  check("Rest wird ab Ecke geroutet", avoids(p5, pins5), JSON.stringify(p5));
+  check("Gerouteter Rest endet exakt", p5[p5.length - 1].x === 260 && p5[p5.length - 1].y === 180);
+}
+
 /* ---------------- Beispiele sind elektrisch verbunden (W49) ---------------- */
 {
   let openEnds = 0;

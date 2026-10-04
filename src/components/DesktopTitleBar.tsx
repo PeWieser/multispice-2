@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Minus, Square, Copy, X } from "lucide-react";
 import { WINDOW_SPECS, engine, useEditor } from "@/state/editor";
 import { RingBuffer } from "@/lib/sim/realtime";
-import { createSyncDedupe, withSyncNonce } from "@/lib/desktopSync";
+import { applyChildMessageToMain, createSyncDedupe, withSyncNonce } from "@/lib/desktopSync";
 
 export interface DesktopChildWindowSpec {
   id: string;
@@ -259,6 +259,9 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
           selection: st.selection,
           theme: st.theme,
           placingPartId: st.placingPartId,
+          // Okt-26: Messleitungs-Status ans Kind (Platzieren/Abbrechen im
+          // Hauptfenster entwaffnet auch das Banner im Gerätefenster).
+          leadArmed: st.leadArmed,
           engineState: {
             time: engine.lastState.time,
             nets: engine.lastState.nets,
@@ -297,6 +300,8 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
           useEditor.setState({ libraryOpen: false });
         } else if (msg.type === "update-instrument" && typeof msg.id === "string" && msg.patch) {
           st.updateInstrument(msg.id, msg.patch as Record<string, unknown>);
+        } else if (applyChildMessageToMain(st, msg)) {
+          // Okt-26: arm-lead/disarm-lead/set-doc-param (in desktopSync behandelt).
         } else if (msg.type === "child-closed" && typeof msg.id === "string") {
           if (msg.id === "library") {
             wasLibraryOpenRef.current = false;
@@ -386,6 +391,11 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
           placingPartId:
             (msg.placingPartId as ReturnType<typeof useEditor.getState>["placingPartId"]) ??
             useEditor.getState().placingPartId,
+          // Okt-26: null läuft mit (Entwarnung) — deshalb Schlüsseltest statt ??.
+          leadArmed:
+            "leadArmed" in msg
+              ? (msg.leadArmed as ReturnType<typeof useEditor.getState>["leadArmed"])
+              : useEditor.getState().leadArmed,
         });
       };
 

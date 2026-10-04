@@ -64,16 +64,28 @@ export default function MenuBar({
 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const navMenu = (dir: -1 | 1) =>
-    setOpenMenu((m) => {
-      if (!m) return m;
-      const i = MENU_IDS.indexOf(m as (typeof MENU_IDS)[number]);
-      return MENU_IDS[(i + dir + MENU_IDS.length) % MENU_IDS.length];
-    });
+  // Wechsel zwischen offenen Menüs (Hover/Pfeil/Klick) blendet nicht ein —
+  // die .rise-Animation spielte sonst bei jedem Wechsel neu (Flackern).
+  const [menuInstant, setMenuInstant] = useState(false);
+  const navMenu = (dir: -1 | 1) => {
+    if (!openMenu) return;
+    setMenuInstant(true);
+    const i = MENU_IDS.indexOf(openMenu as (typeof MENU_IDS)[number]);
+    setOpenMenu(MENU_IDS[(i + dir + MENU_IDS.length) % MENU_IDS.length]);
+  };
   const menuProps = (id: string) => ({
     open: openMenu === id,
-    onOpenChange: (o: boolean) => setOpenMenu(o ? id : null),
-    onHoverOpen: () => setOpenMenu((m) => (m ? id : m)),
+    instant: menuInstant,
+    onOpenChange: (o: boolean) => {
+      setMenuInstant(o && openMenu !== null && openMenu !== id);
+      setOpenMenu(o ? id : null);
+    },
+    onHoverOpen: () => {
+      if (openMenu && openMenu !== id) {
+        setMenuInstant(true);
+        setOpenMenu(id);
+      }
+    },
     onNavigate: navMenu,
   });
 
@@ -101,7 +113,6 @@ export default function MenuBar({
     const onReq = () => triggerOpenFile();
     window.addEventListener(REQUEST_OPEN_FILE_EVENT, onReq);
     return () => window.removeEventListener(REQUEST_OPEN_FILE_EVENT, onReq);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const exportJson = () => {

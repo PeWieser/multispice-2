@@ -9,6 +9,7 @@ import { uiPlug, uiUnplug } from "./fg2/audio";
 import { DeviceFit, useReportNatural } from "./DeviceFit";
 import { BENCH_PAD } from "@/lib/windows/geometry";
 import { LeadBanner } from "./LeadBanner";
+import { setDocParamSynced, setLeadArmedSynced } from "@/lib/desktopSync";
 import FunctionGenerator, { type JackState } from "./fg2/FunctionGenerator";
 
 /* W18: Multispice-Adapter für den FG-2500 (aufgebaut wie OsziScope).
@@ -95,7 +96,7 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
       const beep = core.getState().sys.beep;
       const plugged = (jackNetsRef.current[jack] ?? "") !== "";
       if (cur && cur.instanceId === win.instanceId && cur.pinIndex === JACK_PIN[jack]) {
-        st.setLeadArmed(null); // Kabel zurück auf die Buchse
+        setLeadArmedSynced(null); // Kabel zurück auf die Buchse
         if (beep) click("plug");
         return;
       }
@@ -105,7 +106,7 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
         if (plugged) uiUnplug();
         else uiPlug();
       }
-      st.setLeadArmed({
+      setLeadArmedSynced({
         instanceId: win.instanceId,
         pinIndex: JACK_PIN[jack],
         name: jack.toUpperCase(),
@@ -130,7 +131,7 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
       const json = JSON.stringify(core.getState());
       const inst = st.doc.instances.find((i) => i.id === win.instanceId);
       if (!inst || inst.params.fgstate === json) return;
-      st.setParam(win.instanceId, "fgstate", json);
+      setDocParamSynced(win.instanceId, "fgstate", json);
     };
     const unsub = core.subscribe(() => {
       if (saveTimer.current !== null) clearTimeout(saveTimer.current);
@@ -155,7 +156,7 @@ export default function FgScope({ win }: { win: InstrumentWindow }) {
           color={JACK_COLOR[heldJack]}
           title={`Kabel an ${heldJack.toUpperCase()} in der Hand –`}
           hint="klicke im Schaltplan auf eine Leitung oder einen Pin (die Messleitung wird hingelegt) oder zurück auf die Buchse."
-          onCancel={() => useEditor.getState().setLeadArmed(null)}
+          onCancel={() => setLeadArmedSynced(null)}
         />
       )}
       <div className="flex min-h-0 flex-1 flex-col" style={{ padding: BENCH_PAD }}>

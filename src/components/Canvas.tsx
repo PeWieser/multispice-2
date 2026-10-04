@@ -10,7 +10,6 @@ import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
 import ShortcutSheet from "./ShortcutSheet";
-import EmptyCanvas from "./EmptyCanvas";
 import InlineEditor, { type InlineEdit } from "./InlineEditor";
 import ContextMenu, { type CtxTarget } from "./CanvasContextMenu";
 import ZoomButtons from "./ZoomButtons";
@@ -21,7 +20,7 @@ import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
 import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "@/lib/keyboard";
 import { summarizeCircuit } from "@/lib/a11y";
 import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
-import { findInstanceByValueLabel, findPinInfo, getNetObstacles, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
+import { findInstanceByValueLabel, findPinInfo, getNetObstacles, getNetPinPoints, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
 import { drawInstance, drawProbe } from "./Canvas/render";
 
 
@@ -1105,6 +1104,7 @@ export default function Canvas() {
         preferDir: draft.corners.length === 0 ? draft.preferDir : undefined,
         flipBend: draft.flipBend,
         obstacles: getNetObstacles(doc),
+        pinPoints: getNetPinPoints(doc),
       };
       const preview = previewNetPath(draft.anchor, draft.corners, magnetHit ?? { x: cursor.x, y: cursor.y }, pathOpts);
       const zLine = 2 / Math.max(view.zoom, 0.3);
@@ -1598,6 +1598,7 @@ export default function Canvas() {
         allowStartOnEmpty: st.tool === "wire",
         startOnWire: st.tool === "wire",
         obstacles: getNetObstacles(st.doc),
+        pinPoints: getNetPinPoints(st.doc),
       });
       if (res) {
         if (res.kind === "start") {
@@ -2301,6 +2302,7 @@ export default function Canvas() {
         allowStartOnEmpty: false,
         startOnWire: true,
         obstacles: getNetObstacles(st.doc),
+        pinPoints: getNetPinPoints(st.doc),
       });
       if (resUp && resUp.kind === "finish") {
         st.addWire({ id: makeWireId(), points: resUp.points });
@@ -2390,6 +2392,7 @@ export default function Canvas() {
         preferDir: sr.netDraft.corners.length === 0 ? sr.netDraft.preferDir : undefined,
         flipBend: sr.netDraft.flipBend,
         obstacles: getNetObstacles(st.doc),
+        pinPoints: getNetPinPoints(st.doc),
       });
       if (pts) {
         st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: pts });
@@ -2706,13 +2709,7 @@ export default function Canvas() {
 
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden" role="application" aria-label={adaptShortcut("Schaltplan Canvas – Bauteile platzieren, Leitungen ziehen, Probes setzen. Shortcuts: R Drehen, W Wire, F Fit, Leertaste Start, ⌘K Bibliothek, ? Hilfe", apple)}>
-      {selDoc.instances.length === 0 && selDoc.wires.length === 0 && !placingPartId && !placingProbeKind && (
-        <EmptyCanvas
-          onPlaceResistor={() => useEditor.getState().setPlacing("resistor")}
-          onOpenLibrary={() => useEditor.getState().toggleLibrary()}
-          onShowShortcuts={() => setShowHelp(true)}
-        />
-      )}
+      {/* Leeres Dokument: bewusst keine Begrüßungskarte — blanker Canvas. */}
       <canvas
         id="schematic-canvas"
         ref={canvasRef}
@@ -2987,6 +2984,7 @@ export default function Canvas() {
                             preferDir: sr.netDraft.corners.length === 0 ? sr.netDraft.preferDir : undefined,
                             flipBend: sr.netDraft.flipBend,
                             obstacles: getNetObstacles(st.doc),
+        pinPoints: getNetPinPoints(st.doc),
                           });
                           if (pts) {
                             st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: pts });
