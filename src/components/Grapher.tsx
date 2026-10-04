@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Crosshair, Download, ImageDown, XCircle } from "lucide-react";
-import { formatValue } from "@/lib/library/catalog";
+import { formatValue } from "@/lib/format";
+import { curveStats, fMinus3dB, type CurveStats } from "@/lib/measure";
+import { combineSeries, envelopeWindow, movingEnvelope, postFFT } from "@/lib/postprocess";
 import { ANALYSIS_MAP } from "@/lib/sim/analysis_defs";
 import { useEditor } from "@/state/editor";
 import { downloadBlob, downloadText, safeName } from "@/lib/download";
@@ -511,6 +513,124 @@ function toCsv(headers: string[], cols: number[][]): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* S5.7: Mess-Panel pro Kurve + Postprozessor                             */
+/* ------------------------------------------------------------------ */
+
+function CurveStatsPanel({
+  items,
+}: {
+  items: Array<{ name: string; stats: CurveStats; unit: string; f3?: number | null }>;
+}) {
+  if (items.length === 0) return null;
+  const row = (k: string, v: string) => (
+    <div className="flex justify-between gap-2">
+      <span className="text-ink-3">{k}</span>
+      <span>{v}</span>
+    </div>
+  );
+  return (
+    <div className="mono overflow-y-auto text-2xs">
+      <div className="mb-1 text-2xs uppercase text-ink-3">Messwerte</div>
+      {items.map((it, i) => (
+        <div key={it.name} className="mb-2">
+          <div className="flex items-center gap-1.5 text-ink-2">
+            <span className="inline-block h-[2px] w-3 shrink-0 rounded" style={{ background: `var(${SERIES_COLORS[i % SERIES_COLORS.length]})` }} />
+            <span className="truncate">{it.name}</span>
+          </div>
+          <div className="mt-0.5 space-y-px pl-4">
+            {row("Min", formatValue(it.stats.min, it.unit))}
+            {row("Max", formatValue(it.stats.max, it.unit))}
+            {row("Mittel", formatValue(it.stats.mean, it.unit))}
+            {row("RMS", formatValue(it.stats.rms, it.unit))}
+            {it.f3 !== undefined && row("f−3dB", it.f3 === null ? "—" : formatValue(it.f3, "Hz"))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type PostOp = "add" | "sub" | "mul" | "divDb" | "envRms" | "envAvg" | "fft";
+
+const POST_OPS: Array<{ id: PostOp; label: string }> = [
+  { id: "add", label: "A+B" },
+  { id: "sub", label: "A−B" },
+  { id: "mul", label: "A·B" },
+  { id: "divDb", label: "A/B dB" },
+  { id: "envRms", label: "Hüll RMS" },
+  { id: "envAvg", label: "Hüll AVG" },
+  { id: "fft", label: "FFT" },
+];
+
+function PostPanel({ time, signals, names }: { time: number[]; signals: Record<string, number[]>; names: string[] }) {
+  const [a, setA] = useState(names[0] ?? "");
+  const [b, setB] = useState(names[1] ?? names[0] ?? "");
+  const [op, setOp] = useState<PostOp>("sub");
+  if (names.length === 0) return null;
+  // Neue Analyse, neue Kurvennamen: still auf gültige Auswahl zurückfallen.
+  const aSafe = signals[a] !== undefined ? a : names[0];
+  const bSafe = signals[b] !== undefined ? b : (names[1] ?? names[0]);
+  const av = signals[aSafe] ?? [];
+  const bv = signals[bSafe] ?? [];
+  const binary = op === "add" || op === "sub" || op === "mul" || op === "divDb";
+  let rx = time;
+  let ry: number[] = [];
+  let rname = "";
+  let yLabel = "V";
+  let logX = false;
+  if (op === "fft") {
+    const f = postFFT(time, av);
+    rx = f.freq;
+    ry = f.magDb;
+    rname = `FFT(${aSafe})`;
+    yLabel = "dB";
+    logX = true;
+  } else if (op === "envRms" || op === "envAvg") {
+    ry = movingEnvelope(av, envelopeWindow(av.length), op === "envRms" ? "rms" : "avg");
+    rx = time.slice(0, ry.length);
+    rname = `${op === "envRms" ? "RMS" : "AVG"}(${aSafe})`;
+  } else {
+    ry = combineSeries(av, bv, op);
+    rx = time.slice(0, ry.length);
+    rname = op === "add" ? `${aSafe}+${bSafe}` : op === "sub" ? `${aSafe}−${bSafe}` : op === "mul" ? `${aSafe}·${bSafe}` : `${aSafe}/${bSafe} dB`;
+    yLabel = op === "divDb" ? "dB" : "V";
+  }
+  const sel = "input mono w-28 py-0.5 text-2xs";
+  return (
+    <div className="shrink-0 border-t border-hairline px-2 pb-2 pt-1.5">
+      <div className="flex flex-wrap items-center gap-1.5 px-1 pb-1.5">
+        <span className="mr-1 text-2xs uppercase text-ink-3">Postprozessor</span>
+        <select className={sel} value={aSafe} onChange={(e) => setA(e.target.value)} aria-label="Kurve A">
+          {names.map((n) => (<option key={n} value={n}>{n}</option>))}
+        </select>
+        {binary && (
+          <select className={sel} value={bSafe} onChange={(e) => setB(e.target.value)} aria-label="Kurve B">
+            {names.map((n) => (<option key={n} value={n}>{n}</option>))}
+          </select>
+        )}
+        {POST_OPS.map((o) => (
+          <button
+            key={o.id}
+            className={op === o.id ? "btn btn-primary py-0.5 text-2xs" : "btn py-0.5 text-2xs"}
+            aria-pressed={op === o.id}
+            onClick={() => setOp(o.id)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div className="h-44">
+        <LinePlot
+          panels={[{ series: [{ name: rname, x: rx, y: ry }], yLabel }]}
+          xLabel={op === "fft" ? "f (Hz)" : "t (s)"}
+          logX={logX}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Grapher: Ergebnisse der letzten Analyse                              */
 /* ------------------------------------------------------------------ */
 
@@ -647,9 +767,11 @@ export default function Grapher() {
           downloadText(`${base}_tran.csv`, toCsv(["t_s", ...names], [time, ...names.map((n) => signals[n])]), "text/csv"),
         )}
         <div className="px-3"><Legend names={names} /></div>
-        <div className="min-h-0 flex-1 px-2 pb-2">
+        <div className="grid min-h-0 flex-1 grid-cols-[1fr_210px] gap-2 px-2 pb-2">
           <LinePlot panels={[{ series: names.map((n) => ({ name: n, x: time, y: signals[n] })), yLabel: "V" }]} xLabel="t (s)" onCanvas={(c) => (canvasRef.current = c)} />
+          <CurveStatsPanel items={names.map((n) => ({ name: n, stats: curveStats(signals[n] ?? []), unit: "V" }))} />
         </div>
+        <PostPanel time={time} signals={signals} names={names} />
       </div>
     );
   }
@@ -669,7 +791,7 @@ export default function Grapher() {
           ),
         )}
         <div className="px-3"><Legend names={names} /></div>
-        <div className="min-h-0 flex-1 px-2 pb-2">
+        <div className="grid min-h-0 flex-1 grid-cols-[1fr_210px] gap-2 px-2 pb-2">
           <LinePlot
             panels={[
               { series: names.map((n) => ({ name: n, x: freq, y: magDb[n] })), yLabel: "dB" },
@@ -679,6 +801,7 @@ export default function Grapher() {
             logX
             onCanvas={(c) => (canvasRef.current = c)}
           />
+          <CurveStatsPanel items={names.map((n) => ({ name: n, stats: curveStats((magDb[n] ?? []).map((v) => Math.pow(10, v / 20))), unit: "", f3: fMinus3dB(freq, magDb[n] ?? []) }))} />
         </div>
       </div>
     );

@@ -21,6 +21,8 @@ import { buildNets, emptyDoc } from "../src/lib/schematic/model";
 import { PART_MAP } from "../src/lib/library/catalog";
 import { resolveLiveText } from "../src/lib/descbox";
 import { hashTeacherCode, isTeacherCodeFormat, loadTeacherLock, verifyTeacherCode } from "../src/lib/teacher";
+import { curveStats, fMinus3dB } from "../src/lib/measure";
+import { combineSeries, envelopeWindow, movingEnvelope, postFFT, resampleUniform } from "../src/lib/postprocess";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
 
 let n = 0;
@@ -262,6 +264,54 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
   // Node (kein window): Standard = entsperrt ohne Code
   assert.deepEqual(loadTeacherLock(), { locked: false, codeHash: null });
   ok("S5.6d Code + Hash");
+}
+
+// ---------- S5.7: Mess-Panel + Postprozessor ----------
+{
+  const st = curveStats([1, 2, 3, 4]);
+  assert.equal(st.min, 1);
+  assert.equal(st.max, 4);
+  assert.equal(st.mean, 2.5);
+  assert.ok(Math.abs(st.rms - Math.sqrt(7.5)) < 1e-12);
+  const nan = curveStats([]);
+  assert.ok(Number.isNaN(nan.min) && Number.isNaN(nan.rms));
+  assert.equal(curveStats([2, NaN, 4]).mean, 3);
+  // Tiefpass 1 kHz: f−3dB ≈ 1000 Hz
+  const freq: number[] = [];
+  for (let f = 10; f <= 100000; f *= 1.05) freq.push(f);
+  const mag = freq.map((f) => -10 * Math.log10(1 + (f / 1000) ** 2));
+  const f3 = fMinus3dB(freq, mag);
+  assert.ok(f3 !== null && Math.abs(f3 - 1000) < 50, `f3=${f3}`);
+  assert.equal(fMinus3dB(freq, freq.map(() => 0)), null);
+  assert.equal(fMinus3dB([1], [0]), null);
+  ok("S5.7 Messwerte");
+  // Verknüpfungen
+  assert.deepEqual(combineSeries([1, 2], [10, 20], "add"), [11, 22]);
+  assert.deepEqual(combineSeries([1, 2], [10, 20], "sub"), [-9, -18]);
+  assert.deepEqual(combineSeries([2, 3], [4, 5], "mul"), [8, 15]);
+  assert.deepEqual(combineSeries([1, 2, 3], [1, 1], "add"), [2, 3]);
+  const db = combineSeries([2, 1], [1, 0], "divDb");
+  assert.ok(Math.abs(db[0] - 6.0206) < 1e-3);
+  assert.ok(Number.isNaN(db[1]));
+  // Hüllkurven
+  assert.deepEqual(movingEnvelope([2, 2, 2, 2], 2, "rms"), [2, 2, 2, 2]);
+  assert.deepEqual(movingEnvelope([0, 0, 4, 4], 2, "avg"), [0, 0, 2, 4]);
+  assert.equal(envelopeWindow(1000), 10);
+  assert.equal(envelopeWindow(10), 4);
+  // Umtasten
+  const rs = resampleUniform([0, 1], [0, 10], 3);
+  assert.deepEqual(rs.t, [0, 0.5, 1]);
+  assert.deepEqual(rs.y, [0, 5, 10]);
+  // FFT: 50-Hz-Sinus → Peak bei 50 Hz
+  const t: number[] = [];
+  const y: number[] = [];
+  for (let i = 0; i < 1000; i++) { t.push(i / 1000); y.push(Math.sin(2 * Math.PI * 50 * (i / 1000))); }
+  const fft = postFFT(t, y);
+  let peak = 1;
+  for (let i = 2; i < fft.magDb.length; i++) if (fft.magDb[i] > fft.magDb[peak]) peak = i;
+  assert.ok(Math.abs(fft.freq[peak] - 50) < 2, `peak=${fft.freq[peak]}`);
+  assert.ok(fft.sampleRate > 900 && fft.sampleRate < 1100);
+  ok("S5.7 Postprozessor");
 }
 
 console.log(`sprint5test: ${n} checks OK`);
