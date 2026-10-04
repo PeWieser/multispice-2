@@ -851,6 +851,24 @@ function measureValue(
   return Math.max(...sig);
 }
 
+/**
+ * S4.4: gestreute Parameter pro Device-Typ für Monte-Carlo und Worst-Case.
+ * Pro Run zieht jedes Device EINEN Faktor, der alle seine Keys gemeinsam
+ * skaliert (Prozess-Ecke statt unabhängigem Rauschen — dokumentiert).
+ */
+const SCATTER_KEYS: Record<string, string[]> = {
+  R: ["r"],
+  C: ["c"],
+  L: ["l"],
+  Q: ["bf", "is"],
+  D: ["is"],
+  LED: ["is"],
+  ZENER: ["is"],
+  SCHOTTKY: ["is"],
+  M: ["vto", "kp"],
+  J: ["beta", "vto"],
+};
+
 export function runMonteCarlo(
   netlist: Netlist,
   options: Partial<SimOptions>,
@@ -865,13 +883,14 @@ export function runMonteCarlo(
   for (let i = 0; i < runs; i++) {
     const nl = cloneNetlist(netlist);
     for (const d of nl.devices) {
+      const keys = SCATTER_KEYS[d.type];
+      if (!keys) continue;
       const tol = (d.params.tol ?? mc.tolerance) / 100;
       const gauss = (rand() + rand() + rand() + rand() - 2) / 2;
       const f = 1 + gauss * tol;
-      if (d.type === "R" && d.params.r) d.params.r *= f;
-      if (d.type === "C" && d.params.c) d.params.c *= f;
-      if (d.type === "L" && d.params.l) d.params.l *= f;
-      if (d.type === "Q" && d.params.bf) d.params.bf *= f;
+      for (const key of keys) {
+        if (d.params[key]) d.params[key] *= f;
+      }
     }
     samples.push(measureValue(nl, options, mc, tran));
     mcReport((i + 1) / runs);
@@ -914,16 +933,17 @@ export function runWorstCase(
   let wcDone = 1;
   wcReport(wcDone / wcTotal);
   for (const d of netlist.devices) {
-    const key = d.type === "R" ? "r" : d.type === "C" ? "c" : d.type === "L" ? "l" : null;
-    if (!key || !d.params[key]) {
+    // S4.4: Halbleiter mit allen Keys gemeinsam (eine Sensitivität pro Device).
+    const keys = (SCATTER_KEYS[d.type] ?? []).filter((k) => d.params[k]);
+    if (keys.length === 0) {
       wcDone++;
       continue;
     }
     const nl = cloneNetlist(netlist);
     const target = nl.devices.find((x) => x.id === d.id)!;
-    target.params[key] *= 1 + tol;
+    for (const key of keys) target.params[key] *= 1 + tol;
     const v = measureValue(nl, options, mc, tran);
-    sens.push({ id: d.id, param: key, sensitivity: (v - nominal) / Math.max(Math.abs(nominal), 1e-12) / tol });
+    sens.push({ id: d.id, param: keys.join("+"), sensitivity: (v - nominal) / Math.max(Math.abs(nominal), 1e-12) / tol });
     wcDone++;
     wcReport(wcDone / wcTotal);
   }
@@ -932,7 +952,9 @@ export function runWorstCase(
     for (const s of sens) {
       const target = nl.devices.find((x) => x.id === s.id);
       if (!target) continue;
-      target.params[s.param] *= 1 + sign * Math.sign(s.sensitivity || 1) * tol;
+      for (const key of s.param.split("+")) {
+        if (typeof target.params[key] === "number") target.params[key] *= 1 + sign * Math.sign(s.sensitivity || 1) * tol;
+      }
     }
     const v = measureValue(nl, options, mc, tran);
     wcDone++;

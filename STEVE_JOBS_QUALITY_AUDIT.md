@@ -3315,3 +3315,4 @@ Ziel: Genauigkeit für reale Entwürfe. Befunde code-geprüft.
 | S4.1 | Folger LM741 (GBW 1 MHz) TRAN 100 kHz / 3 MHz + Slew-Rampe + AC-Ecke | 0.986 / 0.308 (Th. 0.995/0.316), Rampe 0.505 V/µs bei SR 0.5, Ecke 1.00 MHz — PASS |
 | S4.2 | 1N4148 @1 mA Vf-Drift 27→77 °C; NPN Ic(T); Depletion-Einheit | −2.03 mV/K (Th. −2), Ic +29 % (BF 200→252), Grading 1.83×/fix — PASS |
 | S4.3 | NMOS Rds(T) 27→125 °C; Meyer-Einheit; AC-f3dB mit/ohne TOX | ×1.47 (Th. ~1.5), Regionen exakt, 23.3/17.1 MHz (Th. 22.7/17.1) — PASS |
+| S4.4 | MC/WC NPN-Stufe (BF/IS); MC-Diode (IS); WC-Sensitivitäten | σ=0.093 V, Ecken 2.59/3.69 V, Q1 „bf+is" gelistet, Dioden-σ 2.75 mV (Th. 2.6) — PASS |

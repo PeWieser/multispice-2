@@ -739,9 +739,10 @@ for (const dm of diodeModels) {
       { key: "xti", label: "IS-Temperaturkoeffizient XTI", type: "number", def: 3 },
       { key: "eg", label: "Bandabstand EG", unit: "eV", type: "number", def: 1.11 },
       { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
+      P.tol,
     ],
     spice: `.model ${dm.id.toUpperCase()} D(IS=${dm.is} N=${dm.n} BV=${dm.bv} RS=0.1 CJO=4p MJ=0.5 VJ=1 FC=0.5 XTI=3 EG=1.11)`,
-    toDevices: (i, n) => [{ id: i.id, type: dm.type, nodes: n, params: { is: num(i, "is", dm.is), n: num(i, "n", dm.n), bv: num(i, "bv", dm.bv), rs: num(i, "rs", 0.1), cjo: num(i, "cjo", 4e-12), mj: num(i, "mj", 0.5), vj: num(i, "vj", 1), fc: num(i, "fc", 0.5), tt: num(i, "tt", 0), xti: num(i, "xti", 3), eg: num(i, "eg", 1.11), tnom: num(i, "tnom", 27) } }],
+    toDevices: (i, n) => [{ id: i.id, type: dm.type, nodes: n, params: { is: num(i, "is", dm.is), n: num(i, "n", dm.n), bv: num(i, "bv", dm.bv), rs: num(i, "rs", 0.1), cjo: num(i, "cjo", 4e-12), mj: num(i, "mj", 0.5), vj: num(i, "vj", 1), fc: num(i, "fc", 0.5), tt: num(i, "tt", 0), xti: num(i, "xti", 3), eg: num(i, "eg", 1.11), tnom: num(i, "tnom", 27), tol: num(i, "tol", 10) } }],
   });
 }
 
@@ -860,12 +861,13 @@ for (const m of mosfets) {
       { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
       { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
       { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+      P.tol,
       { key: "w", label: "Kanalweite W", unit: "m", type: "number", def: 1e-3 },
       { key: "l", label: "Kanallänge L", unit: "m", type: "number", def: 1e-5 },
       { key: "lambda", label: "Kanallängenmodulation λ", type: "number", def: 0.02 },
       { key: "cgs", label: "CGS", unit: "F", type: "number", def: 1e-11 },
     ],
-    toDevices: (i, n) => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i, "vto", m.vto), kp: num(i, "kp", m.kp), w: num(i, "w", 1e-3), l: num(i, "l", 1e-5), lambda: num(i, "lambda", 0.02), cgs: num(i, "cgs", 1e-11), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: m.p ? 1 : 0 } }],
+    toDevices: (i, n) => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i, "vto", m.vto), kp: num(i, "kp", m.kp), w: num(i, "w", 1e-3), l: num(i, "l", 1e-5), lambda: num(i, "lambda", 0.02), cgs: num(i, "cgs", 1e-11), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: m.p ? 1 : 0 } }],
   });
 }
 
@@ -881,9 +883,10 @@ add({
   params: [
     { key: "vto", label: "Pinch-Off VTO", unit: "V", type: "number", def: -3 },
     { key: "beta", label: "BETA", unit: "A/V²", type: "number", def: 1.3e-3 },
+    P.tol,
     { key: "lambda", label: "λ", type: "number", def: 0.01 },
   ],
-  toDevices: (i, n) => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i, "vto", -3), beta: num(i, "beta", 1.3e-3), lambda: num(i, "lambda", 0.01) } }],
+  toDevices: (i, n) => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i, "vto", -3), beta: num(i, "beta", 1.3e-3), lambda: num(i, "lambda", 0.01), tol: num(i, "tol", 10) } }]
 });
 
 add({
@@ -1525,11 +1528,12 @@ for (const m of extraMos) {
       { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
       { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
       { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+      P.tol,
       { key: "w", label: "W", unit: "m", type: "number", def: 1e-3 },
       { key: "l", label: "L", unit: "m", type: "number", def: 1e-5 },
       { key: "lambda", label: "λ", type: "number", def: 0.02 },
     ],
-    toDevices: (i, n) => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i, "vto", m.vto), kp: num(i, "kp", m.kp), w: num(i, "w", 1e-3), l: num(i, "l", 1e-5), lambda: num(i, "lambda", 0.02), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: m.p ? 1 : 0 } }],
+    toDevices: (i, n) => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i, "vto", m.vto), kp: num(i, "kp", m.kp), w: num(i, "w", 1e-3), l: num(i, "l", 1e-5), lambda: num(i, "lambda", 0.02), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: m.p ? 1 : 0 } }],
   });
 }
 
@@ -2541,8 +2545,9 @@ add({
     { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
     { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",2.1), kp: num(i,"kp",0.05), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",2.1), kp: num(i,"kp",0.05), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: 0 } }],
 });
 
 
@@ -2562,8 +2567,9 @@ add({
     { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
     { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",2.1), kp: num(i,"kp",0.05), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",2.1), kp: num(i,"kp",0.05), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: 0 } }],
 });
 
 
@@ -2583,8 +2589,9 @@ add({
     { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
     { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",1.5), kp: num(i,"kp",0.08), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: 1 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",1.5), kp: num(i,"kp",0.08), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: 1 } }],
 });
 
 
@@ -2604,8 +2611,9 @@ add({
     { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
     { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",3.0), kp: num(i,"kp",0.5), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",3.0), kp: num(i,"kp",0.5), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: 0 } }],
 });
 
 
@@ -2625,8 +2633,9 @@ add({
     { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
     { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",3.5), kp: num(i,"kp",1.0), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",3.5), kp: num(i,"kp",1.0), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: 0 } }],
 });
 
 
@@ -2646,8 +2655,9 @@ add({
     { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
     { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",2.0), kp: num(i,"kp",1.2), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",2.0), kp: num(i,"kp",1.2), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: 0 } }],
 });
 
 
@@ -2667,8 +2677,9 @@ add({
     { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
     { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",3.0), kp: num(i,"kp",0.8), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",3.0), kp: num(i,"kp",0.8), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: 0 } }],
 });
 
 
@@ -2684,8 +2695,9 @@ add({
   params: [
     { key: "vto", label: "VTO", unit: "V", type: "number", def: -0.8 },
     { key: "beta", label: "BETA", unit: "A/V²", type: "number", def: 0.001 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-0.8), beta: num(i,"beta",0.001) } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-0.8), beta: num(i,"beta",0.001), tol: num(i, "tol", 10) } }]
 });
 
 
@@ -2701,8 +2713,9 @@ add({
   params: [
     { key: "vto", label: "VTO", unit: "V", type: "number", def: -1.5 },
     { key: "beta", label: "BETA", unit: "A/V²", type: "number", def: 0.002 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-1.5), beta: num(i,"beta",0.002) } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-1.5), beta: num(i,"beta",0.002), tol: num(i, "tol", 10) } }]
 });
 
 
@@ -2718,8 +2731,9 @@ add({
   params: [
     { key: "vto", label: "VTO", unit: "V", type: "number", def: -1.0 },
     { key: "beta", label: "BETA", unit: "A/V²", type: "number", def: 0.003 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-1.0), beta: num(i,"beta",0.003) } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-1.0), beta: num(i,"beta",0.003), tol: num(i, "tol", 10) } }]
 });
 
 
@@ -2735,8 +2749,9 @@ add({
   params: [
     { key: "vto", label: "VTO", unit: "V", type: "number", def: -2.0 },
     { key: "beta", label: "BETA", unit: "A/V²", type: "number", def: 0.003 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-2.0), beta: num(i,"beta",0.003) } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-2.0), beta: num(i,"beta",0.003), tol: num(i, "tol", 10) } }]
 });
 
 
@@ -2752,8 +2767,9 @@ add({
   params: [
     { key: "vto", label: "VTO", unit: "V", type: "number", def: -3.5 },
     { key: "beta", label: "BETA", unit: "A/V²", type: "number", def: 0.003 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-3.5), beta: num(i,"beta",0.003) } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "J", nodes: n, params: { vto: num(i,"vto",-3.5), beta: num(i,"beta",0.003), tol: num(i, "tol", 10) } }]
 });
 
 
@@ -2777,8 +2793,9 @@ add({
     { key: "bex", label: "Beweglichkeits-Temperaturkoeffizient", type: "number", def: 1.5 },
     { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     { key: "tox", label: "Oxiddicke TOX (Meyer, 0=aus)", unit: "m", type: "number", def: 0 },
+    P.tol,
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",4), kp: num(i,"kp",0.2), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), pmos: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "M", nodes: n, params: { vto: num(i,"vto",4), kp: num(i,"kp",0.2), tcv: num(i, "tcv", 2.5e-3), bex: num(i, "bex", 1.5), tnom: num(i, "tnom", 27), tox: num(i, "tox", 0), tol: num(i, "tol", 10), pmos: 0 } }],
 });
 
 
