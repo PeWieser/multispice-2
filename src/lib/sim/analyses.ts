@@ -9,7 +9,10 @@ import {
   Netlist,
   SimOptions,
   Simulator,
+  depletionCap,
   sourceValue,
+  tempScaledBF,
+  tempScaledIS,
 } from "./engine";
 import { fourier, spectrum } from "./fft";
 
@@ -438,22 +441,29 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
       case "LED":
       case "ZENER":
       case "SCHOTTKY": {
-        const is = par(d, "is", 1e-14);
+        // S4.2: temperaturskaliert + gradiert wie im DC-Kern (Helfer teilen).
+        const tempC = sim.options.temperature;
         const n = par(d, "n", d.type === "LED" ? 2 : 1);
+        const is = tempScaledIS(par(d, "is", 1e-14), tempC, par(d, "tnom", 27), par(d, "xti", 3), par(d, "eg", 1.11), n);
         const vd = st.vprev[0];
         const gd = (is * Math.exp(Math.min(vd / (n * vt), 60))) / (n * vt) + 1e-12;
         acStampG(cm, n0, n1, gd, 0);
-        acStampG(cm, n0, n1, 0, omega * (par(d, "cjo", 1e-12) + par(d, "tt", 0) * gd));
+        const cj = depletionCap(par(d, "cjo", 1e-12), vd, par(d, "vj", 1), par(d, "mj", 0.5), par(d, "fc", 0.5)) + par(d, "tt", 0) * gd;
+        acStampG(cm, n0, n1, 0, omega * cj);
         break;
       }
       case "Q": {
         const nc = nodeIdx(sim, d.nodes[0]);
         const nb = nodeIdx(sim, d.nodes[1]);
         const ne = nodeIdx(sim, d.nodes[2]);
-        const is = par(d, "is", 1e-15);
-        const bf = Math.max(par(d, "bf", 200), 1e-3);
+        // S4.2: temperaturskaliert + gradiert wie im DC-Kern (Helfer teilen).
+        const tempC = sim.options.temperature;
+        const tnomQ = par(d, "tnom", 27);
+        const is = tempScaledIS(par(d, "is", 1e-15), tempC, tnomQ, par(d, "xti", 3), par(d, "eg", 1.11));
+        const bf = Math.max(tempScaledBF(par(d, "bf", 200), tempC, tnomQ, par(d, "xtb", 0)), 1e-3);
         const vaf = par(d, "vaf", 100);
         const vbe = st.vprev[0];
+        const vbc = st.vprev[1];
         const evbe = Math.exp(Math.min(vbe / vt, 60));
         const gpi = (is * evbe) / (bf * vt) + 1e-12;
         const gm = (is * evbe) / vt;
@@ -465,8 +475,12 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
         if (nc >= 0 && ne >= 0) cm.add(nc, ne, -gm, 0);
         if (ne >= 0 && nb >= 0) cm.add(ne, nb, -gm, 0);
         if (ne >= 0) cm.add(ne, ne, gm, 0);
-        acStampG(cm, nb, ne, 0, omega * par(d, "cje", 5e-12));
-        acStampG(cm, nb, nc, 0, omega * par(d, "cjc", 2e-12));
+        const fcQ = par(d, "fc", 0.5);
+        const gmR = (is * Math.exp(Math.min(vbc / vt, 60))) / vt;
+        const cbe = depletionCap(par(d, "cje", 5e-12), vbe, par(d, "vje", 0.75), par(d, "mje", 0.33), fcQ) + par(d, "tf", 0) * gm;
+        const cbc = depletionCap(par(d, "cjc", 2e-12), vbc, par(d, "vjc", 0.75), par(d, "mjc", 0.5), fcQ) + par(d, "tr", 0) * gmR;
+        acStampG(cm, nb, ne, 0, omega * cbe);
+        acStampG(cm, nb, nc, 0, omega * cbc);
         break;
       }
       case "M": {

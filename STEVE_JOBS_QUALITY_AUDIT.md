@@ -3240,3 +3240,77 @@ Hierarchie = **Custom-Parts + Ausbau**.
 - **Verifikation**: `tsc` + `eslint` sauber; `npm test` (11 Skripte inkl.
   neuem `sprint3test.ts`, 41 Checks) 2× vollständig grün; alle 8 Vorlagen
   ERC-still (W98d).
+
+## §45 · Sprint 4 — Modelle (Plan, 2026-10-04)
+
+Ziel: Genauigkeit für reale Entwürfe. Befunde code-geprüft.
+
+### 45.1 Befund
+
+- **S4.1** OPAMP-Transient = flache tanh-Verstärkung + Sättigung; AC hat
+  dagegen den Einpol-GBW (`buildAcMatrix`, `gbw`-Param) — TRAN und AC
+  widersprechen sich oberhalb der Eckfrequenz. Slew-Werte stehen in der
+  OPV-Tabelle (`opamps[].slew`), werden aber nicht an Devices gereicht.
+- **S4.2** Diode: `cjo` fix + `tt·gd`-Diffusion (nur transient); keine
+  Sperrschicht-Gradierung, kein IS-Temp (nur `vt=kT/q` skaliert). BJT:
+  Ebers-Moll + Early, `cje/cjc` fix, kein TF/TR, kein IS/BF-Temp.
+- **S4.3** MOSFET Level 1, `cgs/cgd` fix, kein Temp, kein Bulk-Knoten.
+  JFET: gar keine Kapazitäten, kein Temp.
+- **S4.4** Monte-Carlo streut R/C/L + Q.bf; Worst-Case nur R/C/L
+  (Single-Key). Halbleiter-Streuung fehlt (IS, VTO, KP …).
+- **S4.5** Relais = R-Spule + VSWITCH mit Von/Voff-Hysterese
+  (`updateEvents`, auch im OP) — de facto fertig, braucht Verifikation.
+  FUSE = reines R, `irated` ungenutzt, kein I²t.
+- **S4.6** Trafo ideal (`lp/ratio/k`), kein Wicklungs-R, keine Sättigung,
+  keine Kernverluste. Kein T-Element.
+
+### 45.2 Plan (S4.1–S4.6)
+
+- **S4.1 OPV transient** (`engine.ts` + `catalog.ts`): Target aus
+  tanh-Stufe, dann Pol 1. Ordnung (tau = A0/2π·GBW, Backward-Euler,
+  Zustand in `extra`, Commit in `acceptTimestep`) + Slew-Begrenzung
+  (|Δv| ≤ SR·dt, Jacobian aus linearem Anteil). DC/OP unverändert.
+  Katalog: `slew`-Param (Defaults aus Tabelle) + Durchreichen.
+  COMPARATOR bleibt statisch (dokumentiert). Konsistenz AC↔TRAN testen.
+- **S4.2 Temp + Kapazitäten D/Q**: IS(T) = IS·(T/Tnom)^XTI·exp(−EG/k·
+  (1/T−1/Tnom)), BF(T) = BF·(T/Tnom)^XTB (Engine-Default XTB = 0 wie
+  SPICE, Katalog setzt xtb = 1,5 explizit ≈ +0,5 %/K, dokumentiert).
+  Sperrschicht: CJO·(1−vd/VJ)^−MJ mit FC-Grenze; BJT zusätzlich
+  MJE/MJC/VJE/VJC + TF/TR-Diffusion (gm·tf). SPICE-Defaults
+  (MJ = 0,5, MJE = 0,33 …). Kapazitäts-Chord statt Ladungsformulierung
+  (dokumentierter Kompromiss). AC nutzt dieselben Helfer am OP.
+- **S4.3 MOSFET-Temp + Meyer**: VTO(T) = VTO − vto_tc·(T−Tnom)
+  (Default 2 mV/K, dokumentierte Näherung), KP(T) = KP·(T/Tnom)^−BEX
+  (Default BEX = 1,5). Meyer: intrinsisches Cox·W·L nach Bereich auf
+  GS/GD partitioniert (Cutoff 0 / Triode je 1/2 / Sättigung 2/3 + 0) +
+  Overlap CGSO/CGDO·W; cox = 0 → fixe cgs/cgd (rückwärtskompatibel).
+  Kein Bulk-Knoten → kein CGB (Bulk = Source, dokumentiert). JFET:
+  Temp (beta/vto) + fixe cgs/cgd (war ganz ohne). AC am OP gleich.
+- **S4.4 Streuung** (`analyses.ts`): MC-Tabelle += D/LED/ZENER/SCHOTTKY.is,
+  Q.is, M.vto+kp, J.beta+vto; Worst-Case auf Param-Listen
+  generalisieren + gleiche Params. Streu-Tabelle in DESIGN. Seed bleibt.
+- **S4.5 Relais + Sicherung**: Relais-Verifikation (OP + TRAN,
+  Hysterese) + Regressionstest. Sicherung: I²t-Akkumulator in
+  `acceptTimestep`, löst bei `i2t` (Default 1 A²s), latchend bis
+  Rebuild (wie echt: ersetzen = Neustart), danach roff; `extra.blown`
+  + Strommeldung. Löst nur in TRAN/Echtzeit (OP hat keine Zeit —
+  dokumentiert).
+- **S4.6 Trafo + T-Element**: Trafo: rp/rs seriell, rcore parallel
+  primär (Default ∞ = aus), isat-Knie Lp(i) = Lp/(1+|ip|/isat)
+  (Chord, isat = 0 → aus). AC: rp/rs/rcore linear (Sättigung dort
+  ungesättigt, dokumentiert). TLINE neu: Z0 + td (len/vf), Bergeron
+  mit interpolierter Delay-Line (`outputs[]`, nur akzeptiert), transient;
+  OP = durchverbunden; AC exakt (verlustlose Telegraphengleichung);
+  neues Katalogteil „Übertragungsleitung".
+- **Tests**: `scripts/sprint4test.ts` — OPV-Ecke TRAN-vs-AC, Slew,
+  D-Vf-Drift (≈ −2 mV/K), Q-BF-Temp, M-VTO-Temp, Meyer-Regionen,
+  MC-σ + Seed-Repro, Worst-Case-Sensitivitäten, Relais-Hysterese,
+  Fuse-Trip + Latch, Trafo rp/Sättigung, TLINE-Laufzeit + AC-Phase.
+  Volle Suite grün halten.
+
+### 45.3 Umsetzung & Verifikation (wird nach Implementierung ergänzt)
+
+| Item | Test | Ergebnis |
+|------|------|----------|
+| S4.1 | Folger LM741 (GBW 1 MHz) TRAN 100 kHz / 3 MHz + Slew-Rampe + AC-Ecke | 0.986 / 0.308 (Th. 0.995/0.316), Rampe 0.505 V/µs bei SR 0.5, Ecke 1.00 MHz — PASS |
+| S4.2 | 1N4148 @1 mA Vf-Drift 27→77 °C; NPN Ic(T); Depletion-Einheit | −2.03 mV/K (Th. −2), Ic +29 % (BF 200→252), Grading 1.83×/fix — PASS |

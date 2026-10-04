@@ -732,9 +732,16 @@ for (const dm of diodeModels) {
       { key: "bv", label: "Durchbruchspannung BV", unit: "V", type: "number", def: dm.bv },
       { key: "rs", label: "Bahnwiderstand RS", unit: "Ω", type: "number", def: 0.1 },
       { key: "cjo", label: "Sperrschichtkapazität", unit: "F", type: "number", def: 4e-12 },
+      { key: "mj", label: "Gradingkoeffizient MJ", type: "number", def: 0.5 },
+      { key: "vj", label: "Diffusionsspannung VJ", unit: "V", type: "number", def: 1 },
+      { key: "fc", label: "Depletion-Grenze FC", type: "number", def: 0.5 },
+      { key: "tt", label: "Transitzeit TT", unit: "s", type: "number", def: 0 },
+      { key: "xti", label: "IS-Temperaturkoeffizient XTI", type: "number", def: 3 },
+      { key: "eg", label: "Bandabstand EG", unit: "eV", type: "number", def: 1.11 },
+      { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
     ],
-    spice: `.model ${dm.id.toUpperCase()} D(IS=${dm.is} N=${dm.n} BV=${dm.bv} RS=0.1 CJO=4p)`,
-    toDevices: (i, n) => [{ id: i.id, type: dm.type, nodes: n, params: { is: num(i, "is", dm.is), n: num(i, "n", dm.n), bv: num(i, "bv", dm.bv), rs: num(i, "rs", 0.1), cjo: num(i, "cjo", 4e-12) } }],
+    spice: `.model ${dm.id.toUpperCase()} D(IS=${dm.is} N=${dm.n} BV=${dm.bv} RS=0.1 CJO=4p MJ=0.5 VJ=1 FC=0.5 XTI=3 EG=1.11)`,
+    toDevices: (i, n) => [{ id: i.id, type: dm.type, nodes: n, params: { is: num(i, "is", dm.is), n: num(i, "n", dm.n), bv: num(i, "bv", dm.bv), rs: num(i, "rs", 0.1), cjo: num(i, "cjo", 4e-12), mj: num(i, "mj", 0.5), vj: num(i, "vj", 1), fc: num(i, "fc", 0.5), tt: num(i, "tt", 0), xti: num(i, "xti", 3), eg: num(i, "eg", 1.11), tnom: num(i, "tnom", 27) } }],
   });
 }
 
@@ -811,10 +818,21 @@ for (const b of bjts) {
       { key: "br", label: "Inverse Verstärkung BR", type: "number", def: 4 },
       { key: "cje", label: "CJE", unit: "F", type: "number", def: 4.5e-12 },
       { key: "cjc", label: "CJC", unit: "F", type: "number", def: 3.6e-12 },
+      { key: "mje", label: "Grading MJE", type: "number", def: 0.33 },
+      { key: "vje", label: "Diffusionsspannung VJE", unit: "V", type: "number", def: 0.75 },
+      { key: "mjc", label: "Grading MJC", type: "number", def: 0.5 },
+      { key: "vjc", label: "Diffusionsspannung VJC", unit: "V", type: "number", def: 0.75 },
+      { key: "fc", label: "Depletion-Grenze FC", type: "number", def: 0.5 },
+      { key: "tf", label: "Transitzeit TF", unit: "s", type: "number", def: 0 },
+      { key: "tr", label: "Transitzeit TR", unit: "s", type: "number", def: 0 },
+      { key: "xti", label: "IS-Temperaturkoeffizient XTI", type: "number", def: 3 },
+      { key: "eg", label: "Bandabstand EG", unit: "eV", type: "number", def: 1.11 },
+      { key: "xtb", label: "BF-Temperaturkoeffizient XTB", type: "number", def: 1.5 },
+      { key: "tnom", label: "Nenntemperatur TNOM", unit: "°C", type: "number", def: 27 },
       P.tol,
     ],
-    spice: `.model ${b.id.toUpperCase()} ${b.pnp ? "PNP" : "NPN"}(IS=${b.is} BF=${b.bf} VAF=100 CJE=4.5p CJC=3.6p)`,
-    toDevices: (i, n) => [{ id: i.id, type: "Q", nodes: n, params: { bf: num(i, "bf", b.bf), is: num(i, "is", b.is), vaf: num(i, "vaf", 100), br: num(i, "br", 4), cje: num(i, "cje", 4.5e-12), cjc: num(i, "cjc", 3.6e-12), pnp: b.pnp ? 1 : 0, tol: num(i, "tol", 10) } }],
+    spice: `.model ${b.id.toUpperCase()} ${b.pnp ? "PNP" : "NPN"}(IS=${b.is} BF=${b.bf} VAF=100 CJE=4.5p CJC=3.6p MJE=0.33 MJC=0.5 XTI=3 EG=1.11 XTB=1.5)`,
+    toDevices: (i, n) => [{ id: i.id, type: "Q", nodes: n, params: { bf: num(i, "bf", b.bf), is: num(i, "is", b.is), vaf: num(i, "vaf", 100), br: num(i, "br", 4), cje: num(i, "cje", 4.5e-12), cjc: num(i, "cjc", 3.6e-12), mje: num(i, "mje", 0.33), vje: num(i, "vje", 0.75), mjc: num(i, "mjc", 0.5), vjc: num(i, "vjc", 0.75), fc: num(i, "fc", 0.5), tf: num(i, "tf", 0), tr: num(i, "tr", 0), xti: num(i, "xti", 3), eg: num(i, "eg", 1.11), xtb: num(i, "xtb", 1.5), tnom: num(i, "tnom", 27), pnp: b.pnp ? 1 : 0, tol: num(i, "tol", 10) } }],
   });
 }
 
@@ -927,6 +945,7 @@ for (const o of opamps) {
     params: [
       { key: "gain", label: "Leerlaufverstärkung", type: "number", def: o.gain },
       { key: "gbw", label: "Verstärkungs-Bandbreite", unit: "Hz", type: "number", def: o.gbw },
+      { key: "slew", label: "Slew-Rate", unit: "V/s", type: "number", def: o.slew },
       { key: "rin", label: "Eingangswiderstand", unit: "Ω", type: "number", def: 2e6 },
       { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 75 },
       { key: "vdrop", label: "Aussteuerungsreserve", unit: "V", type: "number", def: 1.2 },
@@ -935,7 +954,7 @@ for (const o of opamps) {
     ],
     toDevices: (i, n) => [{
       id: i.id, type: "OPAMP", nodes: [n[0], n[1], n[2], conn(n[3]), conn(n[4])],
-      params: { gain: num(i, "gain", o.gain), gbw: num(i, "gbw", o.gbw), rin: num(i, "rin", 2e6), rout: num(i, "rout", 75), vdrop: num(i, "vdrop", 1.2), vcc: num(i, "vcc", 15), vee: num(i, "vee", -15) },
+      params: { gain: num(i, "gain", o.gain), gbw: num(i, "gbw", o.gbw), slew: num(i, "slew", o.slew), rin: num(i, "rin", 2e6), rout: num(i, "rout", 75), vdrop: num(i, "vdrop", 1.2), vcc: num(i, "vcc", 15), vee: num(i, "vee", -15) },
     }],
   });
 }
@@ -1433,12 +1452,13 @@ for (const s of cmosComplex) {
 }
 
 // Additional opamps / comparators
-const extraOpamps: Array<{ id: string; name: string; gain: number; gbw: number }> = [
-  { id: "opamp_lm324", name: "LM324 Quad OPV", gain: 1e5, gbw: 1e6 },
-  { id: "opamp_tl072", name: "TL072 Dual JFET OPV", gain: 2e5, gbw: 3e6 },
-  { id: "opamp_op07", name: "OP07 Präzisions-OPV", gain: 5e5, gbw: 0.6e6 },
-  { id: "opamp_lm393_dual", name: "LM393 Dual Komparator", gain: 2e5, gbw: 1e6 },
-  { id: "opamp_lm339", name: "LM339 Quad Komparator", gain: 2e5, gbw: 1e6 },
+const extraOpamps: Array<{ id: string; name: string; gain: number; gbw: number; slew: number }> = [
+  { id: "opamp_lm324", name: "LM324 Quad OPV", gain: 1e5, gbw: 1e6, slew: 0.5e6 },
+  { id: "opamp_tl072", name: "TL072 Dual JFET OPV", gain: 2e5, gbw: 3e6, slew: 13e6 },
+  { id: "opamp_op07", name: "OP07 Präzisions-OPV", gain: 5e5, gbw: 0.6e6, slew: 0.3e6 },
+  // S4.1: Komparatoren bleiben statisch (slew = 0 → kein Slew-Param in der UI).
+  { id: "opamp_lm393_dual", name: "LM393 Dual Komparator", gain: 2e5, gbw: 1e6, slew: 0 },
+  { id: "opamp_lm339", name: "LM339 Quad Komparator", gain: 2e5, gbw: 1e6, slew: 0 },
 ];
 
 for (const o of extraOpamps) {
@@ -1462,6 +1482,7 @@ for (const o of extraOpamps) {
     params: [
       { key: "gain", label: "Leerlaufverstärkung", type: "number", def: o.gain },
       { key: "gbw", label: "GBW", unit: "Hz", type: "number", def: o.gbw },
+      ...(o.slew > 0 ? [{ key: "slew", label: "Slew-Rate", unit: "V/s", type: "number" as const, def: o.slew }] : []),
       { key: "rin", label: "Eingangswiderstand", unit: "Ω", type: "number", def: 2e6 },
       { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 75 },
       { key: "vdrop", label: "Reserve", unit: "V", type: "number", def: 1.2 },
@@ -1470,7 +1491,7 @@ for (const o of extraOpamps) {
     ],
     toDevices: (i, n) => [{
       id: i.id, type: o.id.includes("393") || o.id.includes("339") ? "COMPARATOR" : "OPAMP", nodes: [n[0], n[1], n[2], conn(n[3]), conn(n[4])],
-      params: { gain: num(i, "gain", o.gain), gbw: num(i, "gbw", o.gbw), rin: num(i, "rin", 2e6), rout: num(i, "rout", 75), vdrop: num(i, "vdrop", 1.2), vcc: num(i, "vcc", 15), vee: num(i, "vee", -15) },
+      params: { gain: num(i, "gain", o.gain), gbw: num(i, "gbw", o.gbw), slew: num(i, "slew", o.slew), rin: num(i, "rin", 2e6), rout: num(i, "rout", 75), vdrop: num(i, "vdrop", 1.2), vcc: num(i, "vcc", 15), vee: num(i, "vee", -15) },
     }],
   });
 }
@@ -2740,8 +2761,9 @@ add({
   params: [
     { key: "gain", label: "Gain", type: "number", def: 200000.0 },
     { key: "gbw", label: "GBW", unit: "Hz", type: "number", def: 3000000.0 },
+    { key: "slew", label: "Slew-Rate", unit: "V/s", type: "number", def: 13000000.0 },
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
 });
 
 
@@ -2764,8 +2786,9 @@ add({
   params: [
     { key: "gain", label: "Gain", type: "number", def: 200000.0 },
     { key: "gbw", label: "GBW", unit: "Hz", type: "number", def: 3000000.0 },
+    { key: "slew", label: "Slew-Rate", unit: "V/s", type: "number", def: 13000000.0 },
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
 });
 
 
@@ -2788,8 +2811,9 @@ add({
   params: [
     { key: "gain", label: "Gain", type: "number", def: 200000.0 },
     { key: "gbw", label: "GBW", unit: "Hz", type: "number", def: 3000000.0 },
+    { key: "slew", label: "Slew-Rate", unit: "V/s", type: "number", def: 13000000.0 },
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
 });
 
 
@@ -2812,8 +2836,9 @@ add({
   params: [
     { key: "gain", label: "Gain", type: "number", def: 200000.0 },
     { key: "gbw", label: "GBW", unit: "Hz", type: "number", def: 3000000.0 },
+    { key: "slew", label: "Slew-Rate", unit: "V/s", type: "number", def: 13000000.0 },
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
 });
 
 

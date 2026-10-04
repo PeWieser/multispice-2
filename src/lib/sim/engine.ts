@@ -294,6 +294,63 @@ function fetlim(vnew: number, vold: number, vto: number): number {
 /** Runde 24 (W59): Obergrenze für sinnvolle Knotenspannungen/Zweigströme. */
 const SANE_LIMIT = 1e9;
 
+/* ------------------------------------------------------------------ */
+/* S4.2/S4.3: Temperatur-Skalierung + Sperrschichtkapazitäten (SPICE-like) */
+/* Geteilte Helfer für DC-Kern (loadDevices) und AC (buildAcMatrix), damit */
+/* beide Zweige exakt dieselben temperaturskalierten Werte sehen.         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sättigungsstrom bei Temperatur (°C), SPICE-2G-Form:
+ * IS·(T/Tnom)^(XTI/N)·exp(−EG/N·(1/Vt−1/Vt0)).
+ * Die Division durch den Emissionskoeffizienten N ist entscheidend: ohne sie
+ * driftet eine 1N4148 mit −5 mV/K statt der realen −2 mV/K (S4.2 verifiziert).
+ * BJT ruft mit nEm = 1 (Gummel-Poon ohne NF im IS-Term).
+ */
+export function tempScaledIS(is: number, tempC: number, tnomC: number, xti: number, egEV: number, nEm = 1): number {
+  const t = tempC + KELVIN;
+  const t0 = tnomC + KELVIN;
+  if (!(t > 0) || !(t0 > 0)) return is;
+  const n = nEm > 0.1 ? nEm : 1;
+  const vtT = (BOLTZMANN * t) / CHARGE;
+  const vt0 = (BOLTZMANN * t0) / CHARGE;
+  return is * Math.pow(t / t0, xti / n) * Math.exp(Math.max(-60, Math.min(60, (-egEV / n) * (1 / vtT - 1 / vt0))));
+}
+
+/** BJT-Stromverstärkung bei Temperatur: BF·(T/Tnom)^XTB. */
+export function tempScaledBF(bf: number, tempC: number, tnomC: number, xtb: number): number {
+  const t = tempC + KELVIN;
+  const t0 = tnomC + KELVIN;
+  if (!(t > 0) || !(t0 > 0)) return bf;
+  return bf * Math.pow(t / t0, xtb);
+}
+
+/** MOS-Schwellspannung bei Temperatur (lineare Näherung, dokumentiert). */
+export function tempScaledVTO(vto: number, tempC: number, tnomC: number, vtoTc: number): number {
+  return vto - vtoTc * (tempC - tnomC);
+}
+
+/** MOS-Transkonduktanz bei Temperatur (Beweglichkeit ∼ T^−BEX). */
+export function tempScaledKP(kp: number, tempC: number, tnomC: number, bex: number): number {
+  const t = tempC + KELVIN;
+  const t0 = tnomC + KELVIN;
+  if (!(t > 0) || !(t0 > 0)) return kp;
+  return kp * Math.pow(t / t0, -bex);
+}
+
+/** SPICE-Sperrschichtkapazität mit FC-Depletion-Grenze (MJ = 0 → fix C0). */
+export function depletionCap(c0: number, vd: number, vj: number, mj: number, fc: number): number {
+  if (!(c0 > 0)) return 0;
+  if (!(mj > 0)) return c0;
+  const vjSafe = vj > 0.01 ? vj : 1;
+  const fcSafe = Math.min(Math.max(fc, 0.05), 0.95);
+  if (vd < fcSafe * vjSafe) {
+    return c0 * Math.pow(Math.max(1 - vd / vjSafe, 1e-9), -mj);
+  }
+  const base = Math.pow(1 - fcSafe, -(1 + mj));
+  return c0 * base * (1 - fcSafe * (1 + mj) + (mj * vd) / vjSafe);
+}
+
 const p = (d: Device, key: string, def: number): number => {
   const v = d.params?.[key];
   return typeof v === "number" && Number.isFinite(v) ? v : def;
@@ -881,8 +938,12 @@ export class Simulator {
         case "LED":
         case "ZENER":
         case "SCHOTTKY": {
-          const is = p(d, "is", d.type === "SCHOTTKY" ? 1e-8 : 1e-14);
+          // S4.2: IS temperaturskaliert (XTI/EG, /N); Sperrschicht unten gradiert.
           const n = p(d, "n", d.type === "LED" ? 2.0 : 1.0);
+          const is = tempScaledIS(
+            p(d, "is", d.type === "SCHOTTKY" ? 1e-8 : 1e-14),
+            ctx.temp, p(d, "tnom", 27), p(d, "xti", 3), p(d, "eg", 1.11), n,
+          );
           const rs = p(d, "rs", d.type === "LED" ? 8 : 0.01);
           const bv = p(d, "bv", d.type === "ZENER" ? 5.1 : 1e3);
           const nvt = n * vt;
@@ -943,7 +1004,9 @@ export class Simulator {
           this.stampConductance(m, n0, n1, geff);
           this.stampCurrent(m, n0, n1, ieqEff);
           if (ctx.transient) {
-            const cj = p(d, "cjo", 1e-12) + p(d, "tt", 0) * gd;
+            // S4.2: gradierte Sperrschicht (MJ = 0 → fix) + TT-Diffusion.
+            // Kapazitäts-Chord statt Ladungsformulierung (dokumentiert).
+            const cj = depletionCap(p(d, "cjo", 1e-12), vj, p(d, "vj", 1), p(d, "mj", 0.5), p(d, "fc", 0.5)) + p(d, "tt", 0) * gd;
             if (cj > 0) {
               const { a0 } = this.integrationCoeffs(ctx.dt);
               const geqC = a0 * cj;
@@ -961,9 +1024,11 @@ export class Simulator {
           const nc = this.idx(d.nodes[0]);
           const nb = this.idx(d.nodes[1]);
           const ne = this.idx(d.nodes[2]);
-          const isat = p(d, "is", 1e-15);
-          const bf = Math.max(p(d, "bf", 200), 1e-3);
-          const br2 = Math.max(p(d, "br", 2), 1e-3);
+          // S4.2: IS/BF/BR temperaturskaliert (XTB-Default 0 wie SPICE).
+          const tnomQ = p(d, "tnom", 27);
+          const isat = tempScaledIS(p(d, "is", 1e-15), ctx.temp, tnomQ, p(d, "xti", 3), p(d, "eg", 1.11));
+          const bf = Math.max(tempScaledBF(p(d, "bf", 200), ctx.temp, tnomQ, p(d, "xtb", 0)), 1e-3);
+          const br2 = Math.max(tempScaledBF(p(d, "br", 2), ctx.temp, tnomQ, p(d, "xtb", 0)), 1e-3);
           const vaf = p(d, "vaf", 100);
           const pnp = p(d, "pnp", 0) > 0.5 ? -1 : 1;
           const vbeRaw = pnp * (this.vOf(nb) - this.vOf(ne));
@@ -1005,8 +1070,12 @@ export class Simulator {
           st.extra!.ib = pnp * ib;
           st.extra!.id = pnp * ic;
           if (ctx.transient) {
-            const cje = p(d, "cje", 5e-12);
-            const cjc = p(d, "cjc", 2e-12);
+            // S4.2: gradierte Sperrschichten + TF/TR-Diffusion (Chord, s. Diode).
+            const fcQ = p(d, "fc", 0.5);
+            const gmF = (isat * evbe) / vt;
+            const gmR = (isat * evbc) / vt;
+            const cje = depletionCap(p(d, "cje", 5e-12), vbe, p(d, "vje", 0.75), p(d, "mje", 0.33), fcQ) + p(d, "tf", 0) * gmF;
+            const cjc = depletionCap(p(d, "cjc", 2e-12), vbc, p(d, "vjc", 0.75), p(d, "mjc", 0.5), fcQ) + p(d, "tr", 0) * gmR;
             const { a0 } = this.integrationCoeffs(ctx.dt);
             const gbe = a0 * cje;
             const gbc = a0 * cjc;
@@ -1145,21 +1214,54 @@ export class Simulator {
           const span = Math.max((vsatH - vsatL) / 2, 0.1);
           const arg = (gain * vd) / span;
           const tanh = Math.tanh(Math.max(-40, Math.min(40, arg)));
-          const vout = mid + span * tanh;
+          const vtarget = mid + span * tanh;
           const dv = (gain * (1 - tanh * tanh)) / 1;
           const rout = p(d, "rout", d.type === "COMPARATOR" ? 100 : 75);
-          // branch: v(out) - rout*i = vout_lin  => linearised around vd
+          // S4.1: OPV im Transient mit Einpol-GBW + Slew (DC/OP und
+          // COMPARATOR bleiben statisch). Boyle-Stil: Der Pol wirkt auf den
+          // LINEAREN Fehler (tau·dVi/dt + Vi = A0·vd), die Sättigung danach
+          // (Vi = interne Hochverstärkungs-Knotenspannung, darf Rails
+          // überschreiten, geklemmt gegen Windup). Pol hinter der Sättigung
+          // geht nicht: Dort ist dv = 0 und Newton erblindet (Folger fror
+          // ein). Slew klemmt |ΔVe| ≤ SR·dt; Jacobian aus linearem Anteil
+          // (Chord — dokumentiert). Konsistent zum AC-Einpol in buildAcMatrix.
+          let veq = vtarget;
+          let dveq = dv;
+          if (ctx.transient && d.type === "OPAMP") {
+            const gbw = Math.max(p(d, "gbw", 1e6), 1);
+            const tau = gain / (2 * Math.PI * gbw);
+            const k = tau > 0 ? ctx.dt / tau / (1 + ctx.dt / tau) : 1;
+            let viPrev = st.extra!.vi;
+            if (viPrev === undefined) {
+              // Erster Transient-Schritt: Vi aus OP-Ausgang zurückgewinnen.
+              const frac = Math.max(-0.999, Math.min(0.999, (this.vOf(no) - mid) / span));
+              viPrev = mid + span * Math.atanh(frac);
+            }
+            const viNew = viPrev + k * (gain * vd + mid - viPrev);
+            const viCl = mid + Math.max(-2 * span, Math.min(2 * span, viNew - mid));
+            const satArg = Math.max(-40, Math.min(40, (viCl - mid) / span));
+            const satTanh = Math.tanh(satArg);
+            const veTarget = mid + span * satTanh;
+            const vePrev = st.extra!.ve ?? this.vOf(no);
+            const slew = p(d, "slew", 0);
+            const veLin = veTarget;
+            veq = slew > 0 ? vePrev + Math.max(-slew * ctx.dt, Math.min(slew * ctx.dt, veLin - vePrev)) : veLin;
+            dveq = (1 - satTanh * satTanh) * k * gain;
+            st.extra!.viNew = viCl;
+            st.extra!.veNew = veq;
+          }
+          // branch: v(out) - rout*i = veq_lin  => linearised around vd
           if (no >= 0) {
             m.add(no, br, 1);
             m.add(br, no, 1);
           }
           m.add(br, br, -rout);
-          if (np >= 0) m.add(br, np, -dv);
-          if (nn >= 0) m.add(br, nn, dv);
-          m.addRhs(br, vout - dv * vd);
+          if (np >= 0) m.add(br, np, -dveq);
+          if (nn >= 0) m.add(br, nn, dveq);
+          m.addRhs(br, veq - dveq * vd);
           // differential input resistance
           this.stampConductance(m, np, nn, 1 / Math.max(p(d, "rin", 2e6), 1));
-          st.extra!.vout = vout;
+          st.extra!.vout = vtarget;
           break;
         }
         case "VREG": {
@@ -1585,6 +1687,13 @@ export class Simulator {
         case "M": {
           st.hist[0] = this.vOf(this.idx(d.nodes[1])) - this.vOf(this.idx(d.nodes[2]));
           st.hist[1] = this.vOf(this.idx(d.nodes[1])) - this.vOf(this.idx(d.nodes[0]));
+          break;
+        }
+        case "OPAMP": {
+          // S4.1: akzeptierter Pol-Zustand + Ausgang für Schritt n+1.
+          // (Vi geklemmt gegen Windup; Rest wie in loadDevices berechnet.)
+          if (st.extra!.viNew !== undefined) st.extra!.vi = st.extra!.viNew;
+          if (st.extra!.veNew !== undefined) st.extra!.ve = st.extra!.veNew;
           break;
         }
         default:
