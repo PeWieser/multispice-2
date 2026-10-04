@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Minus, Square, Copy, X } from "lucide-react";
 import { WINDOW_SPECS, engine, useEditor } from "@/state/editor";
 import { RingBuffer } from "@/lib/sim/realtime";
+import { createSyncDedupe, withSyncNonce } from "@/lib/desktopSync";
 
 export interface DesktopChildWindowSpec {
   id: string;
@@ -62,7 +63,11 @@ export interface MultispiceDesktopBridge {
   openFile?: (opts?: { title?: string; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<DesktopOpenFileResult>;
   printSvg?: (opts: DesktopPrintSvgOptions) => Promise<DesktopSaveFileResult>;
   saveAppData?: (key: string, value: unknown) => void;
-  loadAppDataSync?: (key: string) => unknown;
+  // WDA-1: schlüsselbezogen (Wert oder null); ohne Schlüssel der ganze Store.
+  loadAppDataSync?: (key?: string) => unknown;
+  // WDA-6: bisher in preload.cjs vorhanden, aber untypisiert (toter Vertrag).
+  initialAppData?: Record<string, unknown>;
+  onWindowState?: (cb: (state: { maximized: boolean }) => void) => () => void;
 }
 
 declare global {
@@ -100,13 +105,19 @@ export default function DesktopTitleBar({
     window.multispiceDesktop?.setWindowTitle?.(title);
   }, [title]);
 
+  // WDA-6: Echten Fensterstatus spiegeln — der lokale Toggle lag falsch, sobald
+  // das Fenster per Tastatur/Snap maximiert wurde (falsches Leisten-Icon).
+  useEffect(() => {
+    const off = window.multispiceDesktop?.onWindowState?.((s) => setMaximized(Boolean(s.maximized)));
+    return () => {
+      off?.();
+    };
+  }, []);
+
   const handleControl = (action: "minimize" | "maximize" | "close") => {
     if (action === "close" && onCloseOverride) {
       onCloseOverride();
       return;
-    }
-    if (action === "maximize") {
-      setMaximized((v) => !v);
     }
     window.multispiceDesktop?.windowControl(action);
   };
@@ -222,11 +233,14 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
     const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("multispice-desktop-sync") : null;
     const bridge = window.multispiceDesktop;
 
-    const sendMsg = (msg: unknown) => {
+    // WDA-5: Eine Nonce pro Nachricht — beide Transporte, ein Objekt.
+    const dedupe = createSyncDedupe();
+    const sendMsg = (msg: Record<string, unknown>) => {
+      const envelope = withSyncNonce(msg);
       try {
-        bc?.postMessage(msg);
+        bc?.postMessage(envelope);
       } catch {}
-      bridge?.sendSync(msg);
+      bridge?.sendSync(envelope);
     };
 
     if (effectiveRole === "main") {
@@ -266,6 +280,7 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
       }, 45);
 
       const handleIncoming = (raw: unknown) => {
+        if (!dedupe.check(raw)) return; // WDA-5: Zweit-Transport verwerfen
         const msg = raw as Record<string, unknown> | null;
         if (!msg || typeof msg.type !== "string") return;
         const st = useEditor.getState();
@@ -323,6 +338,7 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
       }
 
       const handleIncoming = (raw: unknown) => {
+        if (!dedupe.check(raw)) return; // WDA-5: Zweit-Transport verwerfen
         const msg = raw as Record<string, unknown> | null;
         if (!msg || msg.type !== "state-snapshot") return;
         if (msg.engineState) {

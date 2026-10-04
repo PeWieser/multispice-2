@@ -27,6 +27,29 @@ export function downloadText(name: string, content: string, type = "text/plain")
 }
 
 export function downloadBlob(name: string, blob: Blob) {
+  // WDA-3: Einziger Download ohne Desktop-Zweig — PNG-Schnappschüsse landeten
+  // kommentarlos im Download-Ordner statt im nativen Speichern-Dialog.
+  if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
+    const ext = name.split(".").pop()?.toLowerCase() || "bin";
+    void (async () => {
+      try {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        await window.multispiceDesktop?.saveFile?.({
+          defaultName: name,
+          content: btoa(binary),
+          encoding: "base64",
+          title: `Datei speichern (${name})`,
+          filters: [
+            { name: `${ext.toUpperCase()}-Datei (*.${ext})`, extensions: [ext] },
+            { name: "Alle Dateien (*.*)", extensions: ["*"] },
+          ],
+        });
+      } catch {}
+    })();
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -3391,3 +3391,28 @@ Ziel: Genauigkeit für reale Entwürfe. Befunde code-geprüft.
 | S5.7 | tsc + volle Suite; sprint5test S5.7 (2 Checks) | PASS. lib/measure.ts (Min/Max/Mittel/RMS, f−3dB) + lib/postprocess.ts (A+B/A−B/A·B/A-B-dB mit ehrlichem NaN an B=0, RMS/AVG-Hüllkurve, Resampling, FFT via spectrum()); Grapher: Mess-Panel in Tran- + AC-Ansicht, Postprozessor-Bereich mit eigenem Plot (FFT logarithmisch). |
 | S5.8 | tsc + volle Suite; sprint5test S5.8 (4 Checks) | PASS. Kernel: applyParamToNetlist extrahiert (runParamSweep nutzt ihn, verhaltensgleich), runNestedSweep/runBatched/runThdSweep neu; Runner-Kinds + 3 Analyse-Defs (Dialog/Menü automatisch); Grapher-Ansichten (Kurvenschar inkl. bisher roher param-Ansicht, Batched-Dreifachplot, THD-Kurve). Verifikation: Nested 2×2 mit erwarteten Teiler-Spannungen, Batched ok, THD 84,5 % am Gleichrichter. |
 | S5.9 | tsc + volle Suite; S3.4-Warn-Test → Fix-Test (3 Expects) | PASS. buildNets-Kern umgestellt: Leitung/Pin/Punkt je eigener Union-Schlüssel statt globaler Ketten-Keys; Union nur noch an Anschlussstellen (Ende-auf-Segment, Pin-auf-Segment, Dot). S3.5-Knick-Warnung obsolet/entfernt; migrateDoc-Dots erhalten Altbestände. Regression: volle Suite grün (wiretest, Szenarien, Vorlagen unverändert). |
+
+## §47 · Steve-Audit Web/Desktop-Codepfade (2026-10-04)
+
+Befund: 6 Divergenzen zwischen Web- (Next.js/static) und Desktop-Pfad (Electron)
+an der `window.multispiceDesktop`-Bridge — alle gefixt, alle per Vertrags-Test
+abgesichert (`scripts/webdesktoptest.ts`, 5 Checks, in `npm test`).
+
+### 47.1 Befunde & Fixes
+
+| ID | Schwere | Befund → Fix |
+|----|---------|--------------|
+| WDA-1 | hoch | `loadAppDataSync(key)` laut Typ + 4 Aufrufern schlüsselbezogen, `preload.cjs` lieferte den ganzen Store → Desktop-Hydrierung (Projekt, Bibliothek, Slots, eigene Bauteile) lief bei leerem localStorage still ins Leere. → `pickAppDataKey(store, key)` in preload (ohne Key: ganzer Store, kompatibel); `require("electron")` geguardet, damit der Test die reine Funktion ohne Electron laden kann. |
+| WDA-2 | mittel | Strg+O im Web tot: Workbench machte `preventDefault` ohne Fallback (nur Menü-Button hatte das versteckte `<input>`). → `REQUEST_OPEN_FILE_EVENT` + `requestOpenFileDialog()` in `openFile.ts`; Menüleiste horcht, Workbench feuert bei `handled === false`. |
+| WDA-3 | mittel | `downloadBlob` (Grapher-PNG) einziger Export ohne Desktop-Zweig → kommentarlos in den Download-Ordner. → Desktop-Zweig via `arrayBuffer`→base64→`saveFile` (nativer Dialog). |
+| WDA-4 | niedrig | `activeFilePath` wurde nach AppData geschrieben, aber nie gelesen → Datei-Bindung ging verloren, sobald der Projekt-Blob keinen Pfad trug. → Fallback-Lesen in `loadProjectLocal`. |
+| WDA-5 | niedrig | Sync-Doppeltransport (BroadcastChannel + IPC) ohne Dedupe: jede Nachricht doppelt, Voll-Snapshots 2× alle 45 ms. → `src/lib/desktopSync.ts` (`withSyncNonce` + `createSyncDedupe`, Ring 200); verdrahtet in `sendMsg`/beiden `handleIncoming` + beiden Library-Sendern. Nachrichten ohne Nonce passieren (Altbestand). |
+| WDA-6 | niedrig | Bridge-Typen unvollständig (`initialAppData`, `onWindowState` in preload vorhanden, untypisiert); Titelleisten-Icon per lokalem Toggle falsch nach OS-seitigem Maximieren. → Typen ergänzt, `DesktopTitleBar` spiegelt echten Fensterstatus. |
+
+### 47.2 Verifikation
+
+`tsc --noEmit` ✓ · `node --check` (main/preload) ✓ ·
+`npm test` ✓ (alle Skripte inkl. neuem `webdesktoptest.ts`, 5 Checks) ·
+Nebenbei: zwei nachträgliche tsc-Fehler in Testskripten gefixt
+(S5.8-`as never`, S5.9-Junction-`id`) — Lehre: `tsc` läuft ab sofort auch
+*nach* jeder Test-Editierung, nicht nur davor.

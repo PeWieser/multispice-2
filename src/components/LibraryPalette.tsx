@@ -7,6 +7,7 @@ import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
 import { getDatasheet, getDatasheetSearchUrl, getOctopartUrl } from "@/lib/library/datasheets";
 import { resolveSymbolStyle } from "@/lib/settings";
+import { withSyncNonce } from "@/lib/desktopSync";
 
 // --- Symbol Preview (mini canvas) – ISO/ANSI aware, memoized ---
 function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
@@ -448,12 +449,14 @@ export default function LibraryPalette({
       setPlacing(id);
       useEditor.setState({ libraryOpen: false });
       if (standalone && typeof window !== "undefined") {
+        // WDA-5: Eine Nonce für beide Transporte — das Hauptfenster verwirft das Duplikat.
+        const msg = withSyncNonce({ type: "pick-part", partId: id });
         try {
           const bc = new BroadcastChannel("multispice-desktop-sync");
-          bc.postMessage({ type: "pick-part", partId: id });
+          bc.postMessage(msg);
           bc.close();
         } catch {}
-        window.multispiceDesktop?.sendSync({ type: "pick-part", partId: id });
+        window.multispiceDesktop?.sendSync(msg);
         window.multispiceDesktop?.windowControl("close");
       }
     },
@@ -467,12 +470,14 @@ export default function LibraryPalette({
     useHud.setState({ dragPart: id });
     useEditor.setState({ libraryOpen: false });
     if (standalone && typeof window !== "undefined") {
+      // WDA-5: Eine Nonce für beide Transporte — das Hauptfenster verwirft das Duplikat.
+      const msg = withSyncNonce({ type: "pick-part", partId: id });
       try {
         const bc = new BroadcastChannel("multispice-desktop-sync");
-        bc.postMessage({ type: "pick-part", partId: id });
+        bc.postMessage(msg);
         bc.close();
       } catch {}
-      window.multispiceDesktop?.sendSync({ type: "pick-part", partId: id });
+      window.multispiceDesktop?.sendSync(msg);
       window.multispiceDesktop?.windowControl("close");
     }
   };

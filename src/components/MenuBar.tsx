@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pause, Play, Settings as SettingsIcon, Square, Undo2, Redo2 } from "lucide-react";
 import { PRESETS } from "@/lib/schematic/tools";
 import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
@@ -12,7 +12,7 @@ import PresetGallery from "./PresetGallery";
 import { copyTextToClipboard, downloadText, safeName } from "@/lib/download";
 import { buildProjectEnvelopeJson } from "@/lib/storage";
 import { SHARE_HASH_KEY, SHARE_URL_LIMIT, buildShareUrl, encodeSharePayload } from "@/lib/share";
-import { openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
+import { REQUEST_OPEN_FILE_EVENT, openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 
 const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete"] as const;
 
@@ -95,6 +95,14 @@ export default function MenuBar({
       if (!handled) fileRef.current?.click();
     });
   };
+
+  // WDA-2: Strg+O aus Workbench erreicht das versteckte <input> per Event.
+  useEffect(() => {
+    const onReq = () => triggerOpenFile();
+    window.addEventListener(REQUEST_OPEN_FILE_EVENT, onReq);
+    return () => window.removeEventListener(REQUEST_OPEN_FILE_EVENT, onReq);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const exportJson = () => {
     void st().saveProject(undefined, { saveAs: true });

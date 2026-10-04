@@ -172,7 +172,7 @@ function inst(partId: string, label: string, x: number, y: number, params: Recor
   const b = buildNets(doc);
   expect(!b.warnings.some((w) => /Knick/.test(w)), "S5.9 keine Knick-Warnung", b.warnings.join(" | "));
   expect(b.pointNets["0,0"] !== b.pointNets["100,-50"], "S5.9 geteilter Knick trennt", JSON.stringify(b.pointNets));
-  doc.junctions = [{ x: 100, y: 0 }];
+  doc.junctions = [{ id: "j1", x: 100, y: 0 }];
   const bj = buildNets(doc);
   expect(bj.pointNets["0,0"] === bj.pointNets["100,-50"], "S5.9 Dot verbindet Knick", JSON.stringify(bj.pointNets));
 }

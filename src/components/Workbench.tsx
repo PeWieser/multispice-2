@@ -31,7 +31,7 @@ const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar)
 const StandaloneInstrumentView = dynamic(() => import("./Instruments").then((m) => m.StandaloneInstrumentView), { ssr: false });
 import { loadCustomParts } from "@/lib/library/customParts";
 import { docToSvg, printSchematicSheet } from "@/lib/export/sheet";
-import { loadTextContentInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
+import { loadTextContentInEditor, openProjectViaNativeDialogIfAvailable, requestOpenFileDialog } from "@/lib/schematic/openFile";
 import { decodeSharePayload, parseShareHash } from "@/lib/share";
 import DesktopTitleBar, { isDesktopApp, useDesktopMultiWindowSync } from "./DesktopTitleBar";
 import type { InstrumentKind } from "@/state/editor";
@@ -313,10 +313,12 @@ export default function Workbench() {
         e.preventDefault();
         useEditor.getState().toggleInspector();
       }
-      // W130: Strg+O / ⌘O öffnet den Datei-Dialog
+      // W130: Strg+O / ⌘O öffnet den Datei-Dialog (WDA-2: im Web per Event an die Menüleiste)
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
         e.preventDefault();
-        void openProjectViaNativeDialogIfAvailable();
+        void openProjectViaNativeDialogIfAvailable().then((handled) => {
+          if (!handled) requestOpenFileDialog();
+        });
       }
       // W131: Strg+P / ⌘P druckt den Entwurf
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {

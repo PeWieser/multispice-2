@@ -80,6 +80,16 @@ export async function openFileInEditor(file: File, fileHandle?: BrowserFileHandl
  * geöffnete .msx.json-Dateien automatisch an das laufende Datei-Auto-Save).
  * Gibt `true` zurück, wenn der Dialog über die Desktop-Bridge abgewickelt wurde.
  */
+/**
+ * WDA-2: Fordert den Datei-Öffnen-Dialog an. Die Menüleiste hält das versteckte
+ * <input> (Web-Fallback); Workbench feuert das Event, wenn kein nativer Dialog
+ * verfügbar ist — vorher war Strg+O im Web tot (preventDefault ohne Fallback).
+ */
+export const REQUEST_OPEN_FILE_EVENT = "multispice-open-file";
+export function requestOpenFileDialog(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(REQUEST_OPEN_FILE_EVENT));
+}
+
 export async function openProjectViaNativeDialogIfAvailable(): Promise<boolean> {
   if (typeof window !== "undefined" && window.multispiceDesktop?.openFile) {
     const res = await window.multispiceDesktop.openFile({

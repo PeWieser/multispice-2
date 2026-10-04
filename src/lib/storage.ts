@@ -338,6 +338,14 @@ export function loadProjectLocal(): StoredProject | null {
     parsed.doc = migrateDoc(parsed.doc);
     if (parsed.filePath && typeof parsed.filePath === "string") {
       activeDesktopFilePath = parsed.filePath;
+    } else if (window.multispiceDesktop?.loadAppDataSync) {
+      // WDA-4: "activeFilePath" wurde bisher nur geschrieben, nie gelesen —
+      // Datei-Bindung geht sonst nach Neustart verloren, sobald der Blob
+      // keinen Pfad trägt (z. B. altes Format ohne filePath).
+      try {
+        const bound = window.multispiceDesktop.loadAppDataSync("activeFilePath") as string | null;
+        if (bound && typeof bound === "string") activeDesktopFilePath = bound;
+      } catch {}
     }
     return parsed;
   } catch {
