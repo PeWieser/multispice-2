@@ -319,11 +319,11 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
 // ---------- S5.8: Nested Sweep, Batched, THD-Sweep ----------
 {
   // Param-Schreiber (Alias + Robustheit)
-  const nl = { devices: [{ id: "R1", type: "R", nodes: ["a", "b"], params: { r: 1000 } }] } as never;
+  const nl = { devices: [{ id: "R1", type: "R", nodes: ["a", "b"], params: { r: 1000 } }] } as unknown as import("../src/lib/sim/engine").Netlist;
   applyParamToNetlist(nl, "R1.resistance", 2200);
-  assert.equal((nl.devices[0] as { params: { r: number } }).params.r, 2200);
+  assert.equal(nl.devices[0].params.r, 2200);
   applyParamToNetlist(nl, "R1.r", 3300);
-  assert.equal((nl.devices[0] as { params: { r: number } }).params.r, 3300);
+  assert.equal(nl.devices[0].params.r, 3300);
   applyParamToNetlist(nl, "??", 1);
   applyParamToNetlist(nl, "", 1);
   ok("S5.8 Param-Schreiber");

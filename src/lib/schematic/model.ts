@@ -456,6 +456,10 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   const segments: Array<[number, number, number, number]> = [];
   const segOwner: string[] = [];
   const busSegments: Array<[number, number, number, number]> = [];
+  // S5.9 (W61-Fix): jede Leitung genau EIN Schlüssel — keine Ketten-Union mehr.
+  const wireKey = new Map<string, string>();
+  const docJunctions = doc.junctions ?? [];
+  const junctionKeys = new Set(docJunctions.map((j) => key(j.x, j.y)));
   for (const w of doc.wires) {
     for (let i = 0; i + 1 < w.points.length; i++) {
       const a = w.points[i];
@@ -466,13 +470,17 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       }
       segments.push([a.x, a.y, b.x, b.y]);
       segOwner.push(w.id);
-      uf.union(key(a.x, a.y), key(b.x, b.y));
+    }
+    if (!w.isBus) {
+      const wk = `W:${w.id}`;
+      wireKey.set(w.id, wk);
+      uf.find(wk);
     }
   }
 
   // pins snap onto wires (also mid-segment T connections) + fault handling
   const pinPoints: Array<{ instanceId: string; pinIndex: number; pinName: string; x: number; y: number }> = [];
-  const faultShortGroups: Array<string[]> = [];
+  const pinKey = (instanceId: string, pinIndex: number) => `P:${instanceId}:${pinIndex}`;
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) {
@@ -490,9 +498,9 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       const keys: string[] = [];
       partPins(part, inst.params).forEach((pin, idx) => {
         const pos = pinPosition(inst, idx);
-        keys.push(key(pos.x, pos.y));
+        keys.push(pinKey(inst.id, idx));
         pinPoints.push({ instanceId: inst.id, pinIndex: idx, pinName: pin.name, x: pos.x, y: pos.y });
-        uf.find(key(pos.x, pos.y));
+        uf.find(pinKey(inst.id, idx));
       });
       if (keys.length > 1) {
         for (let i=1; i<keys.length; i++) uf.union(keys[0], keys[i]);
@@ -505,19 +513,57 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     partPins(part, inst.params).forEach((pin, idx) => {
       const pos = pinPosition(inst, idx);
       pinPoints.push({ instanceId: inst.id, pinIndex: idx, pinName: pin.name, x: pos.x, y: pos.y });
-      uf.find(key(pos.x, pos.y));
+      uf.find(pinKey(inst.id, idx));
     });
   }
 
-  /* W61: Multisim-Regel – nur echte Anschlussstellen verbinden.
-   * Kandidaten sind Leitungsenden, Pins, Netzlabels und gesetzte
-   * Verbindungspunkte. Ein Knick mitten in einer Leitung ist KEINE
-   * Anschlussstelle: kreuzen sich zwei Leitungen dort, bleiben die Netze
-   * getrennt (im Bild auch kein Punkt), bis der Nutzer einen Verbindungspunkt
-   * setzt. Vorher zählte jeder Leitungs-Stützpunkt, dadurch waren Kreuzungen an
-   * Knicks unbemerkt leitend. */
-  const docJunctions = doc.junctions ?? [];
-  const junctionKeys = new Set(docJunctions.map((j) => key(j.x, j.y)));
+  /* S5.9 (W61-Fix): Verbunden wird nur noch an echten Anschlussstellen —
+   * Leitungsende auf fremdem Segment, Pin auf Segment, gesetzter Punkt auf
+   * Segment. Geteilte Knicke (Stützpunkt auf Stützpunkt, beidseitig mitten in
+   * der Leitung) verbinden NICHTS mehr; vorher waren sie über den globalen
+   * Ketten-Schlüssel unbemerkt leitend. Altbestände bleiben erhalten:
+   * migrateDoc trägt an solchen Stellen Dots nach. */
+  const pinsAtCoord = new Map<string, string[]>();
+  for (const p of pinPoints) {
+    const k = key(p.x, p.y);
+    const arr = pinsAtCoord.get(k) ?? [];
+    arr.push(pinKey(p.instanceId, p.pinIndex));
+    pinsAtCoord.set(k, arr);
+  }
+  for (const arr of pinsAtCoord.values()) {
+    for (let i = 1; i < arr.length; i++) uf.union(arr[0], arr[i]);
+  }
+  const wiresAt = (x: number, y: number, exclude?: string): string[] => {
+    const out: string[] = [];
+    for (let si = 0; si < segments.length; si++) {
+      if (exclude !== undefined && segOwner[si] === exclude) continue;
+      const [ax, ay, bx, by] = segments[si];
+      if (!pointOnSegment(x, y, ax, ay, bx, by)) continue;
+      const wk = wireKey.get(segOwner[si]);
+      if (wk && !out.includes(wk)) out.push(wk);
+    }
+    return out;
+  };
+  // Pins auf Leitungen (auch T-Kontakte mitten im Segment)
+  for (const p of pinPoints) {
+    for (const wk of wiresAt(p.x, p.y)) uf.union(pinKey(p.instanceId, p.pinIndex), wk);
+  }
+  // Leitungsenden auf fremden Segmenten (T-Kontakt/Stoß)
+  for (const w of doc.wires) {
+    if (w.isBus || w.points.length < 2) continue;
+    const wk = wireKey.get(w.id);
+    if (!wk) continue;
+    for (const e of [w.points[0], w.points[w.points.length - 1]]) {
+      for (const fk of wiresAt(e.x, e.y, w.id)) uf.union(wk, fk);
+    }
+  }
+  // Ausdrückliche Verbindungspunkte
+  for (const j of docJunctions) {
+    const jk = `J:${key(j.x, j.y)}`;
+    uf.find(jk);
+    for (const wk of wiresAt(j.x, j.y)) uf.union(jk, wk);
+    for (const pk of pinsAtCoord.get(key(j.x, j.y)) ?? []) uf.union(jk, pk);
+  }
   const allPoints = new Set<string>(junctionKeys);
   for (const w of doc.wires) {
     if (w.points.length < 2 || w.isBus) continue;
@@ -529,29 +575,45 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   for (const p of pinPoints) allPoints.add(key(p.x, p.y));
   for (const l of doc.labels) allPoints.add(key(l.x, l.y));
 
-  // connect points that lie on a wire segment
-  for (const pk of allPoints) {
+  // Koordinate -> Union-Schlüssel (Pin zuerst, dann Leitung, dann Punkt,
+  // sonst eigener Freipunkt). An echten Kreuzungen unverbundener Leitungen ist
+  // die Koordinate mehrdeutig — gemeldet wird die erste Leitung (nur Anzeige).
+  const freePoint = new Map<string, string>();
+  const coordKey = (x: number, y: number): string => {
+    const k = key(x, y);
+    const pins = pinsAtCoord.get(k);
+    if (pins?.length) return pins[0];
+    const wk = wiresAt(x, y)[0];
+    if (wk) return wk;
+    if (junctionKeys.has(k)) return `J:${k}`;
+    let q = freePoint.get(k);
+    if (!q) { q = `Q:${k}`; uf.find(q); freePoint.set(k, q); }
+    return q;
+  };
+  const rootOf = (pk: string): string => {
     const [px, py] = pk.split(",").map(Number);
-    for (const [ax, ay, bx, by] of segments) {
-      if (pointOnSegment(px, py, ax, ay, bx, by)) uf.union(pk, key(ax, ay));
-    }
-  }
+    return uf.find(coordKey(px, py));
+  };
 
   // group
   const groups = new Map<string, string[]>();
-  for (const pk of allPoints) {
-    const root = uf.find(pk);
-    const arr = groups.get(root) ?? [];
-    arr.push(pk);
-    groups.set(root, arr);
-  }
+  const regroup = () => {
+    groups.clear();
+    for (const pk of allPoints) {
+      const root = rootOf(pk);
+      const arr = groups.get(root) ?? [];
+      arr.push(pk);
+      groups.set(root, arr);
+    }
+  };
+  regroup();
 
   // On-Page-Verbinder: gleicher Name = gleiches Netz (virtuelle Verbindung,
   // pro Entwurf — Sprint-1-Entscheid: keine Blätter, kein Off-Page)
   const connectorGroups = new Map<string, string[]>(); // name -> root[]
   const bindName = (name: string, x: number, y: number) => {
     const arr = connectorGroups.get(name) ?? [];
-    arr.push(uf.find(key(x, y)));
+    arr.push(uf.find(coordKey(x, y)));
     connectorGroups.set(name, arr);
   };
   for (const inst of doc.instances) {
@@ -618,24 +680,17 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     }
   }
   // Rebuild groups after connector union
-  groups.clear();
-  for (const pk of allPoints) {
-    const root = uf.find(pk);
-    const arr = groups.get(root) ?? [];
-    arr.push(pk);
-    groups.set(root, arr);
-  }
+  regroup();
 
   // naming: ground first, then labels, then auto, then connector names
   const rootName = new Map<string, string>();
   for (const inst of doc.instances) {
     if (inst.partId === "gnd") {
-      const pos = pinPosition(inst, 0);
-      rootName.set(uf.find(key(pos.x, pos.y)), "0");
+      rootName.set(uf.find(pinKey(inst.id, 0)), "0");
     }
   }
   for (const l of doc.labels) {
-    const root = uf.find(key(l.x, l.y));
+    const root = uf.find(coordKey(l.x, l.y));
     if (rootName.get(root) !== "0") rootName.set(root, l.name.trim() || rootName.get(root) || "");
   }
   // connector names have priority over auto
@@ -654,7 +709,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   // macro models (op-amp supplies, 555 CTRL, ...) can fall back to their defaults
   const pinsPerRoot = new Map<string, number>();
   for (const p of pinPoints) {
-    const r = uf.find(key(p.x, p.y));
+    const r = uf.find(pinKey(p.instanceId, p.pinIndex));
     pinsPerRoot.set(r, (pinsPerRoot.get(r) ?? 0) + 1);
   }
   // S3.1: Namensgebundene Netze (On-Page/Tap/Splitter) behalten ihren Namen —
@@ -664,7 +719,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     for (const r of roots) connectorRoots.add(uf.find(r));
   }
   for (const p of pinPoints) {
-    const r = uf.find(key(p.x, p.y));
+    const r = uf.find(pinKey(p.instanceId, p.pinIndex));
     const group = groups.get(r) ?? [];
     if ((pinsPerRoot.get(r) ?? 0) === 1 && group.length === 1 && rootName.get(r) !== "0" && !connectorRoots.has(r)) {
       rootName.set(r, `${p.instanceId}_nc${p.pinIndex}`);
@@ -672,10 +727,10 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   }
 
   const pinNets: Record<string, string> = {};
-  for (const p of pinPoints) pinNets[`${p.instanceId}:${p.pinIndex}`] = rootName.get(uf.find(key(p.x, p.y))) ?? "0";
+  for (const p of pinPoints) pinNets[`${p.instanceId}:${p.pinIndex}`] = rootName.get(uf.find(pinKey(p.instanceId, p.pinIndex))) ?? "0";
 
   const pointNets: Record<string, string> = {};
-  for (const pk of allPoints) pointNets[pk] = rootName.get(uf.find(pk)) ?? "";
+  for (const pk of allPoints) pointNets[pk] = rootName.get(rootOf(pk)) ?? "";
 
   const nets: NetInfo[] = [];
   for (const [root, pts] of groups) {
@@ -686,7 +741,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
         const [x, y] = pk.split(",").map(Number);
         return { x, y };
       }),
-      pins: pinPoints.filter((p) => uf.find(key(p.x, p.y)) === root).map((p) => ({ instanceId: p.instanceId, pinIndex: p.pinIndex, pinName: p.pinName })),
+      pins: pinPoints.filter((p) => uf.find(pinKey(p.instanceId, p.pinIndex)) === root).map((p) => ({ instanceId: p.instanceId, pinIndex: p.pinIndex, pinName: p.pinName })),
     });
   }
 
@@ -789,28 +844,9 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     }
   }
 
-  // S3.5: Zwei Drähte, die sich einen KNICK (nicht Ende) exakt teilen, werden
-  // über den gemeinsamen Ketten-Schlüssel verbunden (W61-Lücke — T-Stöße per
-  // Ende-auf-Segment sind legitim und bleiben still; reines Knick-auf-Knick
-  // ist fast immer ein Zeichenfehler und wird gemeldet).
-  {
-    const vertOwners = new Map<string, Array<{ id: string; end: boolean }>>();
-    for (const w of doc.wires) {
-      if (w.isBus || w.points.length < 2) continue;
-      w.points.forEach((p, i) => {
-        const k = key(p.x, p.y);
-        const arr = vertOwners.get(k) ?? [];
-        arr.push({ id: w.id, end: i === 0 || i === w.points.length - 1 });
-        vertOwners.set(k, arr);
-      });
-    }
-    for (const [k, arr] of vertOwners) {
-      if (new Set(arr.map((a) => a.id)).size < 2) continue;
-      if (arr.some((a) => a.end)) continue; // T-Stoß/Stoßstelle = legitim
-      const [x, y] = k.split(",").map(Number);
-      warnWire(`Leitungen teilen einen Knick bei (${x}, ${y}) – dadurch verbunden (Knick versetzen oder Verbindungspunkt setzen)`);
-    }
-  }
+  // S5.9: Geteilte Knicke verbinden nichts mehr (W61-Fix, siehe oben) — die
+  // S3.5-Warnung ist damit obsolet. (Absichtlich keine Still-Meldung: Eine
+  // Kreuzung an Knicks ist jetzt so harmlos wie jede andere Kreuzung.)
 
   // S3.1: Geometrisches Antippen eines Busses verbindet nichts — nur Tap/Splitter.
   if (busSegments.length) {
@@ -912,7 +948,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   for (const p of pinPoints) {
     const inst = instById.get(p.instanceId);
     const part = inst ? PART_MAP[inst.partId] : undefined;
-    const r = uf.find(key(p.x, p.y));
+    const r = uf.find(pinKey(p.instanceId, p.pinIndex));
     const arr = ercByRoot.get(r) ?? [];
     arr.push({
       inst: p.instanceId,

@@ -164,12 +164,17 @@ function inst(partId: string, label: string, x: number, y: number, params: Recor
   expect(b.warnings.some((w) => w.startsWith("ERC E4")), "S3.4 E4 Eingang unverbunden", b.warnings.join(" | "));
 }
 {
-  // S3.5-Nachweis: geteilter Knick warnt (W61-Lücke bleibt sichtbar).
+  // S5.9-Nachweis (W61-Fix): geteilter Knick verbindet NICHTS mehr — zwei
+  // getrennte Netze, keine Knick-Warnung; mit Dot wieder EIN Netz.
   const doc = emptyDoc("kink");
   doc.wires.push({ id: uid("w"), points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }] });
-  doc.wires.push({ id: uid("w"), points: [{ x: 100, y: -50 }, { x: 100, y: 0 }, { x: 100, y: 50 }] });
+  doc.wires.push({ id: uid("w"), points: [{ x: 100, y: -50 }, { x: 100, y: 0 }, { x: 200, y: 0 }] });
   const b = buildNets(doc);
-  expect(b.warnings.some((w) => /Knick/.test(w)), "S3.4 geteilter Knick warnt", b.warnings.join(" | "));
+  expect(!b.warnings.some((w) => /Knick/.test(w)), "S5.9 keine Knick-Warnung", b.warnings.join(" | "));
+  expect(b.pointNets["0,0"] !== b.pointNets["100,-50"], "S5.9 geteilter Knick trennt", JSON.stringify(b.pointNets));
+  doc.junctions = [{ x: 100, y: 0 }];
+  const bj = buildNets(doc);
+  expect(bj.pointNets["0,0"] === bj.pointNets["100,-50"], "S5.9 Dot verbindet Knick", JSON.stringify(bj.pointNets));
 }
 
 /* ---------------- S3.5: SPICE ---------------- */
