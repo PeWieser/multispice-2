@@ -515,8 +515,9 @@ export class Simulator {
     switch (d.type) {
       case "R":
       case "LAMP":
-      case "FUSE":
         return (va - vb) / Math.max(this.resistance(d), 1e-12);
+      case "FUSE":
+        return (va - vb) / Math.max(this.fuseResistance(d), 1e-12);
       case "C": {
         const geq = st.extra?.geq ?? 0;
         const ieq = st.extra?.ieq ?? 0;
@@ -689,6 +690,12 @@ export class Simulator {
     return Math.max(r, 1e-9);
   }
 
+  /** S4.5: Sicherungs-Widerstand — nach dem Durchbrennen roff (rastend). */
+  fuseResistance(d: Device): number {
+    const blown = (d.state?.extra?.blown ?? 0) > 0.5;
+    return blown ? Math.max(p(d, "roff", 1e9), 1) : this.resistance(d);
+  }
+
   /* --------------------------- stamping --------------------------- */
 
   private stampConductance(m: RealMatrix, a: number, b: number, g: number): void {
@@ -736,9 +743,11 @@ export class Simulator {
       switch (d.type) {
         /* ---------------- passive ---------------- */
         case "R":
-        case "FUSE":
-          this.stampConductance(m, n0, n1, 1 / this.resistance(d));
+        case "FUSE": {
+          // S4.5: durchgebrannt → roff (rastend); Integral in acceptTimestep.
+          this.stampConductance(m, n0, n1, 1 / this.fuseResistance(d));
           break;
+        }
         case "LAMP": {
           const rated = p(d, "v", 12);
           const pw = p(d, "p", 1);
@@ -1723,6 +1732,21 @@ export class Simulator {
           // (Vi geklemmt gegen Windup; Rest wie in loadDevices berechnet.)
           if (st.extra!.viNew !== undefined) st.extra!.vi = st.extra!.viNew;
           if (st.extra!.veNew !== undefined) st.extra!.ve = st.extra!.veNew;
+          break;
+        }
+        case "FUSE": {
+          // S4.5: Joule-Integral dw/dt = i² − w/τ, Schmelzen bei w ≥ I²t (rastend).
+          // i2t = 0 → auto (2·IN)²·τ: hält Nennstrom dauerhaft, löst bei 10×
+          // Nennstrom in ≈ 40 ms aus. Nur TRAN (DC kennt keine Zeit).
+          if ((st.extra!.blown ?? 0) > 0.5) break;
+          const irated = Math.max(p(d, "irated", 1), 1e-9);
+          const tau = Math.max(p(d, "tau", 1), 1e-6);
+          const i2t = p(d, "i2t", 0) > 0 ? p(d, "i2t", 0) : 4 * irated * irated * tau;
+          const r = Math.max(this.resistance(d), 1e-12);
+          const i = (this.vOf(n0) - this.vOf(n1)) / r;
+          const wPrev = Math.max(st.extra!.w ?? 0, 0);
+          st.extra!.w = Math.max(wPrev + (i * i - wPrev / tau) * dt, 0);
+          if (st.extra!.w >= i2t) st.extra!.blown = 1;
           break;
         }
         default:

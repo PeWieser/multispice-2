@@ -484,8 +484,10 @@ add({
   params: [
     { key: "irated", label: "Nennstrom", unit: "A", type: "number", def: 1 },
     { key: "r", label: "Innenwiderstand", unit: "Ω", type: "number", def: 0.05 },
+    { key: "i2t", label: "Schmelzintegral I²t (0=auto)", unit: "A²s", type: "number", def: 0 },
+    { key: "tau", label: "Thermische Zeitkonstante", unit: "s", type: "number", def: 1 },
   ],
-  toDevices: (i, n) => [{ id: i.id, type: "FUSE", nodes: n, params: { r: num(i, "r", 0.05), irated: num(i, "irated", 1) } }],
+  toDevices: (i, n) => [{ id: i.id, type: "FUSE", nodes: n, params: { r: num(i, "r", 0.05), irated: num(i, "irated", 1), i2t: num(i, "i2t", 0), tau: num(i, "tau", 1) } }],
 });
 
 /* ---------------- Sources ---------------- */
@@ -5849,7 +5851,7 @@ add({
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 120 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",120) } },
-    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",5), voff: 2.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9 } },
   ],
 });
 
@@ -5866,7 +5868,7 @@ add({
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 288 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 12 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",288) } },
-    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",12), voff: 6.0, ron: 0.05, roff: 1e9 } },
+    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9 } },
   ],
 });
 
@@ -5883,7 +5885,7 @@ add({
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 120 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",120) } },
-    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",5), voff: 2.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9 } },
   ],
 });
 
@@ -5900,7 +5902,7 @@ add({
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 288 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 12 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",288) } },
-    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",12), voff: 6.0, ron: 0.05, roff: 1e9 } },
+    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9 } },
   ],
 });
 
@@ -5917,7 +5919,7 @@ add({
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 120 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",120) } },
-    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",5), voff: 2.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9 } },
   ],
 });
 
@@ -5934,7 +5936,7 @@ add({
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 288 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 12 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",288) } },
-    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",12), voff: 6.0, ron: 0.05, roff: 1e9 } },
+    { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9 } },
   ],
 });
 
