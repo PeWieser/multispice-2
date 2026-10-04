@@ -11,10 +11,12 @@ import { buildNets, SchematicDoc } from "@/lib/schematic/model";
 import {
   acLinearizationWarnings,
   runAcSweep,
+  runBatched,
   runDcSweep,
   runFourier,
   runIvCurve,
   runMonteCarlo,
+  runNestedSweep,
   runNoise,
   runNoiseFigure,
   runOperatingPoint,
@@ -24,6 +26,7 @@ import {
   runSParams,
   runTempSweep,
   runThd,
+  runThdSweep,
   runTransferFunction,
   runTransient,
   runWorstCase,
@@ -49,6 +52,9 @@ export interface AnalysisPayload {
   stepValues?: number[];
   measureDeviceId?: string;
   param?: string;
+  param2?: string;
+  sweep2?: SweepSpec;
+  levels?: number[];
   mode?: string;
   order?: number;
   z0?: number;
@@ -185,6 +191,56 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
       const r = runParamSweep(netlist, options, payload.param ?? "R1.resistance", sweep, outputs.length ? outputs : [outNode], payload.tran, payload.progress);
       result = r;
       summary = { values: r.values.length, ok: r.ok };
+      break;
+    }
+    case "nested": {
+      const sweep2: SweepSpec = payload.sweep2 ?? sweep;
+      const r = runNestedSweep(
+        netlist,
+        options,
+        payload.param ?? "R1.resistance",
+        sweep,
+        payload.param2 ?? "R2.resistance",
+        sweep2,
+        outputs.length ? outputs : [outNode],
+        payload.tran,
+        payload.progress,
+      );
+      result = r;
+      summary = { runs: r.curves.length, ok: r.ok };
+      break;
+    }
+    case "batched": {
+      const r = runBatched(
+        netlist,
+        options,
+        {
+          sourceId: payload.sourceId ?? "",
+          dcSweep: sweep,
+          acSweep: payload.sweep2 ?? { start: 10, stop: 1e6, points: 10, type: "dec" },
+          tran,
+          outputs: outputs.length ? outputs : [outNode],
+        },
+        payload.progress,
+      );
+      result = r;
+      summary = { ok: r.ok };
+      break;
+    }
+    case "thdsweep": {
+      const levels = (payload.levels ?? [0.5, 1, 2]).filter((v) => Number.isFinite(v) && v > 0);
+      const r = runThdSweep(
+        netlist,
+        options,
+        payload.fundamental ?? 1000,
+        outNode,
+        payload.param ?? "V1.amplitude",
+        levels.length ? levels : [1],
+        12,
+        payload.progress,
+      );
+      result = r;
+      summary = { levels: r.levels.length, ok: r.ok };
       break;
     }
     case "fourier": {

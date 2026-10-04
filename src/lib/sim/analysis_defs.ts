@@ -376,6 +376,83 @@ export const ANALYSIS_DEFS: AnalysisDef[] = [
     build: (v) => ({ outNode: str(v.out), outputs: [str(v.out)], sourceId: str(v.source), sweep: { start: num(v.fmin, 10), stop: num(v.fmax, 1e6), points: 20, type: "dec" as const } }),
     validate: (v, ctx) => needNet(v, ctx) ?? needSource(v, ctx),
   },
+  {
+    // S5.8: 2 Parameter, Kurvenschar (Punkte je Achse klein halten: Läufe = n1 × n2).
+    kind: "nested",
+    title: "Geschachtelter Sweep",
+    spice: ".step param × .step param",
+    hint: "Zwei Bauteilwerte gleichzeitig variieren – Kurvenschar am Messknoten.",
+    fields: [
+      { key: "out", kind: "net", label: "Messknoten" },
+      { key: "param1", kind: "text", label: "Parameter 1 (z.B. R1.r)", def: "R1.r", placeholder: "R1.r" },
+      { key: "start1", kind: "number", label: "Start 1", def: 1000 },
+      { key: "stop1", kind: "number", label: "Stopp 1", def: 10000 },
+      { key: "points1", kind: "int", label: "Punkte 1", def: 3, min: 2, max: 8 },
+      { key: "param2", kind: "text", label: "Parameter 2 (z.B. R2.r)", def: "R2.r", placeholder: "R2.r" },
+      { key: "start2", kind: "number", label: "Start 2", def: 1000 },
+      { key: "stop2", kind: "number", label: "Stopp 2", def: 10000 },
+      { key: "points2", kind: "int", label: "Punkte 2", def: 3, min: 2, max: 8 },
+    ],
+    build: (v) => ({
+      outNode: str(v.out),
+      outputs: [str(v.out)],
+      param: str(v.param1),
+      sweep: { start: num(v.start1, 1000), stop: num(v.stop1, 10000), points: Math.round(num(v.points1, 3)), type: "lin" as const },
+      param2: str(v.param2),
+      sweep2: { start: num(v.start2, 1000), stop: num(v.stop2, 10000), points: Math.round(num(v.points2, 3)), type: "lin" as const },
+    }),
+    validate: (v, ctx) => needNet(v, ctx) ?? (str(v.param1) && str(v.param2) ? null : "Beide Parameter angeben (z.B. R1.r)"),
+  },
+  {
+    // S5.8: DC+AC+TRAN in einem Lauf, ein Report.
+    kind: "batched",
+    title: "Gebündelte Analyse (DC+AC+TRAN)",
+    spice: ".dc + .ac + .tran",
+    hint: "Arbeitspunkt-Sweep, Frequenzgang und Zeitverhalten in einem Durchgang.",
+    fields: [
+      { key: "out", kind: "net", label: "Messknoten" },
+      { key: "source", kind: "source", label: "DC-Sweep-Quelle" },
+      { key: "dcStart", kind: "number", label: "DC-Start", unit: "V", def: 0 },
+      { key: "dcStop", kind: "number", label: "DC-Stopp", unit: "V", def: 5 },
+      { key: "dcPoints", kind: "int", label: "DC-Punkte", def: 25, min: 2, max: 200 },
+      { key: "acFmin", kind: "number", label: "AC-Start", unit: "Hz", def: 10 },
+      { key: "acFmax", kind: "number", label: "AC-Stopp", unit: "Hz", def: 1e6 },
+      { key: "acPoints", kind: "int", label: "AC-Punkte/Dekade", def: 10, min: 2, max: 100 },
+      { key: "tranStop", kind: "number", label: "TRAN-Dauer", unit: "s", def: 0.02 },
+      { key: "tranStep", kind: "number", label: "TRAN-Schritt", unit: "s", def: 1e-5 },
+    ],
+    build: (v) => ({
+      outNode: str(v.out),
+      outputs: [str(v.out)],
+      sourceId: str(v.source),
+      sweep: { start: num(v.dcStart, 0), stop: num(v.dcStop, 5), points: Math.round(num(v.dcPoints, 25)), type: "lin" as const },
+      sweep2: { start: num(v.acFmin, 10), stop: num(v.acFmax, 1e6), points: Math.round(num(v.acPoints, 10)), type: "dec" as const },
+      tran: { stopTime: num(v.tranStop, 0.02), stepTime: num(v.tranStep, 1e-5) },
+    }),
+    validate: (v, ctx) => needNet(v, ctx) ?? needSource(v, ctx),
+  },
+  {
+    // S5.8: Klirrfaktor vs. Aussteuerpegel (ein runThd je Stufe).
+    kind: "thdsweep",
+    title: "THD-Sweep (Klirr vs. Pegel)",
+    spice: ".four × .step",
+    hint: "Klirrfaktor über der Eingangsamplitude – Aussteuerungsreserve finden.",
+    fields: [
+      { key: "out", kind: "net", label: "Messknoten" },
+      { key: "fundamental", kind: "number", label: "Grundfrequenz", unit: "Hz", def: 1000 },
+      { key: "param", kind: "text", label: "Pegel-Parameter (z.B. V1.amplitude)", def: "V1.amplitude", placeholder: "V1.amplitude" },
+      { key: "levelStart", kind: "number", label: "Pegel-Start", unit: "V", def: 0.5 },
+      { key: "levelStop", kind: "number", label: "Pegel-Stopp", unit: "V", def: 4 },
+      { key: "levelPoints", kind: "int", label: "Pegel-Stufen", def: 4, min: 2, max: 12 },
+    ],
+    build: (v) => {
+      const pts = Math.max(2, Math.min(12, Math.round(num(v.levelPoints, 4))));
+      const a = num(v.levelStart, 0.5), b = num(v.levelStop, 4);
+      const levels = Array.from({ length: pts }, (_, i) => a + ((b - a) * i) / (pts - 1));
+      return { outNode: str(v.out), outputs: [str(v.out)], fundamental: num(v.fundamental, 1000), param: str(v.param), levels };
+    },
+    validate: (v, ctx) => needNet(v, ctx) ?? (str(v.param) ? null : "Pegel-Parameter angeben (z.B. V1.amplitude)"),
+  },
 ];
 
 export const ANALYSIS_MAP: Record<string, AnalysisDef> = Object.fromEntries(ANALYSIS_DEFS.map((d) => [d.kind, d]));

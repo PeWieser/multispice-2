@@ -23,6 +23,8 @@ import { resolveLiveText } from "../src/lib/descbox";
 import { hashTeacherCode, isTeacherCodeFormat, loadTeacherLock, verifyTeacherCode } from "../src/lib/teacher";
 import { curveStats, fMinus3dB } from "../src/lib/measure";
 import { combineSeries, envelopeWindow, movingEnvelope, postFFT, resampleUniform } from "../src/lib/postprocess";
+import { applyParamToNetlist } from "../src/lib/sim/analyses";
+import { runAnalysisLocal } from "../src/lib/sim/runner";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
 
 let n = 0;
@@ -312,6 +314,58 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
   assert.ok(Math.abs(fft.freq[peak] - 50) < 2, `peak=${fft.freq[peak]}`);
   assert.ok(fft.sampleRate > 900 && fft.sampleRate < 1100);
   ok("S5.7 Postprozessor");
+}
+
+// ---------- S5.8: Nested Sweep, Batched, THD-Sweep ----------
+{
+  // Param-Schreiber (Alias + Robustheit)
+  const nl = { devices: [{ id: "R1", type: "R", nodes: ["a", "b"], params: { r: 1000 } }] } as never;
+  applyParamToNetlist(nl, "R1.resistance", 2200);
+  assert.equal((nl.devices[0] as { params: { r: number } }).params.r, 2200);
+  applyParamToNetlist(nl, "R1.r", 3300);
+  assert.equal((nl.devices[0] as { params: { r: number } }).params.r, 3300);
+  applyParamToNetlist(nl, "??", 1);
+  applyParamToNetlist(nl, "", 1);
+  ok("S5.8 Param-Schreiber");
+  // Nested 2×2 am Spannungsteiler (Wizard-Fixture)
+  const div = buildWizard("voltage_divider", { ...DEFAULT_WIZARD_PARAMS });
+  const n = runAnalysisLocal(div, "nested", {
+    param: "R1.r",
+    sweep: { start: 1000, stop: 10000, points: 2, type: "lin" },
+    param2: "R2.r",
+    sweep2: { start: 1000, stop: 10000, points: 2, type: "lin" },
+    outputs: ["OUT"],
+    tran: { stopTime: 0.005, stepTime: 1e-5 },
+  });
+  const nc = n.result as { curves: Array<{ param1: number; param2: number; signals: Record<string, number[]> }>; values1: number[]; values2: number[] };
+  assert.equal(nc.curves.length, 4);
+  assert.deepEqual(nc.values1, [1000, 10000]);
+  assert.deepEqual(nc.values2, [1000, 10000]);
+  const outs = nc.curves.map((c) => c.signals["OUT"][0]);
+  // (1k,1k)→2.5 V … (10k,1k)→0.45 V: Sweep wirkt
+  assert.ok(Math.abs(outs[0] - 2.5) < 0.01, `outs=${outs}`);
+  assert.ok(Math.abs(outs[2] - 5 / 11) < 0.01, `outs=${outs}`);
+  ok("S5.8 Nested Sweep");
+  // Batched: DC+AC+TRAN in einem Report
+  const b = runAnalysisLocal(div, "batched", {
+    sourceId: "V1",
+    sweep: { start: 0, stop: 5, points: 5, type: "lin" },
+    outputs: ["OUT"],
+    tran: { stopTime: 0.005, stepTime: 1e-5 },
+  });
+  const br = b.result as { dc: { values: number[] }; ac: { freq: number[] }; tran: { time: number[] }; ok: boolean };
+  assert.ok(br.ok && b.errors.length === 0);
+  assert.equal(br.dc.values.length, 5);
+  assert.ok(br.ac.freq.length > 5);
+  assert.ok(br.tran.time.length > 5);
+  ok("S5.8 Batched");
+  // THD-Sweep am Gleichrichter (nichtlinear → THD hoch)
+  const hw = buildWizard("halfwave", { ...DEFAULT_WIZARD_PARAMS });
+  const t = runAnalysisLocal(hw, "thdsweep", { fundamental: 1000, outNode: "VOUT", param: "V1.amplitude", levels: [1, 5] });
+  const tr = t.result as { levels: number[]; thdPercent: number[] };
+  assert.deepEqual(tr.levels, [1, 5]);
+  assert.ok(tr.thdPercent.every((v) => v > 50), `thd=${tr.thdPercent}`);
+  ok("S5.8 THD-Sweep");
 }
 
 console.log(`sprint5test: ${n} checks OK`);

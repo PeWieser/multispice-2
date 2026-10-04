@@ -1119,28 +1119,131 @@ export function runParamSweep(
     const v = vals[pvi];
     // Clone netlist and modify param
     const cloned: Netlist = JSON.parse(JSON.stringify(netlist));
-    const [devId, paramKey] = param.split(".");
-    if (devId && paramKey) {
-      for (const d of cloned.devices) {
-        if (d.id === devId || d.id.startsWith(devId + "_") || d.id.includes(devId)) {
-          if (paramKey in d.params) {
-            (d.params as any)[paramKey] = v;
-          } else if (paramKey === "resistance" && d.type === "R") {
-            d.params.r = v;
-          } else if (paramKey === "capacitance" && d.type === "C") {
-            d.params.c = v;
-          } else if (paramKey === "inductance" && d.type === "L") {
-            d.params.l = v;
-          }
-        }
-      }
-    }
+    applyParamToNetlist(cloned, param, v);
     const r = runTransient(cloned, options, tran ?? { stopTime: 0.02, stepTime: 1e-5, maxPoints: 2000 }, outputs);
     curves.push({ param: v, time: r.time, signals: r.signals });
     if (!r.ok) ok = false;
     parReport((pvi + 1) / Math.max(vals.length, 1));
   }
   return { values: vals, curves, ok };
+}
+
+/**
+ * S5.8: Schreibt einen Bauteilwert ins Netzlisten-Klon („R1.resistance",
+ * „C1.c" oder „V1.amplitude"). Wortgleich aus runParamSweep extrahiert.
+ */
+export function applyParamToNetlist(netlist: Netlist, param: string, value: number): void {
+  const [devId, paramKey] = param.split(".");
+  if (!devId || !paramKey) return;
+  for (const d of netlist.devices) {
+    if (d.id === devId || d.id.startsWith(devId + "_") || d.id.includes(devId)) {
+      if (paramKey in d.params) {
+        (d.params as any)[paramKey] = value;
+      } else if (paramKey === "resistance" && d.type === "R") {
+        d.params.r = value;
+      } else if (paramKey === "capacitance" && d.type === "C") {
+        d.params.c = value;
+      } else if (paramKey === "inductance" && d.type === "L") {
+        d.params.l = value;
+      }
+    }
+  }
+}
+
+export interface NestedSweepResult {
+  param1: string;
+  param2: string;
+  values1: number[];
+  values2: number[];
+  curves: Array<{ param1: number; param2: number; time: number[]; signals: Record<string, number[]> }>;
+  ok: boolean;
+}
+
+/** S5.8: Geschachtelter Sweep — 2 Parameter, Kurvenschar (Tran je Kombination). */
+export function runNestedSweep(
+  netlist: Netlist,
+  options: Partial<SimOptions>,
+  param1: string,
+  sweep1: SweepSpec,
+  param2: string,
+  sweep2: SweepSpec,
+  outputs: string[],
+  tran?: TransientOptions,
+  progress?: ProgressFn,
+): NestedSweepResult {
+  const vals1 = sweepValues(sweep1);
+  const vals2 = sweepValues(sweep2);
+  const curves: NestedSweepResult["curves"] = [];
+  let ok = true;
+  const report = progressReporter(progress);
+  const total = Math.max(vals1.length * vals2.length, 1);
+  let done = 0;
+  for (const v1 of vals1) {
+    for (const v2 of vals2) {
+      const cloned: Netlist = JSON.parse(JSON.stringify(netlist));
+      applyParamToNetlist(cloned, param1, v1);
+      applyParamToNetlist(cloned, param2, v2);
+      const r = runTransient(cloned, options, tran ?? { stopTime: 0.02, stepTime: 1e-5, maxPoints: 2000 }, outputs);
+      curves.push({ param1: v1, param2: v2, time: r.time, signals: r.signals });
+      if (!r.ok) ok = false;
+      done++;
+      report(done / total);
+    }
+  }
+  return { param1, param2, values1: vals1, values2: vals2, curves, ok };
+}
+
+export interface BatchedResult {
+  dc: DcSweepResult;
+  ac: AcResult;
+  tran: TransientResult;
+  ok: boolean;
+}
+
+/** S5.8: Gebündelte Analysen — DC+AC+TRAN in einem Lauf, ein Report. */
+export function runBatched(
+  netlist: Netlist,
+  options: Partial<SimOptions>,
+  spec: { sourceId: string; dcSweep: SweepSpec; acSweep: SweepSpec; tran: TransientOptions; outputs: string[] },
+  progress?: ProgressFn,
+): BatchedResult {
+  const report = progressReporter(progress);
+  const dc = runDcSweep(netlist, options, spec.sourceId, spec.dcSweep, spec.outputs, (f) => report(f / 3));
+  const ac = runAcSweep(netlist, options, spec.acSweep, spec.outputs, (f) => report((1 + f) / 3));
+  const tran = runTransient(netlist, options, spec.tran, spec.outputs, (f) => report((2 + f) / 3));
+  return { dc, ac, tran, ok: dc.ok && ac.ok && tran.ok };
+}
+
+export interface ThdSweepResult {
+  levels: number[];
+  thdPercent: number[];
+  thdDb: number[];
+  ok: boolean;
+}
+
+/** S5.8: Klirrfaktor vs. Aussteuerung — ein runThd je Pegel. */
+export function runThdSweep(
+  netlist: Netlist,
+  options: Partial<SimOptions>,
+  fundamental: number,
+  outNode: string,
+  levelParam: string,
+  levels: number[],
+  periods = 12,
+  progress?: ProgressFn,
+): ThdSweepResult {
+  const thdPercent: number[] = [];
+  const thdDb: number[] = [];
+  const report = progressReporter(progress);
+  levels.forEach((level, i) => {
+    const cloned: Netlist = JSON.parse(JSON.stringify(netlist));
+    applyParamToNetlist(cloned, levelParam, level);
+    const r = runThd(cloned, options, fundamental, outNode, periods);
+    thdPercent.push(r.thdPercent);
+    thdDb.push(r.thdDb);
+    report((i + 1) / Math.max(levels.length, 1));
+  });
+  return { levels: [...levels], thdPercent, thdDb, ok: true };
 }
 
 /* ------------------------------------------------------------------ */

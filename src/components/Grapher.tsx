@@ -1188,6 +1188,80 @@ export default function Grapher() {
     );
   }
 
+  // S5.8: Kurvenschar — ein Series-Eintrag je Sweep-Kombination (max. 25).
+  if (analysis.kind === "param" || analysis.kind === "nested") {
+    const curves = (d.curves as Array<{ param?: number; param1?: number; param2?: number; time: number[]; signals: Record<string, number[]> }>) ?? [];
+    const out = Object.keys(curves[0]?.signals ?? {})[0] ?? "";
+    const p1 = typeof meta.param === "string" && meta.param ? String(meta.param) : "p1";
+    const p2 = typeof meta.param2 === "string" && meta.param2 ? String(meta.param2) : "p2";
+    const shown = curves.slice(0, 25);
+    const names = shown.map((c) =>
+      analysis.kind === "nested" ? `${p1}=${formatValue(c.param1 ?? 0, "")}, ${p2}=${formatValue(c.param2 ?? 0, "")}` : `${p1}=${formatValue(c.param ?? 0, "")}`,
+    );
+    return (
+      <div className="flex h-full flex-col">
+        {head(`${curves.length} Kurven${curves.length > shown.length ? ` (25 gezeigt)` : ""}${out ? ` · ${out}` : ""}`, () =>
+          downloadText(
+            `${base}_${analysis.kind}.csv`,
+            toCsv(["t_s", ...names], [shown[0]?.time ?? [], ...shown.map((c) => c.signals[out] ?? [])]),
+            "text/csv",
+          ),
+        )}
+        <div className="px-3"><Legend names={names} /></div>
+        <div className="min-h-0 flex-1 px-2 pb-2">
+          <LinePlot panels={[{ series: shown.map((c, i) => ({ name: names[i], x: c.time, y: c.signals[out] ?? [] })), yLabel: "V" }]} xLabel="t (s)" onCanvas={(c) => (canvasRef.current = c)} />
+        </div>
+      </div>
+    );
+  }
+
+  // S5.8: Gebündelt — DC, AC-Betrag und TRAN untereinander.
+  if (analysis.kind === "batched") {
+    const dc = (d.dc as { values: number[]; signals: Record<string, number[]> }) ?? { values: [], signals: {} };
+    const ac = (d.ac as { freq: number[]; magDb: Record<string, number[]> }) ?? { freq: [], magDb: {} };
+    const tr = (d.tran as { time: number[]; signals: Record<string, number[]> }) ?? { time: [], signals: {} };
+    const out = Object.keys(dc.signals)[0] ?? Object.keys(tr.signals)[0] ?? "";
+    const src = typeof meta.sourceId === "string" && meta.sourceId ? String(meta.sourceId) : "Quelle";
+    return (
+      <div className="flex h-full flex-col">
+        {head(`DC+AC+TRAN${out ? ` · ${out}` : ""}`, () =>
+          downloadText(`${base}_batched_tran.csv`, toCsv(["t_s", out], [tr.time, tr.signals[out] ?? []]), "text/csv"),
+        )}
+        <div className="grid min-h-0 flex-1 grid-rows-3 gap-1 px-2 pb-2">
+          <div className="flex min-h-0 flex-col">
+            <div className="px-1 pb-0.5 text-2xs text-ink-3">DC-Sweep ({src})</div>
+            <div className="min-h-0 flex-1"><LinePlot panels={[{ series: [{ name: out, x: dc.values, y: dc.signals[out] ?? [] }], yLabel: "V" }]} xLabel={`${src} (V)`} /></div>
+          </div>
+          <div className="flex min-h-0 flex-col">
+            <div className="px-1 pb-0.5 text-2xs text-ink-3">AC-Betrag</div>
+            <div className="min-h-0 flex-1"><LinePlot panels={[{ series: [{ name: out, x: ac.freq, y: ac.magDb[out] ?? [] }], yLabel: "dB" }]} xLabel="f (Hz)" logX /></div>
+          </div>
+          <div className="flex min-h-0 flex-col">
+            <div className="px-1 pb-0.5 text-2xs text-ink-3">Transiente</div>
+            <div className="min-h-0 flex-1"><LinePlot panels={[{ series: [{ name: out, x: tr.time, y: tr.signals[out] ?? [] }], yLabel: "V" }]} xLabel="t (s)" onCanvas={(c) => (canvasRef.current = c)} /></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // S5.8: THD über dem Aussteuerpegel.
+  if (analysis.kind === "thdsweep") {
+    const levels = (d.levels as number[]) ?? [];
+    const thd = (d.thdPercent as number[]) ?? [];
+    const out = typeof meta.outNode === "string" ? String(meta.outNode) : "";
+    return (
+      <div className="flex h-full flex-col">
+        {head(`${levels.length} Stufen${out ? ` · ${out}` : ""}`, () =>
+          downloadText(`${base}_thdsweep.csv`, toCsv(["pegel_V", "thd_%"], [levels, thd]), "text/csv"),
+        )}
+        <div className="min-h-0 flex-1 px-2 pb-2">
+          <LinePlot panels={[{ series: [{ name: "THD", x: levels, y: thd }], yLabel: "%" }]} xLabel="Pegel (V)" onCanvas={(c) => (canvasRef.current = c)} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <pre className="mono h-full overflow-auto p-3 text-2xs leading-relaxed text-ink-2">{JSON.stringify(analysis.data, null, 2).slice(0, 8000)}</pre>
   );
