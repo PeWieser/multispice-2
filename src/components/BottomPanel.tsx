@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, FlaskConical, ListTree, Radio, Table2, Terminal } from "lucide-react";
 import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
-import { fromLtspiceAsc, fromSpiceNetlist, isLtspiceAsc } from "@/lib/schematic/importers";
+import { fromKicadSch, fromLtspiceAsc, fromSpiceNetlist, isKicadSch, isLtspiceAsc } from "@/lib/schematic/importers";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor } from "@/state/editor";
 import dynamic from "next/dynamic";

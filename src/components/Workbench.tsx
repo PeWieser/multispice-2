@@ -24,6 +24,7 @@ const SettingsDialog = dynamic(() => import("./SettingsDialog"), { ssr: false })
 const WizardsDialog = dynamic(() => import("./WizardsDialog"), { ssr: false });
 const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false });
 const PartEditorDialog = dynamic(() => import("./PartEditorDialog"), { ssr: false });
+const ExtractPartDialog = dynamic(() => import("./ExtractPartDialog"), { ssr: false });
 const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
 const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
 const StandaloneInstrumentView = dynamic(() => import("./Instruments").then((m) => m.StandaloneInstrumentView), { ssr: false });
@@ -353,6 +354,7 @@ export default function Workbench() {
           <LibraryPalette standalone onPartEditor={() => setPartEditorOpen(true)} />
         </div>
         {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
+        <ExtractPartDialog />
       </div>
     );
   }
@@ -410,6 +412,7 @@ export default function Workbench() {
             }}
           />
         )}
+        <ExtractPartDialog />
         <UndoToast />
       <FirstRunSpotlight />
       <PrintSheet />
@@ -448,6 +451,7 @@ export default function Workbench() {
             }}
           />
         )}
+        <ExtractPartDialog />
         <UndoToast />
       <FirstRunSpotlight />
       <PrintSheet />
@@ -495,6 +499,7 @@ export default function Workbench() {
           }}
         />
       )}
+      <ExtractPartDialog />
       <UndoToast />
       <FirstRunSpotlight />
       <PrintSheet />

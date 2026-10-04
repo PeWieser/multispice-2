@@ -5,6 +5,23 @@
 > Update 2026-09-24: Settings UI, MenuBar Tooltips, Skeuomorphes Oszilloskop, Accessibility AA, Herz-und-Nieren Testmatrix.
 > Update 2026-10-03 (Sprint 1 – Vertrauen): TF/Sensitivität/PZ/S-Parameter echt, Network Analyzer ehrlich, On-Page-Verbinder als Bauteil, Gerber-Fiktion gestrichen, Nicht-Ziele dokumentiert.
 > Update 2026-10-04 (Sprint 2 – Gefühl): Analysen im Web Worker (Fortschritt + Abbrechen), gestaltete Konvergenzfehler mit Problemknoten-Marker, First-Run-Spotlight (einmalig), ehrlicher Echtzeitfaktor + adaptive Zeitschrittweite, Beispiel-Galerie, Canvas-Boot-Ton.
+> Update 2026-10-04 (Sprint 3 – Struktur): echte Busse (Tap/Splitter, Namensbindung, Deklarationsprüfung), Auswahl-Extraktion als Bauteil, Re-Annotate, elektrische Pin-Typen + ERC-Regeln E1–E4, KiCad-Import, SPICE-Abdeckung (E/G/F/H/J), Entwurf-Rückschreibung, W61-Knick-Warnung.
+
+## Neu 2026-10-04 – Sprint 3 (Struktur)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Busse | `isBus` war reine Farbe; Bits hatten kein Modell | Bus-Tap + Bus-Splitter (2/4/8/16 Bit, dynamische Pins) binden per Name (`D[3]`); Bus-Draht = dickes Bündel + Deklaration (Name × Breite), leitet nicht; Breiten-/Deklarationsprüfung in `buildNets` | ✅ Done |
+| Auswahl-Extraktion | Nur Gesamtplan-Heuristik (Labels→Ports, Rest still gedroppt) | „Auswahl als Bauteil…" mit exakter Abbildung: Ports = Netze mit Außenberührung, Innennetze privat, GND global; nicht abbildbare Bauteile = Fehler; gedroppte Parameter = Warnung; kein Nesting | ✅ Done |
+| Re-Annotate | Referenzen nur vergeben, nie neu nummeriert | „Referenzen neu nummerieren" (Bearbeiten-Menü): pro Präfix in Leserichtung ab 1, freie Namen bleiben, Undo-fähig | ✅ Done |
+| ERC E1–E4 | Keine elektrische Prüfung (Kurzschlüsse, schwebende Eingänge still) | Pin-Typen (`passive/input/output/power_in/power_out`, Default passiv) + Regeln: E1 Ausgänge kurzgeschlossen, E2 Netz nur an Eingängen, E3 Versorgung ohne Quelle, E4 unverbundener Eingang (Versorgung nur bei eigenen Bauteilen — eingebaute Makros haben dokumentierte Defaults). Kalibriert: MCU-Pins = GPIO/passiv (Richtung SW-definiert); Vorlagen ERC-still (555-CTRL 10n→GND, Zähler-RST→GND, W98d) | ✅ Done |
+
+| KiCad-Import | Nur SPICE/LTspice lesbar | `.kicad_sch`-Minimal-Parser (S-Expr): R/C/L, D-Familie, BJT/FET, Poti, Quarz, Sicherung, NE555, Einzel-OPV, VDC/Batterie, GND/Power-Symbole, Drähte, Dots, Labels, Texte; Drehungs-Suche + Pin-Snap + Pin-auf-Pin-Brücken; Busse/Unterschaltpläne/Logik-ICs = ehrlicher Hinweis im Plan (Annahmen: Y-nach-unten, Pin-(at)=Anschluss, CW-Drehung, Diode Pin 1 = K) | ✅ Done |
+| SPICE-Abdeckung | E/G/F/H/J fielen still unter „übersprungen" | SPICE_MAP += E→vcvs, G→vccs, F→cccs, H→ccvs, J→jfet_2n3819 (+ Modell-Heuristiken D/Q/M); Router-Fix: keine geteilten Knicke zwischen Netzen (behebt stillen Kurzschluss über Ketten-Union) | ✅ Done |
+| Abhängige Quellen | Als Teile vorhanden, unverifiziert | Abbildung vcvs/vccs/ccvs/cccs → Devices E/G/F/H verifiziert; E-Folger 1 V → 2 V im OP-Test; F-Reihen-Gebrauch (gsense über CTRL) dokumentiert | ✅ Done |
+| Entwürfe (Reiter) | „＋" verlor Änderungen seit dem letzten Wechsel (keine Rückschreibung bei gelisteter ID — Datenverlust!) | `newDocument` schreibt den aktuellen Entwurf in seinen Reiter zurück (wie `openSheet`); Regression in `sprint3test` (S3.2) | ✅ Done |
+| W61-Lücke (Known Limit) | Zwei Drähte mit exakt geteiltem Knick werden verbunden (Ketten-Union), ohne sichtbaren Dot | Warnung „Leitungen teilen einen Knick …" in `buildNets` (Verhalten unverändert; T-Stöße per Ende-auf-Segment bleiben still); Import-Router meidet geteilte Knicke aktiv; echte Behebung (Ketten-Union nur an Anschlüssen) = Sprint-5-Kandidat | ✅ Done |
+| Tests | Keine Prüfung für Bus/Entwürfe/ERC/Importe | `scripts/sprint3test.ts` (41 Checks, in `npm test` verdrahtet) + `scripts/kicad-divider.kicad_sch` als Fixture | ✅ Done |
 
 ## Neu 2026-10-04 – Sprint 2 (Gefühl)
 

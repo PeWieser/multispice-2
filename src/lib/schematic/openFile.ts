@@ -13,7 +13,7 @@ import {
   setActiveDesktopFilePath,
   type BrowserFileHandle,
 } from "@/lib/storage";
-import { fromLtspiceAsc, fromSpiceNetlist, isLtspiceAsc } from "./importers";
+import { fromKicadSch, fromLtspiceAsc, fromSpiceNetlist, isKicadSch, isLtspiceAsc } from "./importers";
 
 interface ProjectEnvelope {
   name?: string;

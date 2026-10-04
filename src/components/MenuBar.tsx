@@ -181,7 +181,7 @@ export default function MenuBar({
         <input
           ref={fileRef}
           type="file"
-          accept=".json,.cir,.net,.sp,.txt,.asc"
+          accept=".json,.cir,.net,.sp,.txt,.asc,.kicad_sch"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -242,6 +242,7 @@ export default function MenuBar({
         <MenuItem hint="⇧R" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().rotateSelection(-1)}>Drehen (−90°)</MenuItem>
         <MenuItem hint="M" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().mirrorSelection()}>Spiegeln</MenuItem>
         <MenuItem hint="⇧L" disabled={!hasWireSelection} disabledReason="Leitung(en) auswählen" onClick={() => st().straightenSelection()}>Leitungen begradigen</MenuItem>
+        <MenuItem onClick={() => st().reannotate()}>Referenzen neu nummerieren</MenuItem>
         <MenuSeparator />
         <MenuItem hint="⌫" danger disabled={!hasSelection} onClick={() => st().deleteSelection()}>Löschen</MenuItem>
       </Menu>
@@ -346,7 +347,7 @@ export default function MenuBar({
       <input
         ref={fileRef}
         type="file"
-        accept=".json,.cir,.net,.sp,.txt,.asc"
+        accept=".json,.cir,.net,.sp,.txt,.asc,.kicad_sch"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { probeHexColor } from "@/lib/probe-style";
 import { Cpu, Gauge, Settings2, SlidersHorizontal, Waves, Radio, Zap, Activity, GitBranch } from "lucide-react";
-import { PART_MAP, ParamDef, formatValue, parseValue } from "@/lib/library/catalog";
+import { PART_MAP, ParamDef, formatValue, parseValue, partPins } from "@/lib/library/catalog";
 import { IntegrationMethod } from "@/lib/sim/engine";
 import { engine, useEditor } from "@/state/editor";
 import { ProbeKind } from "@/lib/schematic/model";
@@ -285,7 +285,7 @@ export default function Inspector() {
 
                 {live && (
                   <div className="grid grid-cols-2 gap-1.5">
-                    {part.pins.map((pin, idx) => {
+                    {partPins(part, selected.params).map((pin, idx) => {
                       const net = st.netResult.pinNets[`${selected.id}:${idx}`];
                       return (
                         <div key={idx} className="rounded-md px-2 py-1 bg-surface-2">

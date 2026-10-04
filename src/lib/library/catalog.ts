@@ -15,10 +15,22 @@ export type SymbolPrim =
   | { t: "arc"; x: number; y: number; r: number; a0: number; a1: number }
   | { t: "text"; x: number; y: number; s: string; size?: number; align?: "center" | "left" | "right" };
 
+/**
+ * S3.4: Elektrischer Pin-Typ für den ERC.
+ * - passive: keine Treiber-Aussage (R/C/L/Halbleiter, Taster, Verbinder)
+ * - input: braucht einen Treiber (Logik-/OPV-Eingang, Messgeräte)
+ * - output: treibt (Logik-/OPV-Ausgang, Signalquelle)
+ * - power_in: braucht Versorgung (VCC/VCC-Pins)
+ * - power_out: liefert Versorgung/Masse (Quellen-Plus, GND-/VCC-Symbole)
+ */
+export type PinElectrical = "passive" | "input" | "output" | "power_in" | "power_out";
+
 export interface PinDef {
   name: string;
   x: number;
   y: number;
+  /** Fehlt der Typ, gilt passive. */
+  electrical?: PinElectrical;
 }
 
 export type ParamType = "number" | "text" | "select" | "bool";
@@ -72,6 +84,16 @@ export interface PartDef {
   interactive?: InteractiveKind;
   description?: string;
   toDevices: (inst: PartInstanceLike, nets: string[]) => Device[];
+  /**
+   * S3.1: dynamische Pins (z. B. Splitter-Breite). Default: statische `pins`.
+   * Zugriff IMMER über `partPins()` — nie direkt über `.pins` bei Instanzen.
+   */
+  pinsFor?: (params: Record<string, number | string | boolean>) => PinDef[];
+  /**
+   * S3.1: dynamisches Symbol (z. B. Splitter-Box wächst mit der Breite).
+   * Zugriff über `partSymbol()`; Default: statisches `symbol` (+ Stil-Regeln).
+   */
+  symbolFor?: (params: Record<string, number | string | boolean>) => SymbolPrim[];
 }
 
 /* -------------------------- symbol helpers -------------------------- */
@@ -234,6 +256,30 @@ export function getPartSymbol(part: PartDef, style: SymbolStyle): SymbolPrim[] {
   // For other resistor-like parts (e.g. thermistor, varistor) use resistor base
   if (part.category.includes("Widerst") && part.symbol === resSymbol) return getResistorSymbol(style);
   return part.symbol;
+}
+
+/** S3.1: Pin-Funnel — dynamische Pins haben Vorrang, sonst statische. */
+export function partPins(part: PartDef, params?: Record<string, number | string | boolean>): PinDef[] {
+  if (part.pinsFor) {
+    try {
+      return part.pinsFor(params ?? {});
+    } catch {
+      return part.pins;
+    }
+  }
+  return part.pins;
+}
+
+/** S3.1: Symbol-Funnel — dynamisches Symbol hat Vorrang (Stil-Regeln gelten weiter). */
+export function partSymbol(part: PartDef, params?: Record<string, number | string | boolean>, style?: SymbolStyle): SymbolPrim[] {
+  if (part.symbolFor) {
+    try {
+      return part.symbolFor(params ?? {});
+    } catch {
+      // fallthrough zu den Stil-Regeln
+    }
+  }
+  return getPartSymbol(part, style ?? "iec");
 }
 
 function bjtSymbol(pnp: boolean): SymbolPrim[] {
@@ -450,7 +496,7 @@ add({
   category: "Quellen/Referenz",
   tags: ["masse", "gnd", "ground", "bezug"],
   mount: "virtual",
-  pins: [{ name: "1", x: 0, y: -14 }],
+  pins: [{ name: "1", x: 0, y: -14, electrical: "power_out" }],
   symbol: gndSymbol,
   params: [],
   toDevices: () => [],
@@ -463,7 +509,7 @@ add({
   category: "Quellen/Referenz",
   tags: ["vcc", "rail", "versorgung"],
   mount: "virtual",
-  pins: [{ name: "1", x: 0, y: 14 }],
+  pins: [{ name: "1", x: 0, y: 14, electrical: "power_out" }],
   symbol: [L(0, 14, 0, -4), L(-12, -4, 12, -4), TXT(0, -12, "VCC", 9)],
   params: [{ key: "dc", label: "Spannung", unit: "V", type: "number", def: 5 }],
   toDevices: (i, n) => [{ id: i.id, type: "V", nodes: [n[0], "0"], params: {}, source: { kind: "dc", dc: num(i, "dc", 5) } }],
@@ -476,7 +522,7 @@ add({
   category: "Quellen/Unabhängig",
   tags: ["dc", "batterie", "spannungsquelle"],
   mount: "virtual",
-  pins: [{ name: "+", x: 0, y: -30 }, { name: "-", x: 0, y: 30 }],
+  pins: [{ name: "+", electrical: "power_out", x: 0, y: -30 }, { name: "-", x: 0, y: 30 }],
   symbol: [CIR(0, 0, 20), L(0, -30, 0, -20), L(0, 20, 0, 30), L(-8, -7, 8, -7), L(0, -15, 0, 1), L(-6, 8, 6, 8)],
   params: [
     { key: "dc", label: "Spannung", unit: "V", type: "number", def: 12 },
@@ -510,7 +556,7 @@ add({
   tags: ["ac", "sinus", "signal", "generator"],
   mount: "virtual",
   interactive: "generator",
-  pins: [{ name: "+", x: 0, y: -30 }, { name: "-", x: 0, y: 30 }],
+  pins: [{ name: "+", electrical: "output", x: 0, y: -30 }, { name: "-", x: 0, y: 30 }],
   symbol: [CIR(0, 0, 20), L(0, -30, 0, -20), L(0, 20, 0, 30), { t: "arc", x: -5, y: 0, r: 5, a0: Math.PI, a1: 0 }, { t: "arc", x: 5, y: 0, r: 5, a0: 0, a1: Math.PI }],
   params: waveParams,
   toDevices: (i, n) => [{ id: i.id, type: "V", nodes: n, params: { rser: 0.001 }, source: sourceFromParams(i) }],
@@ -543,10 +589,10 @@ add({
   tags: ["funktionsgenerator", "xfg", "instrument", "fg-2500", "awg", "signal"],
   mount: "virtual",
   pins: [
-    { name: "OUT1", x: -40, y: -20 },
-    { name: "OUT2", x: -40, y: 20 },
+    { name: "OUT1", x: -40, y: -20, electrical: "output" },
+    { name: "OUT2", x: -40, y: 20, electrical: "output" },
     { name: "COM", x: 0, y: 40 },
-    { name: "SYNC", x: 40, y: 0 },
+    { name: "SYNC", x: 40, y: 0, electrical: "output" },
   ],
   symbol: [
     RECT(-30, -30, 60, 60, 3),
@@ -611,7 +657,7 @@ add({
   category: "Quellen/Unabhängig",
   tags: ["puls", "clock", "takt"],
   mount: "virtual",
-  pins: [{ name: "+", x: 0, y: -30 }, { name: "-", x: 0, y: 30 }],
+  pins: [{ name: "+", electrical: "output", x: 0, y: -30 }, { name: "-", x: 0, y: 30 }],
   symbol: [CIR(0, 0, 20), L(0, -30, 0, -20), L(0, 20, 0, 30), L(-12, 6, -4, 6, -4, -6, 4, -6, 4, 6, 12, 6)],
   params: [
     { key: "offset", label: "V1 (low)", unit: "V", type: "number", def: 0 },
@@ -870,8 +916,8 @@ for (const o of opamps) {
     mount: "both",
     footprint: "DIP-8 / SOIC-8",
     pins: [
-      { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-      { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+      { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+      { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
     ],
     symbol: [
       { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -902,8 +948,8 @@ add({
   tags: ["komparator", "lm393", "schmitt"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "GND", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "GND", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -919,9 +965,9 @@ add({
 });
 
 const pins_ne555: PinDef[] = [
-    { name: "GND", x: -40, y: 36 }, { name: "TRIG", x: -40, y: 12 }, { name: "OUT", x: 40, y: -12 },
-    { name: "RST", x: -40, y: -12 }, { name: "CTRL", x: 40, y: 36 }, { name: "THR", x: 40, y: 12 },
-    { name: "DIS", x: -40, y: -36 }, { name: "VCC", x: 40, y: -36 },
+    { name: "GND", x: -40, y: 36, electrical: "power_in" }, { name: "TRIG", x: -40, y: 12, electrical: "input" }, { name: "OUT", x: 40, y: -12, electrical: "output" },
+    { name: "RST", x: -40, y: -12, electrical: "input" }, { name: "CTRL", x: 40, y: 36, electrical: "input" }, { name: "THR", x: 40, y: 12, electrical: "input" },
+    { name: "DIS", x: -40, y: -36, electrical: "output" }, { name: "VCC", x: 40, y: -36, electrical: "power_in" },
   ];
 add({
   id: "ne555",
@@ -952,7 +998,7 @@ for (const r of regs) {
     tags: ["regler", "78xx", "lm317", "versorgung"],
     mount: "THT",
     footprint: "TO-220",
-    pins: [{ name: "IN", x: -40, y: 0 }, { name: "OUT", x: 40, y: 0 }, { name: "GND/ADJ", x: 0, y: 30 }],
+    pins: [{ name: "IN", x: -40, y: 0, electrical: "power_in" }, { name: "OUT", x: 40, y: 0, electrical: "power_out" }, { name: "GND/ADJ", x: 0, y: 30, electrical: "power_in" }],
     symbol: [RECT(-30, -20, 60, 40, 4), TXT(0, 4, r.name.split(" ")[0], 10), L(-40, 0, -30, 0), L(30, 0, 40, 0), L(0, 20, 0, 30)],
     params: [
       { key: "vout", label: "Ausgangsspannung", unit: "V", type: "number", def: r.v },
@@ -981,8 +1027,8 @@ const gateSpecs: GateSpec[] = [
 for (const g of gateSpecs) {
   const h = Math.max(40, g.inputs * 20 + 20);
   const pins: PinDef[] = [];
-  for (let k = 0; k < g.inputs; k++) pins.push({ name: String.fromCharCode(65 + k), x: -40, y: -((g.inputs - 1) * 10) + k * 20 });
-  pins.push({ name: "Y", x: 40, y: 0 });
+  for (let k = 0; k < g.inputs; k++) pins.push({ name: String.fromCharCode(65 + k), x: -40, y: -((g.inputs - 1) * 10) + k * 20, electrical: "input" });
+  pins.push({ name: "Y", x: 40, y: 0, electrical: "output" });
   const sym: SymbolPrim[] = [RECT(-26, -h / 2, 52, h, 3), TXT(0, 5, g.label, 12)];
   for (const pin of pins) {
     if (pin.x < 0) sym.push(L(-40, pin.y, -26, pin.y));
@@ -1033,8 +1079,8 @@ for (const s of seqSpecs) {
   const h = Math.max(60, rows * 16 + 30);
   const w = 96;
   const pins: PinDef[] = [];
-  inputs.forEach((pn, i2) => pins.push({ name: pn, x: -w / 2 - 5, y: -h / 2 + 22 + i2 * 16 }));
-  outputs.forEach((pn, i2) => pins.push({ name: pn, x: w / 2 + 5, y: -h / 2 + 22 + i2 * 16 }));
+  inputs.forEach((pn, i2) => pins.push({ name: pn, x: -w / 2 - 5, y: -h / 2 + 22 + i2 * 16, electrical: s.model === "clockgen" ? "output" : "input" }));
+  outputs.forEach((pn, i2) => pins.push({ name: pn, x: w / 2 + 5, y: -h / 2 + 22 + i2 * 16, electrical: "output" }));
   add({
     id: s.id,
     name: s.name,
@@ -1076,6 +1122,9 @@ for (const [mid, mname, tag] of [
       name: pn,
       x: i < 11 ? -70 : 70,
       y: (i < 11 ? i : i - 11) * 18 - 90,
+      // S3.4: MCU-Pins sind GPIO (Richtung SW-definiert) — „passiv", kein ERC-Urteil.
+      // Nur Versorgung ist power_in; ungenutzte IOs offen zu lassen ist Praxis.
+      electrical: pn === "VCC" || pn === "GND" ? "power_in" : "passive",
     })),
     symbol: [
       RECT(-60, -100, 120, 200, 6),
@@ -1220,7 +1269,7 @@ add({
   tags: ["7-segment", "anzeige", "display"],
   mount: "THT",
   interactive: "sevenseg",
-  pins: ["a", "b", "c", "d", "e", "f", "g", "COM"].map((pn, i) => ({ name: pn, x: i < 4 ? -50 : 50, y: (i % 4) * 20 - 30 })),
+  pins: ["a", "b", "c", "d", "e", "f", "g", "COM"].map((pn, i) => ({ name: pn, x: i < 4 ? -50 : 50, y: (i % 4) * 20 - 30, electrical: pn === "COM" ? "power_in" : "input" })),
   symbol: [
     RECT(-40, -45, 80, 90, 4),
     // W3: Stubs exakt bis zu den Pin-Koordinaten (±50)
@@ -1252,7 +1301,7 @@ add({
   category: "Messgeräte/Inline",
   tags: ["voltmeter", "spannung", "messen"],
   mount: "virtual",
-  pins: [{ name: "+", x: -30, y: 0 }, { name: "-", x: 30, y: 0 }],
+  pins: [{ name: "+", x: -30, y: 0, electrical: "input" }, { name: "-", x: 30, y: 0, electrical: "input" }],
   symbol: [CIR(0, 0, 18), L(-30, 0, -18, 0), L(18, 0, 30, 0), TXT(0, 5, "V", 13)],
   params: [{ key: "rin", label: "Innenwiderstand", unit: "Ω", type: "number", def: 1e7 }],
   toDevices: (i, n) => [{ id: i.id, type: "VOLTMETER", nodes: n, params: { rin: num(i, "rin", 1e7) } }],
@@ -1278,7 +1327,7 @@ add({
   category: "Messgeräte/Inline",
   tags: ["sonde", "probe", "test"],
   mount: "virtual",
-  pins: [{ name: "1", x: 0, y: 20 }],
+  pins: [{ name: "1", x: 0, y: 20, electrical: "input" }],
   symbol: [CIR(0, 0, 10), L(0, 10, 0, 20), TXT(0, 4, "P", 9)],
   params: [],
   toDevices: () => [],
@@ -1310,8 +1359,8 @@ const cmosGates: Array<{ id: string; name: string; model: string; inputs: number
 for (const g of cmosGates) {
   const h = Math.max(40, g.inputs * 20 + 20);
   const pins: PinDef[] = [];
-  for (let k = 0; k < g.inputs; k++) pins.push({ name: String.fromCharCode(65 + k), x: -40, y: -((g.inputs - 1) * 10) + k * 20 });
-  pins.push({ name: "Y", x: 40, y: 0 });
+  for (let k = 0; k < g.inputs; k++) pins.push({ name: String.fromCharCode(65 + k), x: -40, y: -((g.inputs - 1) * 10) + k * 20, electrical: "input" });
+  pins.push({ name: "Y", x: 40, y: 0, electrical: "output" });
   const sym: SymbolPrim[] = [RECT(-26, -h / 2, 52, h, 3), TXT(0, 5, g.desc, 10)];
   for (const pin of pins) {
     if (pin.x < 0) sym.push(L(-40, pin.y, -26, pin.y));
@@ -1402,8 +1451,8 @@ for (const o of extraOpamps) {
     mount: "both",
     footprint: "DIP-14 / SOIC-14",
     pins: [
-      { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-      { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+      { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+      { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
     ],
     symbol: [
       { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] } as SymbolPrim,
@@ -2680,8 +2729,8 @@ add({
   tags: ["opamp","opamp_tl081"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2704,8 +2753,8 @@ add({
   tags: ["opamp","opamp_tl082"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2728,8 +2777,8 @@ add({
   tags: ["opamp","opamp_tl071"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2752,8 +2801,8 @@ add({
   tags: ["opamp","opamp_tl074"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2776,8 +2825,8 @@ add({
   tags: ["opamp","opamp_ne5534"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2800,8 +2849,8 @@ add({
   tags: ["opamp","opamp_op27"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2824,8 +2873,8 @@ add({
   tags: ["opamp","opamp_lm386"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2848,8 +2897,8 @@ add({
   tags: ["opamp","opamp_ca3140"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "V-", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2872,8 +2921,8 @@ add({
   tags: ["komparator","comp_lm311"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "GND", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "GND", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2892,8 +2941,8 @@ add({
   tags: ["komparator","comp_lm393"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "GND", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "GND", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2912,8 +2961,8 @@ add({
   tags: ["komparator","comp_lm339"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "GND", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "GND", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -2932,8 +2981,8 @@ add({
   tags: ["komparator","comp_lm393_n"],
   mount: "both",
   pins: [
-    { name: "IN+", x: -40, y: -15 }, { name: "IN-", x: -40, y: 15 }, { name: "OUT", x: 40, y: 0 },
-    { name: "V+", x: 0, y: -30 }, { name: "GND", x: 0, y: 30 },
+    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
+    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "GND", x: 0, y: 30, electrical: "power_in" },
   ],
   symbol: [
     { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
@@ -5533,10 +5582,10 @@ add({
 
 
 const pins_adc_0804: PinDef[] = [
-    { name: "VIN+", x: -50, y: -30 }, { name: "VIN-", x: -50, y: -10 }, { name: "VREF", x: -50, y: 10 },
-    { name: "D0", x: 50, y: -40 }, { name: "D1", x: 50, y: -30 }, { name: "D2", x: 50, y: -20 }, { name: "D3", x: 50, y: -10 },
-    { name: "D4", x: 50, y: 0 }, { name: "D5", x: 50, y: 10 }, { name: "D6", x: 50, y: 20 }, { name: "D7", x: 50, y: 30 },
-    { name: "CLK", x: -50, y: 30 }, { name: "VCC", x: 0, y: -50 }, { name: "GND", x: 0, y: 50 },
+    { name: "VIN+", x: -50, y: -30, electrical: "input" }, { name: "VIN-", x: -50, y: -10, electrical: "input" }, { name: "VREF", x: -50, y: 10, electrical: "input" },
+    { name: "D0", x: 50, y: -40, electrical: "output" }, { name: "D1", x: 50, y: -30, electrical: "output" }, { name: "D2", x: 50, y: -20, electrical: "output" }, { name: "D3", x: 50, y: -10, electrical: "output" },
+    { name: "D4", x: 50, y: 0, electrical: "output" }, { name: "D5", x: 50, y: 10, electrical: "output" }, { name: "D6", x: 50, y: 20, electrical: "output" }, { name: "D7", x: 50, y: 30, electrical: "output" },
+    { name: "CLK", x: -50, y: 30, electrical: "input" }, { name: "VCC", x: 0, y: -50, electrical: "power_in" }, { name: "GND", x: 0, y: 50, electrical: "power_in" },
   ];
 add({
   id: "adc_0804",
@@ -5553,9 +5602,9 @@ add({
 
 
 const pins_dac_0808: PinDef[] = [
-    { name: "D0", x: -50, y: -40 }, { name: "D1", x: -50, y: -30 }, { name: "D2", x: -50, y: -20 }, { name: "D3", x: -50, y: -10 },
-    { name: "D4", x: -50, y: 0 }, { name: "D5", x: -50, y: 10 }, { name: "D6", x: -50, y: 20 }, { name: "D7", x: -50, y: 30 },
-    { name: "VREF", x: -50, y: 50 }, { name: "IOUT", x: 50, y: 0 }, { name: "VCC", x: 0, y: -50 }, { name: "VEE", x: 0, y: 50 },
+    { name: "D0", x: -50, y: -40, electrical: "input" }, { name: "D1", x: -50, y: -30, electrical: "input" }, { name: "D2", x: -50, y: -20, electrical: "input" }, { name: "D3", x: -50, y: -10, electrical: "input" },
+    { name: "D4", x: -50, y: 0, electrical: "input" }, { name: "D5", x: -50, y: 10, electrical: "input" }, { name: "D6", x: -50, y: 20, electrical: "input" }, { name: "D7", x: -50, y: 30, electrical: "input" },
+    { name: "VREF", x: -50, y: 50, electrical: "input" }, { name: "IOUT", x: 50, y: 0, electrical: "output" }, { name: "VCC", x: 0, y: -50, electrical: "power_in" }, { name: "VEE", x: 0, y: 50, electrical: "power_in" },
   ];
 add({
   id: "dac_0808",
@@ -5986,6 +6035,72 @@ add({
   pins: [{ name: "1", x: -30, y: 0 }],
   symbol: [L(-30, 0, -12, 0), L(-12, -10, 16, -10, 26, 0, 16, 10, -12, 10, -12, -10)],
   params: [{ key: "name", label: "Netzname", type: "text", def: "NET_A" }],
+  toDevices: () => [],
+});
+
+/* ---------------- S3.1 · Bus-Tap & Bus-Splitter ----------------
+ * Elektrisches Modell (ehrlich, s. DESIGN): Die Bus-Leitung ist ein rein
+ * visuelles Bündel + Deklaration. Elektrisch wirken NUR Tap/Splitter per
+ * Namensbindung (`BUS[bit]`, gleicher Mechanismus wie On-Page-Verbinder).
+ * Geometrische Berührung mit einer Bus-Leitung verbindet NICHTS. */
+/** S3.4: Elektrischer Pin-Typ (Default passiv) — gilt auch für dynamische Pins. */
+export const pinElectrical = (part: PartDef, params: Record<string, number | string | boolean>, idx: number): PinElectrical =>
+  partPins(part, params)[idx]?.electrical ?? "passive";
+
+export const splitterWidth = (params: Record<string, number | string | boolean>): number => {
+  const w = Number(params?.width ?? 8);
+  return w === 2 || w === 4 || w === 8 || w === 16 ? w : 8;
+};
+const splitterPins = (w: number): PinDef[] => {
+  const P = 20;
+  const pins: PinDef[] = [{ name: "BUS", x: -40, y: 0 }];
+  for (let i = 0; i < w; i++) pins.push({ name: String(i), x: 40, y: -(w * P) / 2 + P / 2 + i * P });
+  return pins;
+};
+const splitterSymbol = (w: number): SymbolPrim[] => {
+  const P = 20;
+  const top = -(w * P) / 2 - 10;
+  const prims: SymbolPrim[] = [RECT(-30, top, 60, w * P + 20, 3), L(-40, 0, -30, 0), TXT(-24, 4, "BUS", 9)];
+  for (let i = 0; i < w; i++) {
+    const y = -(w * P) / 2 + P / 2 + i * P;
+    prims.push(L(30, y, 40, y), TXT(20, y + 3, String(i), 8));
+  }
+  return prims;
+};
+
+add({
+  id: "bus_tap",
+  name: "Bus-Abgriff (Tap)",
+  ref: "T",
+  category: "Verbinder/Bus",
+  tags: ["bus", "tap", "abgriff", "bit", "virtuell"],
+  description: "Bindet eine Leitung an ein Bus-Bit: Alle Taps mit gleichem Bus + Bit sind elektrisch verbunden (z. B. D[3] an mehreren Stellen). Der Bus selbst ist nur ein gezeichnetes Bündel. Keine Stücklisten-Position.",
+  mount: "virtual",
+  pins: [{ name: "1", x: -30, y: 0 }],
+  symbol: [L(-30, 0, -12, 0), RECT(-12, -9, 26, 18, 3), L(14, -9, 22, 0), L(22, 0, 14, 9)],
+  params: [
+    { key: "bus", label: "Busname", type: "text", def: "D" },
+    { key: "bit", label: "Bit", type: "number", def: 0, min: 0, max: 31 },
+  ],
+  toDevices: () => [],
+});
+
+add({
+  id: "bus_splitter",
+  name: "Bus-Splitter",
+  ref: "T",
+  category: "Verbinder/Bus",
+  tags: ["bus", "splitter", "verteiler", "breite", "virtuell"],
+  description: "Fächert einen Bus in Einzelleitungen auf (oder bündelt sie): Bit-Pin i ist mit BUS[i] verbunden. BUS-Pin ist ein rein visueller Anker (NC). Breite 2/4/8/16. Keine Stücklisten-Position.",
+  mount: "virtual",
+  pins: splitterPins(8),
+  symbol: splitterSymbol(8),
+  params: [
+    { key: "bus", label: "Busname", type: "text", def: "D" },
+    { key: "width", label: "Breite", type: "select", def: 8, options: [{ value: 2, label: "2 Bit" }, { value: 4, label: "4 Bit" }, { value: 8, label: "8 Bit" }, { value: 16, label: "16 Bit" }] },
+  ],
+  pinsFor: (p) => splitterPins(splitterWidth(p)),
+  symbolFor: (p) => splitterSymbol(splitterWidth(p)),
   toDevices: () => [],
 });
 

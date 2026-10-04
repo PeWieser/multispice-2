@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PART_MAP, SymbolPrim, formatValue, getPartSymbol } from "@/lib/library/catalog";
+import { PART_MAP, SymbolPrim, formatValue, partPins, partSymbol, splitterWidth } from "@/lib/library/catalog";
 import { resolveSymbolStyle } from "@/lib/settings";
 import {
   GRID,
@@ -222,10 +222,10 @@ export default function Canvas() {
     for (const inst of doc.instances) {
       const part = PART_MAP[inst.partId];
       if (!part) continue;
-      for (let idx = 0; idx < part.pins.length; idx++) {
+      for (let idx = 0; idx < partPins(part, inst.params).length; idx++) {
         const pos = pinPosition(inst, idx);
         if (Math.hypot(pos.x - p.x, pos.y - p.y) < r) {
-          const pinName = part.pins[idx].name ?? `Pin ${idx}`;
+          const pinName = partPins(part, inst.params)[idx].name ?? `Pin ${idx}`;
           const net = st.netResult.pinNets[`${inst.id}:${idx}`];
           return { inst, pinIdx: idx, pos, pinName, net };
         }
@@ -375,11 +375,11 @@ export default function Canvas() {
         if (!part) continue;
         const devCurrent = live.currents[inst.label] ?? 0;
         if (Math.abs(devCurrent) < 1e-12) continue;
-        part.pins.forEach((_, idx) => {
+        partPins(part, inst.params).forEach((_, idx) => {
           const net = netResult.pinNets[`${inst.id}:${idx}`];
           if (!net || net === "0") return;
           const prev = netCurrentMap.get(net) ?? 0;
-          netCurrentMap.set(net, prev + devCurrent / part.pins.length);
+          netCurrentMap.set(net, prev + devCurrent / partPins(part, inst.params).length);
         });
       }
     }
@@ -425,7 +425,7 @@ export default function Canvas() {
         for (const inst of doc.instances) {
           const part = PART_MAP[inst.partId];
           if (!part) continue;
-          for (let idx = 0; idx < part.pins.length; idx++) {
+          for (let idx = 0; idx < partPins(part, inst.params).length; idx++) {
             const pos = pinPosition(inst, idx);
             regPt(pos.x, pos.y);
           }
@@ -500,11 +500,11 @@ export default function Canvas() {
       for (const inst of doc.instances) {
         const part = PART_MAP[inst.partId];
         if (!part) continue;
-        if (inst.partId === "gnd" || part.pins.length === 1) {
+        if (inst.partId === "gnd" || partPins(part, inst.params).length === 1) {
           const pos = pinPosition(inst, 0);
           const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
           pushPin({ key: k, entering: 0, kind: "gnd" });
-        } else if (part.pins.length === 2) {
+        } else if (partPins(part, inst.params).length === 2) {
           const I = live.currents[inst.label] ?? 0;
           if (!Number.isFinite(I)) continue;
           for (let idx = 0; idx < 2; idx++) {
@@ -517,7 +517,7 @@ export default function Canvas() {
           }
         } else {
           const dev = engine.netlist.devices.find((d) => d.id === inst.label);
-          for (let idx = 0; idx < part.pins.length; idx++) {
+          for (let idx = 0; idx < partPins(part, inst.params).length; idx++) {
             const pos = pinPosition(inst, idx);
             const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
             let pinEnter = 0;
@@ -691,7 +691,7 @@ export default function Canvas() {
         for (const inst of doc.instances) {
           const part = (PART_MAP as any)[inst.partId];
           if (!part) continue;
-          for (let idx=0; idx<part.pins.length; idx++) {
+          for (let idx=0; idx<partPins(part, inst.params).length; idx++) {
             const pos = pinPosition(inst, idx);
             if (Math.hypot(pos.x - cur.x, pos.y - cur.y) < 12) {
               return { inst, pinIdx: idx, pos };
@@ -727,11 +727,21 @@ export default function Canvas() {
       // W13: Keine Glow-Konturen – Auswahl/Hover zeigen sich allein über
       // Farbe und Strichstärke (professionell, nicht dekorativ).
       ctx.strokeStyle = color;
-      ctx.lineWidth = (isSel ? 3.0 : isHovered ? 2.8 : 1.9) / Math.max(view.zoom, 0.4);
+      // S3.1: Busse sind dick (Bündel) + tragen ihren Deklarationsnamen.
+      ctx.lineWidth = (isSel ? 3.0 : isHovered ? 2.8 : isBus ? 3.6 : 1.9) / Math.max(view.zoom, 0.4);
       ctx.lineJoin = "round"; ctx.lineCap = "round";
       ctx.beginPath();
       wire.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
       ctx.stroke();
+      if (isBus && wire.busName && view.zoom > 0.42 && wire.points.length > 1) {
+        const mid = wire.points[Math.floor(wire.points.length / 2)];
+        ctx.save();
+        ctx.font = "600 10px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.fillStyle = canvasColor("--violet");
+        ctx.fillText(wire.busWidth ? `${wire.busName}[0..${wire.busWidth - 1}]` : wire.busName, mid.x, mid.y - 8);
+        ctx.restore();
+      }
 
       // If selected, show GENIAL handles – Steve Jobs: editing must be obvious + delightful
       if (isSel) {
@@ -2148,7 +2158,7 @@ export default function Canvas() {
         for (const inst of doc.instances) {
           const part = (PART_MAP as any)[inst.partId];
           if (!part) continue;
-          for (let idx = 0; idx < part.pins.length; idx++) {
+          for (let idx = 0; idx < partPins(part, inst.params).length; idx++) {
             const p = pinPosition(inst, idx);
             if (Math.abs(p.x - sp.x) < threshold) guideX = Math.round(p.x / GRID) * GRID;
             if (Math.abs(p.y - sp.y) < threshold) guideY = Math.round(p.y / GRID) * GRID;
@@ -2344,9 +2354,9 @@ export default function Canvas() {
             if (!part) continue;
             const devCurrent = engine.lastState.currents[inst.label] ?? 0;
             if (Math.abs(devCurrent) < 1e-12) continue;
-            part.pins.forEach((_, idx) => {
+            partPins(part, inst.params).forEach((_, idx) => {
               const pn = st.netResult.pinNets[`${inst.id}:${idx}`];
-              if (pn === net) netCurrent += devCurrent / part.pins.length;
+              if (pn === net) netCurrent += devCurrent / partPins(part, inst.params).length;
             });
           }
         } catch {}
@@ -3308,7 +3318,7 @@ function probeTarget(doc: SchematicDoc, p: Pt): Pt | null {
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) continue;
-    for (let idx = 0; idx < part.pins.length; idx++) {
+    for (let idx = 0; idx < partPins(part, inst.params).length; idx++) {
       const pos = pinPosition(inst, idx);
       const d = (pos.x - p.x) ** 2 + (pos.y - p.y) ** 2;
       if (d < bestD) { bestD = d; best = pos; }
@@ -3467,17 +3477,17 @@ function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selec
       const part = PART_MAP[inst.partId];
       if (!part) continue;
       const devCurrent = live.currents[inst.label] ?? 0;
-      for (let pIdx = 0; pIdx < part.pins.length; pIdx++) {
+      for (let pIdx = 0; pIdx < partPins(part, inst.params).length; pIdx++) {
         const pNet = netResult.pinNets[`${inst.id}:${pIdx}`];
         if (pNet !== netName) continue;
         const pos = pinPosition(inst, pIdx);
         const dot = (pos.x - ax) * ux + (pos.y - ay) * uy;
         // Wie viel Strom nimmt dieser Pin aus dem Netz auf?
         let pinSink = 0;
-        if (part.pins.length === 2) {
+        if (partPins(part, inst.params).length === 2) {
           pinSink = pIdx === 0 ? devCurrent : -devCurrent;
         } else {
-          pinSink = pIdx === 0 ? devCurrent : -devCurrent / Math.max(1, part.pins.length - 1);
+          pinSink = pIdx === 0 ? devCurrent : -devCurrent / Math.max(1, partPins(part, inst.params).length - 1);
         }
         if (dot >= 0) {
           forwardSinkSum += pinSink;
@@ -3813,7 +3823,7 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
   try {
     const pref = (typeof window !== "undefined" ? (localStorage.getItem("multispice.symbolStyle") as any) : null) || "auto";
     const resolved = resolveSymbolStyle(pref);
-    sym = getPartSymbol(part, resolved);
+    sym = partSymbol(part, inst.params, resolved);
   } catch {}
   ctx.save(); ctx.translate(inst.x, inst.y); ctx.rotate((inst.rot*Math.PI)/180); if (inst.mirror) ctx.scale(-1,1);
   const stroke=selected?canvasColor("--wire-sel"):canvasColor("--symbol");
@@ -3909,7 +3919,7 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
   }
   for (const prim of sym) drawPrim(ctx, prim);
   ctx.fillStyle=canvasColor("--pin");
-  for (const pin of part.pins){ ctx.beginPath(); ctx.arc(pin.x,pin.y,1.5,0,Math.PI*2); ctx.fill(); } // W27: dezente Pin-Punkte
+  for (const pin of partPins(part, inst.params)){ ctx.beginPath(); ctx.arc(pin.x,pin.y,1.5,0,Math.PI*2); ctx.fill(); } // W27: dezente Pin-Punkte
   if (part.interactive==="switch" || part.interactive==="button") {
     // W27: Ref-2-Schalter – dünner Hebel, gefüllte Lagerpunkte, neutrale Tinte
     const closed=(engine.controls[inst.label] ?? (inst.params.closed?1:0))>0.5;
@@ -3960,14 +3970,19 @@ function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:bo
     }
     ctx.restore();
   }
-  if (zoom>0.42 && part.id==="onpage_connector") {
-    // S1.6: Virtuelle Bauteile bekommen sonst kein Schild — der Verbinder
-    // braucht seinen Netznamen aber sichtbar (der Name IST die Verbindung).
+  if (zoom>0.42 && (part.id==="onpage_connector" || part.id==="bus_tap" || part.id==="bus_splitter")) {
+    // S1.6/S3.1: Virtuelle Bauteile bekommen sonst kein Schild — Verbinder
+    // und Bus-Taps brauchen ihren Netznamen aber sichtbar (der Name IST die Verbindung).
+    const tag = part.id==="onpage_connector"
+      ? String(inst.params.name??"NET_A")
+      : part.id==="bus_tap"
+        ? `${String(inst.params.bus??"D").trim() || "D"}[${Math.max(0, Math.floor(Number(inst.params.bit ?? 0)))}]`
+        : `${String(inst.params.bus??"D").trim() || "D"}[0..${splitterWidth(inst.params) - 1}]`;
     ctx.save(); ctx.translate(inst.x, inst.y);
     const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;
     ctx.font="600 10.5px ui-monospace, monospace"; ctx.textAlign="center";
     ctx.fillStyle=selected?canvasColor("--wire-sel"):canvasColor("--ink-2");
-    ctx.fillText(String(inst.params.name??"NET_A"),0,dy);
+    ctx.fillText(tag,0,dy);
     ctx.restore();
   }
   if (selected){

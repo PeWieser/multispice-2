@@ -76,6 +76,15 @@ export default function ContextMenu({
             <button className="row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>
             <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
             <button className="row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘C", apple)}</span></button>
+            {(() => {
+              const selInst = doc.instances.filter((i) => st.selection.includes(i.id));
+              if (selInst.length === 0) return null;
+              return (
+                <button className="row" onClick={() => { st.openExtractDialog(selInst.map((i) => i.id)); onClose(); }} title="Auswahl als wiederverwendbares Bauteil speichern (S3.2)">
+                  <span>⬢ Auswahl als Bauteil… ({selInst.length})</span>
+                </button>
+              );
+            })()}
             <div className="sep" />
             {(() => {
               const selInst = doc.instances.filter((i) => st.selection.includes(i.id));
@@ -240,10 +249,57 @@ export default function ContextMenu({
               if (!w) return;
               st.commit((d)=>{
                 const ww = d.wires.find(x=>x.id===target.id) as any;
-                if (ww) ww.isBus = !ww.isBus;
+                if (ww) {
+                  ww.isBus = !ww.isBus;
+                  // S3.1: Bus-Deklaration sofort vervollständigen (Name + Breite).
+                  if (ww.isBus) {
+                    if (!ww.busName) ww.busName = "D";
+                    if (!ww.busWidth) ww.busWidth = 8;
+                  }
+                }
               });
               onClose();
             }}><span>{ (doc.wires.find(x=>x.id===target.id) as any)?.isBus ? "Bus → normale Leitung" : "Als Bus markieren"}</span></button>
+            {target.kind === "wire" && (doc.wires.find(x=>x.id===target.id) as any)?.isBus && (() => {
+              const w = doc.wires.find(x=>x.id===target.id) as any;
+              return (
+                <div className="flex items-center gap-1.5 px-2 py-1" onClick={(e) => e.stopPropagation()}>
+                  <span className="text-2xs text-ink-3">Bus</span>
+                  <input
+                    className="h-6 w-16 rounded border border-hairline bg-surface px-1 text-2xs mono"
+                    defaultValue={w.busName ?? "D"}
+                    aria-label="Busname"
+                    title="Busname (Deklaration für Taps, z. B. D)"
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const v = e.target.value.trim() || "D";
+                      st.commit((d) => {
+                        const ww = d.wires.find(x=>x.id===target.id) as any;
+                        if (ww) ww.busName = v;
+                      });
+                    }}
+                  />
+                  <span className="text-2xs text-ink-3">×</span>
+                  <input
+                    type="number"
+                    className="h-6 w-12 rounded border border-hairline bg-surface px-1 text-2xs mono"
+                    defaultValue={w.busWidth ?? 8}
+                    min={1}
+                    max={32}
+                    aria-label="Busbreite"
+                    title="Busbreite in Bit (Deklaration, 1–32)"
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const v = Math.min(32, Math.max(1, Math.floor(Number(e.target.value) || 8)));
+                      st.commit((d) => {
+                        const ww = d.wires.find(x=>x.id===target.id) as any;
+                        if (ww) ww.busWidth = v;
+                      });
+                    }}
+                  />
+                </div>
+              );
+            })()}
             <div className="flex gap-1 flex-wrap px-1">
               {[
                 [null, "Auto", "var(--wire)"],

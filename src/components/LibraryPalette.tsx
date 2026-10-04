@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus } from "lucide-react";
-import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
+import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol, partPins } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
 import { getDatasheet, getDatasheetSearchUrl, getOctopartUrl } from "@/lib/library/datasheets";
@@ -765,11 +765,11 @@ export default function LibraryPalette({
                 </div>
               </div>
 
-              {detailPart.pins && detailPart.pins.length > 0 && (
+              {partPins(detailPart).length > 0 && (
                 <div className="rounded-lg p-2.5 bg-surface border border-hairline">
-                  <div className="text-2xs uppercase tracking-wide text-ink-3 mb-1.5">Pins ({detailPart.pins.length})</div>
+                  <div className="text-2xs uppercase tracking-wide text-ink-3 mb-1.5">Pins ({partPins(detailPart).length})</div>
                   <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-2xs text-ink-2">
-                    {detailPart.pins.map((pn, i) => (
+                    {partPins(detailPart).map((pn, i) => (
                       <span key={i}>{pn.name || `Pin ${i + 1}`}</span>
                     ))}
                   </div>

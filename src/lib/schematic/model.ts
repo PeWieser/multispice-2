@@ -3,7 +3,7 @@
  * SPICE netlist generation and import.
  */
 
-import { PART_MAP, PartDef, PartInstanceLike, formatValue } from "@/lib/library/catalog";
+import { PART_MAP, PartDef, PartInstanceLike, PinElectrical, formatValue, partPins, partSymbol, pinElectrical, splitterWidth } from "@/lib/library/catalog";
 import { Device, Netlist } from "@/lib/sim/engine";
 
 export const GRID = 10;
@@ -144,7 +144,7 @@ export function rotatePoint(x: number, y: number, rot: Rotation, mirror = false)
 
 export function pinPosition(inst: Instance, pinIndex: number): { x: number; y: number } {
   const part = PART_MAP[inst.partId];
-  const pin = part?.pins[pinIndex];
+  const pin = part ? partPins(part, inst.params)[pinIndex] : undefined;
   if (!pin) return { x: inst.x, y: inst.y };
   const r = rotatePoint(pin.x, pin.y, inst.rot, inst.mirror);
   return { x: inst.x + r.x, y: inst.y + r.y };
@@ -301,7 +301,7 @@ export function snapWiresToPins(doc: SchematicDoc, tol = 15): SnapReport {
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) continue;
-    for (let i = 0; i < part.pins.length; i++) pinPts.push(pinPosition(inst, i));
+    for (let i = 0; i < partPins(part, inst.params).length; i++) pinPts.push(pinPosition(inst, i));
   }
   const nearestPin = (p: WPt) => {
     let best: WPt | null = null;
@@ -343,7 +343,7 @@ export function instanceBounds(inst: Instance): { x: number; y: number; w: numbe
     minY = Math.min(minY, r.y);
     maxY = Math.max(maxY, r.y);
   };
-  for (const prim of part.symbol) {
+  for (const prim of partSymbol(part, inst.params)) {
     if (prim.t === "line") for (let i = 0; i < prim.pts.length; i += 2) consider(prim.pts[i], prim.pts[i + 1]);
     else if (prim.t === "rect") {
       consider(prim.x, prim.y);
@@ -353,7 +353,7 @@ export function instanceBounds(inst: Instance): { x: number; y: number; w: numbe
       consider(prim.x + prim.r, prim.y + prim.r);
     } else consider(prim.x, prim.y);
   }
-  for (const pin of part.pins) consider(pin.x, pin.y);
+  for (const pin of partPins(part, inst.params)) consider(pin.x, pin.y);
   if (!Number.isFinite(minX)) return { x: inst.x - 20, y: inst.y - 20, w: 40, h: 40 };
   return { x: inst.x + minX, y: inst.y + minY, w: maxX - minX, h: maxY - minY };
 }
@@ -414,18 +414,56 @@ export interface NetlistBuildResult {
   junctions: Array<{ x: number; y: number }>;
 }
 
+/**
+ * S3.3: Re-Annotate — nummeriert alle Schema-Labels (`R5`, `C12`, …) pro
+ * Bauteil-Präfix in Leserichtung (oben→unten, links→rechts) neu ab 1.
+ * Freie Namen (`R_SENSE`) bleiben unangetastet. Mutiert das Draft-Dokument.
+ */
+export function reannotateLabels(doc: SchematicDoc): { renumbered: number; kept: string[] } {
+  const SCHEME = /^[A-Z]{1,3}\d+$/;
+  const kept: string[] = [];
+  const groups = new Map<string, Instance[]>();
+  for (const inst of doc.instances) {
+    const part = PART_MAP[inst.partId];
+    if (!part || !SCHEME.test(inst.label || "")) {
+      if (inst.label) kept.push(inst.label);
+      continue;
+    }
+    const arr = groups.get(part.ref) ?? [];
+    arr.push(inst);
+    groups.set(part.ref, arr);
+  }
+  let renumbered = 0;
+  for (const [prefix, arr] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    arr.sort((a, b) => a.y - b.y || a.x - b.x);
+    arr.forEach((inst, k) => {
+      const next = `${prefix}${k + 1}`;
+      if (inst.label !== next) {
+        inst.label = next;
+        renumbered++;
+      }
+    });
+  }
+  return { renumbered, kept };
+}
+
 export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   const uf = new UnionFind();
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // wire segments
+  // wire segments (S3.1: Bus-Drähte leiten NICHT — sie sind Bündel + Deklaration)
   const segments: Array<[number, number, number, number]> = [];
   const segOwner: string[] = [];
+  const busSegments: Array<[number, number, number, number]> = [];
   for (const w of doc.wires) {
     for (let i = 0; i + 1 < w.points.length; i++) {
       const a = w.points[i];
       const b = w.points[i + 1];
+      if (w.isBus) {
+        busSegments.push([a.x, a.y, b.x, b.y]);
+        continue;
+      }
       segments.push([a.x, a.y, b.x, b.y]);
       segOwner.push(w.id);
       uf.union(key(a.x, a.y), key(b.x, b.y));
@@ -450,7 +488,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       warnings.push(`${inst.label}: Fault SHORT – Pins werden kurzgeschlossen`);
       // Collect pin keys to short together
       const keys: string[] = [];
-      part.pins.forEach((pin, idx) => {
+      partPins(part, inst.params).forEach((pin, idx) => {
         const pos = pinPosition(inst, idx);
         keys.push(key(pos.x, pos.y));
         pinPoints.push({ instanceId: inst.id, pinIndex: idx, pinName: pin.name, x: pos.x, y: pos.y });
@@ -464,7 +502,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     if (fault === "leakage") {
       warnings.push(`${inst.label}: Fault LEAKAGE – 10k Leckwiderstand wird hinzugefügt (vereinfacht)`);
     }
-    part.pins.forEach((pin, idx) => {
+    partPins(part, inst.params).forEach((pin, idx) => {
       const pos = pinPosition(inst, idx);
       pinPoints.push({ instanceId: inst.id, pinIndex: idx, pinName: pin.name, x: pos.x, y: pos.y });
       uf.find(key(pos.x, pos.y));
@@ -482,7 +520,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   const junctionKeys = new Set(docJunctions.map((j) => key(j.x, j.y)));
   const allPoints = new Set<string>(junctionKeys);
   for (const w of doc.wires) {
-    if (w.points.length < 2) continue;
+    if (w.points.length < 2 || w.isBus) continue;
     const a = w.points[0];
     const b = w.points[w.points.length - 1];
     allPoints.add(key(a.x, a.y));
@@ -511,14 +549,30 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   // On-Page-Verbinder: gleicher Name = gleiches Netz (virtuelle Verbindung,
   // pro Entwurf — Sprint-1-Entscheid: keine Blätter, kein Off-Page)
   const connectorGroups = new Map<string, string[]>(); // name -> root[]
+  const bindName = (name: string, x: number, y: number) => {
+    const arr = connectorGroups.get(name) ?? [];
+    arr.push(uf.find(key(x, y)));
+    connectorGroups.set(name, arr);
+  };
   for (const inst of doc.instances) {
     if (inst.partId === "onpage_connector") {
       const name = String(inst.params.name ?? "NET_A").trim() || "NET_A";
       const pos = pinPosition(inst, 0);
-      const root = uf.find(key(pos.x, pos.y));
-      const arr = connectorGroups.get(name) ?? [];
-      arr.push(root);
-      connectorGroups.set(name, arr);
+      bindName(name, pos.x, pos.y);
+    } else if (inst.partId === "bus_tap") {
+      // S3.1: Tap bindet Pin 0 an BUS[bit] (Namensbindung, kein Geometrie-Raten).
+      const bus = String(inst.params.bus ?? "D").trim() || "D";
+      const bit = Math.max(0, Math.floor(Number(inst.params.bit ?? 0)));
+      const pos = pinPosition(inst, 0);
+      bindName(`${bus}[${bit}]`, pos.x, pos.y);
+    } else if (inst.partId === "bus_splitter") {
+      // S3.1: Splitter bindet Bit-Pin i (Pin 0 = BUS-Anker/NC) an BUS[i].
+      const bus = String(inst.params.bus ?? "D").trim() || "D";
+      const width = splitterWidth(inst.params);
+      for (let i = 0; i < width; i++) {
+        const pos = pinPosition(inst, 1 + i);
+        bindName(`${bus}[${i}]`, pos.x, pos.y);
+      }
     }
   }
   for (const [name, roots] of connectorGroups) {
@@ -527,6 +581,40 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       for (let i=1; i<roots.length; i++) {
         uf.union(first, roots[i]);
       }
+    }
+  }
+  // S3.1: Bus-Deklarationen validieren (Bus-Leitung = Bündel + Deklaration;
+  // ohne Deklaration funktionieren Taps trotzdem — dann ohne Prüfung).
+  const busDecl = new Map<string, number[]>();
+  for (const w of doc.wires) {
+    if (!w.isBus || !w.busName?.trim()) continue;
+    const arr = busDecl.get(w.busName.trim()) ?? [];
+    arr.push(w.busWidth ?? 0);
+    busDecl.set(w.busName.trim(), arr);
+  }
+  for (const [name, widths] of busDecl) {
+    const distinct = [...new Set(widths.filter((v) => v > 0))];
+    if (distinct.length > 1) warnings.push(`Bus ${name}: widersprüchliche Breiten deklariert (${distinct.join(" vs ")})`);
+  }
+  const bitUse = new Map<string, Set<number>>();
+  const markBit = (bus: string, bit: number) => {
+    const set = bitUse.get(bus) ?? new Set<number>();
+    set.add(bit);
+    bitUse.set(bus, set);
+  };
+  for (const inst of doc.instances) {
+    if (inst.partId === "bus_tap") {
+      markBit(String(inst.params.bus ?? "D").trim() || "D", Math.max(0, Math.floor(Number(inst.params.bit ?? 0))));
+    } else if (inst.partId === "bus_splitter") {
+      const bus = String(inst.params.bus ?? "D").trim() || "D";
+      for (let i = 0; i < splitterWidth(inst.params); i++) markBit(bus, i);
+    }
+  }
+  for (const [bus, bits] of bitUse) {
+    const decl = busDecl.get(bus)?.find((v) => v > 0);
+    if (!decl) continue;
+    for (const b of [...bits].sort((a, z) => a - z)) {
+      if (b >= decl) warnings.push(`Bus ${bus}[${b}]: Bit übersteigt die deklarierte Breite ${decl}`);
     }
   }
   // Rebuild groups after connector union
@@ -569,10 +657,16 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     const r = uf.find(key(p.x, p.y));
     pinsPerRoot.set(r, (pinsPerRoot.get(r) ?? 0) + 1);
   }
+  // S3.1: Namensgebundene Netze (On-Page/Tap/Splitter) behalten ihren Namen —
+  // der Name IST die Verbindung, auch solo (nc gilt nur echten Freiläufern).
+  const connectorRoots = new Set<string>();
+  for (const roots of connectorGroups.values()) {
+    for (const r of roots) connectorRoots.add(uf.find(r));
+  }
   for (const p of pinPoints) {
     const r = uf.find(key(p.x, p.y));
     const group = groups.get(r) ?? [];
-    if ((pinsPerRoot.get(r) ?? 0) === 1 && group.length === 1 && rootName.get(r) !== "0") {
+    if ((pinsPerRoot.get(r) ?? 0) === 1 && group.length === 1 && rootName.get(r) !== "0" && !connectorRoots.has(r)) {
       rootName.set(r, `${p.instanceId}_nc${p.pinIndex}`);
     }
   }
@@ -606,7 +700,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       // Skip device – open circuit
       continue;
     }
-    const nodes = part.pins.map((_, idx) => pinNets[`${inst.id}:${idx}`] ?? `${inst.id}_nc${idx}`);
+    const nodes = partPins(part, inst.params).map((_, idx) => pinNets[`${inst.id}:${idx}`] ?? `${inst.id}_nc${idx}`);
     const like: PartInstanceLike = { id: inst.label || inst.id, partId: inst.partId, params: inst.params, text: inst.text };
     try {
       const devs = part.toDevices(like, nodes);
@@ -648,7 +742,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) continue;
-    for (let i = 0; i < part.pins.length; i++) {
+    for (let i = 0; i < partPins(part, inst.params).length; i++) {
       const pos = pinPosition(inst, i);
       pinKeys.add(key(pos.x, pos.y));
     }
@@ -658,7 +752,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   const endCount = new Map<string, number>();
   const wireEnds: Array<{ x: number; y: number }> = [];
   for (const w of doc.wires) {
-    if (w.points.length < 2) continue;
+    if (w.points.length < 2 || w.isBus) continue;
     for (const p of [w.points[0], w.points[w.points.length - 1]]) {
       wireEnds.push({ x: p.x, y: p.y });
       endCount.set(key(p.x, p.y), (endCount.get(key(p.x, p.y)) ?? 0) + 1);
@@ -676,6 +770,8 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       warnWire(`Leitung ohne Länge bei (${Math.round(w.points[0].x)}, ${Math.round(w.points[0].y)}) – doppelter Stützpunkt`);
       continue;
     }
+    // S3.1: Bus-Enden hängen per Design in der Luft (kein offenes Ende).
+    if (w.isBus) continue;
     for (const idx of [0, w.points.length - 1]) {
       const p = w.points[idx];
       const k = key(p.x, p.y);
@@ -690,6 +786,46 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       if (onForeignSegment) continue;
       openEnds.push({ x: p.x, y: p.y });
       warnWire(`Leitungsende ohne Anschluss bei (${Math.round(p.x)}, ${Math.round(p.y)}) – hängt in der Luft`);
+    }
+  }
+
+  // S3.5: Zwei Drähte, die sich einen KNICK (nicht Ende) exakt teilen, werden
+  // über den gemeinsamen Ketten-Schlüssel verbunden (W61-Lücke — T-Stöße per
+  // Ende-auf-Segment sind legitim und bleiben still; reines Knick-auf-Knick
+  // ist fast immer ein Zeichenfehler und wird gemeldet).
+  {
+    const vertOwners = new Map<string, Array<{ id: string; end: boolean }>>();
+    for (const w of doc.wires) {
+      if (w.isBus || w.points.length < 2) continue;
+      w.points.forEach((p, i) => {
+        const k = key(p.x, p.y);
+        const arr = vertOwners.get(k) ?? [];
+        arr.push({ id: w.id, end: i === 0 || i === w.points.length - 1 });
+        vertOwners.set(k, arr);
+      });
+    }
+    for (const [k, arr] of vertOwners) {
+      if (new Set(arr.map((a) => a.id)).size < 2) continue;
+      if (arr.some((a) => a.end)) continue; // T-Stoß/Stoßstelle = legitim
+      const [x, y] = k.split(",").map(Number);
+      warnWire(`Leitungen teilen einen Knick bei (${x}, ${y}) – dadurch verbunden (Knick versetzen oder Verbindungspunkt setzen)`);
+    }
+  }
+
+  // S3.1: Geometrisches Antippen eines Busses verbindet nichts — nur Tap/Splitter.
+  if (busSegments.length) {
+    const onBus = (x: number, y: number) => busSegments.some(([ax, ay, bx, by]) => pointOnSegment(x, y, ax, ay, bx, by));
+    for (const w of doc.wires) {
+      if (w.isBus || w.points.length < 2) continue;
+      for (const idx of [0, w.points.length - 1]) {
+        const p = w.points[idx];
+        const k = key(p.x, p.y);
+        if (pinKeys.has(k) || labelKeys.has(k)) continue;
+        if (onBus(p.x, p.y)) warnWire(`Leitungsende auf Bus-Leitung bei (${Math.round(p.x)}, ${Math.round(p.y)}) – Busse verbinden nur per Bus-Tap/Splitter`);
+      }
+    }
+    for (const j of docJunctions) {
+      if (onBus(j.x, j.y)) warnWire(`Verbindungspunkt auf Bus-Leitung bei (${Math.round(j.x)}, ${Math.round(j.y)}) – wirkungslos, Busse verbinden nur per Bus-Tap/Splitter`);
     }
   }
 
@@ -762,6 +898,63 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     if (junctionDegree(k) < 2) warnWire(`Verbindungspunkt ohne Leitung bei (${Math.round(j.x)}, ${Math.round(j.y)}) – sitzt auf keiner Leitung`);
     if (!junctions.some((q) => Math.abs(q.x - j.x) < 0.01 && Math.abs(q.y - j.y) < 0.01)) junctions.push({ x: j.x, y: j.y });
   }
+
+  // S3.4: ERC — elektrische Pin-Typen prüfen (Regeln E1–E4, siehe DESIGN.md).
+  const ercWarn: string[] = [];
+  let hiddenErc = 0;
+  const warnErc = (msg: string) => {
+    if (ercWarn.length < 12) ercWarn.push(msg);
+    else hiddenErc++;
+  };
+  const instById = new Map(doc.instances.map((i) => [i.id, i]));
+  interface ErcPin { inst: string; label: string; pin: string; type: PinElectrical; custom: boolean; solo: boolean }
+  const ercByRoot = new Map<string, ErcPin[]>();
+  for (const p of pinPoints) {
+    const inst = instById.get(p.instanceId);
+    const part = inst ? PART_MAP[inst.partId] : undefined;
+    const r = uf.find(key(p.x, p.y));
+    const arr = ercByRoot.get(r) ?? [];
+    arr.push({
+      inst: p.instanceId,
+      label: inst?.label || p.instanceId,
+      pin: p.pinName,
+      type: part && inst ? pinElectrical(part, inst.params, p.pinIndex) : "passive",
+      custom: !!part?.tags?.includes("custom"),
+      solo: (pinsPerRoot.get(r) ?? 0) === 1 && (groups.get(r) ?? []).length === 1,
+    });
+    ercByRoot.set(r, arr);
+  }
+  for (const [root, pins] of ercByRoot) {
+    const net = rootName.get(root) ?? "?";
+    const tag = (e: ErcPin) => `${e.label}:${e.pin}`;
+    const drivers = pins.filter((e) => e.type === "output" || e.type === "power_out");
+    // E1: Treiberausgänge verschiedener Instanzen auf einem Netz.
+    // Gleiche Instanz = erlaubt (herstellerseitig verbundene Pins/Brücken).
+    if (new Set(drivers.map((e) => e.inst)).size > 1) {
+      warnErc(`ERC E1: Netz „${net}“ – Ausgänge kurzgeschlossen (${drivers.slice(0, 4).map(tag).join(", ")})`);
+      continue;
+    }
+    const types = new Set(pins.map((e) => e.type));
+    // E2: Netz nur an Eingängen – kein Treiber.
+    if (pins.length > 1 && types.size === 1 && types.has("input")) {
+      warnErc(`ERC E2: Netz „${net}“ hängt nur an Eingängen, kein Treiber (${pins.slice(0, 4).map(tag).join(", ")})`);
+      continue;
+    }
+    // E3: Versorgungseingang ohne Quelle (passiv = mögliche RC-Speisung, still).
+    if (pins.length > 1 && types.has("power_in") && !types.has("power_out") && !types.has("output") && !types.has("passive")) {
+      warnErc(`ERC E3: Netz „${net}“ versorgt ohne Quelle (${pins.slice(0, 4).map(tag).join(", ")})`);
+      continue;
+    }
+    // E4: Unverbundene Eingänge; Versorgung nur bei eigenen Bauteilen
+    // (eingebaute Makros haben dokumentierte Standardwerte).
+    if (pins.length === 1 && pins[0].solo && pins[0].type === "input") {
+      warnErc(`ERC E4: ${tag(pins[0])} (Eingang) ist unverbunden`);
+    } else if (pins.length === 1 && pins[0].solo && pins[0].type === "power_in" && pins[0].custom) {
+      warnErc(`ERC E4: ${tag(pins[0])} (Versorgung, eigenes Bauteil) ist unverbunden`);
+    }
+  }
+  if (hiddenErc > 0) ercWarn.push(`… und ${hiddenErc} weitere ERC-Hinweise`);
+  warnings.push(...ercWarn);
 
   return { netlist: { devices, title: doc.name }, nets, pinNets, pointNets, errors, warnings, openEnds, junctions };
 }

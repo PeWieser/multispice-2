@@ -3138,3 +3138,105 @@ Jeder Befund unten ist code-geprüft (Datei:Zeile sinngemäß).
   Google-Fonts-Fetch (Sandbox offline, pre-existing).
 - **Offen aus Sprint 2**: visuelle Prüfung (Worker-Balken, Fehlerkarte,
   Spotlight, Galerie, ×-Chip) im Dev-Server; Build-Check mit Netz.
+
+---
+
+## §44 · Sprint 3 — Struktur (Plan, 2026-10-04)
+
+Ziel: Multisim-Parität im Aufbau großer Entwürfe. Befunde code-geprüft.
+User-Entscheide (2026-10-04): Busse **voll** (Splitter + dynamische Pins),
+Hierarchie = **Custom-Parts + Ausbau**.
+
+### 44.1 Befund
+
+- **S3.1** Bus = nur lila Farbe: `Wire.isBus/busName/busWidth` existieren als
+  Daten, Canvas malt nur Farbe um (Strichstärke gleich), `buildNets`
+  ignoriert Busse vollständig (Bus-Leitung leitet als normales Netz!).
+  Einzige UI: Kontextmenü-Toggle „Als Bus markieren". Kein Tap, kein
+  Splitter, keine Breite. Dynamische Pins: `PinDef` statisch; `.pins`-Zugriffe
+  breit gestreut (Canvas ~12 Stellen), aber Funnels existieren:
+  `pinPosition(inst, idx)` (model.ts), `getPartSymbol(part, style)`,
+  `instanceBounds(inst)` — dort hängt Dynamik ein.
+- **S3.2** Custom-Parts mit Subcircuit-Expansion existieren
+  (`compileSubcircuitToDevices`, 14 Element-Kinds, keine Verschachtelung)
+  + `extractSubcircuitFromSchematic` (ganzes Blatt, partId-Substring-
+  Heuristik: `pId.includes("npn")` …). Kein „Auswahl als Bauteil", kein
+  exaktes Mapping, Limits undokumentiert.
+- **S3.3** Re-Annotate existiert nicht (`grep` leer). `Instance` hat kein
+  Label-Herkunfts-Flag (manuell vs. auto nicht unterscheidbar). Labels werden
+  als Device-IDs referenziert (Analyse-Meta im Speicher, Instrumente transient).
+- **S3.4** `PinDef` = nur name/x/y — keine elektrischen Typen. ERC heute:
+  unbekanntes Bauteil (E), Faults (W), keine Devices (W), kein GND (W),
+  offene Enden (W51, max. 12), Verbindungspunkte (Info). Kein Regelsatz-Dok.
+- **S3.5** Importe: SPICE-Netzliste (nur R/C/L/V/I/D/Q/M) + LTspice .asc.
+  Kein KiCad. SPICE E/G/F/H/J fallen still unter „übersprungen" (nur Notiz).
+- **S3.6** vcvs/vccs/ccvs/cccs existieren als Bibliotheks-Bauteile
+  („Quellen/Abhängige Quellen", 4 Pins OUT±/CTRL±, Engine-kompatibel:
+  F misst intern per gsense über CTRL — Reihenschaltung ist korrekter
+  Gebrauch). Item de facto erledigt — braucht nur Verifikation + Test.
+
+### 44.2 Plan (S3.1–S3.6)
+
+- **S3.1 Busse voll** (`catalog.ts` + `model.ts` + Canvas):
+  Semantik (ehrlich, dokumentiert): Bus-Leitung = visuelles Bündel +
+  Deklaration (`busName`, `busWidth`); elektrisch wirken NUR Tap/Splitter
+  per Namensbindung (`NAME[i]`); geometrische Berührung verbindet NICHT.
+  Katalog: `PartDef.pinsFor?(params)` + `symbolFor?(params, style)` +
+  Helfer `partPins/partSymbol`; `pinPosition`/`instanceBounds`/`buildNets`/
+  Canvas-Instanz-Stellen nutzen die Helfer (Library-Vorschau: Defaults).
+  Bauteile: `bus_tap` (1 Pin, params bus/bit → Netz `bus[bit]`);
+  `bus_splitter` (params bus/width 2/4/8/16; Pins BUS + 0..w−1; BUS-Pin = NC/
+  visueller Anker, dokumentiert). `buildNets`: Tap/Splitter-Bit-Pins in die
+  Namens-Union (wie S1.6-Verbinder); Validierung: Bit ≥ Breite → Warnung,
+  Tap ohne Deklaration → Hinweis. Bus-Draht: dick violett + Namensschild.
+- **S3.2 Custom-Parts = Hierarchie (festgelegt + ausgebaut)**:
+  Entscheid dokumentieren (DESIGN + Dialog-Hinweis). Ausbau:
+  „Auswahl als Bauteil speichern" (Kontextmenü/Part-Studio): neues
+  `extractSubcircuitFromSelection(doc, ids)` — exaktes partId-Mapping für
+  R/C/L/D/Q/M (Heuristik nur Fallback), Schnittstellen-Netze → Pins,
+  interne Netze → `INT_n`; PartEditor mit Vorausfüllung öffnen. Limits
+  dokumentiert: keine Verschachtelung, 14 Kinds, Quellen als Elemente ok.
+- **S3.3 Re-Annotate** (`editor.ts` + Menü): `reannotate()` — pro Ref-Präfix
+  in Leserichtung (y, dann x) neu nummerieren, undo-fähig; Analyse-State
+  zurücksetzen (Labels referenziert) + Log; alle Labels (kein
+  Herkunfts-Flag — dokumentiert). Menü Bearbeiten → „Neu nummerieren".
+- **S3.4 Pin-Typen + ERC** (`catalog.ts` + `model.ts` + DESIGN):
+  `PinDef.electrical?`: input/output/inout/power_in/power_out/passive/nc.
+  Regeln (nur wenn BEIDE Pins typisiert — keine False Positives bei 400
+  untypisierten Teilen; Masse-Netz „0" von Konflikt ausgenommen):
+  E1 Ausgang-gegen-Ausgang (Fehler), W1 typisierter Eingang offen, W2
+  power_in offen. Seed-Typen: gnd, vdc/vac/idc/iac, opamp/comparator,
+  555,117xx-VREG?, Logik-Gatter (Bestand prüfen). Regelsatz als DESIGN-Tabelle.
+- **S3.5 KiCad + SPICE-Coverage** (`importers.ts` + DESIGN): `.kicad_sch`
+  S-Expr-Minimal-Parser (Symbole R/C/D/Q/V/I + Drähte + Netzlabels +
+  Power-Symbole; Limits dokumentiert). SPICE_MAP += E/G/F/H/J (Teile
+  existieren) + Coverage-Tabelle in DESIGN (Buchstabe → Teil/Limit).
+- **S3.6 E/G/F/H**: Verifikation (platzierbar, Kategorie) + Regressionstest
+  (4-Pin-Verdrahtung → Devices; F-Reihen-Nutzen dokumentiert).
+- **Tests**: `scripts/sprint3test.ts` — Tap-Bindung/Trennung, Splitter-Pins
+  je Breite + Bit-Netze, Re-Annotate-Reihenfolge, ERC E1/W1/W2 + Stille bei
+  untypisiert, SPICE-E-Import, KiCad-Minimal, E/G/F/H-Expansion.
+
+### 44.3 Umsetzung & Verifikation (2026-10-04, abgeschlossen)
+
+- **S3.1 Busse**: umgesetzt wie geplant (`pinsFor/symbolFor`-Funnel,
+  `bus_tap`, `bus_splitter` 2/4/8/16, Namensbindung `BUS[i]`, Bus-Draht
+  leitet nicht + dick violett mit Schild, Breiten-/Bit-Prüfung).
+- **S3.2 Hierarchie**: `extractSelectionAsPart` („Auswahl als Bauteil…",
+  exakte Ports, GND global, Fehler statt Stillem, kein Nesting) +
+  Hierarchie-Entscheid (Custom-Parts, keine Subsheet-Blöcke). Bonus-Fund:
+  `newDocument` verlor Änderungen seit dem letzten Reiterwechsel
+  (Datenverlust!) — Rückschreibung ergänzt, Regression in S3.2-Tests.
+- **S3.3 Re-Annotate**: `reannotateLabels` + Menüpunkt, wie geplant.
+- **S3.4 ERC**: umgesetzt als E1–E4 (alle Warnungen; Plan-Abweichung: kein
+  Fehler-Level, kein W1/W2-Naming — dokumentiert in DESIGN). Kalibrierung:
+  MCU-Pins GPIO/passiv; Vorlagen ERC-still (555-CTRL 10 n, Zähler-RST→GND).
+- **S3.5**: SPICE E/G/F/H/J abgedeckt; KiCad-Minimal-Parser
+  (Symbole/Drähte/Dots/Labels/Texte, Drehungs-Suche, Pin-Snap, ehrliche
+  Skip-Hinweise); Router-Fix gegen geteilte Knicke (stiller Kurzschluss
+  über Ketten-Union behoben). W61-Lücke bleibt Known Limit (Warnung statt
+  Dot-Zwang; echte Behebung = Sprint-5-Kandidat).
+- **S3.6**: E/G/F/H-Abbildung verifiziert (E-Folger 1 V → 2 V im OP-Test).
+- **Verifikation**: `tsc` + `eslint` sauber; `npm test` (11 Skripte inkl.
+  neuem `sprint3test.ts`, 41 Checks) 2× vollständig grün; alle 8 Vorlagen
+  ERC-still (W98d).

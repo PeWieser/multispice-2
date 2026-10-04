@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: Sprint 2 abgeschlossen (2026-10-04). Sprint 3 offen.
+> Stand: Sprint 3 läuft (seit 2026-10-04). Details im Audit-Protokoll (§44).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -70,7 +70,7 @@ Ziel: Die App fühlt sich an wie Hardware, nicht wie eine Webseite.
 - Verifikation: `tsc` ✅, `eslint` ✅, `npm test` ✅ (260 PASS);
   `next build` nur Google-Fonts-Fetch (Sandbox offline, pre-existing).
 
-## Sprint 3 — Struktur (offen)
+## Sprint 3 — Struktur (läuft)
 
 Ziel: Multisim-Parität im Aufbau großer Entwürfe.
 
@@ -78,13 +78,15 @@ Ziel: Multisim-Parität im Aufbau großer Entwürfe.
       unabhängige Entwürfe — UI-Texte umbenannt („Entwurf/Entwürfe"),
       toter `SheetTabs`-Duplikat gelöscht, `offpage_connector`-Ast aus
       `buildNets` entfernt (kein blattübergreifend, kein Off-Page-Bauteil)
-- [ ] Busse mit echter Breite (BUS[0..7], Tap/Splitter, Netzlisten-Expansion)
-- [ ] Hierarchische Blöcke (Block → Unterschaltplan) oder Custom-Parts als
-      festgelegte Antwort + Ausbau
-- [ ] Neu-Nummerierung (Re-Annotate)
-- [ ] Elektrische Pin-Typen + dokumentierter ERC-Regelsatz
-- [ ] KiCad-Import (`.kicad_sch`/Netlist); SPICE-Import-Coverage-Tabelle
-- [ ] Abhängige Quellen (E/G, ggf. F/H) als Bibliotheks-Bauteile
+- [ ] S3.1 Busse voll (User-Entscheid): Tap/Splitter, dynamische Pins, Deklaration + Validierung
+- [ ] S3.2 Custom-Parts = Hierarchie (User-Entscheid): „Auswahl als Bauteil", exaktes Mapping, Limits-Doku
+- [ ] S3.3 Re-Annotate (Leserichtung, undo-fähig)
+- [ ] S3.4 Pin-Typen + dokumentierter ERC-Regelsatz
+- [ ] S3.5 KiCad-Import (`.kicad_sch`) + SPICE-Coverage (E/G/F/H/J)
+- [ ] S3.6 E/G/F/H-Bauteile verifizieren + testen (de facto vorhanden)
+- [ ] Tests + Verifikation (tsc/eslint/test/build)
+
+**Gemacht:** (wird nach Abschluss eingetragen)
 
 ## Sprint 4 — Modelle (offen, laufend)
 

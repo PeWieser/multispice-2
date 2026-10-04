@@ -248,7 +248,8 @@ const PRESET_DEFS: Preset[] = [
       const g2 = inst("gnd", "GND2", 300, 470);
       const g3 = inst("gnd", "GND3", 380, 420);
       const g4 = inst("gnd", "GND4", 750, 340);
-      doc.instances.push(vcc, u, r1, r2, c1, r3, led, g1, g2, g3, g4);
+      const c2 = inst("capacitor", "C2", 500, 360, { c: 1e-8 }, 90);
+      doc.instances.push(vcc, u, r1, r2, c1, r3, led, g1, g2, g3, g4, c2);
       doc.wires.push(
         wire(140, 270, 140, 120),
         // W51: Die VCC-Schiene endete bei x=700 im Nichts (kein Pin, keine Leitung)
@@ -268,6 +269,9 @@ const PRESET_DEFS: Preset[] = [
         wire(460, 270, 590, 270),
         wire(650, 270, 690, 270),
         wire(750, 270, 750, 320),
+        // S3.4: CTRL-Stützkondensator 10 n nach GND (gute Praxis, ERC E4 sauber).
+        wire(460, 310, 500, 310, 500, 330),
+        wire(500, 390, 500, 400, 380, 400),
       );
       doc.labels.push({ id: nid("l"), x: 460, y: 270, name: "OUT" }, { id: nid("l"), x: 300, y: 370, name: "CAP" });
       return doc;
@@ -396,7 +400,8 @@ const PRESET_DEFS: Preset[] = [
       const disp = inst("sevenseg", "DS1", 880, 300, { common: "cathode" });
       const en = inst("vcc", "VCC1", 250, 360, { dc: 5 });
       const g = inst("gnd", "GND1", 880, 400);
-      doc.instances.push(clk, cnt, dec, disp, en, g);
+      const grst = inst("gnd", "GND2", 340, 370);
+      doc.instances.push(clk, cnt, dec, disp, en, g, grst);
       doc.wires.push(
         wire(120, 270, 100, 270, 100, 220, 300, 220, 300, 270, 320, 270),
         wire(250, 380, 250, 310, 320, 310),
@@ -412,6 +417,9 @@ const PRESET_DEFS: Preset[] = [
         wire(680, 340, 750, 340, 750, 190, 1000, 190, 1000, 290, 930, 290),
         wire(680, 360, 760, 360, 760, 180, 1010, 180, 1010, 310, 930, 310),
         wire(930, 330, 930, 380, 880, 380),
+        // S3.4: RST ist aktiv-high — auf GND (inaktiv), kein floatender CMOS-Eingang.
+        // (W25-Pinlage, Dogleg um den EN-Pin herum).
+        wire(320, 290, 340, 290, 340, 350),
       );
       doc.notes.push({ id: nid("n"), x: 120, y: 200, text: "Taktfrequenz im Inspector oder Mustergenerator einstellen", size: 11 });
       return doc;

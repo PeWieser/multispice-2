@@ -19,6 +19,7 @@ import {
   instanceBounds,
   pinPosition,
   pointOnSegment,
+  reannotateLabels,
   straightenWirePoints,
 } from "@/lib/schematic/model";
 import { PRESETS } from "@/lib/schematic/tools";
@@ -249,6 +250,8 @@ export interface EditorState {
   distributeSelection: (axis: "h" | "v") => void;
   /** W55: ausgewählte Leitungen begradigen (Raster, rechte Winkel, Pins). */
   straightenSelection: () => void;
+  /** S3.3: Referenzen pro Präfix in Leserichtung neu nummerieren (Undo-fähig). */
+  reannotate: () => void;
   /** W55: alle Leitungen prüfen und reparieren (Importe, alte Pläne). */
   repairWires: () => void;
   /** W61: Verbindungspunkt setzen/entfernen (Multisim-Kreuzung). */
@@ -270,6 +273,10 @@ export interface EditorState {
   /** S2.2: zentriert den Problemknoten eines Netzes + setzt den Marker. */
   spotlightNet: (net: string) => void;
   clearSpotlight: () => void;
+  /** S3.2: Auswahl-Extraktion als Bauteil (Instanz-IDs) oder null. */
+  extractIds: string[] | null;
+  openExtractDialog: (ids: string[]) => void;
+  closeExtractDialog: () => void;
   setTheme: (t: ThemePref) => void;
   setSymbolStyle: (s: SymbolStylePref) => void;
   toggleTheme: () => void;
@@ -1309,6 +1316,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().log("ok", `${n} Leitung${n > 1 ? "en" : ""} begradigt – Stützpunkte auf dem Raster, rechte Winkel`);
   },
 
+  reannotate: () => {
+    let stat = { renumbered: 0, kept: [] as string[] };
+    get().commit((d) => {
+      stat = reannotateLabels(d);
+    });
+    const keptMsg = stat.kept.length ? ` (${stat.kept.length} freie Namen behalten: ${stat.kept.slice(0, 5).join(", ")}${stat.kept.length > 5 ? "…" : ""})` : "";
+    get().log("ok", stat.renumbered ? `${stat.renumbered} Referenzen neu nummeriert (Leserichtung, ab 1)${keptMsg}` : `Bereits lückenlos nummeriert${keptMsg}`);
+  },
+
   repairWires: () => {
     // W62: „Leitungen prüfen & reparieren" bringt auch gewachsene Pläne in Form:
     // Bauteile aufs Raster, Enden auf Pins, Segmente rechtwinklig. Genau die
@@ -1506,6 +1522,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     spotlightTimer = null;
     set({ spotlight: null });
   },
+  extractIds: null,
+  openExtractDialog: (ids) => set({ extractIds: [...ids] }),
+  closeExtractDialog: () => set({ extractIds: null }),
 
   fitView: () => {
     const st = get();
@@ -1766,7 +1785,14 @@ export const useEditor = create<EditorState>((set, get) => ({
     // Der offene Entwurf bleibt als Reiter erhalten (auch wenn er noch nicht in
     // der Liste steht) – „+" öffnet einen zusätzlichen Entwurf, keine Ersetzung.
     const aktuell = get().doc;
-    if (!sheets.some((s2) => s2.id === aktuell.id)) sheets.push({ id: aktuell.id, name: aktuell.name, doc: aktuell });
+    const bestehend = sheets.find((s2) => s2.id === aktuell.id);
+    if (bestehend) {
+      // S3.2: sonst gingen Änderungen seit dem letzten Reiterwechsel verloren.
+      bestehend.doc = aktuell;
+      bestehend.name = aktuell.name || bestehend.name;
+    } else {
+      sheets.push({ id: aktuell.id, name: aktuell.name, doc: aktuell });
+    }
     const doc = emptyDoc();
     const entry: SheetEntry = { id: doc.id, name: doc.name, doc };
     sheets.push(entry);

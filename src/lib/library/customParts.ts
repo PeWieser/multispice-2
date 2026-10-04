@@ -1,6 +1,6 @@
-import { PARTS, PART_MAP, PartDef, PinDef, SymbolPrim, ParamDef } from "./catalog";
+import { PARTS, PART_MAP, PartDef, PinDef, SymbolPrim, ParamDef, partPins } from "./catalog";
 import { Device } from "@/lib/sim/engine";
-import { SchematicDoc, buildNets } from "@/lib/schematic/model";
+import { Instance, SchematicDoc, buildNets } from "@/lib/schematic/model";
 
 export type PinSide = "left" | "right" | "top" | "bottom";
 export type PinRole = "signal" | "input" | "output" | "vcc" | "gnd";
@@ -729,6 +729,263 @@ export function extractSubcircuitFromSchematic(doc: SchematicDoc): {
   return { pins, subcircuit };
 }
 
+/** Pin-Rolle aus einem Port-/Netznamen ableiten (Heuristik nur für Symbol-Seite). */
+export function inferPortRole(name: string): PinRole {
+  const upper = name.toUpperCase();
+  if (upper === "GND" || upper === "VSS" || upper === "0" || upper === "VEE") return "gnd";
+  if (upper === "VCC" || upper === "VDD" || upper === "V+" || upper === "VCC5" || upper === "V+") return "vcc";
+  if (upper.startsWith("OUT") || upper === "Q" || upper === "Y" || upper === "DIS" || upper.startsWith("F")) return "output";
+  if (upper.startsWith("IN") || upper === "TRIG" || upper === "THR" || upper === "CLK" || upper === "B" || upper === "G" || upper.startsWith("D") || upper.startsWith("A")) return "input";
+  return "signal";
+}
+
+export interface ExtractPortInfo {
+  /** Port-Name am neuen Bauteil */
+  port: string;
+  /** Netzname im Schaltplan */
+  net: string;
+  /** Refs der außen angeschlossenen Bauteile */
+  outside: string[];
+}
+
+export interface ExtractInstanceInfo {
+  ref: string;
+  partName: string;
+  /** Abbildung, z. B. "R (exakt)" oder "OPV (nur Gain)" */
+  mapping: string;
+  /** Leere Zeichenkette = exakt übernommen */
+  note: string;
+}
+
+export interface ExtractSelectionResult {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  pins: CustomPinSpec[];
+  subcircuit: SubcircuitElement[];
+  ports: ExtractPortInfo[];
+  internalNets: string[];
+  instances: ExtractInstanceInfo[];
+}
+
+const numParam = (inst: Instance, key: string, fallback: number): number => {
+  const v = Number(inst.params?.[key]);
+  return Number.isFinite(v) ? v : fallback;
+};
+
+const partDefault = (part: PartDef, key: string, fallback: number): number => {
+  const found = part.params.find((p) => p.key === key)?.def;
+  return typeof found === "number" && Number.isFinite(found) ? found : fallback;
+};
+
+/**
+ * S3.2: Exakte Abbildung Bauteil -> Subcircuit-Element.
+ * Nur Einträge dieser Tabelle sind extrahierbar; alles andere bricht mit
+ * Fehler ab (statt stillschweigend zu entfallen wie im Legacy-Extraktor).
+ */
+const EXTRACT_TABLE: Array<{ test: (partId: string) => boolean; map: (inst: Instance, part: PartDef, pinNet: (idx: number) => string, push: (el: SubcircuitElement) => void, notes: string[]) => void }> = [
+  { test: (id) => id === "resistor", map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "resistor", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "r", partDefault(part, "r", 1000)) });
+      void notes;
+  } },
+  { test: (id) => id === "capacitor" || id === "capacitor_elko", map: (inst, part, pinNet, push) => {
+      push({ id: inst.label || inst.id, kind: "capacitor", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "c", partDefault(part, "c", 1e-7)) });
+  } },
+  { test: (id) => id === "inductor", map: (inst, part, pinNet, push) => {
+      push({ id: inst.label || inst.id, kind: "inductor", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "l", partDefault(part, "l", 1e-3)) });
+  } },
+  { test: (id) => id === "potentiometer", map: (inst, part, pinNet, push) => {
+      // Exakt: Engine modelliert das Poti linear als zwei Teilwiderstände.
+      const r = numParam(inst, "r", partDefault(part, "r", 10000));
+      const pos = Math.min(0.9999, Math.max(0.0001, numParam(inst, "pos", 0.5)));
+      const base = inst.label || inst.id;
+      push({ id: `${base}_A`, kind: "resistor", label: `${base} Poti A–W`, nodes: [pinNet(0), pinNet(1)], value: Math.max(1e-3, r * pos) });
+      push({ id: `${base}_B`, kind: "resistor", label: `${base} Poti W–B`, nodes: [pinNet(1), pinNet(2)], value: Math.max(1e-3, r * (1 - pos)) });
+  } },
+  { test: (id) => id.startsWith("diode_") && id !== "diode_zener", map: (inst, part, pinNet, push, notes) => {
+      const n = numParam(inst, "n", partDefault(part, "n", 1));
+      push({ id: inst.label || inst.id, kind: "diode", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: n });
+      notes.push(`${inst.label}: Diode übernimmt N=${n} — IS/BV/RS/CJO fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id === "diode_zener", map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "zener", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "vz", partDefault(part, "vz", 5.1)) });
+      notes.push(`${inst.label}: Z-Diode übernimmt VZ — IS/N fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id === "bridge", map: (inst, part, pinNet, push, notes) => {
+      // Exakte Topologie: 4 Dioden wie in catalog.toDevices (n=1.8).
+      const base = inst.label || inst.id;
+      const pairs: Array<[number, number, string]> = [[0, 2, "D1"], [1, 2, "D2"], [3, 0, "D3"], [3, 1, "D4"]];
+      for (const [a, b, d] of pairs) push({ id: `${base}_${d}`, kind: "diode", label: `${base} Brücke ${d}`, nodes: [pinNet(a), pinNet(b)], value: 1.8 });
+      notes.push(`${inst.label}: Brücke als 4 Dioden (N=1.8) — IS/BV/RS/CJO fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id.startsWith("npn_"), map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "npn", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2)], value: numParam(inst, "bf", partDefault(part, "bf", 200)) });
+      notes.push(`${inst.label}: NPN übernimmt BF — IS/VAF/BR/CJE/CJC fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id.startsWith("pnp_"), map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "pnp", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2)], value: numParam(inst, "bf", partDefault(part, "bf", 180)) });
+      notes.push(`${inst.label}: PNP übernimmt BF — IS/VAF/BR/CJE/CJC fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id === "nmos" || id === "nmos_irf540", map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "nmos", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2)], value: numParam(inst, "vto", partDefault(part, "vto", 2)) });
+      notes.push(`${inst.label}: NMOS übernimmt Vth — KP=2e-4 und Geometrie fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id === "pmos" || id === "pmos_irf9540", map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "pmos", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2)], value: numParam(inst, "vto", partDefault(part, "vto", 2)) });
+      notes.push(`${inst.label}: PMOS übernimmt Vth — KP=2e-4 und Geometrie fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id === "vdc", map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "vdc", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "dc", partDefault(part, "dc", 12)) });
+      notes.push(`${inst.label}: VDC übernimmt DC — AC-Anregung entfällt, RSER=0.05 Ω`);
+  } },
+  { test: (id) => id === "idc", map: (inst, part, pinNet, push) => {
+      push({ id: inst.label || inst.id, kind: "idc", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "dc", partDefault(part, "dc", 0.001)) });
+  } },
+  { test: (id) => id.startsWith("opamp_"), map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "opamp", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2), pinNet(3), pinNet(4)], value: numParam(inst, "gain", partDefault(part, "gain", 100000)) });
+      notes.push(`${inst.label}: OPV übernimmt Gain — GBW=1 MHz, Slew/RIN/ROUT/VCC/VEE fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id === "comparator_lm393", map: (inst, part, pinNet, push, notes) => {
+      push({ id: inst.label || inst.id, kind: "comparator", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2), pinNet(3), pinNet(4)], value: numParam(inst, "gain", partDefault(part, "gain", 200000)) });
+      notes.push(`${inst.label}: Komparator übernimmt Gain — ROUT/VCC/VEE fallen auf Standardwerte zurück`);
+  } },
+  { test: (id) => id === "ne555", map: (inst, part, pinNet, push) => {
+      push({ id: inst.label || inst.id, kind: "timer555_core", label: `${inst.label} NE555-Kern`, nodes: [pinNet(0), pinNet(1), pinNet(2), pinNet(3), pinNet(4), pinNet(5), pinNet(6), pinNet(7)], value: numParam(inst, "vdd", partDefault(part, "vdd", 9)) });
+  } },
+];
+
+/** Instanzen ohne elektrische Wirkung (still übersprungen, aber für Port-Erkennung gezählt). */
+const EXTRACT_VIRTUAL = new Set(["gnd", "vcc", "oscilloscope", "onpage_connector", "bus_tap", "bus_splitter"]);
+
+/**
+ * S3.2: Extrahiert eine Instanz-Auswahl als wiederverwendbares Bauteil.
+ * Ports entstehen exakt an den Netzen, die Auswahl UND Außenwelt berühren;
+ * GND (Netz "0") bleibt global und wird kein Port. Nicht abbildbare
+ * Bauteile brechen mit Fehler ab; gedroppte Parameter landen in `warnings`.
+ */
+export function extractSelectionAsPart(doc: SchematicDoc, instanceIds: string[]): ExtractSelectionResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const subcircuit: SubcircuitElement[] = [];
+  const instances: ExtractInstanceInfo[] = [];
+  const selected = doc.instances
+    .filter((i) => instanceIds.includes(i.id))
+    .sort((a, b) => (a.label || a.id).localeCompare(b.label || b.id));
+  if (selected.length === 0) {
+    return { ok: false, errors: ["Keine Bauteile ausgewählt."], warnings, pins: [], subcircuit, ports: [], internalNets: [], instances };
+  }
+
+  // 1) Abbildung prüfen (Fehler blockieren, nichts wird still gedroppt)
+  const customInside = selected.filter((i) => PART_MAP[i.partId]?.tags?.includes("custom"));
+  if (customInside.length > 0) {
+    errors.push(`Verschachtelung nicht unterstützt: ${customInside.map((i) => i.label || i.id).join(", ")} ${customInside.length === 1 ? "ist" : "sind"} bereits ein eigenes Bauteil.`);
+  }
+  for (const inst of selected) {
+    const part = PART_MAP[inst.partId];
+    if (!part) {
+      errors.push(`${inst.label || inst.id}: unbekanntes Bauteil (${inst.partId}).`);
+      continue;
+    }
+    if (EXTRACT_VIRTUAL.has(part.id)) continue;
+    if (part.tags?.includes("custom")) continue; // oben bereits gemeldet
+    const entry = EXTRACT_TABLE.find((e) => e.test(part.id));
+    if (!entry) errors.push(`${inst.label || inst.id}: ${part.name} wird beim Extrahieren nicht unterstützt (Messgerät, Quelle mit Zeitverlauf, Digital, Schalter, Spezialbauteil).`);
+  }
+  if (errors.length > 0) {
+    return { ok: false, errors, warnings, pins: [], subcircuit, ports: [], internalNets: [], instances };
+  }
+
+  // 2) Netze + Berührung (gewählt vs. außen) je Netz bestimmen
+  const netRes = buildNets(doc);
+  const pinNet = (instId: string, idx: number): string => netRes.pinNets[`${instId}:${idx}`] ?? `${instId}_nc${idx}`;
+  const selIds = new Set(selected.map((i) => i.id));
+  const touched = new Map<string, { sel: string[]; out: string[] }>();
+  const touch = (net: string, ref: string, isSel: boolean) => {
+    const e = touched.get(net) ?? { sel: [], out: [] };
+    const arr = isSel ? e.sel : e.out;
+    if (!arr.includes(ref)) arr.push(ref);
+    touched.set(net, e);
+  };
+  for (const inst of doc.instances) {
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    const isSel = selIds.has(inst.id);
+    const ref = inst.label || inst.id;
+    partPins(part, inst.params).forEach((_, idx) => touch(pinNet(inst.id, idx), ref, isSel));
+  }
+
+  // 3) Ports: berührt gewählt UND außen, außer GND
+  const usedNames = new Set<string>();
+  const ports: ExtractPortInfo[] = [];
+  const internalNets: string[] = [];
+  // Deterministische Reihenfolge: Auswahl-Reihenfolge, dann Pin-Index
+  const orderedNets: string[] = [];
+  for (const inst of selected) {
+    const part = PART_MAP[inst.partId];
+    if (!part) continue;
+    partPins(part, inst.params).forEach((_, idx) => {
+      const net = pinNet(inst.id, idx);
+      if (!orderedNets.includes(net)) orderedNets.push(net);
+    });
+  }
+  let autoPort = 1;
+  for (const net of orderedNets) {
+    const t = touched.get(net);
+    if (!t || t.sel.length === 0) continue;
+    if (net === "0") continue; // GND bleibt global
+    if (t.out.length === 0) {
+      internalNets.push(net);
+      continue;
+    }
+    let port = /^N\d+$/.test(net) ? "" : net;
+    if (!port || usedNames.has(port.toUpperCase())) {
+      do { port = `P${autoPort++}`; } while (usedNames.has(port.toUpperCase()));
+    }
+    usedNames.add(port.toUpperCase());
+    ports.push({ port, net, outside: [...t.out].sort() });
+  }
+
+  // 4) Elemente + Instanz-Protokoll
+  for (const inst of selected) {
+    const part = PART_MAP[inst.partId];
+    if (!part || EXTRACT_VIRTUAL.has(part.id)) continue;
+    const entry = EXTRACT_TABLE.find((e) => e.test(part.id));
+    if (!entry) continue; // oben bereits als Fehler gemeldet (unreachable)
+    const notes: string[] = [];
+    const before = subcircuit.length;
+    entry.map(inst, part, (idx) => pinNet(inst.id, idx), (el) => subcircuit.push(el), notes);
+    warnings.push(...notes);
+    const kinds = [...new Set(subcircuit.slice(before).map((el) => el.kind))].join("+");
+    instances.push({ ref: inst.label || inst.id, partName: part.name, mapping: kinds, note: notes.join(" ") });
+  }
+  for (const inst of selected) {
+    const part = PART_MAP[inst.partId];
+    if (part && EXTRACT_VIRTUAL.has(part.id)) {
+      instances.push({ ref: inst.label || inst.id, partName: part.name, mapping: "—", note: part.id === "gnd" ? "Masse (global, kein Port)" : part.id === "vcc" ? "Netzanker (kein Element)" : "Messung/Verbinder (kein Element)" });
+    }
+  }
+
+  // 5) Pin-Spezifikation (Seite aus Rolle, Position automatisch)
+  const pins: CustomPinSpec[] = [];
+  const touchesGround = orderedNets.includes("0");
+  let altLeft = true;
+  for (const p of ports) {
+    let role = inferPortRole(p.port);
+    // Eine GND-Rolle würde interne "0"-Bezüge auf den Port umleiten —
+    // bei gleichzeitigem Global-Masse-Bezug daher zur Signal-Rolle abstufen.
+    if (role === "gnd" && touchesGround) role = "signal";
+    const side: PinSide = role === "output" || role === "vcc" ? "right" : role === "gnd" ? "bottom" : altLeft ? "left" : "right";
+    if (role !== "output" && role !== "vcc" && role !== "gnd") altLeft = !altLeft;
+    pins.push({ name: p.port, side, role, internalNode: p.net });
+  }
+
+  if (subcircuit.length === 0) {
+    errors.push("Die Auswahl enthält keine extrahierbaren Bauelemente (nur Verbinder/Masse/Messung).");
+    return { ok: false, errors, warnings, pins: [], subcircuit, ports: [], internalNets: [], instances };
+  }
+  return { ok: true, errors, warnings, pins, subcircuit, ports, internalNets, instances };
+}
+
 /**
  * Erzeugt ein auf das 10-px-Raster (GRID=10) ausgerichtetes Schaltzeichen
  * samt Pin-Definitionen aus einer CustomPartSpec.
@@ -784,7 +1041,13 @@ export function buildCustomGeometry(spec: CustomPartSpec): {
   ) => {
     const finalX = typeof p.x === "number" ? Math.round(p.x / 10) * 10 : px;
     const finalY = typeof p.y === "number" ? Math.round(p.y / 10) * 10 : py;
-    pinOut[p.idx] = { name: p.name || `${p.idx + 1}`, x: finalX, y: finalY };
+    // S3.4: Rolle -> elektrischer Pin-Typ (eigene VCC/GND-Pins sind Versorgungs-EINGÄNGE des ICs).
+    pinOut[p.idx] = {
+      name: p.name || `${p.idx + 1}`,
+      x: finalX,
+      y: finalY,
+      electrical: p.role === "input" ? "input" : p.role === "output" ? "output" : p.role === "vcc" || p.role === "gnd" ? "power_in" : "passive",
+    };
 
     if (!spec.customSymbol || spec.customSymbol.length === 0) {
       autoSymbol.push({ t: "line", pts: [finalX, finalY, edgeX, edgeY] });
