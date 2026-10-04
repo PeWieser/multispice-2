@@ -1,0 +1,65 @@
+
+
+
+
+import type { EditorState } from "../types";
+import type { StoreApi } from "zustand";
+import { gesture, clone } from "../shared";export function createHistorySlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setDoc" | "commit" | "beginGesture" | "endGesture" | "undo" | "redo"> {
+  return {
+      setDoc: (doc, pushHistory = true) => {
+        const prev = get().doc;
+        set((s) => ({
+          doc,
+          past: pushHistory ? [...s.past.slice(-49), clone(prev)] : s.past,
+          future: pushHistory ? [] : s.future,
+        }));
+        get().refreshNets();
+      },
+
+      commit: (mutator) => {
+        const prev = get().doc;
+        const next = clone(prev);
+        mutator(next);
+        const shouldPush = !gesture.active || !gesture.pushed;
+        if (gesture.active) gesture.pushed = true;
+        set((s) => ({
+          doc: next,
+          past: shouldPush ? [...s.past.slice(-49), prev] : s.past,
+          future: shouldPush ? [] : s.future,
+        }));
+        get().refreshNets();
+      },
+
+      beginGesture: () => {
+        gesture.active = true;
+        gesture.pushed = false;
+      },
+
+      endGesture: () => {
+        gesture.active = false;
+        gesture.pushed = false;
+      },
+
+      undo: () => {
+        gesture.active = false;
+        gesture.pushed = false;
+        const { past, doc, future } = get();
+        if (!past.length) return;
+        const prev = past[past.length - 1];
+        set({ doc: prev, past: past.slice(0, -1), future: [doc, ...future].slice(0, 50) });
+        get().refreshNets();
+        get().log("info", "Rückgängig");
+      },
+
+      redo: () => {
+        gesture.active = false;
+        gesture.pushed = false;
+        const { future, doc, past } = get();
+        if (!future.length) return;
+        const next = future[0];
+        set({ doc: next, future: future.slice(1), past: [...past, doc] });
+        get().refreshNets();
+        get().log("info", "Wiederholen");
+      },
+  };
+}

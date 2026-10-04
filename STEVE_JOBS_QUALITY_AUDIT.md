@@ -3318,3 +3318,68 @@ Ziel: Genauigkeit für reale Entwürfe. Befunde code-geprüft.
 | S4.4 | MC/WC NPN-Stufe (BF/IS); MC-Diode (IS); WC-Sensitivitäten | σ=0.093 V, Ecken 2.59/3.69 V, Q1 „bf+is" gelistet, Dioden-σ 2.75 mV (Th. 2.6) — PASS |
 | S4.5 | Relais Anzug/Abfall (Katalog-VSWITCH); Sicherung 9.5 A/1 A | 4.01/1.99 V (Th. 4/2), Auslösung 45.2 ms (Th. ~45), hält bei IN — PASS |
 | S4.6 | Trafo rp-DC + Sättigungsknie (Stromrampe); TLINE TRAN/AC/OP | −1.000 A (Th.), Knie 3.67× = Th., Laufzeit 1.01 µs, AC \|H\|=1/−45°, OP durch — PASS |
+
+## §46 · Sprint 5 — Feinschliff (Audit 2026-10-04, REVIEW OFFEN)
+
+### 46.1 Befund
+
+- **S5.1 Dateien**: `Canvas.tsx` 4010, `editor.ts` 2072, `Instruments.tsx`
+  1698 Zeilen — ungeteilt (Render/Hit-Test/Pointer/Overlays vermischt).
+- **S5.2 Inspector**: nutzt `ui/`-Primitives nur teilweise; Zahlenformat
+  (`formatValue`/`parseValue` in `catalog.ts`) ohne 4k7-Eingabe, Einheiten
+  (Ω/µ) inkonsistent.
+- **S5.3 Tastatur**: kein Pfeil-Platzieren (nur Maus); Esc-Handler in 8+
+  Komponenten ohne definierte Kette, ungetestet.
+- **S5.4 A11y**: `role=status/log` punktuell (BottomPanel, Toasts); keine
+  Schaltungs-Zusammenfassung für Screenreader, kein Sim-Status-Live-Text.
+- **S5.5 Link-Teilen**: fehlt ganz (nur Datei-Speichern).
+- **S5.6 Wizards**: SPRINTS.md sagt „7 → ~12" — real sind es BEREITS 12
+  (Filter/CE/555 alle vorhanden), aber 0 Tests, Builder nicht extrahiert.
+  Zählziel überholt → stattdessen: Verifikation + Lücken schließen.
+  Lehrer-Modus + Beschreibungsbox fehlen.
+- **S5.7 Grapher**: keine Mess-Panel pro Kurve (nur Cursor?), kein
+  Kurven-Rechnen (A−B, RMS …).
+- **S5.8 Sweeps**: kein Nested Sweep, keine Batched Analyses, kein
+  Verzerrungs-Sweep (THD-vs-Pegel/Frequenz).
+- **S5.9 W61**: Ketten-Union verbindet weiter an geteilten Knicken (nur
+  Warnung seit S3; echte Behebung offen).
+
+### 46.2 Plan (S5.1–S5.9) — wartet auf Review
+
+- **S5.1 Datei-Aufteilung** (ohne Verhaltensänderung, Suite = Beweis):
+  `Canvas/` (Render/Hit-Test/Pointer/Overlays), `editor/` (Store/Slices),
+  `Instruments/` (Oszi/Messleitungen/Panels).
+- **S5.2 Inspector-Primitives + Zahlen**: Inspector vollständig auf
+  `ui/` (Field/Dialog/Menu/Tooltip); `lib/format.ts` neu (4k7/2µ2-Ein-
+  gabe, Ω/µ/°-Ausgabe); alle numerischen Anzeigen darüber.
+- **S5.3 Tastatur**: Bauteil per Pfeile bewegen + Enter platzieren
+  (Esc bricht ab); definierte Esc-Kette
+  Overlay → Messleitung → Auswahl → Werkzeug; Test der Kette.
+- **S5.4 Screenreader**: Zusammenfassung („3 Widerstände, 1 OPV, …,
+  2 Netze, ERC still") + Live-Region Sim-Status (läuft/fertig/fehler);
+  sichtbare Tests der Texte (kein E2E nötig).
+- **S5.5 Link-Teilen**: Schaltung komprimiert (deflate+base64) in URL-Hash;
+  Limit ehrlich (etwa „> 100 kB → Datei statt Link"); Öffnen per Hash.
+- **S5.6 Wizards/Lehrer/Box**: Builder nach `lib/wizards/` extrahieren,
+  alle 12 bauen + OP-konvergieren im Test; max. 2 Lücken-Wizards nach
+  Review-Wunsch; Lehrer-Modus (Sperr-Code: Werte/Faults verstecken +
+  Plan sperren); Beschreibungsbox-Bauteil mit Live-Werten (`{V(OUT)}`).
+  Review-Entscheide (2026-10-04): Plan freigegeben; Lehrer-Sperre =
+  4-stelliger Zahlencode; neue Wizards = LED-Vorwiderstands-Rechner +
+  Schmitt-Trigger (Hysterese-Rechnung); Postprozessor MIT FFT-Anzeige.
+- **S5.7 Grapher**: Mess-Panel pro Kurve (Min/Max/Mittel/RMS/f−3dB) +
+  Postprozessor (A+B/A−B/A·B/A·B-Verhältnis in dB, RMS/AVG-Hüllkurve).
+- **S5.8 Sweeps**: Nested Sweep (2 Parameter, Kurvenschar), Batched
+  Analyses (DC+AC+TRAN in einem Lauf, ein Report), THD-Sweep
+  (Klirrfaktor vs. Pegel via `runThd`).
+- **S5.9 W61-Fix**: Ketten-Union nur noch an Anschlüssen/Dots; Regression
+  (S3.4-Warn-Test wird Fix-Test); volle Suite grün halten.
+- **Tests**: `scripts/sprint5test.ts` — Esc-Kette, Zahlenformat-Roundtrips,
+  Wizard-Builds (12× OP-ok), Link-Roundtrip, Sweep-Kurvenzahlen,
+  W61-Fix, SR-Text-Snapshots. Volle Suite grün halten.
+
+### 46.3 Umsetzung & Verifikation (nach Review)
+
+| Item | Test | Ergebnis |
+|------|------|----------|
+| S5.1 | tsc + volle Suite (11 Skripte + circuit_scenarios_full 50/50); Move-Diffs vs. HEAD byte-identisch | PASS. editor.ts 2072 → Barrel + 22 Module (16 Slices); Canvas 4010 → 3108 + geometry/hitTest/render (+5 Callbacks extrahiert, Draw-Loop/Pointer bleiben komponentengebunden — dokumentiert); Instruments 1698 → 218 + shared/meters/analyzers/sources/Window. Fix dabei: scheduleAutosave → store.ts (Modul-Init-Zyklus). |
