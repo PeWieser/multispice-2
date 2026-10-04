@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatValue, parseValue } from "@/lib/library/catalog";
+import { formatValue, parseValue } from "@/lib/format";
 
 export function FieldLabel({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
   return (
@@ -124,5 +124,65 @@ export function NetsField({
         ))}
       </div>
     </fieldset>
+  );
+}
+
+/** S5.2: Einzelne Checkbox-Zeile (Label links, nativ bedienbar). */
+export function Checkbox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 py-1 text-2xs">
+      <input
+        type="checkbox"
+        className="size-3.5 shrink-0 accent-[var(--accent)]"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="flex-1 text-ink-2">{label}</span>
+    </label>
+  );
+}
+
+/** S5.2: Slider-Zeile mit Label + formatierter Anzeige rechts. */
+export function SliderField({
+  label,
+  value,
+  display,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  display: string;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="py-1.5">
+      <div className="mb-1 flex justify-between text-2xs">
+        <span className="text-ink-2">{label}</span>
+        <span className="mono text-ink-3">{display}</span>
+      </div>
+      <input
+        type="range"
+        className="w-full"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </div>
   );
 }
