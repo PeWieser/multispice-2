@@ -1453,6 +1453,8 @@ export default function Canvas() {
 
     const st = useEditor.getState();
     if (st.spotlight) st.clearSpotlight();
+    // S5.6d: Lehrer-Modus — nur Schwenken/Zoomen (Ansicht), kein Editieren.
+    if (st.teacher.locked && st.tool !== "pan") return;
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;

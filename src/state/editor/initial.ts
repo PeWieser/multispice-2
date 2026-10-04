@@ -1,6 +1,7 @@
 
 import { PRESETS } from "@/lib/schematic/tools";
 import { nextLogId, now } from "./shared";
+import { loadTeacherLock } from "@/lib/teacher";
 import type { EditorData } from "./types";
 
 export const initialState: EditorData = {
@@ -49,6 +50,7 @@ export const initialState: EditorData = {
   recent: [],
   clipboard: null,
   toast: null,
+  teacher: loadTeacherLock(),
   placingProbeKind: null,
   leadArmed: null,
   configArchive: {},

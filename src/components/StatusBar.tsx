@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Gauge, Plus, X } from "lucide-react";
+import { Gauge, Lock, Plus, X } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, sheets, useEditor } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
@@ -27,6 +27,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
   const toggleBottom = useEditor((s) => s.toggleBottom);
   const tick = useEditor((s) => s.sim.tick);
   const leadArmed = useEditor((s) => s.leadArmed);
+  const teacherLocked = useEditor((s) => s.teacher.locked);
   void tick;
   const simTime = running ? engine.lastState.time : 0;
 
@@ -231,6 +232,17 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
             <span className="mono w-[44px] shrink-0 text-right tabular-nums">
               {timeScale === 1 ? "1×" : timeScale > 1 ? `${timeScale.toFixed(1)}×` : `1/${Math.round(1 / timeScale)}×`}
             </span>
+          </span>
+        )}
+
+        {/* S5.6d: Lehrer-Schloss — erklärt alle Sperren an einer sichtbaren Stelle. */}
+        {teacherLocked && (
+          <span
+            className="flex shrink-0 items-center gap-1 text-2xs font-medium"
+            style={{ color: "var(--warn)" }}
+            title="Lehrer-Modus: Plan gesperrt — Werte und Fehlerbilder versteckt. Entsperren in Einstellungen → Lehrer-Modus."
+          >
+            <Lock size={12} /> Lehrer-Modus
           </span>
         )}
 

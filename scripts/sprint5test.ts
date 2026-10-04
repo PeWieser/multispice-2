@@ -20,6 +20,7 @@ import { DEFAULT_WIZARD_PARAMS, WIZARDS, buildWizard, calcWizard, nearestE12 } f
 import { buildNets, emptyDoc } from "../src/lib/schematic/model";
 import { PART_MAP } from "../src/lib/library/catalog";
 import { resolveLiveText } from "../src/lib/descbox";
+import { hashTeacherCode, isTeacherCodeFormat, loadTeacherLock, verifyTeacherCode } from "../src/lib/teacher";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
 
 let n = 0;
@@ -239,6 +240,28 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
   assert.deepEqual(built.errors, []);
   assert.equal(built.netlist.devices.length, 0);
   ok("S5.6c Bauteil + Build");
+}
+
+// ---------- S5.6d: Lehrer-Modus ----------
+{
+  assert.ok(isTeacherCodeFormat("1234"));
+  assert.ok(isTeacherCodeFormat("0000"));
+  assert.ok(!isTeacherCodeFormat("123"));
+  assert.ok(!isTeacherCodeFormat("12345"));
+  assert.ok(!isTeacherCodeFormat("12a4"));
+  assert.ok(!isTeacherCodeFormat(""));
+  // Hash stabil + codespezifisch, kein Klartext
+  const h1 = hashTeacherCode("1234");
+  assert.equal(h1, hashTeacherCode("1234"));
+  assert.notEqual(h1, hashTeacherCode("4321"));
+  assert.ok(!h1.includes("1234"));
+  assert.match(h1, /^[0-9a-f]{8}$/);
+  assert.ok(verifyTeacherCode("1234", h1));
+  assert.ok(!verifyTeacherCode("4321", h1));
+  assert.ok(!verifyTeacherCode("12", h1));
+  // Node (kein window): Standard = entsperrt ohne Code
+  assert.deepEqual(loadTeacherLock(), { locked: false, codeHash: null });
+  ok("S5.6d Code + Hash");
 }
 
 console.log(`sprint5test: ${n} checks OK`);

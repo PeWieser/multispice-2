@@ -13,6 +13,7 @@ import type { SheetEntry } from "../types";
 import { applyDoc } from "../store";export function createSheetsSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "loadPreset" | "newDocument" | "openSheet" | "renameSheet" | "reorderSheets"> {
   return {
       loadPreset: (id) => {
+        if (get().teacher.locked) { get().log("warn", "Lehrer-Modus: Plan ist gesperrt."); return; }
         const preset = PRESETS.find((p) => p.id === id);
         if (!preset) return;
         engine.running = false;
@@ -30,6 +31,7 @@ import { applyDoc } from "../store";export function createSheetsSlice(set: Store
       },
 
       newDocument: () => {
+        if (get().teacher.locked) { get().log("warn", "Lehrer-Modus: Plan ist gesperrt."); return; }
         // W72: „+" legt einen neuen leeren Entwurf an und öffnet ihn als Reiter.
         engine.running = false;
         clearActiveSaveTarget();

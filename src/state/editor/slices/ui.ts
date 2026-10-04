@@ -4,7 +4,8 @@
 
 import type { EditorState } from "../types";
 import type { StoreApi } from "zustand";
-import { nextLogId, now } from "../shared";export function createUiSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setTheme" | "setSymbolStyle" | "toggleTheme" | "toggleCurrentFlow" | "toggleVoltageColors" | "setCurrentFlowDirection" | "toggleInlineValues" | "toggleRulers" | "togglePageFrame" | "toggleErcMarkers" | "toggleRated" | "log" | "clearLogs" | "setBottomTab" | "toggleBottom" | "toggleLeft" | "toggleRight" | "toggleLibrary" | "setLibraryPos" | "setLibrarySize" | "setToast" | "clearToast"> {
+import { nextLogId, now } from "../shared";
+import { hashTeacherCode, isTeacherCodeFormat, saveTeacherLock, verifyTeacherCode } from "@/lib/teacher";export function createUiSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setTheme" | "setSymbolStyle" | "toggleTheme" | "toggleCurrentFlow" | "toggleVoltageColors" | "setCurrentFlowDirection" | "toggleInlineValues" | "toggleRulers" | "togglePageFrame" | "toggleErcMarkers" | "toggleRated" | "log" | "clearLogs" | "setBottomTab" | "toggleBottom" | "toggleLeft" | "toggleRight" | "toggleLibrary" | "setLibraryPos" | "setLibrarySize" | "setToast" | "clearToast" | "setTeacherCode" | "setTeacherLocked" | "unlockTeacher"> {
   return {
       setTheme: (t) => set({ theme: t }),
       setSymbolStyle: (s) => set({ symbolStyle: s }),
@@ -31,5 +32,31 @@ import { nextLogId, now } from "../shared";export function createUiSlice(set: St
       setLibrarySize: (size) => set({ librarySize: size }),
       setToast: (t) => set({ toast: t }),
       clearToast: () => set({ toast: null }),
+      // S5.6d: Lehrer-Modus
+      setTeacherCode: (code) => {
+        if (!isTeacherCodeFormat(code)) return false;
+        const next = { locked: false, codeHash: hashTeacherCode(code) };
+        set({ teacher: next });
+        saveTeacherLock(next);
+        get().log("ok", "Lehrer-Modus: Code gesetzt (Plan noch entsperrt).");
+        return true;
+      },
+      setTeacherLocked: (locked) => {
+        const cur = get().teacher;
+        if (locked && !cur.codeHash) return;
+        const next = { ...cur, locked };
+        set({ teacher: next });
+        saveTeacherLock(next);
+        get().log("info", locked ? "Lehrer-Modus: Plan gesperrt (Werte/Faults versteckt)." : "Lehrer-Modus: Plan entsperrt.");
+      },
+      unlockTeacher: (code) => {
+        const cur = get().teacher;
+        if (!cur.codeHash || !verifyTeacherCode(code, cur.codeHash)) return false;
+        const next = { ...cur, locked: false };
+        set({ teacher: next });
+        saveTeacherLock(next);
+        get().log("ok", "Lehrer-Modus: entsperrt.");
+        return true;
+      },
   };
 }

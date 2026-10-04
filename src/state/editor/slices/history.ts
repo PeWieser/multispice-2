@@ -7,6 +7,8 @@ import type { StoreApi } from "zustand";
 import { gesture, clone } from "../shared";export function createHistorySlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setDoc" | "commit" | "beginGesture" | "endGesture" | "undo" | "redo"> {
   return {
       setDoc: (doc, pushHistory = true) => {
+        // S5.6d: Lehrer-Modus sperrt jeden Planwechsel (Boot-Restore nutzt set() direkt).
+        if (get().teacher.locked) return;
         const prev = get().doc;
         set((s) => ({
           doc,
@@ -17,6 +19,8 @@ import { gesture, clone } from "../shared";export function createHistorySlice(se
       },
 
       commit: (mutator) => {
+        // S5.6d: Flaschenhals aller Plan-Änderungen (21 Stellen) — gesperrt ist gesperrt.
+        if (get().teacher.locked) return;
         const prev = get().doc;
         const next = clone(prev);
         mutator(next);
@@ -41,6 +45,7 @@ import { gesture, clone } from "../shared";export function createHistorySlice(se
       },
 
       undo: () => {
+        if (get().teacher.locked) return;
         gesture.active = false;
         gesture.pushed = false;
         const { past, doc, future } = get();
@@ -52,6 +57,7 @@ import { gesture, clone } from "../shared";export function createHistorySlice(se
       },
 
       redo: () => {
+        if (get().teacher.locked) return;
         gesture.active = false;
         gesture.pushed = false;
         const { future, doc, past } = get();

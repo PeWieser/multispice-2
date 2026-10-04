@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { probeHexColor } from "@/lib/probe-style";
-import { Cpu, Gauge, Settings2, SlidersHorizontal, Waves, Radio, Zap, GitBranch } from "lucide-react";
+import { Cpu, Gauge, Settings2, SlidersHorizontal, Waves, Radio, Zap, GitBranch, Lock } from "lucide-react";
 import { PART_MAP, ParamDef, partPins } from "@/lib/library/catalog";
 import { formatValue } from "@/lib/format";
 import { Button } from "./ui/Button";
@@ -45,6 +45,17 @@ function ParamField({ def, value, onChange }: { def: ParamDef; value: number | s
   return <TextField label={def.label} value={String(value)} onChange={onChange} />;
 }
 
+/** S5.6d: Sperr-Hinweis statt Werten/Fehlerbildern/Edits. */
+function LockNote() {
+  return (
+    <div className="rounded-lg p-3 text-center text-xs text-ink-3 bg-surface-2">
+      <Lock size={16} className="mx-auto mb-1.5 opacity-60" />
+      Lehrer-Modus: Plan gesperrt.
+      <div className="mt-0.5 text-2xs">Werte und Fehlerbilder sind versteckt — Messen bleibt erlaubt.</div>
+    </div>
+  );
+}
+
 export default function Inspector() {
   const st = useEditor();
   const [tab, setTab] = useState<"props" | "net" | "sim">("props");
@@ -84,6 +95,7 @@ export default function Inspector() {
         {tab === "props" && (
           <>
             {selectedProbe ? (
+              st.teacher.locked ? <LockNote /> : (
               <div className="space-y-3">
                 <div className="rounded-lg p-2.5 bg-surface-2">
                   <div className="flex items-center justify-between">
@@ -195,15 +207,18 @@ export default function Inspector() {
                   <Button variant="danger" className="flex-1" onClick={()=> st.removeMeasurementProbe(selectedProbe.id)}>Probe löschen</Button>
                 </div>
               </div>
+              )
             ) : !selected || !part ? (
               <div className="pt-10 text-center text-xs text-ink-3">
                 <SlidersHorizontal size={22} className="mx-auto mb-2 opacity-50" />
                 Kein Bauteil ausgewählt.
                 <div className="mt-1 text-2xs">Wähle ein Element im Schaltplan aus, um Parameter, SPICE-Modell und Messwerte zu sehen. Probes via Toolbar oder Rechtsklick → Probe hinzufügen.</div>
+                {!st.teacher.locked && (
                 <div className="mt-3 flex justify-center gap-2">
                   <Button size="sm" onClick={()=> { const s=useEditor.getState(); const id=s.addMeasurementProbe("voltage",200,200); if(id) s.setSelection([id]); }}>+ V Probe</Button>
                   <Button size="sm" onClick={()=> { const s=useEditor.getState(); const id=s.addMeasurementProbe("current",240,200); if(id) s.setSelection([id]); }}>+ A Probe</Button>
                 </div>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
@@ -211,6 +226,7 @@ export default function Inspector() {
                   <div className="flex items-center justify-between">
                     <input
                       className="input mono w-24 py-0.5 text-xs font-semibold"
+                      disabled={st.teacher.locked}
                       value={selected.label}
                       onChange={(e) => st.setParam(selected.id, "__label", e.target.value)}
                     />
@@ -247,7 +263,7 @@ export default function Inspector() {
                   </div>
                 )}
 
-                {[...groups.entries()].map(([group, defs]) => (
+                {st.teacher.locked ? <LockNote /> : [...groups.entries()].map(([group, defs]) => (
                   <div key={group}>
                     <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">{group}</div>
                     {defs.map((def) => (
@@ -261,7 +277,7 @@ export default function Inspector() {
                   </div>
                 ))}
 
-                {part.interactive === "mcu" && (
+                {!st.teacher.locked && part.interactive === "mcu" && (
                   <div>
                     <div className="mb-1 flex items-center gap-1.5 text-2xs uppercase tracking-wide text-ink-3">
                       <Cpu size={11} /> Firmware (Arduino-C Subset)
@@ -278,7 +294,7 @@ export default function Inspector() {
                   </div>
                 )}
 
-                {part.spice && (
+                {!st.teacher.locked && part.spice && (
                   <div>
                     <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">SPICE-Modellkarte</div>
                     <pre className="mono overflow-x-auto rounded-lg p-2 text-2xs leading-relaxed bg-surface-2 text-ink-2">
@@ -287,7 +303,7 @@ export default function Inspector() {
                   </div>
                 )}
 
-                {part.tags?.includes("custom") && (
+                {!st.teacher.locked && part.tags?.includes("custom") && (
                   <Button
                     variant="ghost"
                     className="w-full"
@@ -308,6 +324,7 @@ export default function Inspector() {
                   </Button>
                 )}
 
+                {!st.teacher.locked && (
                 <div className="flex gap-1.5 pt-1">
                   <Button className="flex-1" size="sm" onClick={() => st.rotateSelection(1)}>
                     Drehen (R)
@@ -319,6 +336,7 @@ export default function Inspector() {
                     Löschen
                   </Button>
                 </div>
+                )}
               </div>
             )}
           </>

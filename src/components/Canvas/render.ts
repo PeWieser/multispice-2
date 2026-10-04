@@ -584,8 +584,9 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
     const pos=engine.controls[inst.label] ?? Number(inst.params.pos??0.5);
     ctx.fillStyle=canvasColor("--teal"); ctx.fillRect(-20+40*pos-1,-12,2,8);
   }
-  // Fault visualization
-  if ((inst as any).fault && (inst as any).fault !== "none") {
+  // Fault visualization (S5.6d: im Lehrer-Modus versteckt)
+  const teacherLocked = useEditor.getState().teacher.locked;
+  if (!teacherLocked && (inst as any).fault && (inst as any).fault !== "none") {
     ctx.save();
     const fault = (inst as any).fault;
       ctx.strokeStyle = fault === "open" ? canvasColor("--warn") : fault === "short" ? canvasColor("--err") : canvasColor("--violet");
@@ -608,7 +609,8 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
     ctx.fillStyle=selected?canvasColor("--wire-sel"):canvasColor("--ink-2");
     ctx.fillText(inst.label,0,dy);
     const main=part.params[0];
-    if (main && main.type==="number"){
+    // S5.6d: Nennwerte im Lehrer-Modus verstecken (Label bleibt sichtbar).
+    if (!teacherLocked && main && main.type==="number"){
       const val=Number(inst.params[main.key]??main.def);
       // W92: Wenn das Bauteil ausgewählt ist, wird auch sein Wert darunter
       // optisch in der Auswahlfarbe (--wire-sel) hervorgehoben!

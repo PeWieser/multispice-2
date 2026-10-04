@@ -18,6 +18,11 @@ export default function WizardsDialog({ onClose }: { onClose: () => void }) {
 
   const build = () => {
     const editor = useEditor.getState();
+    // S5.6d: Lehrer-Modus — kein Planwechsel (Dialog bleibt offen).
+    if (editor.teacher.locked) {
+      editor.setToast({ message: "Lehrer-Modus: Plan ist gesperrt." });
+      return;
+    }
     const doc = buildWizard(kind, params);
     editor.setDoc(doc);
     editor.fitView();

@@ -54,6 +54,7 @@ export default function MenuBar({
   const hasSelection = useEditor((s) => s.selection.length > 0);
   const hasWireSelection = useEditor((s) => s.selection.some((id) => s.doc.wires.some((w) => w.id === id)));
   const hasClipboard = useEditor((s) => !!s.clipboard);
+  const locked = useEditor((s) => s.teacher.locked);
   const running = useEditor((s) => s.sim.running);
   const showCurrentFlow = useEditor((s) => s.showCurrentFlow);
   const showVoltageColors = useEditor((s) => s.showVoltageColors);
@@ -137,8 +138,8 @@ export default function MenuBar({
       <div className="flex flex-col gap-3">
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Datei</div>
-          <button className="btn w-full justify-start" onClick={() => st().newDocument()}>Neuer Schaltplan</button>
-          <button className="btn w-full justify-start" onClick={triggerOpenFile}>Öffnen / Importieren …</button>
+          <button className="btn w-full justify-start" disabled={locked} onClick={() => st().newDocument()}>Neuer Schaltplan</button>
+          <button className="btn w-full justify-start" disabled={locked} onClick={triggerOpenFile}>Öffnen / Importieren …</button>
           <button className="btn w-full justify-start" onClick={() => void st().saveProject()}>Speichern</button>
           <button className="btn w-full justify-start" onClick={() => void st().saveProject(undefined, { saveAs: true })}>Speichern unter …</button>
           <button className="btn w-full justify-start" onClick={() => onProjects?.()}>Projekte …</button>
@@ -153,9 +154,9 @@ export default function MenuBar({
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Bearbeiten</div>
           <button className="btn w-full justify-start" disabled={!hasSelection} onClick={() => st().copySelection()}>Kopieren</button>
-          <button className="btn w-full justify-start" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</button>
-          <button className="btn w-full justify-start" disabled={!hasSelection} onClick={() => st().duplicateSelection()}>Duplizieren</button>
-          <button className="btn w-full justify-start" disabled={!hasWireSelection} onClick={() => st().straightenSelection()}>Leitungen begradigen</button>
+          <button className="btn w-full justify-start" disabled={!hasClipboard || locked} onClick={() => st().pasteClipboard()}>Einfügen</button>
+          <button className="btn w-full justify-start" disabled={!hasSelection || locked} onClick={() => st().duplicateSelection()}>Duplizieren</button>
+          <button className="btn w-full justify-start" disabled={!hasWireSelection || locked} onClick={() => st().straightenSelection()}>Leitungen begradigen</button>
         </div>
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Ansicht</div>
@@ -169,7 +170,7 @@ export default function MenuBar({
             Galerie mit Vorschau …
           </button>
           {PRESETS.map((p) => (
-            <button key={p.id} className="btn w-full justify-start text-2xs" onClick={() => st().loadPreset(p.id)}>
+            <button key={p.id} className="btn w-full justify-start text-2xs" disabled={locked} onClick={() => st().loadPreset(p.id)}>
               {p.name}
             </button>
           ))}
@@ -226,8 +227,8 @@ export default function MenuBar({
       className="flex h-9 shrink-0 items-center gap-0.5 px-2.5 text-xs bg-surface border-b border-hairline"
     >
       <Menu label="Datei" {...menuProps("datei")}>
-        <MenuItem onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
-        <MenuItem hint="⌘O" onClick={triggerOpenFile}>Öffnen / Importieren …</MenuItem>
+        <MenuItem disabled={locked} onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
+        <MenuItem hint="⌘O" disabled={locked} onClick={triggerOpenFile}>Öffnen / Importieren …</MenuItem>
         <MenuItem hint="⌘S" onClick={() => void st().saveProject()}>Speichern</MenuItem>
         <MenuItem hint="⇧⌘S" onClick={() => void st().saveProject(undefined, { saveAs: true })}>Speichern unter …</MenuItem>
         <MenuItem onClick={() => onProjects?.()}>Projekte …</MenuItem>
@@ -259,21 +260,21 @@ export default function MenuBar({
 
       {/* W108: Aufgeräumtes Bearbeiten-Menü ohne die 8 Ausrichtungs-Einzelzeilen */}
       <Menu label="Bearbeiten" {...menuProps("bearbeiten")}>
-        <MenuItem hint="⌘Z" disabled={!canUndo} onClick={() => st().undo()}>Rückgängig</MenuItem>
-        <MenuItem hint="⇧⌘Z" disabled={!canRedo} onClick={() => st().redo()}>Wiederholen</MenuItem>
+        <MenuItem hint="⌘Z" disabled={!canUndo || locked} onClick={() => st().undo()}>Rückgängig</MenuItem>
+        <MenuItem hint="⇧⌘Z" disabled={!canRedo || locked} onClick={() => st().redo()}>Wiederholen</MenuItem>
         <MenuSeparator />
         <MenuItem hint="⌘C" disabled={!hasSelection} onClick={() => st().copySelection()}>Kopieren</MenuItem>
-        <MenuItem hint="⌘V" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</MenuItem>
-        <MenuItem hint="⌘D" disabled={!hasSelection} onClick={() => st().duplicateSelection()}>Duplizieren</MenuItem>
+        <MenuItem hint="⌘V" disabled={!hasClipboard || locked} onClick={() => st().pasteClipboard()}>Einfügen</MenuItem>
+        <MenuItem hint="⌘D" disabled={!hasSelection || locked} onClick={() => st().duplicateSelection()}>Duplizieren</MenuItem>
         <MenuItem hint="⌘A" onClick={() => st().selectAll()}>Alles auswählen</MenuItem>
         <MenuSeparator />
-        <MenuItem hint="R" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().rotateSelection(1)}>Drehen (+90°)</MenuItem>
-        <MenuItem hint="⇧R" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().rotateSelection(-1)}>Drehen (−90°)</MenuItem>
-        <MenuItem hint="M" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().mirrorSelection()}>Spiegeln</MenuItem>
-        <MenuItem hint="⇧L" disabled={!hasWireSelection} disabledReason="Leitung(en) auswählen" onClick={() => st().straightenSelection()}>Leitungen begradigen</MenuItem>
-        <MenuItem onClick={() => st().reannotate()}>Referenzen neu nummerieren</MenuItem>
+        <MenuItem hint="R" disabled={locked || (!hasSelection && st().tool !== "place")} onClick={() => st().rotateSelection(1)}>Drehen (+90°)</MenuItem>
+        <MenuItem hint="⇧R" disabled={locked || (!hasSelection && st().tool !== "place")} onClick={() => st().rotateSelection(-1)}>Drehen (−90°)</MenuItem>
+        <MenuItem hint="M" disabled={locked || (!hasSelection && st().tool !== "place")} onClick={() => st().mirrorSelection()}>Spiegeln</MenuItem>
+        <MenuItem hint="⇧L" disabled={!hasWireSelection || locked} disabledReason="Leitung(en) auswählen" onClick={() => st().straightenSelection()}>Leitungen begradigen</MenuItem>
+        <MenuItem disabled={locked} onClick={() => st().reannotate()}>Referenzen neu nummerieren</MenuItem>
         <MenuSeparator />
-        <MenuItem hint="⌫" danger disabled={!hasSelection} onClick={() => st().deleteSelection()}>Löschen</MenuItem>
+        <MenuItem hint="⌫" danger disabled={!hasSelection || locked} onClick={() => st().deleteSelection()}>Löschen</MenuItem>
       </Menu>
 
       {/* W108: Schlankes Ansicht-Menü; Grundeinstellungen (Stromrichtung, Theme, Symbole, Lineale) liegen in Einstellungen */}
@@ -294,7 +295,7 @@ export default function MenuBar({
         <MenuItem onClick={() => setGalleryOpen(true)}>Galerie mit Vorschau …</MenuItem>
         <MenuSeparator />
         {PRESETS.map((p) => (
-          <MenuItem key={p.id} onClick={() => st().loadPreset(p.id)}>{p.name}</MenuItem>
+          <MenuItem key={p.id} disabled={locked} onClick={() => st().loadPreset(p.id)}>{p.name}</MenuItem>
         ))}
         {onWizards && (
           <>

@@ -3,6 +3,7 @@ import { SymbolStylePref } from "@/lib/settings";
 import { Instance, NetLabel, NetlistBuildResult, Rotation, SchematicDoc, TextNote, Wire } from "@/lib/schematic/model";
 import { AnalysisPayload } from "@/lib/sim/runner";
 import { IntegrationMethod } from "@/lib/sim/engine";
+import type { TeacherLockState } from "@/lib/teacher";
 
 export type Tool = "select" | "wire" | "junction" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
 
@@ -144,6 +145,8 @@ export interface EditorState {
   clipboard: ClipboardData | null;
   toast: { message: string; actionLabel?: string; action?: () => void } | null;
   placingProbeKind: import("@/lib/schematic/model").ProbeKind | null;
+  /** S5.6d: Lehrer-Modus (Werte/Faults versteckt + Plan gesperrt). */
+  teacher: TeacherLockState;
 
   /* actions */
   setDoc: (doc: SchematicDoc, pushHistory?: boolean) => void;
@@ -223,6 +226,11 @@ export interface EditorState {
   setLibrarySize: (size: { w: number; h: number }) => void;
   setToast: (t: { message: string; actionLabel?: string; action?: () => void } | null) => void;
   clearToast: () => void;
+  /** S5.6d: Lehrer-Code setzen (Format 4 Ziffern). Gibt false bei ungültigem Code. */
+  setTeacherCode: (code: string) => boolean;
+  setTeacherLocked: (locked: boolean) => void;
+  /** Entsperren mit Code. Gibt false bei falschem Code. */
+  unlockTeacher: (code: string) => boolean;
   openInstrument: (kind: InstrumentKind, opts?: { instanceId?: string; title?: string }) => void;
   /** W10: Inspector-Fenster öffnen/schließen (Geräte-Bar, Strg+I, Kontextmenü). */
   toggleInspector: () => void;
