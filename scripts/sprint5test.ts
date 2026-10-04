@@ -5,6 +5,7 @@
 import { strict as assert } from "node:assert";
 import { formatValue, parseValue } from "../src/lib/format";
 import { formatValue as catFormat, parseValue as catParse } from "../src/lib/library/catalog";
+import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "../src/lib/keyboard";
 
 let n = 0;
 const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
@@ -45,6 +46,23 @@ const ok = (name: string) => { n++; console.log(`  ok ${n} ${name}`); };
   assert.equal(catParse("4k7"), 4700);
   assert.equal(catFormat(4700, "Ω"), "4.7 kΩ");
   ok("S5.2 catalog-Reexport");
+}
+
+// ---------- S5.3: Esc-Kette ----------
+{
+  const F = false, T = true;
+  // Priorität: Overlay > Messleitung > Auswahl > Werkzeug
+  assert.equal(resolveEscape({ overlay: T, lead: T, selection: T, tool: T }), "close-overlay");
+  assert.equal(resolveEscape({ overlay: F, lead: T, selection: T, tool: T }), "disarm-lead");
+  assert.equal(resolveEscape({ overlay: F, lead: F, selection: T, tool: T }), "clear-selection");
+  assert.equal(resolveEscape({ overlay: F, lead: F, selection: F, tool: T }), "reset-tool");
+  assert.equal(resolveEscape({ overlay: F, lead: F, selection: F, tool: F }), "none");
+  // Einzel-Ebenen
+  assert.equal(resolveEscape({ overlay: T, lead: F, selection: F, tool: F }), "close-overlay");
+  assert.equal(resolveEscape({ overlay: F, lead: T, selection: F, tool: F }), "disarm-lead");
+  // Pfeil-Faktor beim Platzieren
+  assert.equal(PLACE_ARROW_SHIFT_FACTOR, 5);
+  ok("S5.3 Esc-Kette");
 }
 
 console.log(`sprint5test: ${n} checks OK`);

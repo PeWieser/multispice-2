@@ -55,6 +55,14 @@ export const SHORTCUTS: ShortcutGroup[] = [
     ],
   },
   {
+    title: "Platzieren & Esc-Kette",
+    items: [
+      { label: "Ghost bewegen", keys: ["←", "→", "↑", "↓"], note: "mit ⇧ 5-fach" },
+      { label: "Bauteil platzieren", keys: ["Enter"], note: "mit ⇧ weiter platzieren" },
+      { label: "Esc-Kette", keys: ["Esc"], note: "Overlay → Messleitung → Auswahl → Werkzeug" },
+    ],
+  },
+  {
     title: "Maus & Touch",
     items: [
       { label: "Leitung verschieben", keys: [], note: "Anfasser ziehen, Doppelklick löscht" },

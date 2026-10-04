@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import { createPortal } from "react-dom";
 import { spectrum } from "@/lib/sim/fft";
@@ -115,17 +115,8 @@ export function DeviceBar() {
 export function InstrumentLayer() {
   const instruments = useEditor((s) => s.instruments);
 
-  // Runde 19 (W36): Escape legt eine aufgenommene Messleitung zurück – an einer
-  // Stelle für alle Geräte (Oszi-Tastkopf wie FG-Kabel).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const st = useEditor.getState();
-      if (st.leadArmed) st.setLeadArmed(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  // S5.3: Der W36-Esc-Listener (Messleitung zurücklegen) ist in die definierte
+  // Esc-Kette in Canvas.tsx gewandert (Ebene „Messleitung", lib/keyboard.ts).
 
   if (typeof document === "undefined") return null;
   // W118: In der Windows-Desktop-App öffnen sich alle Messgeräte & der Inspector

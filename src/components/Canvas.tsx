@@ -18,6 +18,7 @@ import { canvasColor } from "@/lib/canvas-theme";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
+import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "@/lib/keyboard";
 import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
 import { findInstanceByValueLabel, findPinInfo, getNetObstacles, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
 import { drawInstance, drawProbe } from "./Canvas/render";
@@ -2572,13 +2573,46 @@ export default function Canvas() {
       else if (e.key.toLowerCase() === "w") st.setTool("wire");
       else if (e.key.toLowerCase() === "j") st.setTool("junction");
       else if (e.key === "Escape") {
-        // W66: Esc verlässt jeden Modus. Die angefangene Leitung wird verworfen.
+        // S5.3: Definierte Esc-Kette Overlay → Messleitung → Auswahl → Werkzeug
+        // (löst den W66-Nuke ab — ein Tastendruck = eine Ebene).
         const sr = stateRef.current;
-        syncNetDraft(null);
-        sr.marquee = null; (sr as any).wireSegDrag = null; (sr as any).wirePointDrag = null;
-        st.endGesture();
-        useEditor.getState().setLeadArmed(null);
-        st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null); setCtxMenu(null);
+        const action = resolveEscape({
+          overlay: ctxMenu !== null,
+          lead: st.leadArmed !== null,
+          selection: st.selection.length > 0,
+          tool: st.tool !== "select" || st.placingPartId !== null || st.placingProbeKind !== null
+            || sr.netDraft !== null || sr.marquee !== null,
+        });
+        if (action === "close-overlay") setCtxMenu(null);
+        else if (action === "disarm-lead") st.setLeadArmed(null);
+        else if (action === "clear-selection") st.setSelection([]);
+        else if (action === "reset-tool") {
+          syncNetDraft(null);
+          sr.marquee = null; (sr as any).wireSegDrag = null; (sr as any).wirePointDrag = null;
+          st.endGesture();
+          st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null);
+        }
+      } else if (e.key.startsWith("Arrow") && st.tool === "place" && st.placingPartId) {
+        // S5.3: Ghost per Pfeile bewegen (Raster, mit ⇧ 5-fach).
+        e.preventDefault();
+        const g = useHud.getState().cursor ?? { x: 0, y: 0 };
+        const step = GRID * (e.shiftKey ? PLACE_ARROW_SHIFT_FACTOR : 1);
+        const np = snap({
+          x: g.x + (e.key === "ArrowRight" ? step : e.key === "ArrowLeft" ? -step : 0),
+          y: g.y + (e.key === "ArrowDown" ? step : e.key === "ArrowUp" ? -step : 0),
+        });
+        setCursor(np); useHud.setState({ cursor: np });
+      } else if (e.key === "Enter" && st.tool === "place" && st.placingPartId) {
+        // S5.3: Enter platziert an der Ghost-Position (⇧ = weiter platzieren).
+        e.preventDefault();
+        const g = useHud.getState().cursor ?? { x: 0, y: 0 };
+        const sp = snap(g);
+        st.addInstance(st.placingPartId, sp.x, sp.y, {
+          rot: st.placingRot,
+          mirror: st.placingMirror,
+          autoWire: true,
+        });
+        if (!e.shiftKey) st.setPlacing(null);
       } else if (e.key.toLowerCase() === "v") {
         // W90: V schaltet konsistent zu A die Spannungs-Probe (Volt) ein/aus;
         // für das Auswahl-Werkzeug dient Esc.
@@ -2615,7 +2649,7 @@ export default function Canvas() {
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); };
-  }, [syncNetDraft]);
+  }, [syncNetDraft, ctxMenu]);
 
   useEffect(() => { const t = setTimeout(() => useEditor.getState().fitView(), 120); return () => clearTimeout(t); }, []);
 
