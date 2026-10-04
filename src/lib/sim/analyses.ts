@@ -44,6 +44,25 @@ const par = (d: Device, k: string, def: number) =>
 /* transient                                                           */
 /* ------------------------------------------------------------------ */
 
+/** S2.1: Fortschritt als Bruch 0..1 (Worker → UI). */
+export type ProgressFn = (frac: number) => void;
+
+/**
+ * S2.1: meldet Fortschritt höchstens in 2-%-Schritten (Worker-Nachrichten
+ * sind billig, aber nicht gratis — 20 000 Schritt-Meldungen wären es nicht).
+ */
+export function progressReporter(progress: ProgressFn | undefined): (frac: number) => void {
+  let last = -1;
+  return (frac: number) => {
+    if (!progress) return;
+    const f = Math.min(1, Math.max(0, frac));
+    if (f >= 1 || f - last >= 0.02) {
+      last = f;
+      progress(f);
+    }
+  };
+}
+
 export interface TransientOptions {
   stopTime: number;
   stepTime: number;
@@ -58,6 +77,9 @@ export interface TransientResult {
   signals: Record<string, number[]>;
   ok: boolean;
   message?: string;
+  /** S2.2: Konvergenz-Diagnose (nur bei ok:false belegt). */
+  failure?: "singular" | "nonconvergent";
+  suspects?: string[];
   steps: number;
   rejected: number;
 }
@@ -67,6 +89,7 @@ export function runTransient(
   options: Partial<SimOptions>,
   tran: TransientOptions,
   outputs: string[],
+  progress?: ProgressFn,
 ): TransientResult {
   const sim = new Simulator(netlist, options);
   const res: TransientResult = { time: [], signals: {}, ok: true, steps: 0, rejected: 0 };
@@ -76,6 +99,8 @@ export function runTransient(
     if (!op.ok) {
       res.ok = false;
       res.message = "DC-Arbeitspunkt: " + (op.message ?? "Fehler");
+      res.failure = op.failure;
+      res.suspects = op.suspects;
     }
   }
   sim.time = 0;
@@ -86,6 +111,7 @@ export function runTransient(
   let count = 0;
   let dt = dtBase;
   let guard = 0;
+  const report = progressReporter(progress);
   while (sim.time < tran.stopTime && guard < maxPoints * decim * 4) {
     guard++;
     const r = sim.step(dt);
@@ -95,12 +121,15 @@ export function runTransient(
       if (dt < dtBase / 1024) {
         res.ok = false;
         res.message = r.message ?? "Transiente Analyse konvergiert nicht";
+        res.failure = r.failure;
+        res.suspects = r.suspects;
         break;
       }
       continue;
     }
     dt = Math.min(dtBase, dt * 1.3);
     res.steps++;
+    report(sim.time / Math.max(tran.stopTime, 1e-18));
     if (count % decim === 0 && sim.time >= startT) {
       res.time.push(sim.time);
       recordOutputs(sim, outputs, res.signals);
@@ -136,6 +165,9 @@ export function recordOutputs(
 export interface OpResult {
   ok: boolean;
   message?: string;
+  /** S2.2: Konvergenz-Diagnose (nur bei ok:false belegt). */
+  failure?: "singular" | "nonconvergent";
+  suspects?: string[];
   nodes: Record<string, number>;
   currents: Record<string, number>;
   power: Record<string, number>;
@@ -159,7 +191,7 @@ export function runOperatingPoint(netlist: Netlist, options: Partial<SimOptions>
     currents["I(" + d.id + ")"] = i;
     power["P(" + d.id + ")"] = (va - vb) * i;
   }
-  return { ok: r.ok, message: r.message, nodes, currents, power };
+  return { ok: r.ok, message: r.message, failure: r.failure, suspects: r.suspects, nodes, currents, power };
 }
 
 export interface DcSweepResult {
@@ -167,6 +199,9 @@ export interface DcSweepResult {
   signals: Record<string, number[]>;
   ok: boolean;
   message?: string;
+  /** S2.2: Konvergenz-Diagnose (nur bei ok:false belegt). */
+  failure?: "singular" | "nonconvergent";
+  suspects?: string[];
 }
 
 export function runDcSweep(
@@ -175,6 +210,7 @@ export function runDcSweep(
   sourceId: string,
   sweep: SweepSpec,
   outputs: string[],
+  progress?: ProgressFn,
 ): DcSweepResult {
   const values = sweepValues(sweep);
   const out: DcSweepResult = { values: [], signals: {}, ok: true };
@@ -183,16 +219,21 @@ export function runDcSweep(
   const target = sim.netlist.devices.find((d) => d.id === sourceId);
   if (!target) return { ...out, ok: false, message: `Quelle ${sourceId} nicht gefunden` };
   const original = target.source ? { ...target.source } : undefined;
-  for (const v of values) {
+  const report = progressReporter(progress);
+  for (let vi = 0; vi < values.length; vi++) {
+    const v = values[vi];
     target.source = { ...(original ?? { kind: "dc" }), kind: "dc", dc: v };
     const r = sim.operatingPoint();
     if (!r.ok) {
       out.ok = false;
       out.message = r.message;
+      out.failure = r.failure;
+      out.suspects = r.suspects;
       break;
     }
     out.values.push(v);
     recordOutputs(sim, outputs, out.signals);
+    report((vi + 1) / values.length);
   }
   if (original) target.source = original;
   return out;
@@ -582,6 +623,7 @@ export function runAcSweep(
   options: Partial<SimOptions>,
   sweep: SweepSpec,
   outputs: string[],
+  progress?: ProgressFn,
 ): AcResult {
   const sim = new Simulator(netlist, options);
   const op = sim.operatingPoint();
@@ -591,7 +633,10 @@ export function runAcSweep(
     result.phase[o] = [];
     result.mag[o] = [];
   }
-  for (const f of sweepValues(sweep)) {
+  const acFreqs = sweepValues(sweep);
+  const acReport = progressReporter(progress);
+  for (let fi = 0; fi < acFreqs.length; fi++) {
+    const f = acFreqs[fi];
     const cm = buildAcMatrix(sim, 2 * Math.PI * f);
     const sol = cm.solve();
     if (!sol) {
@@ -600,6 +645,7 @@ export function runAcSweep(
       break;
     }
     result.freq.push(f);
+    acReport((fi + 1) / acFreqs.length);
     for (const o of outputs) {
       const i = sim.nodeIndex.get(o);
       const re = i === undefined ? 0 : sol.re[i];
@@ -633,6 +679,7 @@ export function runNoise(
   sweep: SweepSpec,
   outNode: string,
   inputSourceId: string,
+  progress?: ProgressFn,
 ): NoiseResult {
   const sim = new Simulator(netlist, options);
   const op = sim.operatingPoint();
@@ -667,7 +714,9 @@ export function runNoise(
   const contrib = new Map<string, number>();
   const freqs = sweepValues(sweep);
   let gainRef = 1;
-  for (const f of freqs) {
+  const noiseReport = progressReporter(progress);
+  for (let nfi = 0; nfi < freqs.length; nfi++) {
+    const f = freqs[nfi];
     const w = 2 * Math.PI * f;
     let total = 0;
     for (const s of sources) {
@@ -690,6 +739,7 @@ export function runNoise(
     out.freq.push(f);
     out.outputNoise.push(Math.sqrt(total));
     out.inputNoise.push(Math.sqrt(total) / gainRef);
+    noiseReport((nfi + 1) / freqs.length);
   }
   // integrate (trapezoid over frequency) for total RMS
   let acc = 0;
@@ -783,10 +833,13 @@ export function runMonteCarlo(
   options: Partial<SimOptions>,
   mc: MonteCarloOptions,
   tran: TransientOptions,
+  progress?: ProgressFn,
 ): MonteCarloResult {
   const rand = mulberry32(mc.seed ?? 12345);
   const samples: number[] = [];
-  for (let i = 0; i < Math.max(1, Math.min(mc.runs, 400)); i++) {
+  const runs = Math.max(1, Math.min(mc.runs, 400));
+  const mcReport = progressReporter(progress);
+  for (let i = 0; i < runs; i++) {
     const nl = cloneNetlist(netlist);
     for (const d of nl.devices) {
       const tol = (d.params.tol ?? mc.tolerance) / 100;
@@ -798,6 +851,7 @@ export function runMonteCarlo(
       if (d.type === "Q" && d.params.bf) d.params.bf *= f;
     }
     samples.push(measureValue(nl, options, mc, tran));
+    mcReport((i + 1) / runs);
   }
   const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
   const sigma = Math.sqrt(samples.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(samples.length - 1, 1));
@@ -827,18 +881,28 @@ export function runWorstCase(
   options: Partial<SimOptions>,
   mc: MonteCarloOptions,
   tran: TransientOptions,
+  progress?: ProgressFn,
 ): WorstCaseResult {
   const nominal = measureValue(netlist, options, mc, tran);
   const sens: WorstCaseResult["sensitivities"] = [];
   const tol = mc.tolerance / 100;
+  const wcReport = progressReporter(progress);
+  const wcTotal = netlist.devices.length + 2;
+  let wcDone = 1;
+  wcReport(wcDone / wcTotal);
   for (const d of netlist.devices) {
     const key = d.type === "R" ? "r" : d.type === "C" ? "c" : d.type === "L" ? "l" : null;
-    if (!key || !d.params[key]) continue;
+    if (!key || !d.params[key]) {
+      wcDone++;
+      continue;
+    }
     const nl = cloneNetlist(netlist);
     const target = nl.devices.find((x) => x.id === d.id)!;
     target.params[key] *= 1 + tol;
     const v = measureValue(nl, options, mc, tran);
     sens.push({ id: d.id, param: key, sensitivity: (v - nominal) / Math.max(Math.abs(nominal), 1e-12) / tol });
+    wcDone++;
+    wcReport(wcDone / wcTotal);
   }
   const mkCorner = (sign: number) => {
     const nl = cloneNetlist(netlist);
@@ -847,7 +911,10 @@ export function runWorstCase(
       if (!target) continue;
       target.params[s.param] *= 1 + sign * Math.sign(s.sensitivity || 1) * tol;
     }
-    return measureValue(nl, options, mc, tran);
+    const v = measureValue(nl, options, mc, tran);
+    wcDone++;
+    wcReport(wcDone / wcTotal);
+    return v;
   };
   return { nominal, low: mkCorner(-1), high: mkCorner(1), sensitivities: sens.sort((a, b) => Math.abs(b.sensitivity) - Math.abs(a.sensitivity)).slice(0, 12) };
 }
@@ -863,8 +930,14 @@ export function runTempSweep(
   temps: number[],
   mc: MonteCarloOptions,
   tran: TransientOptions,
+  progress?: ProgressFn,
 ): TempSweepResult {
-  const values = temps.map((t) => measureValue(netlist, { ...options, temperature: t }, mc, tran));
+  const tmpReport = progressReporter(progress);
+  const values = temps.map((t, i) => {
+    const v = measureValue(netlist, { ...options, temperature: t }, mc, tran);
+    tmpReport((i + 1) / Math.max(temps.length, 1));
+    return v;
+  });
   return { temps, values };
 }
 
@@ -958,11 +1031,14 @@ export function runParamSweep(
   sweep: SweepSpec,
   outputs: string[],
   tran?: TransientOptions,
+  progress?: ProgressFn,
 ): ParamSweepResult {
   const vals = sweepValues(sweep);
   const curves: ParamSweepResult["curves"] = [];
   let ok = true;
-  for (const v of vals) {
+  const parReport = progressReporter(progress);
+  for (let pvi = 0; pvi < vals.length; pvi++) {
+    const v = vals[pvi];
     // Clone netlist and modify param
     const cloned: Netlist = JSON.parse(JSON.stringify(netlist));
     const [devId, paramKey] = param.split(".");
@@ -984,6 +1060,7 @@ export function runParamSweep(
     const r = runTransient(cloned, options, tran ?? { stopTime: 0.02, stepTime: 1e-5, maxPoints: 2000 }, outputs);
     curves.push({ param: v, time: r.time, signals: r.signals });
     if (!r.ok) ok = false;
+    parReport((pvi + 1) / Math.max(vals.length, 1));
   }
   return { values: vals, curves, ok };
 }
@@ -1045,6 +1122,9 @@ export interface SensitivityResult {
   base?: number;
   autoDrive?: string;
   message?: string;
+  /** S2.2: Konvergenz-Diagnose (nur bei ok:false belegt). */
+  failure?: "singular" | "nonconvergent";
+  suspects?: string[];
 }
 
 export function runSensitivity(
@@ -1056,7 +1136,7 @@ export function runSensitivity(
 ): SensitivityResult {
   if (mode === "ac") return runSensitivityAc(netlist, options, outNode, frequency);
   const op = runOperatingPoint(netlist, options);
-  if (!op.ok) return { sensitivities: [], ok: false, mode, message: op.message };
+  if (!op.ok) return { sensitivities: [], ok: false, mode, message: op.message, failure: op.failure, suspects: op.suspects };
   const base = op.nodes[outNode] ?? 0;
   const sensitivities: SensitivityResult["sensitivities"] = [];
   for (const dev of netlist.devices) {
@@ -1145,6 +1225,9 @@ export interface TfResult {
   outputResistance: number;
   ok: boolean;
   message?: string;
+  /** S2.2: Konvergenz-Diagnose (nur bei ok:false belegt). */
+  failure?: "singular" | "nonconvergent";
+  suspects?: string[];
 }
 
 export function runTransferFunction(
@@ -1154,7 +1237,8 @@ export function runTransferFunction(
   sourceId: string,
 ): TfResult {
   const op = runOperatingPoint(netlist, options);
-  if (!op.ok) return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: op.message };
+  if (!op.ok)
+    return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: op.message, failure: op.failure, suspects: op.suspects };
   const src0 = netlist.devices.find((d) => d.id === sourceId);
   if (!src0 || !src0.source) {
     return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: `Eingangsquelle ${sourceId || "(keine)"} nicht gefunden.` };
@@ -1167,7 +1251,8 @@ export function runTransferFunction(
   }
   const simIn = new Simulator(inProbe, options);
   const opIn = simIn.operatingPoint();
-  if (!opIn.ok) return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: opIn.message };
+  if (!opIn.ok)
+    return { gain: 0, inputResistance: 0, outputResistance: 0, ok: false, message: opIn.message, failure: opIn.failure, suspects: opIn.suspects };
   const cmIn = buildAcMatrix(simIn, 2 * Math.PI * 1e-3);
   const solIn = cmIn.solve();
   if (!solIn) {

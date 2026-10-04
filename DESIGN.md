@@ -4,6 +4,19 @@
 > Grundlage: Design-Manifest §1–§5.
 > Update 2026-09-24: Settings UI, MenuBar Tooltips, Skeuomorphes Oszilloskop, Accessibility AA, Herz-und-Nieren Testmatrix.
 > Update 2026-10-03 (Sprint 1 – Vertrauen): TF/Sensitivität/PZ/S-Parameter echt, Network Analyzer ehrlich, On-Page-Verbinder als Bauteil, Gerber-Fiktion gestrichen, Nicht-Ziele dokumentiert.
+> Update 2026-10-04 (Sprint 2 – Gefühl): Analysen im Web Worker (Fortschritt + Abbrechen), gestaltete Konvergenzfehler mit Problemknoten-Marker, First-Run-Spotlight (einmalig), ehrlicher Echtzeitfaktor + adaptive Zeitschrittweite, Beispiel-Galerie, Canvas-Boot-Ton.
+
+## Neu 2026-10-04 – Sprint 2 (Gefühl)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Analyse-Worker | Kernel blockierte den Main-Thread (UI fror bei Monte-Carlo/Sweeps ein); kein Fortschritt, kein Abbrechen | Web Worker (`analysis.worker.ts`) + Client mit synchronem Fallback; Fortschrittsbalken + Abbrechen-Button im Grapher; eine Analyse zur Zeit (alte wird terminiert) | ✅ Done |
+| Konvergenzfehler | Roter Rohtext (`✕ …`) bzw. leere Diagramme (`.ok` ungeprüft); keine Verdächtigen | Fehlerkarte mit Titel je Klasse, Erklärung, Verdächtigen-Chips und „Problemknoten zeigen" (pulsierender Canvas-Marker, Auto-Clear); Kern liefert `failure` + `suspects` (Null-Diagonalen / Newton-Updates) | ✅ Done |
+| First-Run | Kein Hinweis auf ▶ beim Erstkontakt | Spotlight: Puls-Ring + Chip mit ×, strikt einmalig — kein Nudge im Sinne des Manifests (non-modal, non-blockierend, kein Timer, weg bei Start/Klick/Esc) | ✅ Done |
+| Echtzeit-Überlast | Überlast wurde still verworfen (Clamp + Reset ohne Zähler); Faktor nur als Exponential-Debugzeile | StatusBar-Chip `×1,0` (rot bei Überlast, `~` bei Adaption, Tooltip mit Rate + verworfenen Sekunden); adaptive Zeitschrittweite (halbieren bis 5 kHz, Hysterese zurück); Inspector in ×-Format | ✅ Done |
+| Beispiel-Galerie | 8 Vorlagen nur als Text-Menüs | Galerie-Dialog mit echten SVG-Vorschaubildern (Export-Renderer), Beschreibung, Laden per Klick; Einstieg in Menü + Palette | ✅ Done |
+| Boot | Canvas blitzte im App-Ton auf (keine Bitmap bis zum ersten Draw) | Canvas-Element mit `--canvas`-Hintergrund (kein Skeleton nötig: Seite prerendert vollständig) | ✅ Done |
+| Tests | Keine Prüfung für Diagnose/Fortschritt/Überlast | `scripts/sprint2test.ts` (18 Checks, in `npm test` verdrahtet) | ✅ Done |
 
 ## Neu 2026-10-03 – Sprint 1 (Vertrauen)
 

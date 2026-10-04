@@ -482,7 +482,14 @@ export default function Inspector() {
               <Row k="Bauteile (SPICE)" v={String(st.netResult.netlist.devices.length)} />
               <Row k="Matrixgröße" v={engine.sim ? `${engine.sim.size}×${engine.sim.size}` : "—"} />
               <Row k="Simulationszeit" v={live ? formatValue(live.time, "s") : "0 s"} />
-              <Row k="Echtzeitfaktor" v={live ? `${live.realtimeFactor.toExponential(2)}` : "—"} />
+              <Row
+                k="Echtzeitfaktor"
+                v={
+                  live
+                    ? `×${(live.realtimeFactor || 0).toFixed(2)}${live.overload ? " ÜBERLAST" : ""}${(live.effectiveSampleRate ?? 0) > 0 && live.effectiveSampleRate! < engine.options.sampleRate ? ` (adaptiv ${(live.effectiveSampleRate! / 1000).toFixed(0)} kHz)` : ""}`
+                    : "—"
+                }
+              />
               <Row k="Schritte/s" v={live ? live.stepsPerSecond.toFixed(0) : "—"} />
             </div>
 

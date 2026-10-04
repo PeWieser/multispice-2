@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, ImageDown } from "lucide-react";
+import { AlertTriangle, Crosshair, Download, ImageDown, XCircle } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { ANALYSIS_MAP } from "@/lib/sim/analysis_defs";
 import { useEditor } from "@/state/editor";
@@ -519,13 +519,90 @@ export default function Grapher() {
   const docName = useEditor((s) => s.doc.name);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  if (analysis.running) return <div className="p-4 text-xs text-ink-3">Analyse „{ANALYSIS_MAP[analysis.kind]?.title ?? analysis.kind}“ läuft …</div>;
-  if (analysis.error)
+  // S2.1: Fortschritt + Abbrechen (Worker); ohne Fortschrittsdaten Puls-Balken.
+  if (analysis.running) {
+    const frac = analysis.progress ?? 0;
     return (
-      <div className="p-4 text-xs text-err">
-        ✕ {analysis.error}
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
+        <div className="text-xs text-ink-2">Analyse „{ANALYSIS_MAP[analysis.kind]?.title ?? analysis.kind}“ läuft …</div>
+        <div className="h-1.5 w-56 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-valuenow={Math.round(frac * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Analysefortschritt">
+          {frac > 0 ? (
+            <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.round(frac * 100)}%` }} />
+          ) : (
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
+          )}
+        </div>
+        <div className="mono text-2xs text-ink-3">{frac > 0 ? `${Math.round(frac * 100)} %` : "rechnet …"}</div>
+        <button
+          className="btn py-1 text-2xs"
+          onClick={() => useEditor.getState().cancelAnalysis()}
+          title="Analyse abbrechen"
+        >
+          <XCircle size={13} /> Abbrechen
+        </button>
       </div>
     );
+  }
+  // S2.2: gestalteter Konvergenz-Zustand statt rohem Fehlertext.
+  if (analysis.error) {
+    const title =
+      analysis.convergence === "singular"
+        ? "Singuläre Matrix"
+        : analysis.convergence === "nonconvergent"
+          ? "Keine Konvergenz"
+          : "Analyse fehlgeschlagen";
+    const hint =
+      analysis.convergence === "singular"
+        ? "Das Gleichungssystem ist unterbestimmt — typisch: Knoten ohne DC-Pfad zur Masse oder Schleife aus idealen Spannungsquellen."
+        : analysis.convergence === "nonconvergent"
+          ? "Newton-Raphson hat die Iterationsgrenze erreicht — die markierten Knoten sind die größten Widersprüche im letzten Schritt."
+          : null;
+    const suspects = analysis.suspects ?? [];
+    const showSuspect = (s: string) => {
+      const st = useEditor.getState();
+      const branch = /^I\((.*)\)$/.exec(s)?.[1];
+      if (branch) {
+        // Stromzweig-Verdacht → Bauteil suchen und zentrieren.
+        const inst = st.doc.instances.find((i) => i.label === branch || i.id === branch);
+        if (inst) {
+          st.setView({ x: inst.x - 200, y: inst.y - 150, zoom: 1.2 });
+          st.setSelection([inst.id]);
+          return;
+        }
+      }
+      st.spotlightNet(s);
+    };
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <div className="grid h-11 w-11 place-items-center rounded-full bg-err/10 text-err">
+          <AlertTriangle size={22} />
+        </div>
+        <div className="text-sm font-medium">{title}</div>
+        <div className="max-w-md text-xs text-ink-2">{analysis.error}</div>
+        {hint && <div className="max-w-md text-2xs leading-relaxed text-ink-3">{hint}</div>}
+        {suspects.length > 0 && (
+          <div className="flex flex-col items-center gap-2">
+            <div className="text-2xs uppercase tracking-wide text-ink-3">Verdächtige Knoten</div>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {suspects.map((s) => (
+                <button
+                  key={s}
+                  className="mono rounded-md border border-err/40 bg-err/10 px-2 py-1 text-2xs text-err hover:bg-err/20"
+                  onClick={() => showSuspect(s)}
+                  title={`Problemknoten ${s} zeigen`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <button className="btn py-1 text-2xs" onClick={() => showSuspect(suspects[0])} title="Schlimmsten Verdächtigen auf der Leinwand zeigen">
+              <Crosshair size={13} /> Problemknoten zeigen
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
   if (!analysis.data)
     return <div className="p-4 text-xs text-ink-3">Noch keine Analyse ausgeführt — Menü „Analysen“ wählen.</div>;
 

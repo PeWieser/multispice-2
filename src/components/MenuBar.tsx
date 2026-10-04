@@ -8,6 +8,7 @@ import { toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, useEditor } from "@/state/editor";
 import { exportSvg, exportPng, exportPdf, printSchematicSheet } from "@/lib/export/sheet";
 import { Menu, MenuItem, MenuSeparator, Tooltip } from "./ui";
+import PresetGallery from "./PresetGallery";
 import { downloadText, safeName } from "@/lib/download";
 import { openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 
@@ -59,6 +60,7 @@ export default function MenuBar({
   const st = useEditor.getState;
 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const navMenu = (dir: -1 | 1) =>
     setOpenMenu((m) => {
       if (!m) return m;
@@ -136,6 +138,9 @@ export default function MenuBar({
         </div>
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Vorlagen</div>
+          <button className="btn w-full justify-start text-2xs" onClick={() => setGalleryOpen(true)}>
+            Galerie mit Vorschau …
+          </button>
           {PRESETS.map((p) => (
             <button key={p.id} className="btn w-full justify-start text-2xs" onClick={() => st().loadPreset(p.id)}>
               {p.name}
@@ -184,6 +189,7 @@ export default function MenuBar({
             e.target.value = "";
           }}
         />
+        {galleryOpen && <PresetGallery onClose={() => setGalleryOpen(false)} />}
       </div>
     );
   }
@@ -255,6 +261,8 @@ export default function MenuBar({
       </Menu>
 
       <Menu label="Vorlagen" {...menuProps("vorlagen")}>
+        <MenuItem onClick={() => setGalleryOpen(true)}>Galerie mit Vorschau …</MenuItem>
+        <MenuSeparator />
         {PRESETS.map((p) => (
           <MenuItem key={p.id} onClick={() => st().loadPreset(p.id)}>{p.name}</MenuItem>
         ))}
@@ -314,6 +322,7 @@ export default function MenuBar({
           <button
             className={running ? "btn h-6 px-2" : "btn btn-primary h-6 px-2.5"}
             onClick={() => (running ? st().pauseSim() : st().startSim())}
+            data-spot="start-sim"
           >
             {running ? <Pause size={12} /> : <Play size={12} />}
             <span className="ml-1 hidden sm:inline text-2xs">{running ? "Pause" : "Start"}</span>
@@ -345,6 +354,7 @@ export default function MenuBar({
           e.target.value = "";
         }}
       />
+      {galleryOpen && <PresetGallery onClose={() => setGalleryOpen(false)} />}
     </header>
   );
 }

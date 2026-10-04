@@ -11,6 +11,7 @@ import ComponentStrip from "./ComponentStrip";
 import DrawingTools from "./DrawingTools";
 import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
+import FirstRunSpotlight from "./FirstRunSpotlight";
 import { engine, useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { Menu, X, Library, Settings, SlidersHorizontal, Play, Pause, Undo2, Redo2 } from "lucide-react";
@@ -139,6 +140,7 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
         style={{ background: simRunning ? "var(--warn)" : "var(--ok)" }}
         onClick={() => (simRunning ? pauseSim() : startSim())}
         aria-label={simRunning ? "Simulation pausieren" : "Simulation starten"}
+        data-spot="start-sim"
       >
         {simRunning ? <Pause size={16} /> : <Play size={16} />}
       </button>
@@ -409,6 +411,7 @@ export default function Workbench() {
           />
         )}
         <UndoToast />
+      <FirstRunSpotlight />
       <PrintSheet />
       </div>
     );
@@ -446,6 +449,7 @@ export default function Workbench() {
           />
         )}
         <UndoToast />
+      <FirstRunSpotlight />
       <PrintSheet />
       </div>
     );
@@ -492,6 +496,7 @@ export default function Workbench() {
         />
       )}
       <UndoToast />
+      <FirstRunSpotlight />
       <PrintSheet />
     </div>
   );

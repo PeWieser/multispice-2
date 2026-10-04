@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: Sprint 1 abgeschlossen (2026-10-03). Sprint 2 offen.
+> Stand: Sprint 2 abgeschlossen (2026-10-04). Sprint 3 offen.
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -43,16 +43,32 @@ Doku ≡ Code.
   `next build` scheitert nur am Google-Fonts-Fetch (Sandbox offline,
   pre-existing, unberührt von Sprint 1).
 
-## Sprint 2 — Gefühl (offen)
+## Sprint 2 — Gefühl (✅ abgeschlossen 2026-10-04)
 
 Ziel: Die App fühlt sich an wie Hardware, nicht wie eine Webseite.
 
-- [ ] Web Worker für Analysen (Kernel auslagern) + Fortschritt + Abbrechen
-- [ ] Konvergenzfehler als gestalteter Zustand (Verdächtige + „Problemknoten zeigen")
-- [ ] First-Run-Spotlight auf ▶ (einmalig)
-- [ ] Echtzeit-Überlast ehrlich anzeigen (×-Faktor) + adaptive Zeitschrittweite
-- [ ] Beispiel-Galerie mit Vorschaubildern
-- [ ] Boot-Skeleton (Web) statt Leere bis zur Hydrierung
+- [x] S2.1 Web Worker für Analysen (Kernel auslagern) + Fortschritt + Abbrechen
+- [x] S2.2 Konvergenzfehler als gestalteter Zustand (Verdächtige + „Problemknoten zeigen")
+- [x] S2.3 First-Run-Spotlight auf ▶ (einmalig, Manifest-konform)
+- [x] S2.4 Echtzeit-Überlast ehrlich anzeigen (×-Faktor) + adaptive Zeitschrittweite
+- [x] S2.5 Beispiel-Galerie mit Vorschaubildern
+- [x] S2.6 Boot (reduziert: Canvas-Ton statt Skeleton — Seite prerendert, s. Audit §43)
+- [x] Tests + Verifikation (tsc/eslint/test/build)
+
+**Gemacht:**
+- Analysen laufen im Web Worker (UI bleibt flüssig) mit Fortschritt +
+  Abbrechen; synchroner Fallback mit einmaligem Hinweis.
+- Konvergenzfehler als Fehlerkarte (Klasse, Erklärung, Verdächtige,
+  Marker auf der Leinwand); Kern diagnostiziert Null-Diagonalen +
+  Newton-Updates; `.ok` wird endlich geprüft (keine leeren Diagramme mehr).
+- First-Run-Spotlight auf ▶: einmalig, non-modal, non-blockierend.
+- StatusBar-×-Chip + adaptive Zeitschrittweite + Verworfen-Zähler;
+  Inspector in ×-Format.
+- Beispiel-Galerie mit echten SVG-Vorschaubildern (8/8).
+- Canvas-Boot-Ton gegen Aufblitzen (S2.6-Befund korrigiert: kein Skeleton nötig).
+- `scripts/sprint2test.ts`: 18 Checks, alle grün, in `npm test` verdrahtet.
+- Verifikation: `tsc` ✅, `eslint` ✅, `npm test` ✅ (260 PASS);
+  `next build` nur Google-Fonts-Fetch (Sandbox offline, pre-existing).
 
 ## Sprint 3 — Struktur (offen)
 

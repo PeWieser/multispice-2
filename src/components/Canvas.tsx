@@ -1412,6 +1412,31 @@ export default function Canvas() {
       ctx.restore();
     }
 
+    // ── S2.2: Problem-Marker (pulsierender Ring + Netzname, Welt-Raum) ──
+    if (st.spotlight) {
+      const sp = st.spotlight;
+      const pulse = 0.5 + 0.5 * Math.sin(now / 280);
+      const r = (14 + 7 * pulse) / Math.max(view.zoom, 0.3);
+      ctx.save();
+      ctx.strokeStyle = canvasColor("--err");
+      ctx.globalAlpha = 0.55 + 0.45 * pulse;
+      ctx.lineWidth = 2.4 / Math.max(view.zoom, 0.3);
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.font = "700 11px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      const label = "⚠ " + sp.label;
+      const tw = ctx.measureText(label).width + 12;
+      ctx.fillStyle = canvasColor("--err");
+      roundRect(ctx, sp.x - tw / 2, sp.y + r + 6, tw, 18, 5);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, sp.x, sp.y + r + 19);
+      ctx.restore();
+    }
+
     if (sr.marquee) {
       const m = sr.marquee;
       ctx.fillStyle = "color-mix(in srgb, " + canvasColor("--wire-sel") + " 12%, transparent)";
@@ -1567,6 +1592,7 @@ export default function Canvas() {
     if (touchState.current?.pinching) return;
 
     const st = useEditor.getState();
+    if (st.spotlight) st.clearSpotlight();
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;
@@ -2797,7 +2823,7 @@ export default function Canvas() {
         className="block h-full w-full touch-none"
         aria-label="Schaltplan Zeichenfläche"
         tabIndex={0}
-        style={{ cursor: tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default" }}
+        style={{ cursor: tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default", background: "var(--canvas)" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

@@ -129,6 +129,10 @@ export interface SolveResult {
   ok: boolean;
   iterations: number;
   message?: string;
+  /** S2.2: Fehlerklasse für den gestalteten Konvergenz-Zustand. */
+  failure?: "singular" | "nonconvergent";
+  /** S2.2: verdächtige Knoten/Zweige, schlimmster zuerst (max. 3). Leer = keiner eingrenzbar. */
+  suspects?: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -1325,24 +1329,69 @@ export class Simulator {
     return true;
   }
 
+  /** S2.2: Anzeigename für einen Lösungsvektor-Index (Knoten oder Stromzweig). */
+  private suspectName(i: number): string {
+    if (i < this.nodeNames.length) return this.nodeNames[i];
+    const b = i - this.nodeNames.length;
+    return "I(" + (this.branchNames[b] ?? `Zweig${b}`) + ")";
+  }
+
   iterate(ctx: StampContext): SolveResult {
     const maxIter = this.options.maxIter;
+    const n = this.size;
     let damping = 1;
+    // S2.2: Diagonale vor dem Lösen sichern (solve() faktorisiert in place);
+    // normierte Updates für die Verdächtigen-Rangliste merken.
+    const diag = new Float64Array(n);
+    const lastScore = new Float64Array(n);
+    const { abstol, reltol, vntol } = this.options;
+    const nNodes = this.nodeNames.length;
     for (let iter = 0; iter < maxIter; iter++) {
       this.matrix.clear();
       this.limited = false;
       this.loadDevices(ctx);
+      for (let i = 0; i < n; i++) diag[i] = this.matrix.a[i * n + i];
       const sol = this.matrix.solve();
-      if (!sol) return { ok: false, iterations: iter, message: "Singulaere Matrix (Knoten ohne DC-Pfad zur Masse?)" };
+      if (!sol) {
+        const suspects: string[] = [];
+        for (let i = 0; i < n && suspects.length < 3; i++) {
+          if (Math.abs(diag[i]) < 1e-18) suspects.push(this.suspectName(i));
+        }
+        return {
+          ok: false,
+          iterations: iter,
+          message: "Singulaere Matrix (Knoten ohne DC-Pfad zur Masse?)",
+          failure: "singular",
+          suspects,
+        };
+      }
       if (iter > 20) damping = 0.6;
       if (iter > 50) damping = 0.3;
       const next = new Float64Array(this.size);
       for (let i = 0; i < this.size; i++) next[i] = this.x[i] + damping * (sol[i] - this.x[i]);
+      for (let i = 0; i < n; i++) {
+        const a = next[i];
+        const b = this.x[i];
+        const tol =
+          i < nNodes
+            ? vntol + reltol * Math.max(Math.abs(a), Math.abs(b))
+            : abstol + reltol * Math.max(Math.abs(a), Math.abs(b)) + 1e-9;
+        const d = Math.abs(a - b);
+        lastScore[i] = !Number.isFinite(d) ? Number.POSITIVE_INFINITY : d / tol;
+      }
       const done = this.converged(next) && iter > 0;
       this.x = next;
       if (done) return { ok: true, iterations: iter + 1 };
     }
-    return { ok: false, iterations: maxIter, message: "Keine Konvergenz (Newton-Raphson Grenze erreicht)" };
+    const order = Array.from({ length: n }, (_, i) => i).sort((p, q) => lastScore[q] - lastScore[p]);
+    const suspects = order.slice(0, 3).filter((i) => lastScore[i] > 0).map((i) => this.suspectName(i));
+    return {
+      ok: false,
+      iterations: maxIter,
+      message: "Keine Konvergenz (Newton-Raphson Grenze erreicht)",
+      failure: "nonconvergent",
+      suspects,
+    };
   }
 
   makeCtx(time: number, dt: number, transient: boolean, gmin = this.options.gmin, srcFactor = 1): StampContext {

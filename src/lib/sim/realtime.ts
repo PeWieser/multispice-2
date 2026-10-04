@@ -62,6 +62,13 @@ export interface LiveState {
   message?: string;
   stepsPerSecond: number;
   realtimeFactor: number;
+  /** S2.2: OP-Konvergenz-Diagnose (nur bei ok:false belegt). */
+  failure?: "singular" | "nonconvergent";
+  suspects?: string[];
+  /** S2.4: ehrliche Überlast-Anzeige (pro Tick aktualisiert). */
+  overload?: boolean;
+  effectiveSampleRate?: number;
+  droppedSec?: number;
 }
 
 export class RealtimeEngine {
@@ -92,6 +99,11 @@ export class RealtimeEngine {
   private lastPerfTime = 0;
   private stepsThisSecond = 0;
   private simTimeThisSecond = 0;
+  /** S2.4: adaptive Abtastrate (fällt bei Dauer-Überlast, erholt sich mit Hysterese). */
+  private effectiveRate = 0;
+  private clampStreak = 0;
+  private calmStreak = 0;
+  private droppedSec = 0;
 
   /** (Re)build the simulator from the schematic. Keeps interactive control state. */
   rebuild(doc: SchematicDoc): void {
@@ -108,6 +120,17 @@ export class RealtimeEngine {
     this.slowBuffers.clear();
     this.slowPushCounter = 0;
     this.deviceBuffers.clear();
+    // S2.4: Neustart = volle Rate, leere Zähler (stale Akkumulator würde sonst
+    // sofort als Überlast blinken).
+    this.effectiveRate = this.options.sampleRate;
+    this.clampStreak = 0;
+    this.calmStreak = 0;
+    this.droppedSec = 0;
+    this.stepAccumulator = 0;
+    // S2.4: Messfenster startet neu (0 würde Leerlauf vor dem Start einrechnen).
+    this.lastPerfTime = typeof performance !== "undefined" ? performance.now() : Date.now();
+    this.stepsThisSecond = 0;
+    this.simTimeThisSecond = 0;
     const op = this.sim.operatingPoint();
     const nets = this.sim.snapshot();
     const currents: Record<string, number> = {};
@@ -127,7 +150,11 @@ export class RealtimeEngine {
       ok: op.ok,
       message: op.message,
       stepsPerSecond: 0,
-      realtimeFactor: 0,
+      // S2.4: Echtzeit-Annahme bis zur ersten 500-ms-Messung — sonst meldete
+      // jeder Start fälschlich Überlast (rtf 0 < 0,9 vor der ersten Messung).
+      realtimeFactor: 1,
+      failure: op.failure,
+      suspects: op.suspects,
     };
     for (const name of this.sim.nodeNames) {
       this.buffers.set(name, new RingBuffer(16384));
@@ -173,13 +200,38 @@ export class RealtimeEngine {
   tick(wallDt: number): LiveState {
     const sim = this.sim;
     if (!sim || !this.running) return this.lastState;
-    const dt = 1 / this.options.sampleRate;
+    // S2.4: adaptive Zeitschrittweite — bei Dauer-Überlast wird dt gröber
+    // (statt stiller Schritt-Verwerfung), mit Hysterese zurück.
+    if (!(this.effectiveRate > 0)) this.effectiveRate = this.options.sampleRate;
+    // Laufzeit-Änderung der Abtastrate (Inspector) sofort übernehmen.
+    if (this.effectiveRate > this.options.sampleRate) this.effectiveRate = this.options.sampleRate;
+    const dt = 1 / this.effectiveRate;
     const target = wallDt * this.options.timeScale;
     this.stepAccumulator += target;
-    let steps = Math.floor(this.stepAccumulator / dt);
-    if (steps > this.options.maxStepsPerFrame) steps = this.options.maxStepsPerFrame;
+    const wanted = Math.floor(this.stepAccumulator / dt);
+    let steps = wanted;
+    const clamped = wanted > this.options.maxStepsPerFrame;
+    if (clamped) {
+      steps = this.options.maxStepsPerFrame;
+      this.clampStreak++;
+      this.calmStreak = 0;
+    } else {
+      this.clampStreak = 0;
+      this.calmStreak++;
+    }
+    if (this.clampStreak >= 30 && this.effectiveRate > 5000) {
+      this.effectiveRate = Math.max(5000, Math.floor(this.effectiveRate / 2));
+      this.clampStreak = 0;
+    } else if (this.calmStreak >= 240 && this.effectiveRate < this.options.sampleRate) {
+      this.effectiveRate = Math.min(this.options.sampleRate, this.effectiveRate * 2);
+      this.calmStreak = 0;
+    }
     this.stepAccumulator -= steps * dt;
-    if (this.stepAccumulator > 1) this.stepAccumulator = 0;
+    if (this.stepAccumulator > 1) {
+      // S2.4: Verworfenes wird gezählt statt verschwiegen.
+      this.droppedSec += this.stepAccumulator;
+      this.stepAccumulator = 0;
+    }
 
     let ok = true;
     let message: string | undefined;
@@ -241,7 +293,21 @@ export class RealtimeEngine {
       const vb = sim.nodeVoltage(d.nodes[1] ?? "0");
       power[d.id] = (va - vb) * i;
     }
-    this.lastState = { time: sim.time, nets, currents, power, ok, message, stepsPerSecond: sps, realtimeFactor: rtf };
+    // S2.4: Überlast = Schritt-Clamp oder geglätteter Echtzeitfaktor < 0,9.
+    const overload = clamped || rtf < 0.9;
+    this.lastState = {
+      time: sim.time,
+      nets,
+      currents,
+      power,
+      ok,
+      message,
+      stepsPerSecond: sps,
+      realtimeFactor: rtf,
+      overload,
+      effectiveSampleRate: this.effectiveRate,
+      droppedSec: this.droppedSec,
+    };
     return this.lastState;
   }
 

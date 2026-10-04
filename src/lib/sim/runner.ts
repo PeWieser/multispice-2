@@ -30,6 +30,7 @@ import {
   SweepSpec,
 } from "./analyses";
 import { SimOptions } from "./engine";
+import type { ProgressFn } from "./analyses";
 
 export interface AnalysisPayload {
   outputs?: string[];
@@ -53,6 +54,11 @@ export interface AnalysisPayload {
   z0?: number;
   frequency?: number;
   inNode?: string;
+  /**
+   * S2.1: Fortschritt 0..1 (nur lokal gesetzt — Funktionen überleben kein
+   * structured-clone, der Worker hängt den Callback daher selbst an).
+   */
+  progress?: ProgressFn;
 }
 
 export interface AnalysisReport {
@@ -63,6 +69,9 @@ export interface AnalysisReport {
   errors: string[];
   warnings: string[];
   summary: Record<string, unknown>;
+  /** S2.2: Konvergenz-Diagnose des Kernels (nur bei Fehlschlag belegt). */
+  convergence?: "singular" | "nonconvergent";
+  suspects?: string[];
 }
 
 /**
@@ -92,25 +101,25 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
       break;
     }
     case "tran": {
-      const r = runTransient(netlist, options, { ...tran, maxPoints: tran.maxPoints ?? 5000 }, outputs.length ? outputs : [outNode]);
+      const r = runTransient(netlist, options, { ...tran, maxPoints: tran.maxPoints ?? 5000 }, outputs.length ? outputs : [outNode], payload.progress);
       result = r;
       summary = { ok: r.ok, steps: r.steps, points: r.time.length };
       break;
     }
     case "ac": {
-      const r = runAcSweep(netlist, options, sweep, outputs.length ? outputs : [outNode]);
+      const r = runAcSweep(netlist, options, sweep, outputs.length ? outputs : [outNode], payload.progress);
       result = r;
       summary = { ok: r.ok, points: r.freq.length };
       break;
     }
     case "dc": {
-      const r = runDcSweep(netlist, options, payload.sourceId ?? "", sweep, outputs.length ? outputs : [outNode]);
+      const r = runDcSweep(netlist, options, payload.sourceId ?? "", sweep, outputs.length ? outputs : [outNode], payload.progress);
       result = r;
       summary = { ok: r.ok, points: r.values.length };
       break;
     }
     case "noise": {
-      const r = runNoise(netlist, options, sweep, outNode, payload.sourceId ?? "");
+      const r = runNoise(netlist, options, sweep, outNode, payload.sourceId ?? "", payload.progress);
       result = r;
       summary = { ok: r.ok, totalRms: r.totalRms };
       break;
@@ -127,6 +136,7 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
         options,
         { runs: payload.runs ?? 50, tolerance: payload.tolerance ?? 5, measure: payload.measure ?? "vout-peak", outNode },
         { ...tran, maxPoints: 2000 },
+        payload.progress,
       );
       result = r;
       summary = { mean: r.mean, sigma: r.sigma };
@@ -138,6 +148,7 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
         options,
         { runs: 1, tolerance: payload.tolerance ?? 5, measure: payload.measure ?? "vout-peak", outNode },
         { ...tran, maxPoints: 2000 },
+        payload.progress,
       );
       result = r;
       summary = { nominal: r.nominal, low: r.low, high: r.high };
@@ -150,6 +161,7 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
         payload.temps ?? [-40, 0, 25, 50, 85, 125],
         { runs: 1, tolerance: 0, measure: payload.measure ?? "vout-dc", outNode },
         { ...tran, maxPoints: 2000 },
+        payload.progress,
       );
       result = r;
       summary = { points: r.temps.length };
@@ -170,7 +182,7 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
       break;
     }
     case "param": {
-      const r = runParamSweep(netlist, options, payload.param ?? "R1.resistance", sweep, outputs.length ? outputs : [outNode], payload.tran);
+      const r = runParamSweep(netlist, options, payload.param ?? "R1.resistance", sweep, outputs.length ? outputs : [outNode], payload.tran, payload.progress);
       result = r;
       summary = { values: r.values.length, ok: r.ok };
       break;
@@ -235,13 +247,22 @@ export function runAnalysisLocal(doc: SchematicDoc, kind: string, payload: Analy
     acWarn.push(`AC-Anregung: Quelle ${autoDrive} wurde mit ac = 1 angeregt (keine AC-Quelle in der Schaltung).`);
   }
 
+  // S2.2: Kernel-Fehlschlag (ok:false) wird zum Report-Fehler — der Grapher
+  // zeigte bisher leere Diagramme, weil niemand `.ok` prüfte.
+  const res = result as { ok?: boolean; message?: string; failure?: "singular" | "nonconvergent"; suspects?: string[] };
+  const failed = res && res.ok === false;
+  const errors = [...built.errors];
+  if (failed && res.message) errors.push(res.message);
+
   return {
     kind,
     durationMs: Date.now() - started,
     result,
     nets: built.nets.map((n) => n.name),
-    errors: built.errors,
+    errors,
     warnings: [...built.warnings, ...acWarn],
     summary,
+    convergence: failed ? res.failure : undefined,
+    suspects: failed ? res.suspects : undefined,
   };
 }

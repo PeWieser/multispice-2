@@ -34,7 +34,8 @@ import {
 } from "@/lib/schematic/netdraw";
 import { orthoFollow } from "@/lib/schematic/ortho";
 import { RealtimeEngine } from "@/lib/sim/realtime";
-import { AnalysisPayload, runAnalysisLocal } from "@/lib/sim/runner";
+import { AnalysisPayload } from "@/lib/sim/runner";
+import { AnalysisAbortedError, AnalysisTask, runAnalysisTask } from "@/lib/sim/analysis_client";
 import {
   autoSaveToBoundFile,
   clearActiveSaveTarget,
@@ -132,6 +133,12 @@ export interface AnalysisState {
   durationMs?: number;
   /** Die Parameter der letzten Analyse (Quellen, Knoten …) — für Achsenbeschriftung im Grapher. */
   meta?: Record<string, unknown>;
+  /** S2.1: Fortschritt 0..1 während `running` (Worker; Fallback springt auf 1). */
+  progress?: number;
+  /** S2.2: Konvergenz-Diagnose des Kernels (nur bei Fehlschlag belegt). */
+  convergence?: "singular" | "nonconvergent";
+  /** S2.2: verdächtige Knoten/Zweige, schlimmster zuerst. */
+  suspects?: string[];
 }
 
 export interface ClipboardData {
@@ -258,6 +265,11 @@ export interface EditorState {
   removeMeasurementProbe: (id: string) => void;
   setView: (v: Partial<{ x: number; y: number; zoom: number }>) => void;
   fitView: () => void;
+  /** S2.2: pulsierender Problem-Marker (Welt-Koordinaten) oder null. */
+  spotlight: { x: number; y: number; label: string } | null;
+  /** S2.2: zentriert den Problemknoten eines Netzes + setzt den Marker. */
+  spotlightNet: (net: string) => void;
+  clearSpotlight: () => void;
   setTheme: (t: ThemePref) => void;
   setSymbolStyle: (s: SymbolStylePref) => void;
   toggleTheme: () => void;
@@ -302,6 +314,8 @@ export interface EditorState {
   reorderSheets: (fromId: string, toId: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
+  /** S2.1: bricht die laufende Analyse ab (Worker-Terminierung; Fallback: wirkungslos nach Start). */
+  cancelAnalysis: () => void;
   saveProject: (name?: string, opts?: { saveAs?: boolean }) => Promise<void>;
   restoreLocalProject: () => void;
   markFavorite: (partId: string) => void;
@@ -325,6 +339,12 @@ export interface SheetEntry {
   doc: SchematicDoc;
 }
 export const sheets: SheetEntry[] = [];
+
+/** S2.1: laufende Analyse (Worker-Task) — Modul-Scope, kein Render-State. */
+let activeTask: AnalysisTask | null = null;
+let fallbackNoted = false;
+/** S2.2: Auto-Clear des Problem-Markers. */
+let spotlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** W72: einen Entwurf in den Bearbeitungszustand bringen (inkl. Netzprüfung, Simulation, Geräte). */
 export function applyDoc(doc: SchematicDoc, opts: { pushHistory?: boolean } = {}): void {
@@ -1463,6 +1483,30 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setView: (v) => set((s) => ({ view: { ...s.view, ...v } })),
 
+  spotlight: null,
+  spotlightNet: (net) => {
+    const st = get();
+    const info = st.netResult.nets.find((n) => n.name === net);
+    if (!info || !info.points.length) {
+      st.log("warn", `Netz ${net} nicht gefunden — nichts zu zeigen`);
+      return;
+    }
+    const cx = info.points.reduce((a, p) => a + p.x, 0) / info.points.length;
+    const cy = info.points.reduce((a, p) => a + p.y, 0) / info.points.length;
+    // Sicht zentrieren (Canvas-Maße sind geräteabhängig — Zoom 1.2, grob mittig).
+    st.setView({ zoom: 1.2, x: cx - 400, y: cy - 300 });
+    set({ spotlight: { x: cx, y: cy, label: net } });
+    if (spotlightTimer) clearTimeout(spotlightTimer);
+    spotlightTimer = setTimeout(() => {
+      useEditor.getState().clearSpotlight();
+    }, 6000);
+  },
+  clearSpotlight: () => {
+    if (spotlightTimer) clearTimeout(spotlightTimer);
+    spotlightTimer = null;
+    set({ spotlight: null });
+  },
+
   fitView: () => {
     const st = get();
     const { w: cw, h: ch } = useHud.getState().viewport;
@@ -1661,8 +1705,13 @@ export const useEditor = create<EditorState>((set, get) => ({
     engine.running = true;
     set((s) => ({ sim: { ...s.sim, running: true } }));
     const st = engine.lastState;
-    if (!st.ok) get().log("error", `Arbeitspunkt: ${st.message ?? "keine Konvergenz"}`);
-    else get().log("ok", `Simulation gestartet — ${engine.netlist.devices.length} Bauteile, ${engine.netNames().length} Knoten`);
+    if (!st.ok) {
+      get().log("error", `Arbeitspunkt: ${st.message ?? "keine Konvergenz"}`);
+      // S2.2: schlimmsten Verdächtigen direkt markieren (nur Netz-Verdacht ist zeigbar).
+      const netSuspect = (st.suspects ?? []).find((s) => !s.startsWith("I("));
+      if (netSuspect) get().spotlightNet(netSuspect);
+      else if (st.suspects?.length) get().log("warn", `Verdächtig: ${st.suspects.join(", ")}`);
+    } else get().log("ok", `Simulation gestartet — ${engine.netlist.devices.length} Bauteile, ${engine.netNames().length} Knoten`);
     for (const w of engine.warnings) get().log("warn", w);
     for (const e of engine.errors) get().log("error", e);
   },
@@ -1763,22 +1812,63 @@ export const useEditor = create<EditorState>((set, get) => ({
   setAnalysis: (a) => set((s) => ({ analysis: { ...s.analysis, ...a } })),
 
   runAnalysis: async (kind, payload = {}) => {
+    // S2.1: Eine Analyse zur Zeit — die alte wird sauber abgebrochen,
+    // damit kein verwaister Worker einen stale Report setzt.
+    activeTask?.cancel();
+    activeTask = null;
     const { doc } = get();
-    set({ analysis: { kind, running: true, meta: { ...(payload as Record<string, unknown>) } } });
+    set({ analysis: { kind, running: true, progress: 0, meta: { ...(payload as Record<string, unknown>) } } });
     get().log("info", `Analyse »${kind}« gestartet …`);
-    // Den `running`-Zustand erst rendern lassen, bevor der Kernel den
-    // Main-Thread belegt — ehrliche Zwischenstufe statt eingefrorenem UI.
-    await new Promise((r) => setTimeout(r, 0));
+    const task = runAnalysisTask(doc, kind, payload, (frac) => {
+      if (get().analysis.running) set((s) => ({ analysis: { ...s.analysis, progress: frac } }));
+    });
+    activeTask = task;
+    if (!task.worker && !fallbackNoted) {
+      fallbackNoted = true;
+      get().log("warn", "Analyse-Worker nicht verfügbar — Analyse läuft auf dem Main-Thread (UI kann kurz stocken).");
+    }
     try {
-      const report = runAnalysisLocal(doc, kind, payload);
-      set((s) => ({ analysis: { kind, running: false, data: report.result, durationMs: report.durationMs, meta: s.analysis.meta } }));
-      get().log("ok", `Analyse »${kind}« beendet in ${report.durationMs} ms`);
+      const report = await task.promise;
+      if (activeTask !== task) return; // abgebrochen und ersetzt
+      activeTask = null;
+      const res = report.result as { ok?: boolean; message?: string };
+      if (res && res.ok === false) {
+        // S2.2: Kernel-Fehlschlag → gestaltete Fehlerkarte statt leerer Diagramme.
+        set((s) => ({
+          analysis: {
+            kind,
+            running: false,
+            error: res.message ?? "Analyse fehlgeschlagen",
+            data: report.result,
+            durationMs: report.durationMs,
+            meta: s.analysis.meta,
+            convergence: report.convergence,
+            suspects: report.suspects,
+          },
+        }));
+        get().log("error", `Analyse »${kind}«: ${res.message ?? "fehlgeschlagen"}`);
+      } else {
+        set((s) => ({ analysis: { kind, running: false, data: report.result, durationMs: report.durationMs, meta: s.analysis.meta } }));
+        get().log("ok", `Analyse »${kind}« beendet in ${report.durationMs} ms`);
+      }
       for (const w of report.warnings) get().log("warn", w);
       for (const e of report.errors) get().log("error", e);
     } catch (e) {
-      set({ analysis: { kind, running: false, error: (e as Error).message } });
-      get().log("error", `Analyse »${kind}«: ${(e as Error).message}`);
+      if (activeTask !== task) return;
+      activeTask = null;
+      if (e instanceof AnalysisAbortedError) {
+        set((s) => ({ analysis: { kind, running: false, meta: s.analysis.meta } }));
+        get().log("warn", `Analyse »${kind}« abgebrochen`);
+      } else {
+        set({ analysis: { kind, running: false, error: (e as Error).message } });
+        get().log("error", `Analyse »${kind}«: ${(e as Error).message}`);
+      }
     }
+  },
+
+  cancelAnalysis: () => {
+    activeTask?.cancel();
+    activeTask = null;
   },
 
   saveProject: async (name, opts) => {

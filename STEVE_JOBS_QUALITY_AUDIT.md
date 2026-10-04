@@ -3002,3 +3002,139 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
   Metapher (Blattrand, Titelstempel, „Blatt 1/1" als Einblatt-Konvention),
   Datenblatt/ShortcutSheet (fachlich korrekt). Historische „Schaltblatt"-
   Stellen in diesem Protokoll (§§1–41) bleiben als Log unverändert.
+
+---
+
+## §43 · Sprint 2 — Gefühl (Plan, 2026-10-04)
+
+Ziel: Die App fühlt sich an wie Hardware, nicht wie eine Webseite.
+Jeder Befund unten ist code-geprüft (Datei:Zeile sinngemäß).
+
+### 43.1 Befund
+
+- **S2.1** `editor.ts:runAnalysis` ist `async`, blockiert aber den Main-Thread:
+  `runAnalysisLocal` läuft synchron (nur ein `setTimeout(0)`-Yield vorher,
+  Kommentar: „bevor der Kernel den Main-Thread belegt"). Kein Worker im Repo
+  (`grep -ri worker src` leer). Lange Analysen (Monte-Carlo, Sweeps) frieren
+  das UI ein; kein Fortschritt, kein Abbrechen. Sim-Lib ist worker-fähig:
+  kein `window`/`document` in `src/lib/sim/*` (nur FFT-„window"-Namensvetter),
+  `SchematicDoc` ist plain data (structured-clone-fähig).
+- **S2.2** Grapher-Fehlerzustand ist roher Text (`Grapher.tsx`: `✕ {error}`).
+  Der Kern liefert nur Flachtexte („Singulaere Matrix …?", „Keine Konvergenz
+  …"), keine Verdächtigen (`SolveResult`: nur `ok/iterations/message`).
+  Mechanismus für „zeigen" existiert: `setView({x,y,zoom})` + `NetInfo.points`
+  (Canvas-Koordinaten je Netz) — „Zoom to error" nutzt das für Instanzen.
+- **S2.3** Kein First-Run-State (`localStorage`-Keys: theme/symbolStyle/
+  favorites/probeHover/projekte — kein Run-Flag). Aber: DESIGN §1 verbietet
+  Nudges/Auto-Popups („Heiliger Geschmack"). Ein Spotlight muss strikt
+  einmalig, non-modal und wegklickbar sein, sonst bricht es das Manifest.
+- **S2.4** `RealtimeEngine.tick` rechnet `realtimeFactor` aus — zeigt ihn aber
+  nirgends außer einer Inspector-Debug-Zeile (in Exponentialschreibweise!).
+  Überlast wird still weggeworfen: `maxStepsPerFrame`-Clamp + `stepAccumulator
+  > 1 → reset` ohne Zähler. Adaptive Erholung existiert nur pro Schritt
+  (Sub-Stepping bei Nicht-Konvergenz), nicht bei Zeitüberlast.
+- **S2.5** 8 Presets (`tools.ts`), aber nur als Text-Menüs (Home-Palette +
+  Menü „Vorlagen"). Kein Bild, keine Beschreibung sichtbar. `docToSvg`
+  (Export-Renderer) existiert und kann ehrliche Thumbnails liefern.
+- **S2.6** `Workbench`: `if (!mounted) return null` — buchstäblich Leere bis
+  zur Hydrierung. `page.tsx` rendert Workbench direkt, kein `loading.tsx`,
+  kein Skeleton.
+- **Korrektur zu S2.6 (2026-10-04, vor Implementierung):** Das `mounted`-Gate
+  sitzt im Print-Portal (`PrintSheet`), nicht im Boot-Pfad — der Befund war
+  falsch. Richtig: `output: export` ohne `force-dynamic` prerendert die volle
+  Workbench (Chrome + Default-Entwurf); einzige echte Lücke ist der
+  `<canvas>` ohne Bitmap bis zum ersten rAF-Draw (Hintergrund-Blitz
+  `--app` → `--canvas`). Plan entsprechend reduziert, s. §43.3.
+
+### 43.2 Plan (S2.1–S2.6)
+
+- **S2.1 Worker** (`src/lib/sim/analysis.worker.ts` + Wrapper):
+  Protokoll `{id, kind, doc, payload} → {progress} | {result} | {error}`;
+  Next-Standard `new Worker(new URL(..., import.meta.url))`; bei jedem
+  Fehler (SSR, Blockade, Export-Edge) Fallback auf `runAnalysisLocal`.
+  Fortschritt: grob (gestartet/fertig) + opt-in `onProgress` für die
+  Schleifen-Analysen (Transient, Monte-Carlo, Sweeps); Abbrechen per
+  `terminate()` + frischer Worker. UI: Fortschrittsbalken + Abbrechen-Button
+  im Grapher-Kopf. Tests auf `runAnalysisLocal` bleiben gültig (Fallback =
+  derselbe Codepfad); Worker-Protokoll per Typcheck, kein DOM nötig.
+- **S2.2 Konvergenz-State** (`engine.ts` + `runner.ts` + `Grapher.tsx`):
+  `SolveResult.suspects?: string[]` — Nicht-Konvergenz: Top-3-Knoten nach
+  letztem Newton-Update |Δx|/tol (SPICE-Standard); singulär: Diagonale vor
+  `solve()` snapshotten, Null-Diagonalen → Namen (sonst ehrlich „kein
+  einzelner Knoten eingrenzbar"). Durchreichen: OP/Transient/DC-Sweep →
+  `AnalysisReport.suspects` + `convergence.kind`. Grapher: gestaltete
+  Fehlerkarte (Titel, Verdächtigen-Chips, „Problemknoten zeigen" →
+  `setView` auf `NetInfo.points`-Zentroid + pulsierender Canvas-Marker
+  `spotlight` im Store, auto-clear). Echtzeit-OP-Fehler nutzt denselben Marker.
+- **S2.3 Spotlight** (Manifest-konform): Key `multispice.firstRun.done`;
+  wenn fehlt: non-modaler Puls-Ring an ▶ (`data-testid`/Anker) + Hinweis-Chip
+  mit ×, verschwindet bei erstem Start/Klick/Esc; danach nie wieder.
+  DESIGN-Eintrag, warum das kein Nudge ist (einmalig, non-blockierend).
+- **S2.4 Überlast ehrlich** (`realtime.ts` + `StatusBar.tsx`):
+  `LiveState += {overload, effectiveSampleRate, droppedSec}`; Clamp und
+  Accumulator-Reset zählen statt schweigen; adaptiv: bei Dauer-Clamp dt
+  vergröbern (sampleRate halbieren bis 5 kHz, mit Hysterese zurück) —
+  offengelegt als Badge + einmaliger Log. StatusBar: `×1,0`/`×0,3`-Chip
+  (rot bei Überlast, Tooltip erklärt); Inspector-Zeile in ×-Format.
+- **S2.5 Galerie** (`PresetGallery.tsx`): Dialog/Grid, Thumbnails per
+  `docToSvg(preset.build())` (derselbe Renderer wie der Export — ehrlich),
+  Name + Beschreibung + „Laden"; Einstieg als erster Menüpunkt „Galerie …"
+  unter „Vorlagen". Memo auf Öffnen (8× SVG ist billig, aber nicht gratis).
+- **S2.6 Boot-Skeleton**: `!mounted`-Zweig rendert SSR-sicheres statisches
+  Skelett (Menü-/Canvas-Platzhalter, Puls) statt `null` — kein Store-Zugriff,
+  ersetzt durch Hydrierung. Kein `loading.tsx` nötig (eine Seite, kein Routing).
+- **Tests**: `scripts/sprint2test.ts` — Verdächtige an konstruierter
+  singulärer/nicht-konvergenter Netzliste; Überlast+Adaption per kleinem
+  `maxStepsPerFrame`; alle Presets bauen + `docToSvg` nicht-leer. Worker,
+  Spotlight, Skeleton: Typcheck + manuelle Prüfung (DOM/Threading).
+
+### 43.3 Umsetzung & Verifikation (2026-10-04, Sprint 2 abgeschlossen)
+
+- **S2.1** ✅ `analysis.worker.ts` (Protokoll progress/result/error) +
+  `analysis_client.ts` (`runAnalysisTask` mit synchronem Fallback +
+  `worker`-Flag). Fortschritt: `ProgressFn` in 8 Schleifen-Analysen
+  (tran/ac/dc/noise/mc/worstcase/temp/param, 2-%-gedrosselt), Callback hängt
+  der Worker an (structured-clone-sicher). Editor: eine Analyse zur Zeit
+  (alte wird terminiert), Fortschrittsbalken + Abbrechen im Grapher,
+  einmaliger Fallback-Hinweis im Log.
+- **S2.2** ✅ `SolveResult.{failure, suspects}`: singulär = Null-Diagonalen
+  vor `solve()` (max. 3), nicht-konvergent = Top-3 nach normiertem
+  Newton-Update (nicht-finite Updates → Rang 1). Durchgereicht: OP/Tran/
+  DC/Sens/TF → `AnalysisReport.{convergence, suspects}`; Runner hebt
+  `ok:false` in `errors` (der Grapher prüfte `.ok` nie — Fehler zeigten
+  leere Diagramme). Grapher: Fehlerkarte (Titel je Klasse, Hinweis,
+  Verdächtigen-Chips, „Problemknoten zeigen" → `setView` + pulsierender
+  Canvas-Marker `spotlight`, Auto-Clear 6 s/Klick; `I()`-Zweige zoomen aufs
+  Bauteil). Echtzeit-OP-Fehler markiert Netz-Verdacht ebenso.
+- **S2.3** ✅ `FirstRunSpotlight`: Puls-Ring an `[data-spot="start-sim"]`
+  (Desktop- + Mobil-▶) + Chip mit ×; Key `multispice.firstRun.spotlightDone`;
+  weg bei Start/Klick/Esc, nie wieder. Manifest: non-modal, non-blockierend
+  (pointer-events-none außer ×), kein Timer-Nag. Lint: kein setState im
+  Effekt-Body (rAF/Listener/Store-Subscription).
+- **S2.4** ✅ `LiveState.{overload, effectiveSampleRate, droppedSec}`:
+  Clamp/Accumulator-Reset zählen statt schweigen; adaptiv: nach 30
+  Clamp-Frames Rate halbieren (min. 5 kHz), nach 240 ruhigen Frames zurück;
+  Laufzeit-Änderung der Rate wird sofort übernommen. StatusBar: `×1,0`-Chip
+  (rot bei Überlast, `~` bei Adaption, Tooltip mit Rate + verworfenen
+  Sekunden); Inspector-Zeile in ×-Format. Zwei Test-Funde: rtf-Init 1 bis
+  zur ersten Messung (sonst Fehlalarm beim Start), Messfenster-Neustart in
+  `rebuild` (sonst Leerlauf eingerechnet).
+- **S2.5** ✅ `PresetGallery`: Dialog/Grid, Thumbnails per
+  `docToSvg(preset.build())` (Export-Renderer — ehrlich), Name +
+  Beschreibung + Laden; Einstieg „Galerie mit Vorschau …" in Menü + Palette
+  (Desktop + Mobil). Untertitel korrigiert: `loadPreset` ersetzt den Reiter
+  (Undo stellt her) — kein falsches Versprechen.
+- **S2.6** ✅ Plan reduziert (s. Korrektur §43.1): Canvas-Element mit
+  `background: var(--canvas)` — pre-draw = post-draw-Ton, kein Blitz, keine
+  visuelle Änderung nach Hydrierung. Kein `loading.tsx` (eine Route).
+- **Tests** ✅ `scripts/sprint2test.ts` (18 Checks, alle grün, in `npm test`
+  verdrahtet): singulär an V-Schleife mit `rser: 0` (Funde: 1-nΩ-Default
+  fängt reale Schleifen zu Recht; globales gmin fängt Knoten → Zweige als
+  Verdächtige), Nicht-Konvergenz via `maxIter: 1`, Runner-Hebung,
+  Fortschritt direkt + via Runner, Überlast/Adaption/droppedSec, 8/8
+  Galerie-Thumbnails. Worker/Spotlight/Boot: Typcheck + manuell (DOM/Threading).
+- **Verifikation**: `tsc --noEmit` ✅ · `eslint src` ✅ · `npm test` ✅
+  (alle 10 Ketten grün, 260 PASS) · `next build` weiterhin nur
+  Google-Fonts-Fetch (Sandbox offline, pre-existing).
+- **Offen aus Sprint 2**: visuelle Prüfung (Worker-Balken, Fehlerkarte,
+  Spotlight, Galerie, ×-Chip) im Dev-Server; Build-Check mit Netz.

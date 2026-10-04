@@ -234,6 +234,25 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
           </span>
         )}
 
+        {/* S2.4: ehrlicher Echtzeitfaktor (×1 = Echtzeit; rot = überlastet, ~ = Zeitschritt adaptiv vergröbert). */}
+        {running &&
+          (() => {
+            const live = engine.lastState;
+            const rtf = live.realtimeFactor || 0;
+            const adapted = (live.effectiveSampleRate ?? 0) > 0 && live.effectiveSampleRate! < engine.options.sampleRate;
+            const color = live.overload ? "var(--err)" : rtf < 0.9 ? "var(--warn)" : "var(--ok)";
+            const tip =
+              `Echtzeitfaktor ×${rtf.toFixed(2)} — die Simulation läuft ` +
+              (rtf >= 0.9 ? "in Echtzeit." : `${Math.round(rtf * 100)} % der Echtzeitgeschwindigkeit.`) +
+              (adapted ? ` Zeitschritt adaptiv vergröbert (${(live.effectiveSampleRate! / 1000).toFixed(0)} kHz statt ${(engine.options.sampleRate / 1000).toFixed(0)} kHz).` : "") +
+              ((live.droppedSec ?? 0) > 0.05 ? ` ${(live.droppedSec ?? 0).toFixed(1)} s Simulationszeit verworfen.` : "");
+            return (
+              <span className="mono w-[64px] shrink-0 text-right tabular-nums" style={{ color }} title={tip}>
+                {adapted ? "~" : ""}×{rtf.toFixed(1)}
+              </span>
+            );
+          })()}
+
         <span className="mono w-[96px] shrink-0 text-right tabular-nums" title="Simulationszeit">
           {running ? `t = ${formatValue(simTime, "s")}` : "bereit"}
         </span>
