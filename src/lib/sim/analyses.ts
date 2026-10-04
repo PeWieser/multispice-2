@@ -331,10 +331,43 @@ export function buildAcMatrix(sim: Simulator, omega: number, inject?: { a: numbe
           cm.add(sm, b2, -1, 0);
           cm.add(b2, sm, -1, 0);
         }
-        cm.add(b1, b1, 0, -omega * lp);
+        // S4.6: Wicklungs-R seriell, Kern-R parallel (Sättigung AC-seitig
+        // ungesättigt — dokumentiert).
+        const rp = Math.max(par(d, "rp", 0), 0);
+        const rs = Math.max(par(d, "rs", 0), 0);
+        cm.add(b1, b1, -rp, -omega * lp);
         cm.add(b1, b2, 0, -omega * mut);
-        cm.add(b2, b2, 0, -omega * ls);
+        cm.add(b2, b2, -rs, -omega * ls);
         cm.add(b2, b1, 0, -omega * mut);
+        const rcore = par(d, "rcore", 0);
+        if (rcore > 0) acStampG(cm, np, nm, 1 / rcore, 0);
+        break;
+      }
+      case "TLINE": {
+        // S4.6: verlustlose Leitung exakt (Y-Matrix, θ = ω·td; |sinθ| geklemmt).
+        const n2 = nodeIdx(sim, d.nodes[2]);
+        const n3 = nodeIdx(sim, d.nodes[3]);
+        const z0 = Math.max(par(d, "z0", 50), 1e-6);
+        const tdP = par(d, "td", 0);
+        const lenP = par(d, "len", 0);
+        const td = tdP > 0 ? tdP : lenP > 0 ? lenP / (Math.max(par(d, "vf", 0.66), 0.05) * 299792458) : 0;
+        if (!(td > 0)) {
+          acStampG(cm, n0, n2, 1e6, 0);
+          acStampG(cm, n1, n3, 1e6, 0);
+          break;
+        }
+        const th = omega * td;
+        const sn = Math.sin(th);
+        const ss = Math.abs(sn) < 1e-9 ? 1e-9 * Math.sign(sn || 1) : sn;
+        const y11i = -Math.cos(th) / (ss * z0);
+        const y12i = 1 / (ss * z0);
+        acStampG(cm, n0, n1, 0, y11i);
+        acStampG(cm, n2, n3, 0, y11i);
+        const cross: Array<[number, number, number]> = [
+          [n0, n2, y12i], [n0, n3, -y12i], [n1, n2, -y12i], [n1, n3, y12i],
+          [n2, n0, y12i], [n2, n1, -y12i], [n3, n0, -y12i], [n3, n1, y12i],
+        ];
+        for (const [a, b, yi] of cross) if (a >= 0 && b >= 0) cm.add(a, b, 0, yi);
         break;
       }
       case "V":

@@ -103,16 +103,24 @@ Ziel: Multisim-Parität im Aufbau großer Entwürfe.
 - Bonus-Fix: `newDocument` schrieb Entwurf nicht zurück (Datenverlust).
 - `scripts/sprint3test.ts`: 41 Checks, alle grün, in `npm test` verdrahtet.
 
-## Sprint 4 — Modelle (offen, laufend)
+## Sprint 4 — Modelle (abgeschlossen 2026-10-04)
 
 Ziel: Genauigkeit für reale Entwürfe.
 
-- [ ] OPV: Slew-Rate + GBW auch transient
-- [ ] BJT/Diode: Kapazitäten + Temperatur-Skalierung (IS/BF)
-- [ ] MOSFET: Meyer-Caps + Temp-Modell (VTO/KP)
-- [ ] Monte-Carlo/Worst-Case: Halbleiter-Streuung
-- [ ] Relais: Spule schaltet Kontakt (Hysterese); Sicherung: I²t-Modell
-- [ ] Übertrager: Sättigung/Verluste; Übertragungsleitung (T-Element)
+- OPV transient: Boyle-Pol (τ = A0/2π·GBW) + Slew-Clamp; Folger
+  0.995/0.316 = Theorie, Rampe 0.50 V/µs, AC-Ecke 1.00 MHz; slew-Params
+  + TL07x-Einzelteile im Katalog.
+- BJT/Diode: IS(T)/BF(T) nach SPICE-2G (Vf-Drift −2.03 mV/K),
+  gradierte Sperrschichten (FC) + TT/TF/TR-Diffusion (Chord).
+- MOSFET: VTO(T)/KP(T), Meyer-Caps aus TOX + CGSO/CGDO-Überlapp
+  (Rds ×1.47 @125 °C, AC-f3dB 23.3/17.1 MHz).
+- MC/Worst-Case: Q→BF+IS, D→IS, M→VTO+KP, J→BETA+VTO
+  (korreliert pro Device); tol-Params im Katalog.
+- Relais-Hysterese verifiziert (4.01/1.99 V, voff = vpull/2);
+  Sicherung mit I²t-Integral (45.2 ms @9.5 A, hält bei IN).
+- Trafo: rp/rs/rcore/isat-Knie (3.67× = Theorie); TLINE neu
+  (Bergeron, 1.01 µs, AC −45°, OP durchverbunden).
+- `scripts/sprint4test.ts`: 31 Checks, alle grün, in `npm test` verdrahtet.
 
 ## Sprint 5 — Feinschliff (offen, laufend)
 

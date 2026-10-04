@@ -443,8 +443,36 @@ add({
     { key: "ratio", label: "Übersetzung n1:n2", type: "number", def: 10 },
     { key: "lp", label: "Primärinduktivität", unit: "H", type: "number", def: 10 },
     { key: "k", label: "Kopplungsfaktor", type: "number", def: 0.995, min: 0, max: 1, step: 0.001 },
+    { key: "rp", label: "Wicklungswiderstand primär", unit: "Ω", type: "number", def: 0 },
+    { key: "rs", label: "Wicklungswiderstand sekundär", unit: "Ω", type: "number", def: 0 },
+    { key: "rcore", label: "Kernverlustwiderstand (0=aus)", unit: "Ω", type: "number", def: 0 },
+    { key: "isat", label: "Sättigungsstrom (0=aus)", unit: "A", type: "number", def: 0 },
   ],
-  toDevices: (i, n) => [{ id: i.id, type: "TRANSFORMER", nodes: n, params: { ratio: num(i, "ratio", 10), lp: num(i, "lp", 10), k: num(i, "k", 0.995) } }],
+  toDevices: (i, n) => [{ id: i.id, type: "TRANSFORMER", nodes: n, params: { ratio: num(i, "ratio", 10), lp: num(i, "lp", 10), k: num(i, "k", 0.995), rp: num(i, "rp", 0), rs: num(i, "rs", 0), rcore: num(i, "rcore", 0), isat: num(i, "isat", 0) } }],
+});
+
+add({
+  id: "tline",
+  name: "Übertragungsleitung",
+  ref: "T",
+  category: "Passive Bauteile/Leitungen",
+  tags: ["leitung", "koax", "transmission", "tline", "welle"],
+  mount: "virtual",
+  pins: [
+    { name: "IN+", x: -40, y: -20 }, { name: "IN-", x: -40, y: 20 },
+    { name: "OUT+", x: 40, y: -20 }, { name: "OUT-", x: 40, y: 20 },
+  ],
+  symbol: [
+    L(-40, -20, -12, -20), L(-40, 20, -12, 20), L(12, -20, 40, -20), L(12, 20, 40, 20),
+    L(-12, -20, -12, 20), L(12, -20, 12, 20), L(-12, -8, 12, -8), L(-12, 8, 12, 8),
+  ],
+  params: [
+    { key: "z0", label: "Wellenwiderstand", unit: "Ω", type: "number", def: 50 },
+    { key: "td", label: "Laufzeit (0 = aus Länge)", unit: "s", type: "number", def: 0 },
+    { key: "len", label: "Länge", unit: "m", type: "number", def: 1 },
+    { key: "vf", label: "Verkürzungsfaktor", type: "number", def: 0.66 },
+  ],
+  toDevices: (i, n) => [{ id: i.id, type: "TLINE", nodes: n, params: { z0: num(i, "z0", 50), td: num(i, "td", 0), len: num(i, "len", 1), vf: num(i, "vf", 0.66) } }],
 });
 
 add({

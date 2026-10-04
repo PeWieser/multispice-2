@@ -6,6 +6,22 @@
 > Update 2026-10-03 (Sprint 1 – Vertrauen): TF/Sensitivität/PZ/S-Parameter echt, Network Analyzer ehrlich, On-Page-Verbinder als Bauteil, Gerber-Fiktion gestrichen, Nicht-Ziele dokumentiert.
 > Update 2026-10-04 (Sprint 2 – Gefühl): Analysen im Web Worker (Fortschritt + Abbrechen), gestaltete Konvergenzfehler mit Problemknoten-Marker, First-Run-Spotlight (einmalig), ehrlicher Echtzeitfaktor + adaptive Zeitschrittweite, Beispiel-Galerie, Canvas-Boot-Ton.
 > Update 2026-10-04 (Sprint 3 – Struktur): echte Busse (Tap/Splitter, Namensbindung, Deklarationsprüfung), Auswahl-Extraktion als Bauteil, Re-Annotate, elektrische Pin-Typen + ERC-Regeln E1–E4, KiCad-Import, SPICE-Abdeckung (E/G/F/H/J), Entwurf-Rückschreibung, W61-Knick-Warnung.
+> Update 2026-10-04 (Sprint 4 – Modelle): OPV transient (GBW-Pol + Slew), D/Q/M-Temperatur (IS/BF/VTO/KP), gradierte Sperrschichten + Meyer-Caps, MC/Worst-Case Halbleiter-Streuung, Relais-Hysterese + Sicherungs-I²t, Trafo-Verluste/-Sättigung, Übertragungsleitung (Bergeron).
+
+## Neu 2026-10-04 – Sprint 4 (Modelle)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| OPV transient | GBW + Slew existierten nur in AC; TRAN war statisch | Boyle-Stil: Pol auf linearem Fehler (τ = A0/2π·GBW, Backward-Euler, Zustand `vi`/`ve` in `extra`, Commit in `acceptTimestep`, Windup-Clamp ±2·Span), Sättigung danach, Slew-Clamp \|ΔVe\| ≤ SR·dt (Chord-Jacobian); OP hinterlegt vi/ve-Startwerte (Schritt-1-Clamp); DC/OP/COMPARATOR statisch; Katalog: `slew` + TL07x-Einzelteile | ✅ Done |
+| D/Q-Temperatur | IS/BF temperaturunabhängig | SPICE-2G: IS·(T/Tnom)^(XTI/N)·exp(−EG/N·(1/Vt−1/Vt0)) (/N entscheidend: −2.03 statt −5 mV/K), BF/BR·(T/Tnom)^XTB (Engine-Default 0, Katalog 1.5); AC teilt Helfer mit DC-Kern | ✅ Done |
+| Sperrschichten D/Q | Fixe cjo/cje/cjc, TT ungenutzt | Gradierte Depletion mit FC-Grenze (MJ = 0 → fix) + TT/TF/TR-Diffusion (Kapazitäts-Chord statt Ladung — dokumentiert); Katalog: MJ/VJ/FC/TT bzw. MJE/VJE/MJC/VJC/FC/TF/TR/XTI/EG/TNOM | ✅ Done |
+| MOSFET-Temperatur + Meyer | VTO/KP temperaturunabhängig, fixe CGS/CGD | VTO − TCV·ΔT, KP·(T/Tnom)^−BEX (Engine-Defaults 0 = SPICE L1, Katalog TCV 2.5m/BEX 1.5); Meyer intrinsisch aus TOX (Cutoff 0, linear Cox/2, Sättigung 2Cox/3, reversibel) + CGSO/CGDO-Überlapp; fixe CGS/CGD bleiben (Katalog-Leistungsteile behalten gefittete Werte); JFET ohne Temp (dokumentiert) | ✅ Done |
+| MC/Worst-Case | Nur R/C/L (+BF); D/M ohne Streuung | SCATTER_KEYS: Q→BF+IS, D-Familie→IS, M→VTO+KP, J→BETA+VTO; ein Faktor pro Device/Run (Prozess-Ecke, korreliert — dokumentiert); WC-Sensitivität pro Device (Keys gemeinsam); Katalog-`tol` (Halbleiter 10 %) | ✅ Done |
+| Relais | Verifiziert, aber voff teils hartkodiert (lief vpull Änderung nicht nach) | voff = vpull·0.5 in allen 7 Relais-Einträgen; Hysterese per TRAN verifiziert (Anzug 4.01 V, Abfall 1.99 V) | ✅ Done |
+| Sicherung | Reiner Widerstand (irated ungenutzt) | Joule-Integral dw/dt = i² − w/τ, Schmelzen bei w ≥ I²t (rastend, roff); i2t = 0 → auto (2·IN)²·τ (hält Nennstrom ewig, 10× in ≈ 40 ms); nur TRAN (DC = Nennwiderstand — dokumentiert); R konstant bis zum Schmelzen (kein PTC — dokumentiert) | ✅ Done |
+| Trafo | Ideal (lp/ratio/k), kein R, keine Sättigung | rp/rs seriell (DC = Wicklungs-R), rcore parallel primär (0 = aus), Sättigungsknie Lp(i) = Lp/(1+\|ip\|/isat) als Chord über Lp/Ls/M gemeinsam (sonst k > 1; Sekundär-Gegenkompensation fehlt — dokumentiert); AC linear/ungesättigt (dokumentiert) | ✅ Done |
+| Übertragungsleitung | Kein T-Element | TLINE neu (Bergeron, verlustlos): Z0 + td (direkt oder len/vf), interpolierte Delay-Line aus akzeptierten Wellengrößen (`outputs[]`, Retry-sicher), Start relaxiert (dokumentiert); OP = durchverbunden; AC exakte Y-Matrix (θ = ω·td, \|sinθ\| geklemmt); Katalogteil „Übertragungsleitung" | ✅ Done |
+| Tests | Keine Modell-Regression | `scripts/sprint4test.ts` (31 Checks, in `npm test` verdrahtet): OPV-Ecke/Slew, Vf-Drift, BF-/VTO-Temp, Meyer, MC-σ + Seed-Repro, WC-Sensitivitäten, Relais-Hysterese, Fuse-Trip/Latch, Trafo-Knie, TLINE-Laufzeit/Phase | ✅ Done |
 
 ## Neu 2026-10-04 – Sprint 3 (Struktur)
 

@@ -558,6 +558,17 @@ export class Simulator {
       case "J": {
         return st.extra?.id ?? st.extra?.ic ?? 0;
       }
+      case "TLINE": {
+        // S4.6: Port-1-Strom (n0 → n1). OP: durchverbunden → Strom der 1-µΩ-Brücke.
+        if (!st.outputs?.length) {
+          const c = this.nodeIndex.get(d.nodes[2] ?? GND) ?? -1;
+          const v2 = this.vOf(this.isGround(d.nodes[2]) ? -1 : c);
+          return (va - v2) * 1e6;
+        }
+        const z0 = Math.max(p(d, "z0", 50), 1e-6);
+        const [e1] = this.tlineExcitation(d, this.time);
+        return (va - vb - e1) / z0;
+      }
       case "GATE":
       case "DIGITAL": {
         // Sum of output currents
@@ -696,6 +707,41 @@ export class Simulator {
     return blown ? Math.max(p(d, "roff", 1e9), 1) : this.resistance(d);
   }
 
+  /** S4.6: Laufzeit der Übertragungsleitung (td gewinnt, sonst len/vf/c). */
+  tlineDelay(d: Device): number {
+    const td = p(d, "td", 0);
+    if (td > 0) return td;
+    const len = p(d, "len", 0);
+    if (len > 0) return len / (Math.max(p(d, "vf", 0.66), 0.05) * 299792458);
+    return 0;
+  }
+
+  /**
+   * S4.6: Bergeron-Anregung [E1, E2] = [s2(t−td), s1(t−td)] aus akzeptierter
+   * Historie (outputs = [t, s1, s2]-Tripel, linear interpoliert; Leitung vor
+   * t = 0 relaxiert). Nur Vergangenes → Newton-sicher.
+   */
+  tlineExcitation(d: Device, t: number): [number, number] {
+    const td = this.tlineDelay(d);
+    const h = d.state?.outputs ?? [];
+    const tq = t - td;
+    const sample = (idx: number): number => {
+      if (h.length < 3 || tq <= h[0]) return 0;
+      for (let k = 0; k + 3 <= h.length; k += 3) {
+        const t0 = h[k];
+        const hasNext = k + 6 <= h.length;
+        const t1 = hasNext ? h[k + 3] : Infinity;
+        if (tq >= t0 && tq < t1) {
+          if (!hasNext) return h[k + idx];
+          const f = (tq - t0) / Math.max(t1 - t0, 1e-18);
+          return h[k + idx] + f * (h[k + 3 + idx] - h[k + idx]);
+        }
+      }
+      return h[h.length - 3 + idx];
+    };
+    return [sample(2), sample(1)];
+  }
+
   /* --------------------------- stamping --------------------------- */
 
   private stampConductance(m: RealMatrix, a: number, b: number, g: number): void {
@@ -829,11 +875,19 @@ export class Simulator {
           const nm = this.idx(d.nodes[1]);
           const sp = this.idx(d.nodes[2]);
           const sm = this.idx(d.nodes[3]);
-          const lp = Math.max(p(d, "lp", 1), 1e-9);
+          const lp0 = Math.max(p(d, "lp", 1), 1e-9);
+          // S4.6: Sättigungsknie aus Primärstrom (Chord, Vorzeichen: Vor-Schritt).
+          // Skaliert Lp/Ls/M gemeinsam (sonst k > 1!); Sekundär-Gegenkompensation
+          // nicht modelliert (dokumentiert). isat = 0 → aus.
+          const isat = p(d, "isat", 0);
+          const satF = isat > 0 ? 1 / (1 + Math.abs(st.histI[0] ?? 0) / isat) : 1;
+          const lp = lp0 * satF;
           const ratio = Math.max(p(d, "ratio", 1), 1e-6);
-          const ls = lp / (ratio * ratio);
+          const ls = (lp0 / (ratio * ratio)) * satF;
           const k = Math.min(0.9999, p(d, "k", 0.999));
-          const mut = k * Math.sqrt(lp * ls);
+          const mut = k * Math.sqrt(lp0 * (lp0 / (ratio * ratio))) * satF;
+          const rp = Math.max(p(d, "rp", 0), 0);
+          const rs = Math.max(p(d, "rs", 0), 0);
           const b1 = st.br;
           const b2 = st.br2;
           if (np >= 0) {
@@ -853,17 +907,39 @@ export class Simulator {
             m.add(b2, sm, -1);
           }
           if (!ctx.transient) {
-            m.add(b1, b1, -1e-3);
-            m.add(b2, b2, -1e-3);
+            // S4.6: DC = Wicklungswiderstände (Fallback 1 mΩ wie bisher).
+            m.add(b1, b1, -(rp > 0 ? rp : 1e-3));
+            m.add(b2, b2, -(rs > 0 ? rs : 1e-3));
           } else {
             const { a0 } = this.integrationCoeffs(ctx.dt);
-            m.add(b1, b1, -a0 * lp);
+            m.add(b1, b1, -a0 * lp - rp);
             m.add(b1, b2, -a0 * mut);
-            m.add(b2, b2, -a0 * ls);
+            m.add(b2, b2, -a0 * ls - rs);
             m.add(b2, b1, -a0 * mut);
             m.addRhs(b1, -(a0 * lp * st.histI[0] + a0 * mut * (st.extra!.i2 ?? 0)));
             m.addRhs(b2, -(a0 * ls * (st.extra!.i2 ?? 0) + a0 * mut * st.histI[0]));
           }
+          // S4.6: Kernverluste als Parallelwiderstand primär (rcore ≤ 0 → aus).
+          const rcore = p(d, "rcore", 0);
+          if (rcore > 0) this.stampConductance(m, np, nm, 1 / rcore);
+          break;
+        }
+        case "TLINE": {
+          // S4.6: Bergeron-Leitung (verlustlos). OP/DC: durchverbunden.
+          const n2 = this.idx(d.nodes[2]);
+          const n3 = this.idx(d.nodes[3]);
+          const td = this.tlineDelay(d);
+          if (!ctx.transient || !(td > 0)) {
+            this.stampConductance(m, n0, n2, 1e6);
+            this.stampConductance(m, n1, n3, 1e6);
+            break;
+          }
+          const z0 = Math.max(p(d, "z0", 50), 1e-6);
+          const [e1, e2] = this.tlineExcitation(d, ctx.time);
+          this.stampConductance(m, n0, n1, 1 / z0);
+          this.stampCurrent(m, n0, n1, -e1 / z0);
+          this.stampConductance(m, n2, n3, 1 / z0);
+          this.stampCurrent(m, n2, n3, -e2 / z0);
           break;
         }
         /* ---------------- sources ---------------- */
@@ -1287,6 +1363,14 @@ export class Simulator {
             dveq = (1 - satTanh * satTanh) * k * gain;
             st.extra!.viNew = viCl;
             st.extra!.veNew = veq;
+          } else if (!ctx.transient && d.type === "OPAMP") {
+            // S4.1-Fix: OP hinterlegt akzeptierte Startwerte für TRAN-Schritt 1.
+            // Vorher las Schritt 1 `vOf(no)` = laufende Newton-Iterierte, der
+            // Slew-Clamp war dadurch im ersten Schritt wirkungslos (0 → 8 V
+            // in 100 ns bei Kante an t = 0). UIC-Pfad: Fallback unten bleibt.
+            const frac0 = Math.max(-0.999, Math.min(0.999, (vtarget - mid) / span));
+            st.extra!.vi = mid + span * Math.atanh(frac0);
+            st.extra!.ve = vtarget;
           }
           // branch: v(out) - rout*i = veq_lin  => linearised around vd
           if (no >= 0) {
@@ -1706,6 +1790,22 @@ export class Simulator {
         case "TRANSFORMER": {
           st.histI[0] = st.br >= 0 ? this.x[st.br] : 0;
           st.extra!.i2 = st.br2 >= 0 ? this.x[st.br2] : 0;
+          break;
+        }
+        case "TLINE": {
+          // S4.6: akzeptierte Wellengrößen anhängen (s = 2V − E aus I = (V−E)/Z0),
+          // Historie älter als eine Laufzeit stutzen.
+          const td = this.tlineDelay(d);
+          if (!(td > 0)) break;
+          const n2 = this.idx(d.nodes[2]);
+          const n3 = this.idx(d.nodes[3]);
+          const v1 = this.vOf(n0) - this.vOf(n1);
+          const v2 = this.vOf(n2) - this.vOf(n3);
+          const [e1, e2] = this.tlineExcitation(d, this.time);
+          const h = st.outputs ?? [];
+          h.push(this.time, 2 * v1 - e1, 2 * v2 - e2);
+          while (h.length > 6 && h[3] < this.time - td) h.splice(0, 3);
+          st.outputs = h;
           break;
         }
         case "D":
