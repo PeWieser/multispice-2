@@ -35,7 +35,6 @@ async function main() {
   // ---------- WDA-1  : AppData schlüsselbezogen (preload-Vertrag) ----------
   {
     const require = createRequire(import.meta.url);
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const preload = require("../desktop/preload.cjs") as {
       __test: { pickAppDataKey: (store: unknown, key?: string) => unknown };
     };

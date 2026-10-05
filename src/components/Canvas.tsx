@@ -1358,7 +1358,7 @@ export default function Canvas() {
       ctx.strokeStyle = canvasColor("--hairline");
       ctx.strokeRect(0.5, 0.5, R - 1, R - 1);
     }
-  }, [cursor, snap, editing]);
+  }, [cursor, editing]);
 
   useEffect(() => {
     let raf = 0, last = performance.now(), frames = 0, fpsTime = last;
@@ -2574,7 +2574,7 @@ export default function Canvas() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [snap]);
+  }, []);
 
   // keyboard
   useEffect(() => {

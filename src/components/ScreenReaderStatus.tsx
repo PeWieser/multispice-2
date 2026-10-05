@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useState } from "react";
 import { engine, useEditor } from "@/state/editor";
 import { completionNote, simLiveText } from "@/lib/a11y";
 
@@ -15,7 +15,11 @@ export default function ScreenReaderStatus() {
   // zum richtigen Zeitpunkt gelesen wird.
   useEditor((s) => s.sim.tick);
   const analysis = useEditor((s) => s.analysis);
-  const prevAnalysisRunning = useRef(analysis.running);
+  // CI-Fix: Vorzustand als Render-State (offizielles „previous renders“-
+  // Pattern) — kein Ref-Lesen zur Render-Zeit, kein setState im Effekt.
+  const [wasRunning, setWasRunning] = useState(analysis.running);
+  if (wasRunning !== analysis.running) setWasRunning(analysis.running);
+  const note = completionNote(wasRunning, analysis.running, analysis.error, analysis.kind);
 
   const live = engine.lastState;
   let text = simLiveText({
@@ -26,11 +30,7 @@ export default function ScreenReaderStatus() {
     analysisRunning: analysis.running,
     analysisError: analysis.error,
   });
-  const note = completionNote(prevAnalysisRunning.current, analysis.running, analysis.error, analysis.kind);
   if (note) text = `${note}. ${text}`;
-  useEffect(() => {
-    prevAnalysisRunning.current = analysis.running;
-  });
 
   return (
     <div role="status" aria-live="polite" className="sr-only">
