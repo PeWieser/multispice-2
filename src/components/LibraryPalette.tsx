@@ -8,6 +8,7 @@ import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
 import { getDatasheet, getDatasheetSearchUrl, getOctopartUrl } from "@/lib/library/datasheets";
 import { resolveSymbolStyle } from "@/lib/settings";
+import { WINDOW_SHELL, WindowTitleBar } from "./ui";
 import { withSyncNonce } from "@/lib/desktopSync";
 
 // --- Symbol Preview (mini canvas) – ISO/ANSI aware, memoized ---
@@ -552,25 +553,20 @@ export default function LibraryPalette({
       className={
         standalone
           ? "flex h-full w-full flex-col overflow-hidden"
-          : "fixed z-40 flex flex-col overflow-hidden rounded-xl will-change-transform"
+          : `fixed z-40 will-change-transform ${WINDOW_SHELL}`
       }
       style={
         standalone
           ? { background: "var(--surface)" }
-          : {
-              left: pos.x,
-              top: pos.y,
-              width: size.w,
-              height: size.h,
-              background: "var(--surface)",
-              border: "1px solid var(--hairline-strong)",
-              boxShadow: "var(--shadow-3)",
-            }
+          : { left: pos.x, top: pos.y, width: size.w, height: size.h }
       }
     >
       {!standalone && (
-      <div
-        className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3 border-b border-hairline"
+      <WindowTitleBar
+        icon={<LayoutGrid size={12} />}
+        title="Bibliothek"
+        hint="Ziehen bewegt das Fenster"
+        grab
         onPointerDown={(e) => {
           dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y, w: paletteRef.current?.offsetWidth ?? 420 };
           // Zombie-Status aus abgebrochenen Gesten (Up außerhalb) vergessen.
@@ -578,16 +574,13 @@ export default function LibraryPalette({
           pendingSizeRef.current = null;
           paletteRef.current?.setAttribute("data-windrag", "");
         }}
-      >
-        <span className="text-xs font-medium flex items-center gap-1.5">
-          <LayoutGrid size={12} /> Bibliothek
-        </span>
-        <span className="flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-ink-3 border border-hairline">
-          <Command size={9} />K
-        </span>
-        <div className="flex-1" />
-        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
-          {onPartEditor && (
+        extra={
+          <span className="flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-ink-3 border border-hairline">
+            <Command size={9} />K
+          </span>
+        }
+        actions={
+          onPartEditor ? (
             <button
               type="button"
               className="btn h-6 gap-1 px-2 text-2xs"
@@ -597,12 +590,11 @@ export default function LibraryPalette({
               <Plus size={11} />
               <span>Bauteil-Editor</span>
             </button>
-          )}
-          <button className="btn px-1 py-0.5 h-6" onClick={toggle} title="Schließen (Esc)" aria-label="Schließen (Esc)">
-            <X size={13} />
-          </button>
-        </div>
-      </div>
+          ) : undefined
+        }
+        onClose={toggle}
+        closeLabel="Schließen (Esc)"
+      />
       )}
 
       <div className="p-2.5 space-y-2">

@@ -3,7 +3,8 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: Sprint 3 abgeschlossen (2026-10-04). Details im Audit-Protokoll (§44).
+> Stand: Sprint 5 Rest läuft (S5.10 Fenster ✅ 2026-10-05; S5.11–S5.13 offen).
+> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -122,24 +123,30 @@ Ziel: Genauigkeit für reale Entwürfe.
   (Bergeron, 1.01 µs, AC −45°, OP durchverbunden).
 - `scripts/sprint4test.ts`: 31 Checks, alle grün, in `npm test` verdrahtet.
 
-## Sprint 5 — Feinschliff (offen, laufend)
+## Sprint 5 — Feinschliff (Rest läuft seit 2026-10-05)
 
 Ziel: Apple-Level im Detail, bei eigenem Look.
 
-- [ ] Canvas.tsx aufteilen (Render/Hit-Test/Pointer/Overlays), ebenso
-      Instruments.tsx + editor.ts — ohne Verhaltensänderung
-- [ ] Inspector auf `ui/`-Primitives + Zahlenformat-Modul (4k7, Ω/µ überall)
-- [ ] Tastatur-Platzieren (Pfeile + Enter); Esc-Kette testen
-- [ ] Screenreader-Zusammenfassung der Schaltung + Live-Region Sim-Status
-- [ ] Link-Teilen (Schaltung als komprimierte URL)
-- [ ] Wizards 7 → ~12 (Filter, CE-Bias, 555-Rechner); Lehrer-Modus
-      (Werte/Faults verstecken, sperren); Beschreibungsbox mit Live-Werten
-- [ ] Grapher: Mess-Panel pro Kurve + Rechen-Postprozessor
-- [ ] Nested Sweep, Batched Analyses, Verzerrungs-Sweep
-- [ ] Farbblind-Verifikation; UI-Schriftgröße; Touch-Parcours (iPad)
-- [ ] Ungespeichert-Indikator + Crash-Recovery; Format-Migrationen testen
-- [ ] Stilführer Symbole (Raster/Strich/Palette); LCD/Bargraph/14-Segment;
-      Sensoren (NTC/LDR); WAV-Export
+- [x] S5.1 Canvas/editor/Instruments aufgeteilt (§46, PASS)
+- [x] S5.2 Inspector-Primitives + Zahlenformat (§46, PASS)
+- [x] S5.3 Tastatur-Platzieren + Esc-Kette (§46, PASS)
+- [x] S5.4 Screenreader-Zusammenfassung + Live-Region (§46, PASS)
+- [x] S5.5 Link-Teilen (§46, PASS)
+- [x] S5.6 Wizards/Lehrer-Modus/Beschreibungsbox (§46, PASS)
+- [x] S5.7 Grapher Mess-Panel + Postprozessor (§46, PASS)
+- [x] S5.8 Nested Sweep, Batched, THD-Sweep (§46, PASS)
+- [x] S5.9 W61-Fix (§46, PASS)
+- [x] S5.10 Fenster-Chrom einheitlich (§50, Nutzerwunsch 2026-10-05)
+- [ ] S5.11 Ungespeichert-Indikator + Crash-Recovery; Migrationen testen
+- [ ] S5.12 Farbblind-Verifikation; UI-Schriftgröße; Touch-Parcours
+- [ ] S5.13 Stilführer Symbole; 14-Segment/LCD; Sensoren (NTC/LDR); WAV-Export
+
+**Gemacht (Rest):**
+- S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
+  Kanon h-9/Icon-Kachel/xs-medium/Aktionen+Close); Instrumente, Bibliothek
+  (Radius 12→14, Kachel statt nacktem Icon, IconButton-Close) und Dialoge
+  (h-11→h-9, Border ergänzt, Titel xs/medium) nutzen dieselbe Quelle.
+  Verifikation: `tsc` ✅, `eslint` ✅, `npm test` ✅; Sichtprüfung Nutzer.
 
 ## Nicht-Ziele (bewusst)
 

@@ -3458,3 +3458,35 @@ der LCD-Root wurde durch `animation: none` im Drag-Schutz beim Lösen neu
 gestartet — derselbe Mechanismus wie das win-in-Blinzeln). Fix: Guard deckt
 nur noch Transitionen ab; Inventur zeigt keine Transform-Animation in Fenstern
 (rise/commit-ment-Nutzung nur außerhalb), Neutstart-Klasse damit erledigt.
+
+## §50 · Sprint 5 Rest (S5.10–S5.13, Plan + S5.10, 2026-10-05)
+
+S5.1–S5.9 aus §46 sind PASS; aus SPRINTS.md blieben drei Zeilen offen, dazu
+der Nutzerwunsch „Fenster alle uneinheitlich" (Go für den Audit-Rest am
+2026-10-05, inkl. Fenster-Paket).
+
+### 50.1 Plan
+
+- **S5.10 Fenster-Chrom** (Nutzerwunsch): eine Quelle für Hülle +
+  Titelleiste aller Fenster (Instrumente, Bibliothek, Dialoge).
+- **S5.11 Datensicherheit**: Ungespeichert-Indikator (`savePending` sichtbar),
+  Crash-Recovery (Autosave neuer als Datei → Angebot), Migrationen testen.
+- **S5.12 Zugang**: Farbblind-Verifikation (keine Rot/Grün-Allein-Codierung,
+  Kontraste), UI-Schriftgröße (Setting), Touch-Parcours (Lücken schließen;
+  iPad-Sichtprüfung durch Nutzer).
+- **S5.13 Bauteile/Medien**: Stilführer Symbole (Doku), 14-Segment-Anzeige
+  (+ LCD-Bauteil prüfen; sevenseg/bargraph existieren), Sensoren (NTC/LDR),
+  WAV-Export (Tran-Kurve → .wav).
+
+### 50.2 S5.10 Ergebnis
+
+Befund: 3 Chrom-Dialekte — Instrumente (h-9, Kachel, xs/medium, IconButton
+sm, Radius 14, Border), Bibliothek (h-9, nacktes 12-px-Icon, .btn-Close,
+Radius 12), Dialoge (h-11, sm/semibold-h2, IconButton md, kein Border).
+Fix: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL`, `WindowTitleBar` mit
+Icon-Kachel, Titel, Extra-, Aktions-Slot, Close; `grab` stoppt
+Pointer-Propagation für Aktionen zentral). Alle drei Besitzer migriert;
+Dialog-Panel hat jetzt Border, Dialog-Titel h-9/xs-medium. `role=dialog` +
+`aria-label` unverändert (kein A11y-Verlust durch h2→span).
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓. Sichtprüfung: Nutzer
+(kein Browser in der Sandbox).

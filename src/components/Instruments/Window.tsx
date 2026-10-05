@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap } from "lucide-react";
+import { Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, Zap } from "lucide-react";
 import dynamic from "next/dynamic";
 import { spectrum } from "@/lib/sim/fft";
 import { InstrumentKind, InstrumentWindow, WINDOW_SPECS, useEditor } from "@/state/editor";
 import { DeviceFit, PanelProbe, WindowFitContext, type NaturalMeasure } from "../DeviceFit";
-import { IconButton } from "../ui";
+import { IconButton, WINDOW_SHELL, WindowTitleBar } from "../ui";
 import { BENCH_PAD, CORNER_CURSOR, CORNER_STYLE, SCREEN_MARGIN, fitWindowSize, resizeRect, type Corner, type Rect, type Size } from "@/lib/windows/geometry";
 import { FgScopeLazy, OsziScopeLazy, grid , InspectorBody } from "./shared";
 import { FrequencyCounter, Multimeter, Wattmeter } from "./meters";
@@ -380,7 +380,7 @@ export function Window({ win }: { win: InstrumentWindow }) {
         ref={winRef}
         role="dialog"
         aria-label={win.title}
-        className="win-in pointer-events-auto absolute left-0 top-0 flex flex-col overflow-hidden rounded-window border border-hairline-strong bg-surface shadow-3 will-change-transform"
+        className={`win-in pointer-events-auto absolute left-0 top-0 will-change-transform ${WINDOW_SHELL}`}
         style={{
           transform: `translate3d(${win.x}px, ${win.y}px, 0)`,
           width: win.w,
@@ -389,32 +389,23 @@ export function Window({ win }: { win: InstrumentWindow }) {
         }}
         onPointerDown={() => focusInstrument(win.id)}
       >
-        <div
-          className="flex h-9 shrink-0 cursor-grab touch-none select-none items-center gap-2 border-b border-hairline pl-3 pr-1.5"
-          title="Ziehen (auch am Fensterhintergrund) bewegt das Fenster"
+        <WindowTitleBar
+          icon={iconFor(win.kind)}
+          title={win.title}
+          hint="Ziehen (auch am Fensterhintergrund) bewegt das Fenster"
+          grab
           onPointerDown={(e) => beginDrag(e)}
-        >
-          <span className="grid size-5 place-items-center rounded-control bg-accent/20 text-accent">
-            {iconFor(win.kind)}
-          </span>
-          <span className="flex-1 truncate text-xs font-medium text-ink">{win.title}</span>
-          <IconButton
-            size="sm"
-            aria-label={win.minimized ? "Wiederherstellen" : "Minimieren"}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}
-          >
-            <Minus size={14} />
-          </IconButton>
-          <IconButton
-            size="sm"
-            aria-label="Schließen"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => closeInstrument(win.id)}
-          >
-            <X size={14} />
-          </IconButton>
-        </div>
+          actions={
+            <IconButton
+              size="sm"
+              aria-label={win.minimized ? "Wiederherstellen" : "Minimieren"}
+              onClick={() => updateInstrument(win.id, { minimized: !win.minimized })}
+            >
+              <Minus size={14} />
+            </IconButton>
+          }
+          onClose={() => closeInstrument(win.id)}
+        />
         {!win.minimized && (
           <div
             ref={bodyRef}
