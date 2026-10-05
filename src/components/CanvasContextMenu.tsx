@@ -4,6 +4,7 @@ import { PART_MAP } from "@/lib/library/catalog";
 import type { MeasurementProbe, ProbeKind } from "@/lib/schematic/model";
 import { useEditor, wireJunctionCandidates } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
+import { PROBE_CSSVAR } from "@/lib/probe-style";
 import type { InlineEdit } from "./InlineEditor";
 
 export type CtxTarget =
@@ -69,23 +70,23 @@ export default function ContextMenu({
               <div className="ml-auto text-2xs px-1.5 py-0.5 rounded bg-black/30 text-ink-3">{inst?.rot}°</div>
             </div>
             <div className="grid grid-cols-3 gap-1 mb-1">
-              <button className="row justify-center" onClick={() => { st.rotateSelection(1); onClose(); }} title="Drehen 90° (R)">↻ 90°</button>
-              <button className="row justify-center" onClick={() => { st.rotateSelection(-1); onClose(); }} title={adaptShortcut("Drehen -90° (⇧R)", apple)}>↺ -90°</button>
-              <button className="row justify-center" onClick={() => { st.mirrorSelection(); onClose(); }} title="Spiegeln (M)">⇆ Spiegel</button>
+              <button className="ctx-row justify-center" onClick={() => { st.rotateSelection(1); onClose(); }} title="Drehen 90° (R)">↻ 90°</button>
+              <button className="ctx-row justify-center" onClick={() => { st.rotateSelection(-1); onClose(); }} title={adaptShortcut("Drehen -90° (⇧R)", apple)}>↺ -90°</button>
+              <button className="ctx-row justify-center" onClick={() => { st.mirrorSelection(); onClose(); }} title="Spiegeln (M)">⇆ Spiegel</button>
             </div>
-            <button className="row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>
-            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
-            <button className="row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘C", apple)}</span></button>
+            <button className="ctx-row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>
+            <button className="ctx-row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
+            <button className="ctx-row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘C", apple)}</span></button>
             {(() => {
               const selInst = doc.instances.filter((i) => st.selection.includes(i.id));
               if (selInst.length === 0) return null;
               return (
-                <button className="row" onClick={() => { st.openExtractDialog(selInst.map((i) => i.id)); onClose(); }} title="Auswahl als wiederverwendbares Bauteil speichern (S3.2)">
+                <button className="ctx-row" onClick={() => { st.openExtractDialog(selInst.map((i) => i.id)); onClose(); }} title="Auswahl als wiederverwendbares Bauteil speichern (S3.2)">
                   <span>⬢ Auswahl als Bauteil… ({selInst.length})</span>
                 </button>
               );
             })()}
-            <div className="sep" />
+            <div className="ctx-sep" />
             {(() => {
               const selInst = doc.instances.filter((i) => st.selection.includes(i.id));
               const n = selInst.length;
@@ -95,20 +96,20 @@ export default function ContextMenu({
                 <>
                   <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Anordnen – {n} Bauteile (W55)</div>
                   <div className="grid grid-cols-3 gap-1 mb-1">
-                    <button className="row justify-center text-2xs" onClick={() => act(() => st.alignSelection("left"))} title="Links ausrichten" aria-label="Links ausrichten">⇤ links</button>
-                    <button className="row justify-center text-2xs" onClick={() => act(() => st.alignSelection("centerH"))} title="Waagerecht mittig" aria-label="Waagerecht mittig">↔ Mitte</button>
-                    <button className="row justify-center text-2xs" onClick={() => act(() => st.alignSelection("right"))} title="Rechts ausrichten" aria-label="Rechts ausrichten">⇥ rechts</button>
-                    <button className="row justify-center text-2xs" onClick={() => act(() => st.alignSelection("top"))} title="Oben ausrichten" aria-label="Oben ausrichten">⇧ oben</button>
-                    <button className="row justify-center text-2xs" onClick={() => act(() => st.alignSelection("centerV"))} title="Senkrecht mittig" aria-label="Senkrecht mittig">↕ Mitte</button>
-                    <button className="row justify-center text-2xs" onClick={() => act(() => st.alignSelection("bottom"))} title="Unten ausrichten" aria-label="Unten ausrichten">⇩ unten</button>
+                    <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("left"))} title="Links ausrichten" aria-label="Links ausrichten">⇤ links</button>
+                    <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("centerH"))} title="Waagerecht mittig" aria-label="Waagerecht mittig">↔ Mitte</button>
+                    <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("right"))} title="Rechts ausrichten" aria-label="Rechts ausrichten">⇥ rechts</button>
+                    <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("top"))} title="Oben ausrichten" aria-label="Oben ausrichten">⇧ oben</button>
+                    <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("centerV"))} title="Senkrecht mittig" aria-label="Senkrecht mittig">↕ Mitte</button>
+                    <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("bottom"))} title="Unten ausrichten" aria-label="Unten ausrichten">⇩ unten</button>
                   </div>
                   {n >= 3 && (
                     <div className="grid grid-cols-2 gap-1 mb-1">
-                      <button className="row justify-center text-2xs" onClick={() => act(() => st.distributeSelection("h"))} title="Gleicher Abstand waagerecht" aria-label="Gleicher Abstand waagerecht">⇹ verteilen</button>
-                      <button className="row justify-center text-2xs" onClick={() => act(() => st.distributeSelection("v"))} title="Gleicher Abstand senkrecht" aria-label="Gleicher Abstand senkrecht">⇳ verteilen</button>
+                      <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.distributeSelection("h"))} title="Gleicher Abstand waagerecht" aria-label="Gleicher Abstand waagerecht">⇹ verteilen</button>
+                      <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.distributeSelection("v"))} title="Gleicher Abstand senkrecht" aria-label="Gleicher Abstand senkrecht">⇳ verteilen</button>
                     </div>
                   )}
-                  <div className="sep" />
+                  <div className="ctx-sep" />
                 </>
               );
             })()}
@@ -122,7 +123,7 @@ export default function ContextMenu({
               ].map(([f, label]) => (
                 <button
                   key={f || "none"}
-                  className="row text-2xs"
+                  className="ctx-row text-2xs"
                   data-active={curFault === f}
                   onClick={() => {
                     st.setParam(target.id, "__fault", f);
@@ -133,20 +134,20 @@ export default function ContextMenu({
                 </button>
               ))}
             </div>
-            <div className="sep" />
+            <div className="ctx-sep" />
             <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Messpunkt auf Netz{netLabel}</div>
             <div className="grid grid-cols-2 gap-1">
               {([
-                ["voltage","V","#fbbf24"],
-                ["current","A","#22d3ee"],
-                ["power","W","#a78bfa"],
-                ["digital","D","#4ade80"],
-              ] as const).map(([k, sym, col]) => (
-                <button key={k} className="row" onClick={() => addProbe(k as any)}><span className="badge" style={{ background: col+"20", color: col, borderColor: col+"40" }}>{sym}</span> {k}</button>
+                ["voltage","V","--warn"],
+                ["current","A","--teal"],
+                ["power","W","--violet"],
+                ["digital","D","--ok"],
+              ] as const).map(([k, sym, v]) => (
+                <button key={k} className="ctx-row" onClick={() => addProbe(k as any)}><span className="ctx-badge" style={{ background: `color-mix(in srgb, var(${v}) 15%, transparent)`, color: `var(${v})`, borderColor: `color-mix(in srgb, var(${v}) 30%, transparent)` }}>{sym}</span> {k}</button>
               ))}
             </div>
-            <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
+            <div className="ctx-sep" />
+            <button className="ctx-row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
           </>
         );
       })()}
@@ -162,7 +163,7 @@ export default function ContextMenu({
               </div>
             </div>
             <button
-              className="row"
+              className="ctx-row"
               onClick={() => {
                 if (lbl && onEdit) {
                   onEdit({ kind: "label", itemId: lbl.id, x: lbl.x, y: lbl.y, sx: menu.x, sy: menu.y, initial: lbl.name });
@@ -173,9 +174,9 @@ export default function ContextMenu({
               <span>Netzname ändern…</span>
               <span className="ml-auto text-2xs text-ink-3">Doppelklick</span>
             </button>
-            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
-            <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Label löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
+            <button className="ctx-row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
+            <div className="ctx-sep" />
+            <button className="ctx-row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Label löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
           </>
         );
       })()}
@@ -191,7 +192,7 @@ export default function ContextMenu({
               </div>
             </div>
             <button
-              className="row"
+              className="ctx-row"
               onClick={() => {
                 if (note && onEdit) {
                   onEdit({ kind: "text", itemId: note.id, x: note.x, y: note.y, sx: menu.x, sy: menu.y, initial: note.text });
@@ -202,9 +203,9 @@ export default function ContextMenu({
               <span>Notiz bearbeiten…</span>
               <span className="ml-auto text-2xs text-ink-3">Doppelklick</span>
             </button>
-            <button className="row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
-            <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Notiz löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
+            <button className="ctx-row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
+            <div className="ctx-sep" />
+            <button className="ctx-row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Notiz löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
           </>
         );
       })()}
@@ -214,12 +215,12 @@ export default function ContextMenu({
         return (
           <>
             <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1 bg-surface-2">
-              <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "#22d3ee20", border: "1px solid #22d3ee40" }}>∿</div>
+              <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "color-mix(in srgb, var(--teal) 15%, transparent)", border: "1px solid color-mix(in srgb, var(--teal) 30%, transparent)" }}>∿</div>
               <div className="min-w-0">
                 <div className="text-xs font-semibold">Leitung {target.id.slice(0,6)}</div>
                 <div className="text-2xs text-ink-3">{pts} Punkte • Netz {target.net ?? "?"}</div>
               </div>
-              <div className="ml-auto h-2 w-2 rounded-full" style={{ background: "#22d3ee", boxShadow: "0 0 6px #22d3ee" }} />
+              <div className="ml-auto h-2 w-2 rounded-full" style={{ background: "var(--teal)", boxShadow: "0 0 6px var(--teal)" }} />
             </div>
             <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Bearbeiten</div>
             {(() => {
@@ -232,19 +233,19 @@ export default function ContextMenu({
               }
               if (!near) return null;
               return (
-                <button className="row" onClick={() => { st.toggleJunction(wx, wy); onClose(); }} data-active={verbunden}>
+                <button className="ctx-row" onClick={() => { st.toggleJunction(wx, wy); onClose(); }} data-active={verbunden}>
                   <span>{verbunden ? "Verbindungspunkt entfernen" : "Verbindungspunkt setzen (Kreuzung verbinden)"}</span>
                 </button>
               );
             })()}
-            <button className="row" onClick={() => {
+            <button className="ctx-row" onClick={() => {
               st.setSelection([target.id]);
               st.straightenSelection();
               onClose();
             }}><span>Leitung begradigen (Raster + rechte Winkel)</span></button>
-            <div className="sep" />
+            <div className="ctx-sep" />
             <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Leitungsfarbe</div>
-            <button className="row" onClick={() => {
+            <button className="ctx-row" onClick={() => {
               const w = doc.wires.find(x=>x.id===target.id);
               if (!w) return;
               st.commit((d)=>{
@@ -324,65 +325,65 @@ export default function ContextMenu({
                 </button>
               ))}
             </div>
-            <div className="sep" />
+            <div className="ctx-sep" />
             <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Messpunkt setzen</div>
             <div className="grid grid-cols-2 gap-1">
               {([
-                ["voltage","V – Spannung","#fbbf24"],
-                ["current","A – Strom","#22d3ee"],
-                ["power","W – Leistung","#a78bfa"],
-                ["diff","ΔV – Diff","#f472b6"],
-                ["digital","D – Digital","#4ade80"],
-              ] as const).map(([k, label, col]) => (
-                <button key={k} className="row" onClick={() => addProbe(k as any)}>
-                  <span className="badge" style={{ background: col+"20", color: col, borderColor: col+"40" }}>{k==="diff"?"ΔV":k[0].toUpperCase()}</span> {label}
+                ["voltage","V – Spannung","--warn"],
+                ["current","A – Strom","--teal"],
+                ["power","W – Leistung","--violet"],
+                ["diff","ΔV – Diff","--err"],
+                ["digital","D – Digital","--ok"],
+              ] as const).map(([k, label, v]) => (
+                <button key={k} className="ctx-row" onClick={() => addProbe(k as any)}>
+                  <span className="ctx-badge" style={{ background: `color-mix(in srgb, var(${v}) 15%, transparent)`, color: `var(${v})`, borderColor: `color-mix(in srgb, var(${v}) 30%, transparent)` }}>{k==="diff"?"ΔV":k[0].toUpperCase()}</span> {label}
                 </button>
               ))}
             </div>
-            <div className="sep" />
-            <button className="row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Leitung löschen</span></button>
+            <div className="ctx-sep" />
+            <button className="ctx-row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Leitung löschen</span></button>
           </>
         );
       })()}
       {target.kind === "probe" && (
         <>
           <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1 bg-surface-2">
-            <div className="h-7 w-7 rounded-md grid place-items-center text-xs font-bold" style={{ background: (target.probe.color??"#fbbf24")+"20", color: target.probe.color??"#fbbf24", border: `1px solid ${(target.probe.color??"#fbbf24")}40` }}>{target.probe.kind[0].toUpperCase()}</div>
+            <div className="h-7 w-7 rounded-md grid place-items-center text-xs font-bold" style={(() => { const pc = target.probe.color; if (pc) return { background: pc+"20", color: pc, border: `1px solid ${pc}40` }; const pv = `var(${PROBE_CSSVAR[target.probe.kind] ?? "--warn"})`; return { background: `color-mix(in srgb, ${pv} 15%, transparent)`, color: pv, border: `1px solid color-mix(in srgb, ${pv} 30%, transparent)` }; })()}>{target.probe.kind[0].toUpperCase()}</div>
             <div className="min-w-0">
               <div className="text-xs font-semibold truncate">{target.probe.name ?? target.probe.kind.toUpperCase()} Probe</div>
               <div className="text-2xs text-ink-3 truncate">Netz {target.probe.net ?? target.net ?? "auto"}{netLabel}</div>
             </div>
           </div>
-          <button className="row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>
+          <button className="ctx-row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>
           {(target.probe.kind==="current" || target.probe.kind==="voltage_current" || target.probe.kind==="power") && (
-            <button className="row" onClick={() => { st.updateMeasurementProbe(target.id, { direction: target.probe.direction?0:1 }); onClose(); }}><span>↺ Richtung umkehren</span><span className="ml-auto text-2xs text-ink-3">{target.probe.direction? "Reverse":"Normal"}</span></button>
+            <button className="ctx-row" onClick={() => { st.updateMeasurementProbe(target.id, { direction: target.probe.direction?0:1 }); onClose(); }}><span>↺ Richtung umkehren</span><span className="ml-auto text-2xs text-ink-3">{target.probe.direction? "Reverse":"Normal"}</span></button>
           )}
-          <div className="sep" />
+          <div className="ctx-sep" />
           <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Typ ändern</div>
           <div className="grid grid-cols-1 gap-0.5">
           {([
-            ["voltage","V – Spannung (gegen GND/REF)","#fbbf24"],
-            ["current","A – Strom","#22d3ee"],
-            ["voltage_current","V·A – Kombi","#f59e0b"],
-            ["power","W – Leistung V·I","#a78bfa"],
-            ["diff","ΔV – Differenzspannung","#f472b6"],
-            ["ref","REF – Referenz","#94a3b8"],
-            ["digital","D – Digital 0/1","#4ade80"],
-          ] as const).map(([k, desc, col]) => (
-            <button key={k} className="row" data-active={target.probe.kind===k} onClick={() => { st.updateMeasurementProbe(target.id, { kind: k as any }); onClose(); }}><span className="badge" style={{ background: col+"20", color: col }}>{k[0].toUpperCase()}</span><span className="flex-1 truncate">{desc}</span></button>
+            ["voltage","V – Spannung (gegen GND/REF)","--warn"],
+            ["current","A – Strom","--teal"],
+            ["voltage_current","V·A – Kombi","--warn"],
+            ["power","W – Leistung V·I","--violet"],
+            ["diff","ΔV – Differenzspannung","--err"],
+            ["ref","REF – Referenz","--ink-3"],
+            ["digital","D – Digital 0/1","--ok"],
+          ] as const).map(([k, desc, v]) => (
+            <button key={k} className="ctx-row" data-active={target.probe.kind===k} onClick={() => { st.updateMeasurementProbe(target.id, { kind: k as any }); onClose(); }}><span className="ctx-badge" style={{ background: `color-mix(in srgb, var(${v}) 15%, transparent)`, color: `var(${v})` }}>{k[0].toUpperCase()}</span><span className="flex-1 truncate">{desc}</span></button>
           ))}
           </div>
-          <div className="sep" />
+          <div className="ctx-sep" />
           <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Referenz (für V/Diff/Power)</div>
-          <button className="row" data-active={!target.probe.ref || target.probe.ref==="0"} onClick={()=> { st.updateMeasurementProbe(target.id,{ref:"0"}); onClose(); }}>GND (0) – Standard</button>
+          <button className="ctx-row" data-active={!target.probe.ref || target.probe.ref==="0"} onClick={()=> { st.updateMeasurementProbe(target.id,{ref:"0"}); onClose(); }}>GND (0) – Standard</button>
           {st.doc.probes.filter(pr=> pr.kind==="ref" && pr.id!==target.id).map(pr=> (
-            <button key={pr.id} className="row" data-active={target.probe.ref===pr.id} onClick={()=> { st.updateMeasurementProbe(target.id,{ref:pr.id}); onClose(); }}><span className="truncate">REF {pr.name ?? pr.id.slice(0,6)} ({pr.net ?? "auto"})</span></button>
+            <button key={pr.id} className="ctx-row" data-active={target.probe.ref===pr.id} onClick={()=> { st.updateMeasurementProbe(target.id,{ref:pr.id}); onClose(); }}><span className="truncate">REF {pr.name ?? pr.id.slice(0,6)} ({pr.net ?? "auto"})</span></button>
           ))}
-          <div className="sep" />
+          <div className="ctx-sep" />
           <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Anzeige</div>
-          <button className="row" onClick={()=> { st.updateMeasurementProbe(target.id,{periodic:!target.probe.periodic}); onClose(); }}><span>{target.probe.periodic?"☐ Periodic aus – nur DC":"☑ Periodic an – RMS/Vpp/Freq"}</span></button>
-          <div className="sep" />
-          <button className="row danger" onClick={() => { st.removeMeasurementProbe(target.id); onClose(); }}><span>Probe löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
+          <button className="ctx-row" onClick={()=> { st.updateMeasurementProbe(target.id,{periodic:!target.probe.periodic}); onClose(); }}><span>{target.probe.periodic?"☐ Periodic aus – nur DC":"☑ Periodic an – RMS/Vpp/Freq"}</span></button>
+          <div className="ctx-sep" />
+          <button className="ctx-row danger" onClick={() => { st.removeMeasurementProbe(target.id); onClose(); }}><span>Probe löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
         </>
       )}
       {target.kind === "empty" && (
@@ -394,47 +395,47 @@ export default function ContextMenu({
               <div className="text-2xs text-ink-3">Netz {target.net ?? "–"} • {doc.instances.length} Bauteile</div>
             </div>
           </div>
-          {st.clipboard && <button className="row" onClick={() => { st.pasteClipboard(); onClose(); }}><span>Einfügen</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘V", apple)}</span></button>}
-          <button className="row" onClick={() => { st.setTool("label" as any); onClose(); }}><span>Netzname hinzufügen</span><span className="ml-auto text-2xs text-ink-3">L</span></button>
-          <button className="row" onClick={() => { st.setTool("text" as any); onClose(); }}><span>Notiz hinzufügen</span><span className="ml-auto text-2xs text-ink-3">T</span></button>
-          <div className="sep" />
+          {st.clipboard && <button className="ctx-row" onClick={() => { st.pasteClipboard(); onClose(); }}><span>Einfügen</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘V", apple)}</span></button>}
+          <button className="ctx-row" onClick={() => { st.setTool("label" as any); onClose(); }}><span>Netzname hinzufügen</span><span className="ml-auto text-2xs text-ink-3">L</span></button>
+          <button className="ctx-row" onClick={() => { st.setTool("text" as any); onClose(); }}><span>Notiz hinzufügen</span><span className="ml-auto text-2xs text-ink-3">T</span></button>
+          <div className="ctx-sep" />
           <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Messpunkt setzen</div>
           <div className="grid grid-cols-2 gap-1">
           {([
-            ["voltage","V","#fbbf24"],
-            ["current","A","#22d3ee"],
-            ["power","W","#a78bfa"],
-            ["diff","ΔV","#f472b6"],
-            ["digital","D","#4ade80"],
-          ] as const).map(([k, sym, col]) => (
-            <button key={k} className="row" onClick={() => addProbe(k as any)}>
-              <span className="badge" style={{ background: col+"20", color: col, borderColor: col+"40" }}>{sym}</span> {k}
+            ["voltage","V","--warn"],
+            ["current","A","--teal"],
+            ["power","W","--violet"],
+            ["diff","ΔV","--err"],
+            ["digital","D","--ok"],
+          ] as const).map(([k, sym, v]) => (
+            <button key={k} className="ctx-row" onClick={() => addProbe(k as any)}>
+              <span className="ctx-badge" style={{ background: `color-mix(in srgb, var(${v}) 15%, transparent)`, color: `var(${v})`, borderColor: `color-mix(in srgb, var(${v}) 30%, transparent)` }}>{sym}</span> {k}
             </button>
           ))}
           </div>
-          <div className="sep" />
+          <div className="ctx-sep" />
           <div className="grid grid-cols-2 gap-1">
-            <button className="row justify-center" onClick={() => { st.fitView(); onClose(); }}><span>⛶ Einpassen</span><span className="ml-auto text-2xs text-ink-3">F</span></button>
-            <button className="row justify-center" onClick={() => { st.toggleLibrary(); onClose(); }}><span>Bibliothek</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘K", apple)}</span></button>
+            <button className="ctx-row justify-center" onClick={() => { st.fitView(); onClose(); }}><span>⛶ Einpassen</span><span className="ml-auto text-2xs text-ink-3">F</span></button>
+            <button className="ctx-row justify-center" onClick={() => { st.toggleLibrary(); onClose(); }}><span>Bibliothek</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘K", apple)}</span></button>
           </div>
           <div className="grid grid-cols-2 gap-1 mt-1">
-            <button className="row justify-center" onClick={() => { useEditor.setState({ showGrid: !st.showGrid }); onClose(); }}><span>{st.showGrid?"☑":"☐"} Grid</span></button>
-            <button className="row justify-center" onClick={() => { st.toggleCurrentFlow(); onClose(); }}><span>{st.showCurrentFlow?"☑":"☐"} Strom</span></button>
+            <button className="ctx-row justify-center" onClick={() => { useEditor.setState({ showGrid: !st.showGrid }); onClose(); }}><span>{st.showGrid?"☑":"☐"} Grid</span></button>
+            <button className="ctx-row justify-center" onClick={() => { st.toggleCurrentFlow(); onClose(); }}><span>{st.showCurrentFlow?"☑":"☐"} Strom</span></button>
           </div>
         </>
       )}
-      <div className="sep" />
-      <button className="row muted justify-center" onClick={onClose}><span>Schließen</span><span className="ml-auto text-2xs text-ink-3">Esc</span></button>
+      <div className="ctx-sep" />
+      <button className="ctx-row muted justify-center" onClick={onClose}><span>Schließen</span><span className="ml-auto text-2xs text-ink-3">Esc</span></button>
 
       <style>{`
-        .row { display:flex; width:100%; align-items:center; gap:8px; border-radius:8px; padding:7px 10px; text-align:left; transition: all 0.12s ease; }
-        .row:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); transform: translateX(1px); }
-        .row[data-active=true] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); }
-        .row.danger { color: var(--err); }
-        .row.danger:hover { background: color-mix(in srgb, var(--err) 12%, transparent); }
-        .row.muted { color: var(--ink-3); }
-        .sep { height:1px; margin:6px 0; background: var(--hairline); }
-        .badge { display:grid; place-items:center; width:22px; height:22px; border-radius:6px; border:1px solid var(--hairline); background: var(--surface-2); font-size:10px; font-weight:700; }
+        .ctx-row { display:flex; width:100%; align-items:center; gap:8px; border-radius:8px; padding:7px 10px; text-align:left; transition: all 0.12s ease; }
+        .ctx-row:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); transform: translateX(1px); }
+        .ctx-row[data-active=true] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); }
+        .ctx-row.danger { color: var(--err); }
+        .ctx-row.danger:hover { background: color-mix(in srgb, var(--err) 12%, transparent); }
+        .ctx-row.muted { color: var(--ink-3); }
+        .ctx-sep { height:1px; margin:6px 0; background: var(--hairline); }
+        .ctx-badge { display:grid; place-items:center; width:22px; height:22px; border-radius:6px; border:1px solid var(--hairline); background: var(--surface-2); font-size:10px; font-weight:700; }
       `}</style>
     </div>
   );

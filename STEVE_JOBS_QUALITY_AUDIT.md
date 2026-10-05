@@ -3616,3 +3616,22 @@ Aufbau 4 ms, OP 42 ms, Sweep 2 ms; manuell, nicht in `npm test`).
 E2E-Geräte + Canvas-60-fps bleiben Nutzer-Parcours (Sandbox headless).
 Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
 (sprint5resttest: 25 — Hex-Lint, CSS-Guards, inkOn-Tabelle).
+
+## §55 · S5.16 Ergebnis (Steve-Theorie-Sweep, Nutzerfrage 2026-10-05)
+
+Frage: Sind Buttons/Fenster/Bedienung wenigstens in der Theorie einheitlich?
+Sweep über alle ~330 `onClick`-Stellen + Menüs + Dialog-Schalen (statisch,
+Sandbox headless): Kanon intakt — `.btn` (100×, echte Klasse), `.tab`,
+`.tree-row`, ToolButton/ToolGroup, ui/Menu mit Pfeil-Navigation (37× Desktop),
+alle 10 Dialog/Fenster-Dateien aus ui-Schale (Dialog/ModalShell/WindowChrome
+mit Esc + Fokus-Falle + role), Geräte-Skins (Oszi/FG) als legitime Ausnahme,
+lokale Dialekte (Segmented, Nav, Tiles, Zoom, Pillen) jeweils in sich stimmig.
+6 Befunde, alle gefixt: PartEditor-Fix-Rot (`#f87171` → `text-err`/`btn-danger`/
+`bg-err`, nur VCC-Canvas bleibt); Wahrheitstabellen-Weiß auf `--ok` (→
+`--accent-ink`, dunkles Theme); Sonden-Badges (4 Tabellen) + Leitungs-Header
+von Fix-Hex auf Sonden-Theme-Variablen (helles Theme zeigte andere Farben als
+die Sonden-Boxen); `.row/.badge/.sep` waren globale Klassennamen → `.ctx-*`;
+BottomSheet ohne Esc (→ Listener wie ModalShell).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 28 — TSX-Farb-Guards, Dialog-Einheitlichkeit, Bedien-Guards).
+Offen bleibt der echte Klick-Durchgang im Browser (E2E-Nutzer-Parcours).

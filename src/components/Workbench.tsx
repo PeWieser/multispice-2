@@ -151,6 +151,13 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
 }
 
 function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; height?: string }) {
+  // S5.16: Esc schließt (wie ModalShell) — BottomSheet ist eigenes Chrom.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-modal flex flex-col justify-end" role="dialog" aria-modal="true" aria-label={title}>

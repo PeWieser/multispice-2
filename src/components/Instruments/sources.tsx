@@ -187,7 +187,7 @@ export function LogicConverter({ win }: { win: InstrumentWindow }) {
           return (
             <div key={r} className="grid items-center" style={{ gridTemplateColumns: `repeat(${inputs}, 24px) 32px` }}>
               {bits.split("").map((b,i)=> <span key={i} className="text-center mono">{b}</span>)}
-              <button className="h-6 rounded text-2xs font-bold" style={{ background: table[r] ? "var(--ok)" : "var(--surface)", color: table[r] ? "#fff" : "var(--ink-3)", border: "1px solid var(--hairline)" }} onClick={()=>{
+              <button className="h-6 rounded text-2xs font-bold" style={{ background: table[r] ? "var(--ok)" : "var(--surface)", color: table[r] ? "var(--accent-ink)" : "var(--ink-3)", border: "1px solid var(--hairline)" }} onClick={()=>{
                 const nt = [...table];
                 nt[r] = nt[r] ? 0 : 1;
                 set({ table: nt });

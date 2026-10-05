@@ -551,7 +551,61 @@ async function main() {
     ok("S5.15c inkOn");
   }
 
-  console.log("sprint5resttest: 25 checks OK");
+  // ---------- S5.16a: TSX-Farb-Guards (Palette = einzige Ausnahme) ----------
+  {
+    const ctx = fs.readFileSync("src/components/CanvasContextMenu.tsx", "utf8");
+    // Einziges Fix-Hex: die Draht-Farbpalette (der Inhalt selbst).
+    const PALETTE = new Set(["#ef4444", "#22c55e", "#3b82f6", "#fbbf24", "#a78bfa", "#ec4899"]);
+    for (const m of ctx.matchAll(/#[0-9a-fA-F]{6}/g)) {
+      assert.ok(PALETTE.has(m[0]), `Kontextmenü: Hex außerhalb der Palette: ${m[0]}`);
+    }
+    const pe = fs.readFileSync("src/components/PartEditorDialog.tsx", "utf8");
+    const vcc = pe.split("\n").filter((l) => l.includes("#f87171"));
+    assert.equal(vcc.length, 1, "nur noch VCC-Canvas-Farbe");
+    assert.ok(vcc[0].includes("vcc:"), "VCC-Zeile");
+    const src = fs.readFileSync("src/components/Instruments/sources.tsx", "utf8");
+    assert.ok(!src.includes('"#fff"'), "kein Fix-Weiß auf --ok");
+    ok("S5.16a TSX-Farb-Guards");
+  }
+
+  // ---------- S5.16b: Dialog-Einheitlichkeit (alle aus einer Quelle) ----------
+  {
+    const SHELLED = [
+      "src/components/AnalysisDialog.tsx",
+      "src/components/ExtractPartDialog.tsx",
+      "src/components/PartEditorDialog.tsx",
+      "src/components/ProjectsDialog.tsx",
+      "src/components/SettingsDialog.tsx",
+      "src/components/WizardsDialog.tsx",
+      "src/components/ShortcutSheet.tsx",
+      "src/components/oszi2/HelpOverlay.tsx",
+      "src/components/Instruments/Window.tsx",
+      "src/components/LibraryPalette.tsx",
+    ];
+    for (const f of SHELLED) {
+      const c = fs.readFileSync(f, "utf8");
+      const usesUi = c.includes('"./ui"') || c.includes('"../ui"') || c.includes("@/components/ui")
+        || c.includes("ui/Dialog") || c.includes("ui/WindowChrome");
+      assert.ok(usesUi, `${f} nutzt keine ui-Schale`);
+    }
+    ok("S5.16b Dialog-Einheitlichkeit");
+  }
+
+  // ---------- S5.16c: Bedien-Guards (Esc, Rollen, kein globaler .row-Leak) ----------
+  {
+    const dlg = fs.readFileSync("src/components/ui/Dialog.tsx", "utf8");
+    assert.ok(dlg.includes('role="dialog"'), "ModalShell: role");
+    assert.ok(dlg.includes('"Escape"') || dlg.includes("'Escape'"), "ModalShell: Esc");
+    assert.ok(dlg.includes("useFocusTrap") || dlg.includes("FOCUSABLE"), "ModalShell: Fokus-Falle");
+    const wb = fs.readFileSync("src/components/Workbench.tsx", "utf8");
+    assert.ok(wb.includes("BottomSheet") && wb.includes("onClose"), "BottomSheet existiert");
+    const ctx = fs.readFileSync("src/components/CanvasContextMenu.tsx", "utf8");
+    assert.ok(!ctx.includes(".row {") && !ctx.includes('className="row"') && !ctx.includes('className="row '), "kein globaler .row-Leak");
+    assert.ok(ctx.includes(".ctx-row {"), "ctx-Scope vorhanden");
+    ok("S5.16c Bedien-Guards");
+  }
+
+  console.log("sprint5resttest: 28 checks OK");
 }
 
 main().catch((e) => {

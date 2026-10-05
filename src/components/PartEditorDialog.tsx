@@ -693,7 +693,7 @@ function SymbolCanvasEditor({
           {selectedPrimIdx !== null && (
             <button
               type="button"
-              className="btn h-6 gap-1 px-2 text-2xs text-[#f87171]"
+              className="btn btn-danger h-6 gap-1 px-2 text-2xs"
               onClick={() => {
                 const next = ensureEditableSymbol().filter((_, i) => i !== selectedPrimIdx);
                 onUpdateSymbol(next);
@@ -814,7 +814,7 @@ function SymbolCanvasEditor({
                     onUpdateSymbol(next);
                     if (selectedPrimIdx === idx) setSelectedPrimIdx(null);
                   }}
-                  className="text-ink-3 hover:text-[#f87171]"
+                  className="text-ink-3 hover:text-err"
                   title="Element entfernen"
                 >
                   <Trash2 size={11} />
@@ -1401,7 +1401,7 @@ export default function PartEditorDialog({
                           <button
                             type="button"
                             onClick={() => setSubcircuit((prev) => prev.filter((_, i) => i !== idx))}
-                            className="ml-1 grid h-6 w-6 place-items-center rounded text-ink-3 hover:text-[#f87171]"
+                            className="ml-1 grid h-6 w-6 place-items-center rounded text-ink-3 hover:text-err"
                             title="Bauteil aus Innenschaltung löschen" aria-label="Bauteil aus Innenschaltung löschen"
                           >
                             <Trash2 size={12} />
@@ -1627,7 +1627,7 @@ export default function PartEditorDialog({
                       type="button"
                       disabled={pins.length <= 2}
                       onClick={() => setPins((prev) => prev.filter((_, i) => i !== idx))}
-                      className="grid h-7 w-7 place-items-center rounded text-ink-3 hover:text-[#f87171] disabled:opacity-30"
+                      className="grid h-7 w-7 place-items-center rounded text-ink-3 hover:text-err disabled:opacity-30"
                       title="Pin entfernen" aria-label="Pin entfernen"
                     >
                       <Trash2 size={12} />
@@ -1665,7 +1665,7 @@ export default function PartEditorDialog({
                   <span className="h-2 w-2 rounded-full bg-[#f59e0b]" /> OUT
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-[#f87171]" /> VCC
+                  <span className="h-2 w-2 rounded-full bg-err" /> VCC
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full bg-[#4ade80]" /> GND
@@ -1745,7 +1745,7 @@ export default function PartEditorDialog({
                     <button
                       type="button"
                       onClick={() => setCustomParams((prev) => prev.filter((_, i) => i !== idx))}
-                      className="grid h-7 w-7 place-items-center text-ink-3 hover:text-[#f87171]"
+                      className="grid h-7 w-7 place-items-center text-ink-3 hover:text-err"
                     >
                       <Trash2 size={12} />
                     </button>
@@ -1812,7 +1812,7 @@ export default function PartEditorDialog({
                         </button>
                         <button
                           type="button"
-                          className="btn h-6 px-1.5 text-2xs text-[#f87171]"
+                          className="btn btn-danger h-6 px-1.5 text-2xs"
                           onClick={() => setSavedParts(deleteCustomPart(sp.id))}
                           title="Aus Bibliothek löschen" aria-label="Aus Bibliothek löschen"
                         >
