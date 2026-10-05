@@ -11,7 +11,6 @@ import ComponentStrip from "./ComponentStrip";
 import DrawingTools from "./DrawingTools";
 import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
-import FirstRunSpotlight from "./FirstRunSpotlight";
 import ScreenReaderStatus from "./ScreenReaderStatus";
 import { engine, useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
@@ -430,7 +429,6 @@ export default function Workbench() {
         )}
         <ExtractPartDialog />
         <UndoToast />
-      <FirstRunSpotlight />
       <PrintSheet />
       </div>
     );
@@ -469,7 +467,6 @@ export default function Workbench() {
         )}
         <ExtractPartDialog />
         <UndoToast />
-      <FirstRunSpotlight />
       <PrintSheet />
       </div>
     );
@@ -518,7 +515,6 @@ export default function Workbench() {
       )}
       <ExtractPartDialog />
       <UndoToast />
-      <FirstRunSpotlight />
       <PrintSheet />
     </div>
   );
