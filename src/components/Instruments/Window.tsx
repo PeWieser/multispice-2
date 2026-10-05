@@ -197,6 +197,11 @@ export function Window({ win }: { win: InstrumentWindow }) {
       }
     };
     const clearDragFlag = () => {
+      const el = winRef.current;
+      // Eintritts-Animation („win-in") endgültig abstreifen: Sie ist beim
+      // Öffnen längst abgespielt — ließe man sie dran, würde das Lösen von
+      // data-windrag sie neu starten (Fenster blinzelt kurz aus und ein).
+      el?.classList.remove("win-in");
       // CSS-Schutz erst nach dem nächsten Paint lösen (Commit ist dann sichtbar).
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {

@@ -3446,3 +3446,9 @@ dem Zeiger tastenlos zu folgen; (3) Drag-Start setzt allen Pending-Status
 zurück (kein Klick-ohne-Zug auf alten Werten); (4) `data-windrag`-CSS schaltet
 Transition/Animation am Fenster während Zug + 1 Frame nach Commit ab.
 Verifikation durch den Nutzer steht aus.
+
+Nachtrag (2026-10-05): Nutzer meldet Positions-Blitz als BEHOBEN, Bibliothek
+perfekt — aber Gerätefenster blinzelten nach dem Loslassen kurz aus/ein.
+Ursache: Lösen von `data-windrag` startete die `win-in`-Eintritts-Animation
+(Opacity) neu. Fix: `win-in`-Klasse wird beim Loslassen synchron abgestreift
+(Eintritt längst abgespielt) — Schutz + Commit-Logik unverändert.
