@@ -3490,3 +3490,23 @@ Dialog-Panel hat jetzt Border, Dialog-Titel h-9/xs-medium. `role=dialog` +
 `aria-label` unverändert (kein A11y-Verlust durch h2→span).
 Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓. Sichtprüfung: Nutzer
 (kein Browser in der Sandbox).
+
+### 50.3 S5.11 Ergebnis (Datensicherheit, 2026-10-05)
+
+Befund (4 echte Lücken): (1) `void autoSaveToBoundFile` — Datei-Ergebnis
+verworfen, gebundene Datei konnte still veralten; (2) kein Speicher-Zustand
+sichtbar (savePending/lastSavedAt nirgends angezeigt); (3) keine Backup-
+Generation — korrupte Arbeitskopie (Crash mitten im Schreiben) = still
+leeres Dokument; Desktop-`writeFileSync` (AppData + Projektdatei) nicht
+atomar, korrupte AppData fiel auf `{}` = Totalverlust; (4) `migrateDoc`
+ungetestet. Kein Start-Konflikt nötig: Desktop startet nie mit Datei,
+Share-Hash-Entscheid (S5.5) bleibt.
+Fix: `saveHealth { local, file }` im Store (Auto-Save + manuelles Speichern
+pflegen; nur Zustandswechsel loggen); Download-Fallback meldet
+`viaDownload` (bindet nicht → nie „ok"); Status-Chip + `•`-Titel (Web:
+Workbench-Effekt; Desktop: `DesktopTitleBar showSaveState`, auch Taskleiste);
+localStorage-Rotation + `.prev`-Fallback (`fromBackup`-Warnung); AppData
+`.bak` + Backup-Read; `desktop/atomic.cjs` (Tmp+Rename) für AppData +
+Datei-Speichern (kein `.bak` beim Nutzer: Crash → alt ODER neu).
+Verifikation: `scripts/sprint5resttest.ts` (9 Checks) in `npm test`;
+`tsc` ✓, `eslint` ✓, Suite ✓, `node --check` ✓.

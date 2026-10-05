@@ -23,6 +23,23 @@ import type { InstrumentWindow } from "../types";export function createStorageSl
         }
         const wasBound = hasActiveSaveTarget();
         const fileRes = await saveProjectToFile(next, get().instruments, { saveAs: opts?.saveAs });
+        // S5.11: Speicher-Status ehrlich nachführen (Abbruch behält den Stand).
+        if (!fileRes.canceled) {
+          const bound = hasActiveSaveTarget();
+          // S5.11: „ok" heißt GEBUNDEN + aktuell. Ein Download bindet nicht
+          // (kein Datei-Auto-Save danach) — bei bestehender Bindung bleibt der
+          // Stand „stale", weil die gebundene Datei nicht geschrieben wurde.
+          const file = fileRes.ok
+            ? fileRes.viaDownload
+              ? bound
+                ? "stale"
+                : "none"
+              : "ok"
+            : bound
+              ? "stale"
+              : "none";
+          set({ saveHealth: { local: ok ? "ok" : "error", file } });
+        }
         if (fileRes.ok) {
           const label = fileRes.targetName ?? getActiveSaveTargetLabel() ?? `${next.name}.msx.json`;
           if (!wasBound || opts?.saveAs) {
@@ -51,6 +68,9 @@ import type { InstrumentWindow } from "../types";export function createStorageSl
         if (!sheets.length) sheets.push({ id: first.id, name: first.name, doc: first });
         const stored = loadProjectLocal();
         if (stored) {
+          if (stored.fromBackup) {
+            get().log("warn", "Arbeitskopie war beschädigt — Stand aus der Sicherungskopie wiederhergestellt.");
+          }
           const doc = stored.doc as any;
           if (!Array.isArray(doc.probes)) doc.probes = [];
           // W72: Der wiederhergestellte Stand ist der erste Entwurf in der Dateileiste.

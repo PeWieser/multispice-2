@@ -204,6 +204,8 @@ export default function Workbench() {
   const [partEditorOpen, setPartEditorOpen] = useState(false);
   const [partEditorInitialId, setPartEditorInitialId] = useState<string | undefined>(undefined);
   const docName = useEditor((s) => s.doc.name);
+  const titleSavePending = useEditor((s) => s.savePending);
+  const titleSaveHealth = useEditor((s) => s.saveHealth);
 
   useEffect(() => {
     const onOpenStudio = (ev: Event) => {
@@ -284,6 +286,15 @@ export default function Workbench() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", resolved);
   }, [resolved]);
+
+  // S5.11: Browser-Tab trägt Entwurfsname + Ungespeichert-Punkt (Desktop:
+  // DesktopTitleBar besitzt den Titel; Kindfenster haben eigene Titel).
+  useEffect(() => {
+    if (isDesktopRuntime) return;
+    if (typeof window === "undefined" || window.location.search.includes("desktopWindow=")) return;
+    const dirty = titleSavePending || titleSaveHealth.local === "error" || titleSaveHealth.file === "stale";
+    document.title = `${dirty ? "• " : ""}${docName || "Unbenannt"} – MultiSpice`;
+  }, [isDesktopRuntime, docName, titleSavePending, titleSaveHealth]);
 
   useEffect(() => {
     loadCustomParts();
@@ -482,7 +493,9 @@ export default function Workbench() {
         Zum Schaltplan springen
       </a>
       <ScreenReaderStatus />
-      {isDesktopRuntime && <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} />}
+      {isDesktopRuntime && (
+        <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} showSaveState />
+      )}
       <header className="contents">
       <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
       <ComponentStrip tools={<DrawingTools />} />

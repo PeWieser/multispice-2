@@ -5,7 +5,7 @@ import type { EditorState } from "./types";
 import type { SchematicDoc } from "@/lib/schematic/model";
 import { initialState } from "./initial";
 import { engine } from "./shared";
-import { autoSaveToBoundFile, saveProjectLocal } from "@/lib/storage";
+import { autoSaveToBoundFile, hasActiveSaveTarget, saveProjectLocal } from "@/lib/storage";
 import { createHistorySlice } from "./slices/history";
 import { createPlacementSlice } from "./slices/placement";
 import { createEditSlice } from "./slices/edit";
@@ -35,9 +35,36 @@ export function scheduleAutosave() {
     autosaveTimer = null;
     const { doc, instruments, log } = useEditor.getState();
     const { ok } = saveProjectLocal(doc, instruments);
-    void autoSaveToBoundFile(doc, instruments);
-    useEditor.setState({ savePending: false, ...(ok ? { lastSavedAt: Date.now() } : {}) });
+    const prevHealth = useEditor.getState().saveHealth;
+    useEditor.setState({
+      savePending: false,
+      saveHealth: { local: ok ? "ok" : "error", file: prevHealth.file },
+      ...(ok ? { lastSavedAt: Date.now() } : {}),
+    });
     if (!ok) log("warn", "Auto-Save fehlgeschlagen (Speicher voll?) — Projekt bitte per Export JSON sichern.");
+    // S5.11: Das Datei-Ergebnis wurde bisher still verworfen (void) — die
+    // gebundene Datei konnte unbemerkt veralten. Jetzt: Status pflegen, nur
+    // bei ZustandsWECHSEL loggen (kein Warn-Spam pro Tastenschlag).
+    void (async () => {
+      if (!hasActiveSaveTarget()) {
+        const cur = useEditor.getState().saveHealth;
+        if (cur.file !== "none") useEditor.setState({ saveHealth: { ...cur, file: "none" } });
+        return;
+      }
+      const fileOk = await autoSaveToBoundFile(doc, instruments);
+      const cur = useEditor.getState().saveHealth;
+      const next = fileOk ? "ok" : "stale";
+      if (cur.file === next) return;
+      useEditor.setState({ saveHealth: { ...cur, file: next } });
+      if (fileOk) {
+        if (cur.file === "stale") log("ok", "Datei-Auto-Save schreibt wieder — gebundene Datei ist aktuell.");
+      } else {
+        log(
+          "warn",
+          "Datei-Auto-Save fehlgeschlagen — Arbeitskopie ist nur lokal gesichert. Klick auf den Speicher-Status versucht es erneut.",
+        );
+      }
+    })();
   }, 1500);
 }
 

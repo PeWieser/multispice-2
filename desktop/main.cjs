@@ -20,6 +20,7 @@
  */
 
 const { app, BrowserWindow, shell, Menu, ipcMain, screen, dialog } = require("electron");
+const { atomicWriteFileSync, rotateBackupSync, readJsonWithBackupSync } = require("./atomic.cjs");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -92,8 +93,8 @@ function readAppData() {
   const p = getStateFilePath();
   try {
     if (fs.existsSync(p)) {
-      const raw = fs.readFileSync(p, "utf8");
-      const parsed = JSON.parse(raw);
+      // S5.11: Bei korrupter Hauptdatei (Crash vor S5.11) das .bak lesen.
+      const parsed = readJsonWithBackupSync(p);
       if (parsed && typeof parsed === "object") {
         appDataCache = parsed;
         return appDataCache;
@@ -114,7 +115,9 @@ function writeAppDataSoon() {
     try {
       const p = getStateFilePath();
       fs.mkdirSync(path.dirname(p), { recursive: true });
-      fs.writeFileSync(p, JSON.stringify(appDataCache || {}, null, 2), "utf8");
+      // S5.11: .bak rotieren + atomar schreiben (nie wieder halbe JSON).
+      rotateBackupSync(p);
+      atomicWriteFileSync(p, JSON.stringify(appDataCache || {}, null, 2), "utf8");
     } catch {
       // Ignorieren
     }
@@ -808,10 +811,13 @@ ipcMain.handle("multispice:file-save", async (event, opts) => {
     }
 
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    // S5.11: Atomar schreiben — ein Crash während des Datei-Auto-Saves darf
+    // die Projektdatei nie halb geschrieben zurücklassen (kein .bak beim
+    // Nutzer: Crash → alter ODER neuer Stand, nie ein halber).
     if (opts?.encoding === "base64" && typeof opts?.content === "string") {
-      fs.writeFileSync(targetPath, Buffer.from(opts.content, "base64"));
+      atomicWriteFileSync(targetPath, Buffer.from(opts.content, "base64"));
     } else {
-      fs.writeFileSync(targetPath, String(opts?.content ?? ""), "utf8");
+      atomicWriteFileSync(targetPath, String(opts?.content ?? ""), "utf8");
     }
     return { ok: true, filePath: targetPath };
   } catch (err) {

@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: Sprint 5 Rest läuft (S5.10 Fenster ✅ 2026-10-05; S5.11–S5.13 offen).
+> Stand: Sprint 5 Rest läuft (S5.10–S5.11 ✅ 2026-10-05; S5.12–S5.13 offen).
 > Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
@@ -137,7 +137,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.8 Nested Sweep, Batched, THD-Sweep (§46, PASS)
 - [x] S5.9 W61-Fix (§46, PASS)
 - [x] S5.10 Fenster-Chrom einheitlich (§50, Nutzerwunsch 2026-10-05)
-- [ ] S5.11 Ungespeichert-Indikator + Crash-Recovery; Migrationen testen
+- [x] S5.11 Datensicherheit (§50, PASS)
 - [ ] S5.12 Farbblind-Verifikation; UI-Schriftgröße; Touch-Parcours
 - [ ] S5.13 Stilführer Symbole; 14-Segment/LCD; Sensoren (NTC/LDR); WAV-Export
 
@@ -147,6 +147,14 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   (Radius 12→14, Kachel statt nacktem Icon, IconButton-Close) und Dialoge
   (h-11→h-9, Border ergänzt, Titel xs/medium) nutzen dieselbe Quelle.
   Verifikation: `tsc` ✅, `eslint` ✅, `npm test` ✅; Sichtprüfung Nutzer.
+- S5.11: `saveHealth` (lokal/Datei) im Store, Auto-Save wertet das
+  Datei-Ergebnis aus (vorher `void` = stille Veraltung); Status-Chip
+  („Gesichert HH:MM“/„Datei veraltet“/Fehler, Klick = Retry) + `•` im
+  Tab-/Fenstertitel; Backup-Generation (localStorage `.prev`, AppData
+  `.bak`) mit `fromBackup`-Warnung; Desktop-Schreibvorgänge atomar
+  (Tmp+Rename, `desktop/atomic.cjs`); `scripts/sprint5resttest.ts`
+  (9 Checks: Migrate-Verträge, Crash-Fallback, Atomic). `tsc` ✅,
+  `eslint` ✅, `npm test` ✅, `node --check` (main/atomic) ✅.
 
 ## Nicht-Ziele (bewusst)
 

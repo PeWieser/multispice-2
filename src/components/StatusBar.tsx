@@ -5,6 +5,7 @@ import { Gauge, Lock, Plus, X } from "lucide-react";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, sheets, useEditor } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
+import { getActiveSaveTargetLabel } from "@/lib/storage";
 
 export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) {
   const apple = useIsApple();
@@ -26,6 +27,10 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
   const setBottomTab = useEditor((s) => s.setBottomTab);
   const toggleBottom = useEditor((s) => s.toggleBottom);
   const tick = useEditor((s) => s.sim.tick);
+  const savePending = useEditor((s) => s.savePending);
+  const lastSavedAt = useEditor((s) => s.lastSavedAt);
+  const saveHealth = useEditor((s) => s.saveHealth);
+  const saveProject = useEditor((s) => s.saveProject);
   const leadArmed = useEditor((s) => s.leadArmed);
   const teacherLocked = useEditor((s) => s.teacher.locked);
   void tick;
@@ -188,6 +193,45 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
 
       {/* Rechts (W96 / W98b: feste Breiten mit tabular-nums, damit bei laufender Simulation nichts wackelt!) */}
       <div className="flex shrink-0 items-center gap-2.5">
+        {/* S5.11: Speicher-Status — Klick speichert sofort / versucht erneut. */}
+        {(() => {
+          const label = getActiveSaveTargetLabel();
+          const stamp = lastSavedAt
+            ? new Date(lastSavedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
+            : null;
+          const chip = savePending
+            ? { text: "● Speichern …", color: "var(--ink-3)", tip: "Änderungen werden gerade gesichert …" }
+            : saveHealth.local === "error"
+              ? {
+                  text: "⚠ Sichern fehlgeschlagen",
+                  color: "var(--err)",
+                  tip: "Automatisches Sichern fehlgeschlagen (Speicher voll?) — klicken versucht es erneut, Export JSON sichert das Projekt.",
+                }
+              : saveHealth.file === "stale"
+                ? {
+                    text: "⚠ Datei veraltet",
+                    color: "var(--warn)",
+                    tip: `„${label ?? "Datei"}“ konnte nicht aktualisiert werden — die Arbeitskopie ist nur lokal gesichert. Klicken versucht es erneut.`,
+                  }
+                : {
+                    text: stamp ? `✓ Gesichert ${stamp}` : "✓ Gesichert",
+                    color: "var(--ok)",
+                    tip: label
+                      ? `Gesichert (${label}) — klicken speichert sofort.`
+                      : "Lokal gesichert — klicken speichert sofort.",
+                  };
+          return (
+            <button
+              type="button"
+              className="flex min-w-[92px] shrink-0 items-center justify-center gap-1 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
+              onClick={() => void saveProject()}
+              title={chip.tip}
+              aria-label={`Speicher-Status: ${chip.text}`}
+            >
+              <span style={{ color: chip.color }}>{chip.text}</span>
+            </button>
+          );
+        })()}
         <button
           type="button"
           className="flex min-w-[100px] shrink-0 items-center justify-center gap-1 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"

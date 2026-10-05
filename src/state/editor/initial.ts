@@ -43,6 +43,7 @@ export const initialState: EditorData = {
   instruments: [],
   lastSavedAt: null,
   savePending: false,
+  saveHealth: { local: "ok", file: "none" },
   probes: [],
   analysis: { kind: "", running: false },
   sim: { running: false, timeScale: 1, sampleRate: 200000, method: "trap", temperature: 27, tick: 0, fps: 0 },

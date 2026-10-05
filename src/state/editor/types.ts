@@ -129,6 +129,8 @@ export interface EditorState {
   lastSavedAt: number | null;
   /** true = Änderung wartet auf den debounceten Auto-Save. */
   savePending: boolean;
+  /** S5.11: Speicher-Gesundheit — lokal (Arbeitskopie) + gebundene Datei. */
+  saveHealth: { local: "ok" | "error"; file: "none" | "ok" | "stale" };
   probes: string[];
   analysis: AnalysisState;
   sim: {

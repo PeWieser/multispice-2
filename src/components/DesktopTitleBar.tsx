@@ -88,22 +88,32 @@ export function isDesktopApp(): boolean {
 export default function DesktopTitleBar({
   title,
   onCloseOverride,
+  showSaveState = false,
 }: {
   title?: string;
   subtitle?: string;
   compact?: boolean;
   onCloseOverride?: () => void;
+  /** S5.11: Nur Hauptfenster — Ungespeichert-Punkt in Titel + Taskleiste. */
+  showSaveState?: boolean;
 }) {
   const [maximized, setMaximized] = useState(false);
+  const savePending = useEditor((s) => s.savePending);
+  const saveHealth = useEditor((s) => s.saveHealth);
 
   // W138: Setzt den echten Windows-Fenstertitel für die Taskleisten-Vorschau
   // (z. B. „Oszilloskop“, „Funktionsgenerator“, „Bauteile-Bibliothek“), während
   // die sichtbare Leiste selbst puristisch ohne Text bleibt (W124).
   useEffect(() => {
     if (!title) return;
-    document.title = title;
-    window.multispiceDesktop?.setWindowTitle?.(title);
-  }, [title]);
+    // S5.11: Ungespeichert-Punkt (nur Hauptfenster per showSaveState — Geräte-
+    // fenster tragen Gerätenamen, kein Speicher-Zustand).
+    const dirty =
+      showSaveState && (savePending || saveHealth.local === "error" || saveHealth.file === "stale");
+    const full = dirty ? `• ${title}` : title;
+    document.title = full;
+    window.multispiceDesktop?.setWindowTitle?.(full);
+  }, [title, showSaveState, savePending, saveHealth]);
 
   // WDA-6: Echten Fensterstatus spiegeln — der lokale Toggle lag falsch, sobald
   // das Fenster per Tastatur/Snap maximiert wurde (falsches Leisten-Icon).
