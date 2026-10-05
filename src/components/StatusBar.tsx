@@ -153,7 +153,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
               </button>
               <button
                 type="button"
-                className="grid h-4 w-4 place-items-center rounded opacity-60 hover:opacity-100"
+                className="-m-1 grid h-6 w-6 place-items-center rounded opacity-60 hover:opacity-100"
                 title="Entwurf schließen"
                 aria-label={`Entwurf ${name} schließen`}
                 onClick={(e) => {
@@ -223,7 +223,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
           return (
             <button
               type="button"
-              className="flex min-w-[92px] shrink-0 items-center justify-center gap-1 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
+              className="flex h-6 min-w-[92px] shrink-0 items-center justify-center gap-1 rounded-md px-2 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
               onClick={() => void saveProject()}
               title={chip.tip}
               aria-label={`Speicher-Status: ${chip.text}`}
@@ -234,7 +234,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
         })()}
         <button
           type="button"
-          className="flex min-w-[100px] shrink-0 items-center justify-center gap-1 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
+          className="flex h-6 min-w-[100px] shrink-0 items-center justify-center gap-1 rounded-md px-2 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
           style={
             bottomOpen
               ? {

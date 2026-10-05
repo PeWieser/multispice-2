@@ -4,7 +4,7 @@
    Bestehende Imports von "@/state/editor" funktionieren unverändert. */
 export type {
   Tool, InstrumentKind, InstrumentWindow, ArmedLead, LogEntry, AnalysisState,
-  ClipboardData, ThemePref, EditorState, SheetEntry, WindowSpec, PinRef,
+  ClipboardData, ThemePref, UiFontSize, EditorState, SheetEntry, WindowSpec, PinRef,
 } from "./editor/types";
 export { engine } from "./editor/shared";
 export {

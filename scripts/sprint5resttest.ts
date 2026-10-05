@@ -40,6 +40,62 @@ function mapStorage(): Storage {
   } as Storage;
 }
 
+// ---------- S5.12: Kontrast-Prüfung gegen die echten CSS-Variablen ----------
+type Theme = "light" | "dark";
+const TEXT_PAIRS: Array<[string, string, number]> = [
+  ["ink", "surface", 4.5],
+  ["ink-2", "surface", 4.5],
+  ["ink-3", "surface", 4.5],
+  ["ink", "surface-2", 4.5],
+  ["ink-3", "surface-2", 4.5],
+  ["ok", "surface", 4.5],
+  ["warn", "surface", 4.5],
+  ["err", "surface", 4.5],
+  ["accent", "surface", 4.5],
+  ["accent-ink", "accent", 4.5],
+  ["teal", "surface", 4.5],
+  ["violet", "surface", 4.5],
+];
+const GRAPHIC_PAIRS: Array<[string, string, number]> = [
+  ["wire", "canvas", 3.0],
+  ["wire-sel", "canvas", 3.0],
+  ["ch1", "canvas", 3.0],
+  ["ch2", "canvas", 3.0],
+  ["ch3", "canvas", 3.0],
+  ["ch4", "canvas", 3.0],
+];
+
+function themeVars(theme: Theme): Record<string, string> {
+  const css = fs.readFileSync(path.join(__dirname, "..", "src", "app", "globals.css"), "utf8");
+  const startMarker = theme === "light" ? '[data-theme="light"]' : '[data-theme="dark"]';
+  const start = css.indexOf(startMarker);
+  assert.ok(start >= 0, `Theme-Block ${theme} gefunden`);
+  const open = css.indexOf("{", start);
+  const close = css.indexOf("\n}", open);
+  const block = css.slice(open, close);
+  const vars: Record<string, string> = {};
+  for (const m of block.matchAll(/--([a-z0-9-]+):\s*(#[0-9a-fA-F]{3,8})\s*;/g)) {
+    vars[m[1]] = m[2];
+  }
+  return vars;
+}
+
+function luminance(hex: string): number {
+  assert.ok(/^#[0-9a-fA-F]{6}$/.test(hex), `6-stelliges Hex erwartet: ${hex}`);
+  const ch = [1, 3, 5].map((i) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+
+function ratio(fg: string, bg: string): number {
+  const l1 = luminance(fg);
+  const l2 = luminance(bg);
+  const [hi, lo] = l1 >= l2 ? [l1, l2] : [l2, l1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 async function main() {
   // ---------- S5.11a: migrateDoc leitet Junctions aus T-Kreuzungen ab ----------
   {
@@ -182,7 +238,35 @@ async function main() {
     ok("S5.11i atomic.cjs");
   }
 
-  console.log("sprint5resttest: 9 checks OK");
+  // ---------- S5.12a: WCAG-Kontraste (hell) aus globals.css ----------
+  {
+    const vars = themeVars("light");
+    for (const [fg, bg, min] of TEXT_PAIRS) {
+      const r = ratio(vars[fg], vars[bg]);
+      assert.ok(r >= min, `${fg}/${bg} hell = ${r.toFixed(2)} (min ${min})`);
+    }
+    for (const [fg, bg, min] of GRAPHIC_PAIRS) {
+      const r = ratio(vars[fg], vars[bg]);
+      assert.ok(r >= min, `${fg}/${bg} hell = ${r.toFixed(2)} (min ${min})`);
+    }
+    ok("S5.12a Kontraste hell");
+  }
+
+  // ---------- S5.12b: WCAG-Kontraste (dunkel) aus globals.css ----------
+  {
+    const vars = themeVars("dark");
+    for (const [fg, bg, min] of TEXT_PAIRS) {
+      const r = ratio(vars[fg], vars[bg]);
+      assert.ok(r >= min, `${fg}/${bg} dunkel = ${r.toFixed(2)} (min ${min})`);
+    }
+    for (const [fg, bg, min] of GRAPHIC_PAIRS) {
+      const r = ratio(vars[fg], vars[bg]);
+      assert.ok(r >= min, `${fg}/${bg} dunkel = ${r.toFixed(2)} (min ${min})`);
+    }
+    ok("S5.12b Kontraste dunkel");
+  }
+
+  console.log("sprint5resttest: 11 checks OK");
 }
 
 main().catch((e) => {

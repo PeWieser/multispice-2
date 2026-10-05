@@ -14,6 +14,7 @@ export const initialState: EditorData = {
   placingMirror: false,
   view: { x: 60, y: 20, zoom: 1 },
   theme: "system",
+  uiFontSize: "standard",
   symbolStyle: "auto",
   showGrid: true,
   snap: true,

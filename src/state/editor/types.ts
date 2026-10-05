@@ -86,6 +86,7 @@ export interface ClipboardData {
 }
 
 export type ThemePref = "system" | "dark" | "light";
+export type UiFontSize = "compact" | "standard" | "large";
 
 export interface EditorState {
   doc: SchematicDoc;
@@ -98,6 +99,7 @@ export interface EditorState {
   placingMirror: boolean;
   view: { x: number; y: number; zoom: number };
   theme: ThemePref;
+  uiFontSize: UiFontSize;
   symbolStyle: SymbolStylePref;
   showGrid: boolean;
   snap: boolean;
@@ -215,6 +217,7 @@ export interface EditorState {
   openExtractDialog: (ids: string[]) => void;
   closeExtractDialog: () => void;
   setTheme: (t: ThemePref) => void;
+  setUiFontSize: (s: UiFontSize) => void;
   setSymbolStyle: (s: SymbolStylePref) => void;
   toggleTheme: () => void;
   log: (level: LogEntry["level"], message: string) => void;

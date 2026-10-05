@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: Sprint 5 Rest läuft (S5.10–S5.11 ✅ 2026-10-05; S5.12–S5.13 offen).
+> Stand: Sprint 5 Rest läuft (S5.10–S5.12 ✅ 2026-10-05; S5.13 offen).
 > Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
@@ -138,7 +138,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.9 W61-Fix (§46, PASS)
 - [x] S5.10 Fenster-Chrom einheitlich (§50, Nutzerwunsch 2026-10-05)
 - [x] S5.11 Datensicherheit (§50, PASS)
-- [ ] S5.12 Farbblind-Verifikation; UI-Schriftgröße; Touch-Parcours
+- [x] S5.12 Zugang (§50, PASS)
 - [ ] S5.13 Stilführer Symbole; 14-Segment/LCD; Sensoren (NTC/LDR); WAV-Export
 
 **Gemacht (Rest):**
@@ -155,6 +155,14 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   (Tmp+Rename, `desktop/atomic.cjs`); `scripts/sprint5resttest.ts`
   (9 Checks: Migrate-Verträge, Crash-Fallback, Atomic). `tsc` ✅,
   `eslint` ✅, `npm test` ✅, `node --check` (main/atomic) ✅.
+- S5.12: Kontrast-Verträge (12 Text- + 6 Grafik-Paare × 2 Themes gegen
+  `globals.css`, alle AA — keine Variablen-Änderung nötig); Farb-Inventur
+  (keine Rot/Grün-Allein-Codierung: Spannung orange/blau, Auswahl
+  blau/amber + Griffe, Oszi-Kanäle beschriftet, Status immer Glyphe+Text);
+  UI-Schriftgröße (Kompakt/Standard/Groß, Root-px, persistiert, auch im
+  Lehrer-Modus); Touch-Trefferflächen (Statusleisten-Buttons + Tab-× auf
+  24 px). iPad-Sichtprüfung: Nutzer (Checkliste in §50). `tsc` ✅,
+  `eslint` ✅, `npm test` ✅.
 
 ## Nicht-Ziele (bewusst)
 

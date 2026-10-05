@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Activity, Crosshair, Grid3X3, GraduationCap, SlidersHorizontal } from "lucide-react";
 import { DialogHeader, ModalShell } from "./ui";
-import { ThemePref, useEditor } from "@/state/editor";
+import { ThemePref, UiFontSize, useEditor } from "@/state/editor";
 import {
   loadHoverConfig,
   saveHoverConfig,
@@ -211,6 +211,7 @@ export default function SettingsDialog({
   const [hoverCfg, setHoverCfg] = useState<ProbeHoverConfig>(() => loadHoverConfig());
 
   const theme = useEditor((s) => s.theme);
+  const uiFontSize = useEditor((s) => s.uiFontSize);
   const symbolStyle = useEditor((s) => s.symbolStyle);
   const showGrid = useEditor((s) => s.showGrid);
   const snap = useEditor((s) => s.snap);
@@ -244,6 +245,14 @@ export default function SettingsDialog({
   const applySymbolStyle = (s: SymbolStylePref) => {
     st().setSymbolStyle(s);
     saveSymbolStyle(s);
+  };
+
+  // S5.12: UI-Schriftgröße (reine Darstellung — auch im Lehrer-Modus erlaubt).
+  const applyUiFontSize = (f: UiFontSize) => {
+    st().setUiFontSize(f);
+    try {
+      localStorage.setItem("multispice.uiFontSize", f);
+    } catch {}
   };
 
   const navItems: Array<{
@@ -309,6 +318,20 @@ export default function SettingsDialog({
                         { value: "light", label: "Hell" },
                       ]}
                       onChange={applyTheme}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Schriftgröße"
+                    subtitle="Skaliert Texte und Bedienelemente der Oberfläche (Schaltplan folgt dem Zoom)"
+                  >
+                    <MacSegmented<UiFontSize>
+                      value={uiFontSize}
+                      options={[
+                        { value: "compact", label: "Kompakt" },
+                        { value: "standard", label: "Standard" },
+                        { value: "large", label: "Groß" },
+                      ]}
+                      onChange={applyUiFontSize}
                     />
                   </SettingsRow>
                 </SettingsGroup>

@@ -281,11 +281,28 @@ export default function Workbench() {
     } catch {}
   }, []);
 
+  // S5.12: UI-Schriftgröße aus localStorage (Kompakt/Standard/Groß).
+  useEffect(() => {
+    try {
+      const f = localStorage.getItem("multispice.uiFontSize");
+      if (f === "compact" || f === "standard" || f === "large") {
+        useEditor.getState().setUiFontSize(f);
+      }
+    } catch {}
+  }, []);
+
   const resolved = resolveTheme(themePref, systemDark);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", resolved);
   }, [resolved]);
+
+  // S5.12: UI-Schriftgröße — Root-px steuern alle rem-Maße der UI.
+  const uiFontSize = useEditor((s) => s.uiFontSize);
+  useEffect(() => {
+    const px = uiFontSize === "compact" ? 14 : uiFontSize === "large" ? 18 : 16;
+    document.documentElement.style.fontSize = `${px}px`;
+  }, [uiFontSize]);
 
   // S5.11: Browser-Tab trägt Entwurfsname + Ungespeichert-Punkt (Desktop:
   // DesktopTitleBar besitzt den Titel; Kindfenster haben eigene Titel).

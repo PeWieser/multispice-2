@@ -3510,3 +3510,27 @@ localStorage-Rotation + `.prev`-Fallback (`fromBackup`-Warnung); AppData
 Datei-Speichern (kein `.bak` beim Nutzer: Crash → alt ODER neu).
 Verifikation: `scripts/sprint5resttest.ts` (9 Checks) in `npm test`;
 `tsc` ✓, `eslint` ✓, Suite ✓, `node --check` ✓.
+
+### 50.4 S5.12 Ergebnis (Zugang, 2026-10-05)
+
+**Farbblind-Verifikation (statisch, kein Browser nötig):** `sprint5resttest`
+prüft 12 Text-Paare (≥ 4,5) + 6 Grafik-Paare (≥ 3,0) gegen die echten
+Variablen aus `globals.css`, hell + dunkel — alle grün, keine Änderung nötig.
+Codierungs-Inventur (Rot/Grün nie allein): Spannung = orange/blau-Verlauf
+(sicheres Paar) + exakte Werte im Inspector; Auswahl = blau/amber + Griffe;
+Stromfluss = Bewegung; Oszi-Kanäle = beschriftete CH-Badges; FG-Buchsen =
+rot/blau + OUT1/OUT2-Label; Status überall Glyphe + Text (✕/⚠/✓, „●
+Speichern …"); LED/Lampe = Helligkeit; Bargraph/7-Segment = Position +
+Helligkeit. Dokumentiert statt umgebaut: Hardware-Farben (Oszi-Spuren, LCD)
+bleiben Hardware.
+**UI-Schriftgröße:** `uiFontSize` (kompakt 14 / Standard 16 / groß 18 px
+Root → alle rem-Maße), Segment in Einstellungen → Darstellung, persistiert
+(`multispice.uiFontSize`), auch im Lehrer-Modus änderbar (reine Darstellung).
+**Touch:** Canvas `touch-none` + Pinch + Long-Press-Abbruch existierten;
+Lücken geschlossen: Statusleisten-Buttons (ERC, Speicher-Chip) + Tab-× auf
+24-px-Trefferflächen (WCAG 2.2); Rest (Menüs h-7, IconButtons 24+, Leisten
+28–36) vermessen-ok. Browser-Zoom bleibt erlaubt (WCAG 1.4.4, s. Layout).
+iPad-Parcours (Nutzer): Zwei-Finger-Zoom/Pan, Bauteil setzen + verdrahten per
+Touch, Menü/Dialoge bedienen, Tastatur-Platzieren entfällt (S5.3 Maus-Pendant
+bleibt), Schriftgröße Groß prüfen.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (sprint5resttest: 11 Checks).
