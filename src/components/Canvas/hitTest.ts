@@ -3,6 +3,7 @@ import { GRID, Instance, SchematicDoc, instanceBounds, pinPosition, MeasurementP
 import { nearestWireFoot } from "@/lib/schematic/netdraw";
 import { useEditor } from "@/state/editor";
 import { type Pt } from "./geometry";
+import { NOTE_MAX_H, NOTE_MAX_W } from "@/lib/notes/markup";
 
 export function getNetObstacles(doc: SchematicDoc): Array<{ x: number; y: number; w: number; h: number }> {
   return doc.instances.map((inst) => {
@@ -46,8 +47,8 @@ export function getNoteBounds(n: import("@/lib/schematic/model").TextNote): { x:
   const lines = raw.split(/\r?\n/);
   const maxChars = Math.max(6, ...lines.map((l) => l.length));
   const lineH = sz + 5;
-  const w = Math.max(96, Math.ceil(maxChars * (sz * 0.58) + 26));
-  const h = 18 + lines.length * lineH + 8;
+  const w = Math.min(NOTE_MAX_W, Math.max(96, Math.ceil(maxChars * (sz * 0.58) + 26)));
+  const h = Math.min(NOTE_MAX_H, 18 + lines.length * lineH + 8);
   return { x: n.x, y: n.y - 18, w, h };
 }
 

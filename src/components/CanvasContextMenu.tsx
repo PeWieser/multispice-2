@@ -19,10 +19,12 @@ export default function ContextMenu({
   menu,
   onClose,
   onEdit,
+  onEditNote,
 }: {
   menu: { x: number; y: number; wx: number; wy: number; target: CtxTarget };
   onClose: () => void;
   onEdit?: (item: InlineEdit) => void;
+  onEditNote?: (id: string) => void;
 }) {
   const apple = useIsApple();
   const st = useEditor.getState();
@@ -194,8 +196,8 @@ export default function ContextMenu({
             <button
               className="ctx-row"
               onClick={() => {
-                if (note && onEdit) {
-                  onEdit({ kind: "text", itemId: note.id, x: note.x, y: note.y, sx: menu.x, sy: menu.y, initial: note.text });
+                if (note && onEditNote) {
+                  onEditNote(note.id);
                 }
                 onClose();
               }}

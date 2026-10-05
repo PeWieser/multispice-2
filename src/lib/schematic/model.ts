@@ -608,13 +608,21 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   };
   regroup();
 
-  // On-Page-Verbinder: gleicher Name = gleiches Netz (virtuelle Verbindung,
-  // pro Entwurf — Sprint-1-Entscheid: keine Blätter, kein Off-Page)
-  const connectorGroups = new Map<string, string[]>(); // name -> root[]
+  // On-Page-Verbinder + Netzlabels: gleicher Name = gleiches Netz (virtuelle
+  // Verbindung wie in Multisim, pro Entwurf — keine Blätter, kein Off-Page).
+  // S5.22: Labels nehmen am selben Mechanismus teil; der Vergleich ist
+  // groß-/klein-unabhängig (SPICE-Knotennamen sind es auch), angezeigt wird
+  // die zuerst vorkommende Schreibweise (Verbinder- vor Label-Schreibung).
+  const connectorGroups = new Map<string, string[]>(); // UPPER(name) -> root[]
+  const displayName = new Map<string, string>(); // UPPER(name) -> erste Schreibweise
   const bindName = (name: string, x: number, y: number) => {
-    const arr = connectorGroups.get(name) ?? [];
+    const t = name.trim();
+    if (!t) return;
+    const k = t.toUpperCase();
+    const arr = connectorGroups.get(k) ?? [];
     arr.push(uf.find(coordKey(x, y)));
-    connectorGroups.set(name, arr);
+    connectorGroups.set(k, arr);
+    if (!displayName.has(k)) displayName.set(k, t);
   };
   for (const inst of doc.instances) {
     if (inst.partId === "onpage_connector") {
@@ -637,7 +645,10 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       }
     }
   }
-  for (const [name, roots] of connectorGroups) {
+  // S5.22: Netzlabels verbinden virtuell (Multisim) — auch untereinander
+  // und mit gleichnamigen Verbindern (der Mechanismus ist einer).
+  for (const l of doc.labels) bindName(l.name, l.x, l.y);
+  for (const roots of connectorGroups.values()) {
     if (roots.length > 1) {
       const first = roots[0];
       for (let i=1; i<roots.length; i++) {
@@ -691,13 +702,14 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   }
   for (const l of doc.labels) {
     const root = uf.find(coordKey(l.x, l.y));
-    if (rootName.get(root) !== "0") rootName.set(root, l.name.trim() || rootName.get(root) || "");
+    // S5.22: erste Schreibweise gewinnt (virtuell vereinte Labels teilen ein Netz).
+    if (rootName.get(root) !== "0" && !rootName.get(root)) rootName.set(root, l.name.trim());
   }
-  // connector names have priority over auto
-  for (const [name, roots] of connectorGroups) {
+  // connector names have priority over auto (und über Label-Schreibweisen)
+  for (const [upper, roots] of connectorGroups) {
     if (roots.length) {
       const root = uf.find(roots[0]);
-      if (rootName.get(root) !== "0") rootName.set(root, name);
+      if (rootName.get(root) !== "0") rootName.set(root, displayName.get(upper) ?? upper);
     }
   }
   let counter = 1;

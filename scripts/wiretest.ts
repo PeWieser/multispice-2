@@ -13,6 +13,7 @@ import {
   attachWireEnd,
   buildNets,
   cleanWirePoints,
+  emptyDoc,
   instanceBounds,
   pinPosition,
   snapWiresToPins,
@@ -1081,6 +1082,46 @@ console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Strom
   );
 }
 
+
+/* ---------------- S5.22a · Netzlabels verbinden virtuell (Multisim) ---------------- */
+{
+  const mkR = (id: string, x: number, y: number) => ({ id, partId: "resistor", x, y, rot: 0 as const, label: id.toUpperCase(), params: {} });
+  const doc = emptyDoc("labels");
+  const r1 = mkR("r1", 200, 200), r2 = mkR("r2", 600, 200), r3 = mkR("r3", 1000, 200);
+  doc.instances.push(r1 as never, r2 as never, r3 as never);
+  const p1 = pinPosition(r1 as never, 0), p2 = pinPosition(r2 as never, 0), p3 = pinPosition(r3 as never, 0);
+  doc.labels.push(
+    { id: "l1", x: p1.x, y: p1.y, name: "VCC" },
+    { id: "l2", x: p2.x, y: p2.y, name: "vcc" },
+    { id: "l3", x: p3.x, y: p3.y, name: "GND_SENSE" },
+  );
+  const n = buildNets(doc);
+  check("gleichnamige Labels vereinen Netze", n.pinNets["r1:0"] === n.pinNets["r2:0"], n.pinNets["r1:0"]);
+  check("Schreibweise: erste gewinnt", n.pinNets["r1:0"] === "VCC");
+  check("fremdes Label bleibt getrennt", n.pinNets["r3:0"] === "GND_SENSE" && n.pinNets["r3:0"] !== n.pinNets["r1:0"]);
+}
+{
+  // Leere Namen vereinen nichts (jeder Blanko bleibt solo).
+  const mkR = (id: string, x: number, y: number) => ({ id, partId: "resistor", x, y, rot: 0 as const, label: id.toUpperCase(), params: {} });
+  const doc = emptyDoc("blanks");
+  const r1 = mkR("r1", 200, 200), r2 = mkR("r2", 600, 200);
+  doc.instances.push(r1 as never, r2 as never);
+  const p1 = pinPosition(r1 as never, 0), p2 = pinPosition(r2 as never, 0);
+  doc.labels.push({ id: "l1", x: p1.x, y: p1.y, name: "" }, { id: "l2", x: p2.x, y: p2.y, name: "  " });
+  const n = buildNets(doc);
+  check("leere Labels vereinen nicht", n.pinNets["r1:0"] !== n.pinNets["r2:0"]);
+}
+{
+  // Label + Verbinder gleichen Namens: ein Mechanismus, ein Netz.
+  const doc = emptyDoc("mixed");
+  const r1 = { id: "r1", partId: "resistor", x: 200, y: 200, rot: 0 as const, label: "R1", params: {} };
+  const c1 = { id: "c1", partId: "onpage_connector", x: 600, y: 200, rot: 0 as const, label: "X1", params: { name: "sig" } };
+  doc.instances.push(r1 as never, c1 as never);
+  const p1 = pinPosition(r1 as never, 0);
+  doc.labels.push({ id: "l1", x: p1.x, y: p1.y, name: "SIG" });
+  const n = buildNets(doc);
+  check("Label≡Verbinder gleichen Namens vereint", n.pinNets["r1:0"] === n.pinNets["c1:0"], n.pinNets["r1:0"]);
+}
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);
 if (failed) process.exit(1);

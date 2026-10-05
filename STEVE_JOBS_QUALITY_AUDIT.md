@@ -3746,3 +3746,26 @@ bleibt unter 0,15 Divs, 10× ≈ 1 mVrms, BW-Verhältnis 0,53. Bewusst nicht
 getan: Trigger-Hysterese (mit physikalisch kleinem Rauschen kein Flattern
 mehr sichtbar — YAGNI), Tastkopf-Thermik (vernachlässigbar).
 Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (ozsitest: 36 Prüfungen).
+
+## §61 · S5.22 Ergebnis (Netzlabels + Notizzettel + Ein-Rahmen-Eingabe, 2026-10-05)
+
+Drei Nutzerbefunde, ein Sprint. (a) Labels waren reine Beschriftung — in
+Multisim verbinden sie: `buildNets` vereint jetzt gleichnamige Labels zum
+selben Netz (Vergleich case-insensitiv, erste Schreibweise wird Netzname;
+leere/blanko Namen vereinen nichts; Label und On-Page-Verbinder gleichen
+Namens laufen über denselben Mechanismus). (b) Notizen waren Textfelder im
+Editor-Stil — jetzt echte Klebezettel: gelbe Karte (max. 232×150 px, längerer
+Text wird mit „…“ gekappt), Markup `**fett**`/`*kursiv*`/`__unterstrichen__`
+(`src/lib/notes/markup.ts`: eigener Tag-Scanner, DOM-frei, damit auch im
+Test lauffähig), Schreiben direkt auf dem Zettel (`NoteEditor`: contentEditable
++ B/I/U-Toolbar, folgt Zoom/Pan, Platzieren→sofort tippen, Doppelklick öffnet,
+Esc auf leerer neuer Notiz verwirft sie still). Dabei zwei Fallen beseitigt:
+Der globale Key-Handler ignoriert jetzt contentEditable-Ziele (vorher hätten
+R/M/Entf/Space beim Tippen Canvas-Aktionen ausgelöst), und der tote
+`kind:"text"`-Pfad ist aus InlineEditor, Canvas, Touch-Button und Kontextmenü
+entfernt. (c) Das schwebende Eingabefeld war Panel + Badge + Box für vier
+Ziffern — jetzt ein Rahmen, dessen Breite dem Inhalt folgt (8–26 ch +
+Einheit), Einheit dezent ohne Chip.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (wiretest +5 Label-Checks,
+`notetest.ts` neu: 28 Prüfungen — Markup, Roundtrips, Editor-HTML, Karten-
+Caps, Verdrahtungs-Wächter).

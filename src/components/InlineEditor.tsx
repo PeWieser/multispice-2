@@ -3,7 +3,7 @@
 import type { RefObject } from "react";
 
 export type InlineEdit = {
-  kind: "label" | "text" | "value";
+  kind: "label" | "value"; // S5.22: Notizen haben einen eigenen Direkteditor
   x: number;
   y: number;
   sx: number;
@@ -13,12 +13,11 @@ export type InlineEdit = {
   initial?: string;
 };
 
-const PLACEHOLDER = { label: "z. B. IN, VCC", value: "z. B. 10k, 4,7k", text: "Notiztext …" } as const;
+const PLACEHOLDER = { label: "z. B. IN, VCC", value: "z. B. 10k, 4,7k" } as const;
 
 /** Schwebendes Eingabefeld für Netznamen, Bauteilwerte und Notizen direkt auf dem Canvas. */
 export default function InlineEditor({
   editing,
-  badge,
   caption,
   unit,
   viewport,
@@ -28,7 +27,6 @@ export default function InlineEditor({
   placeholder,
 }: {
   editing: InlineEdit;
-  badge: string;
   caption: string;
   unit: string;
   viewport: { w: number; h: number };
@@ -37,27 +35,25 @@ export default function InlineEditor({
   onCommit: (text: string | null) => void;
   placeholder?: string;
 }) {
-  const width = editing.kind === "text" ? 248 : 196;
+  // S5.22: Ein Rahmen (statt Panel + Chip + Box), Breite folgt dem Inhalt —
+  // kein 5-cm-Feld für vier Ziffern. Einheit dezent, ohne Chip.
+  const ph = placeholder ?? PLACEHOLDER[editing.kind];
+  const len = Math.max(editing.initial?.length ?? 0, editing.initial ? 0 : ph.length);
+  const ch = Math.max(8, Math.min(26, len + 2)) + (unit ? 3 : 0);
   const vw = viewport.w > 0 ? viewport.w : 800;
   const vh = viewport.h > 0 ? viewport.h : 600;
-  const left = Math.max(8, Math.min(vw - width - 12, editing.sx - 20));
-  const top = Math.max(8, Math.min(vh - 70, editing.sy - 16));
+  const left = Math.max(8, Math.min(vw - 120, editing.sx - 20));
+  const top = Math.max(8, Math.min(vh - 60, editing.sy - 16));
 
   return (
     <div
       role="dialog"
       aria-label={caption}
-      className="absolute z-floating flex flex-col rounded-panel border-[1.5px] border-selection bg-surface p-2 shadow-3"
-      style={{ left, top, width }}
+      className="absolute z-floating rounded-field border-[1.5px] border-selection bg-surface px-2.5 py-1.5 shadow-3"
+      style={{ left, top, width: `${ch}ch`, minWidth: 96, maxWidth: 320 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="mb-1.5 flex items-center justify-between gap-1.5 px-0.5">
-        <span className="mono rounded-control bg-selection/15 px-1.5 py-0.5 text-2xs font-bold tracking-wider text-selection uppercase">
-          {badge}
-        </span>
-        <span className="text-2xs text-ink-3">{caption}</span>
-      </div>
-      <div className="flex items-center gap-1.5 rounded-field border border-hairline-strong bg-app px-2.5 py-1">
+      <div className="flex items-center gap-1.5">
         <input
           ref={inputRef}
           autoFocus
@@ -65,7 +61,7 @@ export default function InlineEditor({
           aria-label={caption}
           className="mono min-w-0 flex-1 bg-transparent text-sm font-medium text-ink outline-none"
           defaultValue={editing.initial}
-          placeholder={placeholder ?? PLACEHOLDER[editing.kind]}
+          placeholder={ph}
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === "Enter") onCommit((e.target as HTMLInputElement).value);
@@ -83,7 +79,7 @@ export default function InlineEditor({
         />
         {unit && (
           <span
-            className="mono shrink-0 rounded-control border border-hairline bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-ink-2"
+            className="mono shrink-0 text-2xs text-ink-3"
             title={`Einheit: ${unit} (Präfixe k, m, u/µ, n, p, M erlaubt)`}
           >
             {unit}

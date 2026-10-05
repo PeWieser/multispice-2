@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.21 ✅ (2026-10-05); S5.22 offen.
+> Stand: S5.10–S5.22 ✅ (2026-10-05).
 > Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§60).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
@@ -144,9 +144,11 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.15 TEST_MATRIX-§14-Backlog (Nutzerwahl 2026-10-05, PASS)
 - [x] S5.16 Steve-Theorie-Sweep: Buttons/Fenster/Bedienung (Nutzerfrage 2026-10-05, PASS)
 - [x] S5.17 Detail-Review: Versprechen vs. Wirklichkeit (4 Nutzerbefunde 2026-10-05, PASS)
+- [x] S5.18 Nutzer-Feinschliff: Auswahl-Sperre, Aktionszone, IC-Vorschau (3 Befunde 2026-10-05, PASS)
 - [x] S5.19 UI/UX-Komplettsweep mit Wirkungsprobe: 8 Flächen geprüft, Hinweis-Boxen raus, Mobile-Bib repariert (PASS)
 - [x] S5.20 Oszi-Skalenprüfung: Trigger/t/V auf allen Stufen, Archiv-Historie gegen „halbes Signal“ (PASS)
 - [x] S5.21 Physikalisches Oszi-Rauschen: fest in Volt + ADC-Quantisierung (PASS)
+- [x] S5.22 Netzlabels + Notizzettel + Ein-Rahmen-Eingabe (Nutzerbefunde 2026-10-05, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -246,6 +248,18 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   (LSB über 8 Divs, HiRes mittelt dank Dither); BW-Limit √(20/70), nur wo das
   digitale Filter wirkungslos ist (kein Doppelzählen); Trigger analog
   (ohne Quantisierung). `tsc` ✅, `eslint` ✅, `npm test` ✅ (ozsitest: 36).
+- S5.22: Drei Nutzerbefunde. (a) Netzlabels wie Multisim: gleichnamige
+  Labels vereinen Netze virtuell (`buildNets`, case-insensitiv, erste
+  Schreibweise gewinnt; leere Namen vereinen nichts; Label ≡ On-Page-
+  Verbinder gleichen Namens → ein Netz). (b) Notizen als echte Zettel:
+  Klebezettel-Optik (gelb, max. 232×150 px, darüber „…“), Text-Markup
+  `**fett**`/`*kursiv*`/`__unter__` (`lib/notes/markup.ts`, DOM-frei),
+  Direkteditor auf dem Zettel (contentEditable + B/I/U-Toolbar,
+  Canvas-Kürzel schweigen beim Tippen, neue leere Notiz wird still
+  verworfen); `kind:"text"`-Pfad aus InlineEditor/Canvas/Menü entfernt.
+  (c) Eingabefeld: ein Rahmen statt Panel+Chip+Box, Breite folgt dem
+  Inhalt (8–26 ch + Einheit) — kein 5-cm-Feld für vier Ziffern.
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (wiretest +5, notetest neu: 28).
 
 ## Nicht-Ziele (bewusst)
 

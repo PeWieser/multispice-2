@@ -11,6 +11,7 @@ import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
 import ShortcutSheet from "./ShortcutSheet";
 import InlineEditor, { type InlineEdit } from "./InlineEditor";
+import NoteEditor from "./NoteEditor";
 import ContextMenu, { type CtxTarget } from "./CanvasContextMenu";
 import ZoomButtons from "./ZoomButtons";
 import { canvasColor, inkOn } from "@/lib/canvas-theme";
@@ -20,7 +21,8 @@ import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
 import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "@/lib/keyboard";
 import { summarizeCircuit } from "@/lib/a11y";
 import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
-import { findInstanceByValueLabel, findPinInfo, getNetObstacles, getNetPinPoints, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
+import { findInstanceByValueLabel, findPinInfo, getNetObstacles, getNetPinPoints, getNoteBounds, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
+import { NOTE_MAX_H, NOTE_MAX_W, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
 import { drawInstance, drawProbe } from "./Canvas/render";
 import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
 import { FlipHorizontal2, RotateCcw, RotateCw, X } from "lucide-react";
@@ -74,6 +76,8 @@ export default function Canvas() {
   const [cursor, setCursor] = useState<Pt>({ x: 0, y: 0 });
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[]; spark?: number[] | null } | null>(null);
   const [editing, setEditing] = useState<InlineEdit | null>(null);
+  // S5.22: Notiz-Direkteditor (Overlay auf der Karte, null = geschlossen).
+  const [editingNote, setEditingNote] = useState<{ id: string; isNew: boolean } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; wx: number; wy: number; target: CtxTarget } | null>(null);
   const [isTouchActive, setIsTouchActive] = useState(false);
   const lastTouchTimeRef = useRef<number>(0);
@@ -990,39 +994,91 @@ export default function Canvas() {
     }
 
     ctx.font = "600 11px ui-sans-serif, system-ui";
+    // S5.22: Gleichnamige Labels sind virtuell verbunden (Multisim) — bei
+    // Auswahl leuchten die Geschwister mit, die Verbindung erklärt sich selbst.
+    const selLbl = selection.length === 1 ? doc.labels.find((l) => l.id === selection[0]) : undefined;
+    const selNet = selLbl?.name.trim().toUpperCase() || null;
     for (const label of doc.labels) {
       // W91: Der vom Nutzer vergebene Name hat immer Vorrang vor einem generischen Netznamen
       const txt = label.name || netResult.pointNets[`${Math.round(label.x)},${Math.round(label.y)}`] || "NET";
       const tw = ctx.measureText(txt).width;
       const isSel = selection.includes(label.id);
+      const isLinked = !isSel && !!selNet && !!label.name.trim() && label.name.trim().toUpperCase() === selNet;
       ctx.fillStyle = canvasColor("--surface-2");
       roundRect(ctx, label.x + 8, label.y - 20, tw + 12, 16, 4); ctx.fill();
-      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
-      ctx.lineWidth = (isSel ? 1.8 : 1) / view.zoom;
+      ctx.strokeStyle = isSel || isLinked ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
+      ctx.lineWidth = (isSel ? 1.8 : isLinked ? 1.4 : 1) / view.zoom;
       ctx.stroke();
-      ctx.fillStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--teal");
+      ctx.fillStyle = isSel || isLinked ? canvasColor("--wire-sel") : canvasColor("--teal");
       ctx.textAlign = "left";
       ctx.fillText(txt, label.x + 14, label.y - 8);
       ctx.beginPath(); ctx.arc(label.x, label.y, 2.5, 0, Math.PI * 2); ctx.fill();
     }
 
     // W117: Edle Laborbuch-Notizkarten (Callout-Cards mit warmem Bernstein-Akzentstreifen)
+    // S5.22: Klebezettel-Format (maximal 232×150), Wortumbruch, Markup-Läufe.
     ctx.textAlign = "left";
+    const runFont = (r: NoteRun, sz: number) => `${r.i ? "italic " : ""}${r.b ? "700" : "500"} ${sz}px ui-sans-serif, system-ui`;
     for (const note of doc.notes) {
+      if (editingNote?.id === note.id) continue; // Direkteditor-Overlay zeigt sie
       const sz = note.size ?? 11;
       const isSel = selection.includes(note.id);
-      const lines = (note.text || "Notiz").split(/\r?\n/);
+      const raw = note.text && note.text.trim() ? note.text : "";
       const lineH = sz + 5;
-      ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
+      const padX = 10;
+      const headH = 18;
+      // Umbruch: Wörter mit Stil greifen auf die Maximalbreite.
+      const wrapped: NoteRun[][] = [];
+      for (const runs of parseNoteRuns(raw)) {
+        let cur: NoteRun[] = [];
+        let curW = 0;
+        const pushWord = (word: NoteRun) => {
+          ctx.font = runFont(word, sz);
+          const ww = ctx.measureText(word.t).width;
+          ctx.font = runFont({ t: " ", b: false, i: false, u: false }, sz);
+          const sp = cur.length ? ctx.measureText(" ").width : 0;
+          if (cur.length && curW + sp + ww > NOTE_MAX_W - padX - 10) {
+            wrapped.push(cur);
+            cur = [];
+            curW = 0;
+          }
+          if (cur.length) {
+            const last = cur[cur.length - 1];
+            if (last.b === word.b && last.i === word.i && last.u === word.u) {
+              last.t += ` ${word.t}`;
+              curW += sp + ww;
+              return;
+            }
+            cur.push({ t: " ", b: false, i: false, u: false });
+            curW += sp;
+          }
+          cur.push({ ...word });
+          curW += ww;
+        };
+        for (const r of runs) {
+          const words = r.t.split(/\s+/).filter(Boolean);
+          if (!words.length && !cur.length) continue;
+          for (const w of words) pushWord({ t: w, b: r.b, i: r.i, u: r.u });
+        }
+        wrapped.push(cur);
+      }
+      if (!wrapped.length) wrapped.push([]);
+      const maxLines = Math.max(1, Math.floor((NOTE_MAX_H - headH - 8) / lineH));
+      const overflow = wrapped.length > maxLines;
+      const shown = wrapped.slice(0, maxLines);
       let maxTw = 48;
-      for (const ln of lines) {
-        const wLn = ctx.measureText(ln).width;
+      for (const ln of shown) {
+        let wLn = 0;
+        for (const r of ln) {
+          ctx.font = runFont(r, sz);
+          wLn += ctx.measureText(r.t).width;
+        }
         if (wLn > maxTw) maxTw = wLn;
       }
       const cardX = note.x;
       const cardY = note.y - 18;
-      const cardW = Math.max(96, Math.ceil(maxTw + 24));
-      const cardH = 18 + lines.length * lineH + 8;
+      const cardW = Math.min(NOTE_MAX_W, Math.max(96, Math.ceil(maxTw + padX + 10)));
+      const cardH = Math.min(NOTE_MAX_H, headH + shown.length * lineH + 8);
 
       ctx.save();
       // Sanfter Kartenschatten
@@ -1055,12 +1111,28 @@ export default function Canvas() {
       ctx.fillStyle = canvasColor("--wire-sel");
       ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
 
-      // Notiztext (ein- oder mehrzeilig)
-      ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
-      ctx.fillStyle = canvasColor("--ink");
-      for (let li = 0; li < lines.length; li++) {
-        ctx.fillText(lines[li], cardX + 10, cardY + 16 + (li + 1) * lineH - 4);
-      }
+      // Notiztext als Stil-Läufe (+ „…" bei Kappung)
+      ctx.save();
+      ctx.beginPath();
+      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      ctx.clip();
+      const dimmed = !raw;
+      const ink = canvasColor(dimmed ? "--ink-3" : "--ink");
+      const drawLines = dimmed ? [[{ t: "Notiz", b: false, i: true, u: false }]] : shown;
+      drawLines.forEach((ln, li) => {
+        const baseline = cardY + 16 + (li + 1) * lineH - 4;
+        let rx = cardX + padX;
+        const runs = overflow && li === drawLines.length - 1 && !dimmed ? [...ln, { t: "…", b: false, i: false, u: false }] : ln;
+        for (const r of runs) {
+          ctx.font = runFont(r, sz);
+          ctx.fillStyle = ink;
+          ctx.fillText(r.t, rx, baseline);
+          const rw = ctx.measureText(r.t).width;
+          if (r.u) ctx.fillRect(rx, baseline + 2, rw, Math.max(1, sz / 11));
+          rx += rw;
+        }
+      });
+      ctx.restore();
       ctx.restore();
     }
 
@@ -1358,7 +1430,7 @@ export default function Canvas() {
       ctx.strokeStyle = canvasColor("--hairline");
       ctx.strokeRect(0.5, 0.5, R - 1, R - 1);
     }
-  }, [cursor, editing]);
+  }, [cursor, editing, editingNote]);
 
   useEffect(() => {
     let raf = 0, last = performance.now(), frames = 0, fpsTime = last;
@@ -1534,27 +1606,17 @@ export default function Canvas() {
           initial: "",
         });
       } else {
+        // S5.22: Direkt auf dem Zettel schreiben (kein separates Feld).
         const existingNote = hitTestNote(st.doc, world);
         if (existingNote) {
-          setEditing({
-            kind: "text",
-            itemId: existingNote.id,
-            x: existingNote.x,
-            y: existingNote.y,
-            sx: e.clientX - (rect?.left ?? 0),
-            sy: e.clientY - (rect?.top ?? 0),
-            initial: existingNote.text,
-          });
+          st.setSelection([existingNote.id]);
+          setEditingNote({ id: existingNote.id, isNew: false });
           return;
         }
-        setEditing({
-          kind: "text",
-          x: sp.x,
-          y: sp.y,
-          sx: e.clientX - (rect?.left ?? 0),
-          sy: e.clientY - (rect?.top ?? 0),
-          initial: "",
-        });
+        const nid = "n_" + Math.random().toString(36).slice(2, 8);
+        st.commit((d) => d.notes.push({ id: nid, x: sp.x, y: sp.y, text: "" }));
+        st.setSelection([nid]);
+        setEditingNote({ id: nid, isNew: true });
       }
       return;
     }
@@ -1903,24 +1965,33 @@ export default function Canvas() {
         }
         return;
       }
-      if (cur.kind === "label") {
-        if (cur.itemId) {
-          st.updateLabel(cur.itemId, clean);
-          st.log("ok", `Netzname geändert in „${clean}“`);
-        } else {
-          st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, name: clean }));
-          st.log("ok", `Netzname „${clean}“`);
-        }
+      // S5.22: Nur noch Label (Notizen laufen über den Direkteditor/commitNote).
+      if (cur.itemId) {
+        st.updateLabel(cur.itemId, clean);
+        st.log("ok", `Netzname geändert in „${clean}“`);
       } else {
-        if (cur.itemId) {
-          st.updateNote(cur.itemId, clean);
-          st.log("ok", "Notiz aktualisiert");
-        } else {
-          st.commit((d) => d.notes.push({ id: "n_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, text: clean }));
-          st.log("ok", "Notiz");
-        }
+        st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, name: clean }));
+        st.log("ok", `Netzname „${clean}“`);
       }
     }
+  };
+
+  // S5.22: Direkteditor-Übernahme — neue leere Notiz wird still verworfen.
+  const commitNote = (markup: string | null, wasNew: boolean) => {
+    const st = useEditor.getState();
+    const id = editingNote?.id;
+    setEditingNote(null);
+    st.setTool("select");
+    if (!id || markup === null) return;
+    if (wasNew && !markup.trim()) {
+      st.commit((d) => {
+        d.notes = d.notes.filter((n) => n.id !== id);
+      });
+      st.setSelection([]);
+      return;
+    }
+    st.updateNote(id, markup);
+    st.log("ok", wasNew ? "Notiz" : "Notiz aktualisiert");
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -2435,9 +2506,8 @@ export default function Canvas() {
     }
     const noteHit = hitTestNote(st.doc, world);
     if (noteHit) {
-      const scr = toScreen({ x: noteHit.x, y: noteHit.y });
-      editingDone.current = false;
-      setEditing({ kind: "text", itemId: noteHit.id, x: noteHit.x, y: noteHit.y, sx: scr.x, sy: scr.y, initial: noteHit.text });
+      st.setSelection([noteHit.id]);
+      setEditingNote({ id: noteHit.id, isNew: false });
       return;
     }
 
@@ -2583,6 +2653,8 @@ export default function Canvas() {
       const st = useEditor.getState();
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // S5.22: Im Notiz-Direkteditor (contentEditable) keine Canvas-Kürzel.
+      if ((e.target as HTMLElement)?.isContentEditable) return;
       // Leertaste auf fokussiertem Button/Link = native Aktivierung, nicht Sim-Toggle
       if (e.key === " " && (tag === "BUTTON" || tag === "A")) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -2745,6 +2817,7 @@ export default function Canvas() {
   const selection = useEditor((s) => s.selection);
   const netDrawing = useHud((s) => s.netDrawing);
   const selDoc = useEditor((s) => s.doc);
+  const view = useEditor((s) => s.view); // S5.22: Notiz-Overlay folgt Zoom/Pan
   const selNetResult = useEditor((s) => s.netResult);
   const selId0 = selection[0];
   const selInst0 = selection.length === 1 ? selDoc.instances.find((i) => i.id === selId0) : undefined;
@@ -2928,14 +3001,29 @@ export default function Canvas() {
           <InlineEditor
             key={`${editing.kind}_${editing.instId ?? editing.itemId ?? `${editing.x}_${editing.y}`}`}
             editing={editing}
-            badge={editing.kind === "value" ? (editInst?.label ?? "WERT") : editing.kind === "label" ? "NET" : "NOTIZ"}
-            caption={editing.kind === "value" ? (editMainParam?.label ?? "Wert") : editing.kind === "label" ? "Netzname" : "Schaltplan-Notiz"}
+            caption={editing.kind === "value" ? (editMainParam?.label ?? "Wert") : "Netzname"}
             unit={editing.kind === "value" ? (editMainParam?.unit ?? "") : ""}
             viewport={useHud.getState().viewport}
             inputRef={editInputRef}
             openedAt={editingOpenedAt}
             onCommit={commitEditing}
             placeholder={editing.kind === "value" && editMainParam?.type === "text" ? "z. B. VCC, NET_A" : undefined}
+          />
+        );
+      })()}
+      {editingNote && (() => {
+        const note = selDoc.notes.find((n) => n.id === editingNote.id);
+        if (!note) return null;
+        const b = getNoteBounds(note);
+        const tl = toScreen({ x: b.x, y: b.y });
+        return (
+          <NoteEditor
+            key={note.id}
+            note={note}
+            rect={{ x: tl.x, y: tl.y, w: b.w * view.zoom, h: b.h * view.zoom }}
+            fontPx={Math.max(9, (note.size ?? 11) * view.zoom)}
+            isNew={editingNote.isNew}
+            onCommit={commitNote}
           />
         );
       })()}
@@ -2948,6 +3036,7 @@ export default function Canvas() {
             editingOpenedAt.current = performance.now();
             setEditing(item);
           }}
+          onEditNote={(id) => setEditingNote({ id, isNew: false })}
         />
       )}
       {showHelp && <ShortcutSheet onClose={() => setShowHelp(false)} />}
@@ -3160,16 +3249,8 @@ export default function Canvas() {
                           initial: selLabel0.name,
                         });
                       } else if (selNote0) {
-                        const scr = toScreen({ x: selNote0.x, y: selNote0.y });
-                        setEditing({
-                          kind: "text",
-                          itemId: selNote0.id,
-                          x: selNote0.x,
-                          y: selNote0.y,
-                          sx: scr.x,
-                          sy: scr.y,
-                          initial: selNote0.text,
-                        });
+                        // S5.22: Notiz direkt auf dem Zettel bearbeiten.
+                        setEditingNote({ id: selNote0.id, isNew: false });
                       }
                     }}
                   >
