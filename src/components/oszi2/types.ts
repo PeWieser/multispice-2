@@ -133,6 +133,10 @@ export const SEQ125: number[] = (() => {
   return a;
 })();
 
+/** S5.20: Zeitbasis-Grenzen — Max passt zur Archiv-Historie (≈298 s ≥ 1,5 Spannen). */
+export const TDIV_MIN = 2e-9;
+export const TDIV_MAX = 10;
+
 export function step125(v: number, dir: number, min: number, max: number): number {
   if (dir === 0) return v;
   const exactIdx = SEQ125.findIndex((x) => Math.abs(x - v) / v < 0.001);

@@ -1,5 +1,5 @@
 import type { Env, MeasType, Settings } from './types';
-import { ceil125, clamp } from './types';
+import { TDIV_MAX, TDIV_MIN, ceil125, clamp } from './types';
 import { gauss, hash32, lineValue, mainsHum, noiseAt, sourceValue } from './signals';
 
 export const NPTS = 2000;
@@ -264,7 +264,12 @@ export class Engine {
     if (keyChanged && !holding) { this.avg = null; this.avgN = 0; }
     if (keyChanged && holding) this.pendingKeyChange = true;
     const tdiv = s.tdiv;
-    const postT = (HDIV / 2) * tdiv + s.hDelay;
+    // S5.20: H-Verzögerung sichern (±1 Spanne) — unbegrenzt würde die Aufnahme
+    // scheinbar einfrieren (Warten auf postT) bzw. Historie verlangen, die nie
+    // existiert. Der Knopf klemmt ebenfalls (menus.ts); das hier fängt alte
+    // Dokumente ab.
+    const hD = clamp(s.hDelay, -HDIV * tdiv, HDIV * tdiv);
+    const postT = (HDIV / 2) * tdiv + hD;
 
     if (s.run === 'stop') {
       this.status = 'stop';
@@ -289,7 +294,7 @@ export class Engine {
       this.status = 'roll';
       this.pendingTT = null;
       const tt = now - postT;
-      this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, false), { ...s, acq: { ...s.acq, mode: s.acq.mode === 'average' ? 'sample' : s.acq.mode } });
+      this.finish(acquire(tt, hD, tdiv, s, env, this.acMean, false), { ...s, acq: { ...s.acq, mode: s.acq.mode === 'average' ? 'sample' : s.acq.mode } });
       this.searchStart = now;
       this.lastAcqTime = now;
       return { newAcq: true, singleDone: false };
@@ -299,7 +304,7 @@ export class Engine {
       if (now >= this.pendingTT + postT) {
         const tt = this.pendingTT;
         this.pendingTT = null;
-        this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, this.pendingTriggered), s);
+        this.finish(acquire(tt, hD, tdiv, s, env, this.acMean, this.pendingTriggered), s);
         this.searchStart = tt + Math.max(postT, 0) + s.trig.holdoff;
         this.lastAcqTime = now;
         this.status = this.pendingTriggered ? 'run' : 'auto';
@@ -315,7 +320,8 @@ export class Engine {
       return { newAcq: false, singleDone: false };
     }
 
-    const a = Math.max(this.searchStart, now - 0.25);
+    // S5.20: 50-ms-Fenster — 4000 Schritte lösen die Sim-Bandbreite sicher auf.
+    const a = Math.max(this.searchStart, now - 0.05);
     const found = findTrigger(a, now, s, env, this.acMean);
     if (found !== null) {
       this.pendingTT = found;
@@ -333,7 +339,7 @@ export class Engine {
     // (run:'stop' ist zu diesem Zeitpunkt bereits ausgestiegen.)
     if (s.trig.mode === 'auto' && now - this.lastAcqTime > timeout) {
       const tt = now - Math.max(postT, 0);
-      this.finish(acquire(tt, s.hDelay, tdiv, s, env, this.acMean, false), s);
+      this.finish(acquire(tt, hD, tdiv, s, env, this.acMean, false), s);
       this.lastAcqTime = now;
       this.status = 'auto';
       return { newAcq: true, singleDone: s.run === 'single' };
@@ -584,7 +590,7 @@ export function autoset(s: Settings, env: Env, now: number): { settings: Setting
   });
   const first = active[0];
   const f = infos[first]!.freq;
-  ns.tdiv = isFinite(f) ? clamp(ceil125(2.5 / (f * 15)), 2e-9, 10) : 1e-3;
+  ns.tdiv = isFinite(f) ? clamp(ceil125(2.5 / (f * 15)), TDIV_MIN, TDIV_MAX) : 1e-3;
   ns.hDelay = 0;
   ns.trig = { ...s.trig, source: first, slope: 'rise', mode: 'auto', level: +(((infos[first]!.max + infos[first]!.min) / 2).toPrecision(3)) };
   ns.acq = { ...s.acq, xy: false };

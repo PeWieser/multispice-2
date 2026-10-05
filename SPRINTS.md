@@ -3,8 +3,8 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.19 ✅ (2026-10-05); S5.20 offen.
-> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§58).
+> Stand: S5.10–S5.20 ✅ (2026-10-05); S5.21 offen.
+> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§59).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -145,6 +145,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.16 Steve-Theorie-Sweep: Buttons/Fenster/Bedienung (Nutzerfrage 2026-10-05, PASS)
 - [x] S5.17 Detail-Review: Versprechen vs. Wirklichkeit (4 Nutzerbefunde 2026-10-05, PASS)
 - [x] S5.19 UI/UX-Komplettsweep mit Wirkungsprobe: 8 Flächen geprüft, Hinweis-Boxen raus, Mobile-Bib repariert (PASS)
+- [x] S5.20 Oszi-Skalenprüfung: Trigger/t/V auf allen Stufen, Archiv-Historie gegen „halbes Signal“ (PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -225,6 +226,18 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   Bewusste Ausnahmen: Folge-Hinweise (Projekte, Extrahieren), Probe-Leerstand
   mit Buttons, Platzier-Log auf Desktop (einzige Affordanz dort).
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (sprint5resttest: 36 Checks).
+- S5.20: Oszi-Skalenprüfung (Nutzerbefund „bei t groß fehlt das halbe Signal“).
+  Ursache: Sim-Historie nur ~2,9 s (fast+slow), Fenster bis 1500 s → linker
+  Schirm lief in gehaltene Randwerte. Fix: Archiv-Tier in realtime.ts
+  (zeitbasiert, ratenunabhängig: 16384 × 1/55 s ≈ 298 s), 3-stufiger Sampler,
+  tdiv-Max 100→10 s/div (Spanne 150 s + H-Verzögerung sicher abgedeckt).
+  Weiter gefunden+gefixt: H-Verzögerung unbegrenzt (→ scheinbares Einfrieren,
+  jetzt ±1 Spanne an Knopf + Engine); Triggerpegel unbegrenzt (jetzt ±8 Divs,
+  Netz-Trigger fest 0 V statt totem Knopf); Trigger-Suchfenster 0,25→0,05 s
+  (löst Sim-Bandbreite sicher auf). Verifiziert korrekt: Kurven-/Marker-
+  Geometrie, Clamp-Ränder, Invert, Zoom, Slope, Holdoff, Roll, Auto-Timeout.
+  Offene Fidelity-Notiz: Rauschmodell σ ∝ V/div (konstant in Divs statt Volt).
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (ozsitest: 32 Prüfungen).
 
 ## Nicht-Ziele (bewusst)
 

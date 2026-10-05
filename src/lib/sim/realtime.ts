@@ -8,6 +8,11 @@
 import { buildNets, SchematicDoc } from "@/lib/schematic/model";
 import { Device, IntegrationMethod, Netlist, Simulator } from "./engine";
 
+/** S5.20: Archiv-Kadenz (≈55 Sa/s ≈ 4× des Oszi-Bedarfs bei 10 s/div). */
+export const ARCH_DT = 1 / 55;
+/** S5.20: Archiv-Tiefe → ARCH_CAP × ARCH_DT ≈ 298 s garantierte Historie. */
+export const ARCH_CAP = 16384;
+
 export class RingBuffer {
   t: Float64Array;
   v: Float64Array;
@@ -80,6 +85,12 @@ export class RealtimeEngine {
    *  Zeiteinstellungen nicht in geklammerte Randwerte laufen. */
   slowBuffers = new Map<string, RingBuffer>();
   private slowPushCounter = 0;
+  /** S5.20: Archiv-Tier für langsame Oszi-Zeitbasen – zeitbasiert (raten-
+   *  unabhängig): alle ARCH_DT ein Sample, ARCH_CAP Samples ≈ 298 s Historie.
+   *  Deckt tdiv ≤ 10 s/div (Spanne 150 s) plus max. H-Verzögerung (1 Spanne)
+   *  sicher ab; darüber fiele das Bild in gehaltene Randwerte („halbes Signal“). */
+  archBuffers = new Map<string, RingBuffer>();
+  private lastArchTime = -Infinity;
   /** R13: Zweigströme als Zeitreihe – pro Gerät ein Ringpuffer. */
   deviceBuffers = new Map<string, RingBuffer>();
   options: RealtimeOptions = {
@@ -119,6 +130,8 @@ export class RealtimeEngine {
     this.buffers.clear();
     this.slowBuffers.clear();
     this.slowPushCounter = 0;
+    this.archBuffers.clear();
+    this.lastArchTime = -Infinity;
     this.deviceBuffers.clear();
     // S2.4: Neustart = volle Rate, leere Zähler (stale Akkumulator würde sonst
     // sofort als Überlast blinken).
@@ -159,9 +172,11 @@ export class RealtimeEngine {
     for (const name of this.sim.nodeNames) {
       this.buffers.set(name, new RingBuffer(16384));
       this.slowBuffers.set(name, new RingBuffer(8192));
+      this.archBuffers.set(name, new RingBuffer(ARCH_CAP));
     }
     this.buffers.set("0", new RingBuffer(64));
     this.slowBuffers.set("0", new RingBuffer(64));
+    this.archBuffers.set("0", new RingBuffer(64));
     for (const d of this.netlist.devices) this.deviceBuffers.set(d.id, new RingBuffer(4096));
     this.sample();
   }
@@ -180,12 +195,20 @@ export class RealtimeEngine {
     if (!sim) return;
     // W31d: jedes 12. Fast-Sample zusätzlich in den Langzeit-Tier (≈3,3 kSa/s).
     const doSlow = this.slowPushCounter++ % 12 === 0;
+    // S5.20: zeitbasiert statt zählerbasiert — die Archiv-Tiefe in Sekunden
+    // hängt nicht von der (adaptiven!) Sim-Rate ab.
+    const doArch = sim.time - this.lastArchTime >= ARCH_DT;
+    if (doArch) this.lastArchTime = sim.time;
     for (let i = 0; i < sim.nodeNames.length; i++) {
       const b = this.buffers.get(sim.nodeNames[i]);
       if (b) b.push(sim.time, sim.x[i]);
       if (doSlow) {
         const sb = this.slowBuffers.get(sim.nodeNames[i]);
         if (sb) sb.push(sim.time, sim.x[i]);
+      }
+      if (doArch) {
+        const ab = this.archBuffers.get(sim.nodeNames[i]);
+        if (ab) ab.push(sim.time, sim.x[i]);
       }
     }
     if (this.deviceBuffers.size) {
@@ -321,6 +344,13 @@ export class RealtimeEngine {
   /** W31d: Langzeit-Historie (≈3,3 kSa/s) für langsame Zeiteinstellungen. */
   channelSlow(net: string, samples: number): { t: number[]; v: number[] } {
     const b = this.slowBuffers.get(net);
+    if (!b) return { t: [], v: [] };
+    return b.window(samples);
+  }
+
+  /** S5.20: Archiv-Historie (≈55 Sa/s, ≈298 s) für langsame Zeitbasen. */
+  channelArchive(net: string, samples: number): { t: number[]; v: number[] } {
+    const b = this.archBuffers.get(net);
     if (!b) return { t: [], v: [] };
     return b.window(samples);
   }

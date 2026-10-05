@@ -1,5 +1,6 @@
 import type { MenuId, Settings, CursorSel } from './types';
 import { MEAS_TYPES, clamp, fmt, step125 } from './types';
+import { HDIV } from './engine';
 import type { MenuItemView } from './render';
 
 export interface MenuItem extends MenuItemView {
@@ -60,15 +61,24 @@ export function applyKnob(id: string, d: number, s: Settings): Settings {
       return { ...n, trig: { ...s.trig, holdoff: clamp(v, 20e-9, 8) } };
     }
     case 'trigLevel': {
-      const vd = s.trig.source < 4 ? s.ch[s.trig.source].vdiv : 1;
-      return { ...n, trig: { ...s.trig, level: +(s.trig.level + d * vd * (fine ? 0.01 : 0.05)).toPrecision(4) } };
+      // S5.20: Netz-Trigger liegt fest auf 0 V (Nulldurchgang) — kein toter Knopf.
+      if (s.trig.source === 4) return { ...n, trig: { ...s.trig, level: 0 } };
+      const vd = s.ch[s.trig.source].vdiv;
+      // S5.20: ±8 Divs — weiter draußen triggert real nichts mehr; der Knopf
+      // bleibt erreichbar statt ins Unendliche zu laufen.
+      const lv = clamp(s.trig.level + d * vd * (fine ? 0.01 : 0.05), -8 * vd, 8 * vd);
+      return { ...n, trig: { ...s.trig, level: +lv.toPrecision(4) } };
     }
     case 'avgCount': {
       const e = clamp(Math.round(Math.log2(s.acq.avgCount)) + d, 1, 9);
       return { ...n, acq: { ...s.acq, avgCount: Math.pow(2, e) } };
     }
-    case 'hDelay':
-      return { ...n, hDelay: +(s.hDelay - d * s.tdiv * (fine ? 0.02 : 0.2)).toPrecision(6) };
+    case 'hDelay': {
+      // S5.20: ±1 Spanne — mehr verlangt Historie, die nie existiert, und
+      // ließe die Aufnahme scheinbar einfrieren (Engine sichert ebenfalls).
+      const span = HDIV * s.tdiv;
+      return { ...n, hDelay: +clamp(s.hDelay - d * s.tdiv * (fine ? 0.02 : 0.2), -span, span).toPrecision(6) };
+    }
     case 'measSrc':
       return { ...n, meas: { ...s.meas, selSrc: (s.meas.selSrc + d + 50) % (s.math.on ? 5 : 4) } };
     case 'measType':

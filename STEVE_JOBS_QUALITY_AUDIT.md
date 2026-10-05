@@ -3704,3 +3704,29 @@ Platzier-Log auf Desktop („R = drehen …“ — dort einzige Affordanz, da
 Toolbar touch-only ist).
 Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
 (sprint5resttest: 36 — Selbst-Erklärungs-, Füll- und Aktions-Guards).
+
+## §59 · S5.20 Ergebnis (Oszi-Skalenprüfung, Nutzerbefund 2026-10-05)
+
+Befund: „Bei t groß fehlt das halbe Signal.“ Ursache im Code nachvollzogen:
+Der Oszi-Sampler (OsziScope.tsx) fiel nach ~2,9 s Historie (fast 0,41 s +
+slow 2,5 s) in gehaltene Randwerte — bei 15 Divs × tdiv war links alles
+flach, was älter war. Fix: Archiv-Tier in `realtime.ts` (zeitbasiert, nicht
+zählerbasiert — die Sim-Rate ist adaptiv, nur Zeit garantiert Tiefe:
+16384 Samples à 1/55 s ≈ 298 s), Sampler 3-stufig, tdiv-Max 100→10 s/div
+(Spanne 150 s + max. H-Verzögerung = 225 s Bedarf ≤ 298 s, per Test bewacht).
+Geometrie-Probe: alle 1-2-5-Schritte 2 ns…10 s (t0/dt/Trigger-Sample).
+Weiterer Sweep (Trigger/t/V): H-Verzögerung war unbegrenzt — große Werte
+ließen die Aufnahme scheinbar einfrieren (Warten auf postT); jetzt ±1
+Spanne (Knopf klemmt, Engine sichert alte Dokumente). Triggerpegel war
+unbegrenzt (jetzt ±8 Divs der Triggerquelle); Netz-Trigger lag schon immer
+fest auf 0 V, der Knopf lief trotzdem tot — jetzt ehrlich 0 V. Trigger-
+Suchfenster 0,25→0,05 s (4000 Schritte lösen 40 kSa/s Sim-Bandbreite auf;
+darüber begrenzt die Sim selbst, nicht der Trigger). Für korrekt befunden:
+Kurven-/Marker-Mapping, Clamp ±5,2 Divs, Invert, Zoom-Geometrie, Slope,
+Holdoff, Roll-Schwelle, Auto-Timeout. Test-Artefakt: Der alte Test-Sampler
+lieferte Netz „0“ ≠ 0 V und löschte per Differenzmessung das Signal —
+gefixt, Inhalt wird jetzt wirklich geprüft (vorher nur Zähler).
+Offen (Fidelity, kein Defekt): Rauschmodell σ ∝ V/div — auf groben Stufen
+sichtbar unruhiger als ein echtes Gerät (dort: festes Eingangsrauschen).
+Kandidat für S5.21, falls gewünscht.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (ozsitest: 32 Prüfungen).
