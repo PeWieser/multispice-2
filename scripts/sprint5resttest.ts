@@ -16,6 +16,7 @@ import { runOperatingPoint } from "../src/lib/sim/analyses";
 import { isEditorSingleKey, normalizeControlKey, resolveBoundControls } from "../src/lib/sim/controls";
 import { inkOn } from "../src/lib/canvas-theme";
 import { mainValueParamKey, splitValueQuery } from "../src/lib/library/search";
+import { previewFit, symbolBBox } from "../src/lib/library/preview";
 import { FOURTEENSEG_ASCII, FOURTEENSEG_FONT, PARTS, PART_MAP } from "../src/lib/library/catalog";
 import { WAV_MAX_SAMPLES, WAV_MIN_RATE, WAV_PEAK, curveToWav, encodeWavMono, medianDt, nativeRate, normalizePeak, toUniformGrid } from "../src/lib/wav";
 import {
@@ -649,7 +650,43 @@ async function main() {
     ok("S5.17b Detail-Guards");
   }
 
-  console.log("sprint5resttest: 30 checks OK");
+  // ---------- S5.18a: Vorschau-Fit (ICs ganz sichtbar) ----------
+  {
+    const ic = symbolBBox(PART_MAP["ne555"].symbol);
+    assert.ok(ic.maxX - ic.minX >= 70, `555-Breite ≥ 70 (ist ${ic.maxX - ic.minX})`);
+    assert.ok(ic.maxY - ic.minY >= 96, `555-Höhe ≥ 96 (ist ${ic.maxY - ic.minY})`);
+    const fit = previewFit(PART_MAP["ne555"].symbol, 96);
+    // Passt ganz in die Box (vorher: starrer 48er-Ausschnitt = leer wirkend).
+    assert.ok((ic.maxX - ic.minX) * fit.scale <= 96, "Breite passt");
+    assert.ok((ic.maxY - ic.minY) * fit.scale <= 96, "Höhe passt");
+    assert.ok(fit.lineWidth > 1.5, "Strich kompensiert");
+    const r = previewFit(PART_MAP["resistor"].symbol, 40);
+    assert.ok(Math.abs(r.cx) < 5 && Math.abs(r.cy) < 5, "Widerstand zentriert");
+    assert.ok(r.scale > fit.scale * 0.5, "kleine Symbole nicht winzig");
+    ok("S5.18a Vorschau-Fit");
+  }
+
+  // ---------- S5.18b: Auswahl-Sperre im CSS ----------
+  {
+    const css = fs.readFileSync("src/app/globals.css", "utf8");
+    assert.ok(css.includes("user-select: none"), "Chrom nicht selektierbar");
+    assert.ok(css.includes('input, textarea, select, [contenteditable="true"], .selectable'), "Opt-out-Regel");
+    const bp = fs.readFileSync("src/components/BottomPanel.tsx", "utf8");
+    assert.ok(bp.includes("mono selectable"), "Log-Konsole kopierbar");
+    ok("S5.18b Auswahl-Sperre");
+  }
+
+  // ---------- S5.18c: Platzieren-Button sofort sichtbar ----------
+  {
+    const lib = fs.readFileSync("src/components/LibraryPalette.tsx", "utf8");
+    const btn = lib.indexOf("Als ${");
+    const params = lib.indexOf(">Parameter<");
+    assert.ok(btn > 0 && params > 0 && btn < params, "Button vor Parameter-Block");
+    assert.ok(lib.includes("wird als"), "Vorbelegungs-Chip vorhanden");
+    ok("S5.18c Aktionszone");
+  }
+
+  console.log("sprint5resttest: 33 checks OK");
 }
 
 main().catch((e) => {

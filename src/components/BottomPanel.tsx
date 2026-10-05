@@ -82,7 +82,7 @@ export default function BottomPanel() {
 
       <div className="min-h-0 flex-1 overflow-hidden">
           {bottomTab === "console" && (
-            <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-2xs leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
+            <div ref={logRef} className="mono selectable h-full overflow-y-auto px-3 py-2 text-2xs leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
               {logs.map((l) => (
                 <div key={l.id} className="flex gap-2">
                   <span className="text-ink-3">{l.time}</span>

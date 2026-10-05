@@ -3,8 +3,8 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.17 ✅ (2026-10-05); S5.18 offen.
-> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§56).
+> Stand: S5.10–S5.18 ✅ (2026-10-05); S5.19 offen.
+> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§57).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -206,6 +206,12 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   eingeklappt; Fenster-Eckgriffe unsichtbar wie Bibliothek (Familien-Sweep:
   Rest adaptiert). `tsc` ✅, `eslint` ✅, `npm test` ✅
   (sprint5resttest: 30 Checks).
+- S5.18: Auswahl-Sperre (`user-select: none` aufs Chrom, Opt-outs für
+  Inputs/Logs/Messwerte — Ziehen/Slider markieren nichts mehr);
+  Platzieren-Button + Vorbelegungs-Chip direkt unter Name/Vorschau
+  (statt am Ende nach Pins); IC-Vorschaubilder (`lib/library/preview.ts`:
+  BBox-Fit mit Strich-Kompensation statt starrer 48er-Box). `tsc` ✅,
+  `eslint` ✅, `npm test` ✅ (sprint5resttest: 33 Checks).
 
 ## Nicht-Ziele (bewusst)
 

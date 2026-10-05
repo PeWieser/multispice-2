@@ -249,7 +249,7 @@ export default function Inspector() {
                           <div className="text-2xs text-ink-3">
                             {pin.name} → {net}
                           </div>
-                          <div className="mono text-2xs text-teal">
+                          <div className="mono selectable text-2xs text-teal">
                             {formatValue(live.nets[net] ?? 0, "V")}
                           </div>
                         </div>
@@ -257,7 +257,7 @@ export default function Inspector() {
                     })}
                     <div className="col-span-2 rounded-md px-2 py-1 bg-surface-2">
                       <div className="text-2xs text-ink-3">Strom / Leistung</div>
-                      <div className="mono text-2xs text-ok">
+                      <div className="mono selectable text-2xs text-ok">
                         {formatValue(live.currents[selected.id] ?? live.currents[selected.label] ?? 0, "A")} · {formatValue(Math.abs(live.power[selected.id] ?? live.power[selected.label] ?? 0), "W")}
                       </div>
                     </div>
@@ -389,7 +389,7 @@ export default function Inspector() {
                   <span className="mono w-12 shrink-0 text-2xs" style={{ color: n.name === "0" ? "var(--ink-3)" : "var(--teal)" }}>
                     {n.name}
                   </span>
-                  <span className="mono flex-1 text-right text-2xs">{v !== undefined ? formatValue(v, "V") : "—"}</span>
+                  <span className="mono selectable flex-1 text-right text-2xs">{v !== undefined ? formatValue(v, "V") : "—"}</span>
                   <span className="w-12 text-right text-2xs text-ink-3">{n.pins.length} Pins</span>
                 </button>
               );
@@ -453,7 +453,7 @@ function Row({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex justify-between py-0.5">
       <span className="text-ink-3">{k}</span>
-      <span>{v}</span>
+      <span className="selectable">{v}</span>
     </div>
   );
 }

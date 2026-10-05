@@ -11,6 +11,8 @@ import { resolveSymbolStyle } from "@/lib/settings";
 import { WINDOW_SHELL, WindowTitleBar } from "./ui";
 import { withSyncNonce } from "@/lib/desktopSync";
 import { mainValueParamKey, splitValueQuery } from "@/lib/library/search";
+import { previewFit } from "@/lib/library/preview";
+import { formatValue } from "@/lib/format";
 import { useIsApple } from "@/lib/platform";
 
 // --- Symbol Preview (mini canvas) – ISO/ANSI aware, memoized ---
@@ -29,22 +31,23 @@ function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
-    // center
-    ctx.save();
-    ctx.translate(size / 2, size / 2);
-    const scale = size / 48;
-    ctx.scale(scale, scale);
-    const cs = getComputedStyle(document.documentElement);
-    const ink = cs.getPropertyValue("--symbol").trim() || "#1c1f22";
-    ctx.strokeStyle = ink;
-    ctx.fillStyle = ink;
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
     let sym = part.symbol;
     try {
       sym = getPartSymbol(part, resolveSymbolStyle(symbolStylePref));
     } catch {}
+    // S5.18: Symbol einpassen (ICs sind größer als die alte 48er-Norm).
+    const fit = previewFit(sym, size);
+    ctx.save();
+    ctx.translate(size / 2, size / 2);
+    ctx.scale(fit.scale, fit.scale);
+    ctx.translate(-fit.cx, -fit.cy);
+    const cs = getComputedStyle(document.documentElement);
+    const ink = cs.getPropertyValue("--symbol").trim() || "#1c1f22";
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    ctx.lineWidth = fit.lineWidth;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     for (const prim of sym) {
       switch (prim.t) {
         case "line":
@@ -735,6 +738,23 @@ export default function LibraryPalette({
                   <span className="text-sm font-semibold">{detailPart.name}</span>
                 </div>
                 <div className="mt-1 text-2xs text-ink-3 leading-snug">{detailPart.description ?? "Keine Beschreibung – generisches Bauteil"}</div>
+                <button
+                  className="btn btn-primary mt-2 w-full justify-center py-2 text-xs font-medium"
+                  onClick={() => onConfirmPlace(detailPart.id)}
+                >
+                  {`Als ${detailPart.ref} platzieren (Enter)`}
+                </button>
+                {(() => {
+                  const { value } = splitValueQuery(query);
+                  const key = value !== undefined ? mainValueParamKey(detailPart) : null;
+                  if (value === undefined || !key) return null;
+                  const pr = detailPart.params.find((d) => d.key === key);
+                  return (
+                    <div className="mono mt-1.5 rounded-md px-2 py-1 text-center text-2xs text-teal" style={{ background: "color-mix(in srgb, var(--teal) 12%, transparent)" }}>
+                      wird als {formatValue(value, pr?.unit ?? "")} platziert
+                    </div>
+                  );
+                })()}
                 <div className="mt-2 flex flex-wrap gap-1">
                   <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
                     {detailPart.ref}
@@ -817,12 +837,6 @@ export default function LibraryPalette({
                 Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k (Wert mit Einheit ans Ende).
               </div>
 
-              <button
-                className="btn btn-primary w-full justify-center py-2 text-xs font-medium"
-                onClick={() => onConfirmPlace(detailPart.id)}
-              >
-                {`Als ${detailPart.ref} platzieren (Enter)`}
-              </button>
             </div>
           </div>
         )}

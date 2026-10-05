@@ -204,6 +204,15 @@ body {
   color: var(--ink);
   background: var(--app);
   overscroll-behavior: none;
+  /* S5.18: App-Chrom nie selektierbar — Ziehen/Slider markierten sonst Text. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* S5.18: Opt-outs — echte Inhalte bleiben kopierbar. */
+input, textarea, select, [contenteditable="true"], .selectable {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Manifesto §2: Zahlen flackern nie — font-variant-numeric: tabular ist Pflicht */

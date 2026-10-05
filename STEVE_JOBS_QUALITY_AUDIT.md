@@ -3655,3 +3655,21 @@ theks-Trichter Confirm + Drag liefern).
 (Zone + Cursor + Titel + Aria bleiben).
 Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
 (sprint5resttest: 30 — Wert-Regel mit Toleranz, Detail-Guards).
+
+## §57 · S5.18 Ergebnis (Nutzer-Feinschliff, 3 Befunde 2026-10-05)
+
+(1) Text-Auswahl beim Ziehen/Slider: `user-select` kam im CSS schlicht nicht
+vor. Fix: `none` aufs Body-Chrom, Opt-outs (`input/textarea/select`,
+`[contenteditable]`, `.selectable`) für Log-Konsole + Inspector-Messwerte.
+(2) Platzieren-Button am Ende der Detailspalte (nach Pins + Hinweis) versenkt.
+Fix: Aktionszone direkt unter Vorschau/Name — Button + „wird als 10 kΩ
+platziert“-Chip (S5.17-Versprechen sichtbar eingelöst).
+(3) IC-Vorschaubilder leer: `SymbolPreview` skalierte starr auf eine 48er-Box,
+ein 70×96-IC zeigte nur leere Mitte. Fix: `lib/library/preview.ts`
+(`symbolBBox` + `previewFit`: einpassen, Strichstärke kompensiert).
+Ehrlichkeit: Alle drei brauchen Augen oder gezielte Layout-Proben — der
+blinde Theorie-Sweep (§55) prüfte Klassen, keine Wirkung. Lehre: Ab jetzt
+gehört zu jedem UI-Sprint eine „Wirkungs-Probe“ (sichtbares Verhalten im
+Code nachvollzogen, nicht nur Verdrahtung).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 33 — Fit-Geometrie, CSS-/Layout-Guards).
