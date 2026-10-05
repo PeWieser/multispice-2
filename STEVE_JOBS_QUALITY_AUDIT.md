@@ -3534,3 +3534,24 @@ iPad-Parcours (Nutzer): Zwei-Finger-Zoom/Pan, Bauteil setzen + verdrahten per
 Touch, Menü/Dialoge bedienen, Tastatur-Platzieren entfällt (S5.3 Maus-Pendant
 bleibt), Schriftgröße Groß prüfen.
 Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (sprint5resttest: 11 Checks).
+
+## §51 · Desktop-Geräte ohne Messdaten (Fix, 2026-10-05)
+
+Nutzerbefund: Gerätefenster in der Windows-App sichtbar, aber ohne Messdaten
+— noch nie gelaufen (kein Regressions-, sondern ein Nie-fertig-Fehler).
+Diagnose: Das Kind-Oszi tastet über `sampler` ab, dessen erste Zeile
+`if (!simEngine.running) return 0` lautet — `engine.running` wird aber nur
+von Start/Stopp gesetzt, die es im Kindfenster nicht gibt (Schritt-Treiber
+ist der Canvas-Loop, der im Kind nicht rendert). Folge: Total-Flatline.
+Zweitlücke: Das Langsam-Tier (`slowBuffers`, langsame Zeitbasen) wurde nie
+synchronisiert.
+Fix: Snapshot-Anwendung als getestete `applySnapshotToChild` nach
+`desktopSync.ts` extrahiert — spiegelt `engine.running` aus `msg.sim`,
+füllt Fast- + Slow-Puffer (Slow-Schlüssel fehlt = Stand behalten, nie
+wischen). Hauptfenster sendet Slow-Fenster (4096/Netz) jede 10. Nachricht +
+initial (`SYNC_SLOW_EVERY`, Bandbreite); Fast-Fenster (512) unverändert im
+45-ms-Takt. Sicher: Im Kind steppt nichts (kein Canvas-Loop), das Flag
+entriegelt nur Leser.
+Verifikation: `webdesktoptest` 7 → 9 Checks (running-Spiegel, Slow-Füllung,
+Slow-Erhalt, Fremdtyp); `tsc` ✓, `eslint` (0 Errors) ✓, Suite ✓.
+Sichtprüfung Desktop: Nutzer.

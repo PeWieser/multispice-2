@@ -3,8 +3,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Minus, Square, Copy, X } from "lucide-react";
 import { WINDOW_SPECS, engine, useEditor } from "@/state/editor";
-import { RingBuffer } from "@/lib/sim/realtime";
-import { applyChildMessageToMain, createSyncDedupe, withSyncNonce } from "@/lib/desktopSync";
+import {
+  SYNC_FAST_WINDOW,
+  SYNC_SLOW_EVERY,
+  SYNC_SLOW_WINDOW,
+  applyChildMessageToMain,
+  applySnapshotToChild,
+  createSyncDedupe,
+  withSyncNonce,
+} from "@/lib/desktopSync";
 
 export interface DesktopChildWindowSpec {
   id: string;
@@ -254,11 +261,22 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
     };
 
     if (effectiveRole === "main") {
-      const broadcastState = () => {
+      let seq = 0;
+      const broadcastState = (forceSlow = false) => {
         const st = useEditor.getState();
         const buffersSnapshot: Record<string, { t: number[]; v: number[] }> = {};
         for (const [netName, rb] of engine.buffers.entries()) {
-          buffersSnapshot[netName] = rb.window(512);
+          buffersSnapshot[netName] = rb.window(SYNC_FAST_WINDOW);
+        }
+        // Okt-27: Langsam-Tier nur jede N. Nachricht (Bandbreite) + initial —
+        // langsame Oszi-Zeitbasen brauchen es, schnelle kommen ohne aus.
+        seq += 1;
+        const wantSlow = forceSlow || seq % SYNC_SLOW_EVERY === 0;
+        const slowSnapshot: Record<string, { t: number[]; v: number[] }> = {};
+        if (wantSlow) {
+          for (const [netName, rb] of engine.slowBuffers.entries()) {
+            slowSnapshot[netName] = rb.window(SYNC_SLOW_WINDOW);
+          }
         }
         sendMsg({
           type: "state-snapshot",
@@ -282,6 +300,7 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
             realtimeFactor: engine.lastState.realtimeFactor,
           },
           buffers: buffersSnapshot,
+          ...(wantSlow ? { slowBuffers: slowSnapshot } : {}),
         });
       };
 
@@ -298,7 +317,7 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
         if (!msg || typeof msg.type !== "string") return;
         const st = useEditor.getState();
         if (msg.type === "request-initial") {
-          broadcastState();
+          broadcastState(true);
         } else if (msg.type === "select-part" && typeof msg.partId === "string") {
           // W132: Einfacher Klick in der Bibliothek wählt das Bauteil zum Platzieren,
           // lässt das Bibliotheksfenster aber offen.
@@ -354,59 +373,8 @@ export function useDesktopMultiWindowSync(role: "main" | "instrument" | "library
 
       const handleIncoming = (raw: unknown) => {
         if (!dedupe.check(raw)) return; // WDA-5: Zweit-Transport verwerfen
-        const msg = raw as Record<string, unknown> | null;
-        if (!msg || msg.type !== "state-snapshot") return;
-        if (msg.engineState) {
-          const es = msg.engineState as typeof engine.lastState;
-          engine.lastState = {
-            ...engine.lastState,
-            time: es.time ?? 0,
-            nets: es.nets ?? {},
-            currents: es.currents ?? {},
-            power: es.power ?? {},
-            ok: es.ok ?? true,
-            stepsPerSecond: es.stepsPerSecond ?? 0,
-            realtimeFactor: es.realtimeFactor ?? 1,
-          };
-        }
-        if (msg.buffers && typeof msg.buffers === "object") {
-          const incomingBuffers = msg.buffers as Record<string, { t: number[]; v: number[] }>;
-          for (const [netName, winData] of Object.entries(incomingBuffers)) {
-            let rb = engine.buffers.get(netName);
-            if (!rb) {
-              rb = new RingBuffer(2048);
-              engine.buffers.set(netName, rb);
-            } else {
-              rb.clear();
-            }
-            const len = Math.min(winData.t?.length ?? 0, winData.v?.length ?? 0);
-            for (let i = 0; i < len; i++) {
-              rb.push(winData.t[i], winData.v[i]);
-            }
-          }
-        }
-        useEditor.setState({
-          doc: (msg.doc as ReturnType<typeof useEditor.getState>["doc"]) ?? useEditor.getState().doc,
-          sim: (msg.sim as ReturnType<typeof useEditor.getState>["sim"]) ?? useEditor.getState().sim,
-          netResult:
-            (msg.netResult as ReturnType<typeof useEditor.getState>["netResult"]) ??
-            useEditor.getState().netResult,
-          instruments:
-            (msg.instruments as ReturnType<typeof useEditor.getState>["instruments"]) ??
-            useEditor.getState().instruments,
-          selection:
-            (msg.selection as ReturnType<typeof useEditor.getState>["selection"]) ??
-            useEditor.getState().selection,
-          theme: (msg.theme as ReturnType<typeof useEditor.getState>["theme"]) ?? useEditor.getState().theme,
-          placingPartId:
-            (msg.placingPartId as ReturnType<typeof useEditor.getState>["placingPartId"]) ??
-            useEditor.getState().placingPartId,
-          // Okt-26: null läuft mit (Entwarnung) — deshalb Schlüsseltest statt ??.
-          leadArmed:
-            "leadArmed" in msg
-              ? (msg.leadArmed as ReturnType<typeof useEditor.getState>["leadArmed"])
-              : useEditor.getState().leadArmed,
-        });
+        // Okt-27: Anwendung inkl. running-Spiegel + Langsam-Tier (getestet).
+        applySnapshotToChild(engine, useEditor.getState, useEditor.setState, raw as Record<string, unknown>);
       };
 
       const onBc = (ev: MessageEvent) => handleIncoming(ev.data);

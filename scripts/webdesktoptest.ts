@@ -7,6 +7,7 @@ import { strict as assert } from "node:assert";
 import { createRequire } from "node:module";
 import {
   applyChildMessageToMain,
+  applySnapshotToChild,
   createSyncDedupe,
   setDocParamSynced,
   setLeadArmedSynced,
@@ -175,6 +176,74 @@ async function main() {
     assert.equal(sp["value"], 2000);
     clearWindow();
     ok("Okt-26 Kind→Haupt-Sender");
+  }
+
+  // ---------- Okt-27: Snapshot spiegelt running + füllt Puffer ----------
+  {
+    const eng = {
+      running: false,
+      lastState: {
+        time: 0,
+        nets: {},
+        currents: {},
+        power: {},
+        ok: true,
+        stepsPerSecond: 0,
+        realtimeFactor: 1,
+      },
+      buffers: new Map(),
+      slowBuffers: new Map(),
+    };
+    const cur = { doc: "D", sim: { running: false } } as never;
+    let patch: Record<string, unknown> | null = null;
+    const applied = applySnapshotToChild(eng as never, () => cur, (p) => {
+      patch = p as Record<string, unknown>;
+    }, {
+      type: "state-snapshot",
+      sim: { running: true },
+      engineState: { time: 1.5, nets: { N1: 3.3 } },
+      buffers: { N1: { t: [0, 1], v: [3, 3.3] } },
+    });
+    assert.equal(applied, true);
+    assert.equal(eng.running, true, "running-Spiegel (Oszi-Sampler-Gate)");
+    assert.equal(eng.lastState.time, 1.5);
+    assert.equal((eng.lastState.nets as Record<string, number>).N1, 3.3);
+    const rb = eng.buffers.get("N1")!;
+    assert.deepEqual(rb.window(10).v, [3, 3.3], "Fast-Puffer gefüllt");
+    assert.equal(eng.slowBuffers.size, 0, "kein Slow-Schlüssel → nichts angelegt");
+    assert.equal((patch as unknown as Record<string, unknown>).doc, "D", "fehlende Keys → Fallback auf Stand");
+    ok("Okt-27 Snapshot running+Puffer");
+  }
+
+  // ---------- Okt-27: Slow-Tier füllen, ohne Schlüssel behalten ----------
+  {
+    const eng = {
+      running: true,
+      lastState: {
+        time: 0,
+        nets: {},
+        currents: {},
+        power: {},
+        ok: true,
+        stepsPerSecond: 0,
+        realtimeFactor: 1,
+      },
+      buffers: new Map(),
+      slowBuffers: new Map(),
+    };
+    const cur = {} as never;
+    const nop = () => {};
+    applySnapshotToChild(eng as never, () => cur, nop, {
+      type: "state-snapshot",
+      sim: { running: false },
+      slowBuffers: { N9: { t: [5], v: [1.25] } },
+    });
+    assert.equal(eng.running, false, "Stopp spiegelt zurück");
+    assert.deepEqual(eng.slowBuffers.get("N9")!.window(10).v, [1.25], "Slow-Puffer gefüllt");
+    applySnapshotToChild(eng as never, () => cur, nop, { type: "state-snapshot", sim: { running: false } });
+    assert.deepEqual(eng.slowBuffers.get("N9")!.window(10).v, [1.25], "Slow bleibt ohne Schlüssel");
+    assert.equal(applySnapshotToChild(eng as never, () => cur, nop, { type: "fremd" }), false);
+    ok("Okt-27 Slow-Tier + fremder Typ");
   }
 
   console.log(`webdesktoptest: ${n} checks OK`);
