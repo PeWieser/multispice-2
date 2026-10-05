@@ -99,7 +99,7 @@ export default function ContextMenu({
                     <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("left"))} title="Links ausrichten" aria-label="Links ausrichten">⇤ links</button>
                     <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("centerH"))} title="Waagerecht mittig" aria-label="Waagerecht mittig">↔ Mitte</button>
                     <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("right"))} title="Rechts ausrichten" aria-label="Rechts ausrichten">⇥ rechts</button>
-                    <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("top"))} title="Oben ausrichten" aria-label="Oben ausrichten">⇧ oben</button>
+                    <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("top"))} title="Oben ausrichten" aria-label="Oben ausrichten">↑ oben</button>
                     <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("centerV"))} title="Senkrecht mittig" aria-label="Senkrecht mittig">↕ Mitte</button>
                     <button className="ctx-row justify-center text-2xs" onClick={() => act(() => st.alignSelection("bottom"))} title="Unten ausrichten" aria-label="Unten ausrichten">⇩ unten</button>
                   </div>

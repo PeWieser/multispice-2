@@ -94,6 +94,8 @@ export interface EditorState {
   hoverNet: string | null;
   tool: Tool;
   placingPartId: string | null;
+  /** S5.17: Einmal-Vorbelegung aus der Suche („r 10k“) — addInstance verbraucht sie. */
+  placingPreset: { partId: string; params: Record<string, number | string | boolean> } | null;
   /** W75: Drehung & Spiegelung des Bauteils in der Hand vor dem Absetzen. */
   placingRot: Rotation;
   placingMirror: boolean;
@@ -161,7 +163,7 @@ export interface EditorState {
   undo: () => void;
   redo: () => void;
   setTool: (t: Tool) => void;
-  setPlacing: (partId: string | null) => void;
+  setPlacing: (partId: string | null, preset?: { partId: string; params: Record<string, number | string | boolean> } | null) => void;
   setPlacingProbe: (kind: import("@/lib/schematic/model").ProbeKind | null) => void;
   addInstance: (partId: string, x: number, y: number, opts?: { rot?: Rotation; mirror?: boolean; autoWire?: boolean }) => string | null;
   deleteSelection: () => void;

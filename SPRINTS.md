@@ -3,8 +3,8 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.16 ✅ (2026-10-05); S5.17 offen.
-> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§55).
+> Stand: S5.10–S5.17 ✅ (2026-10-05); S5.18 offen.
+> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§56).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -143,6 +143,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.14 Live-Steuerung wie in Multisim (Nutzerwunsch 2026-10-05, PASS)
 - [x] S5.15 TEST_MATRIX-§14-Backlog (Nutzerwahl 2026-10-05, PASS)
 - [x] S5.16 Steve-Theorie-Sweep: Buttons/Fenster/Bedienung (Nutzerfrage 2026-10-05, PASS)
+- [x] S5.17 Detail-Review: Versprechen vs. Wirklichkeit (4 Nutzerbefunde 2026-10-05, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -198,6 +199,13 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   auf Theme-Variablen (helles Theme wich ab), `.row/.badge/.sep` zu
   `.ctx-*` gescopet (globale Klassennamen), BottomSheet-Esc. `tsc` ✅,
   `eslint` ✅, `npm test` ✅ (sprint5resttest: 28 Checks).
+- S5.17: Vier Nutzerbefunde — ⌘-Loop in der Bibliothek (Badge + Treffer-Icon)
+  plattformgerecht (Strg+K/Suche); „r 10k“ hält sein Versprechen
+  (`lib/library/search.ts`: Wert-Token-Regel, Einmal-Vorbelegung
+  `placingPreset`, nur bei Zahl als Hauptparameter); Kategorien starten
+  eingeklappt; Fenster-Eckgriffe unsichtbar wie Bibliothek (Familien-Sweep:
+  Rest adaptiert). `tsc` ✅, `eslint` ✅, `npm test` ✅
+  (sprint5resttest: 30 Checks).
 
 ## Nicht-Ziele (bewusst)
 

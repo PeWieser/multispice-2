@@ -53,7 +53,7 @@ let activeDrag: { id: string; x: number; y: number; wx: number; wy: number } | n
 export const GRIP_TOP = 14;
 export const GRIP_BOTTOM = 18;
 export const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
-export const CORNER_ROT: Record<Corner, number> = { nw: 180, ne: 90, sw: 270, se: 0 };
+
 
 /**
  * Runde 20/21 (W40/W42/W43): **Der** Fenstermanager. Jedes Instrumentenfenster –
@@ -452,21 +452,7 @@ export function Window({ win }: { win: InstrumentWindow }) {
                 }}
                 onPointerDown={(e) => beginResize(e, c)}
               >
-                {!top && (
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 18 18"
-                    aria-hidden
-                    style={{ transform: `rotate(${CORNER_ROT[c]}deg)`, color: "var(--ink-3)", opacity: 0.8 }}
-                  >
-                    <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none">
-                      <path d="M15 7 L7 15" />
-                      <path d="M15 11 L11 15" />
-                      <path d="M15 14.5 L14.5 15" />
-                    </g>
-                  </svg>
-                )}
+                {/* S5.17: Griffe unsichtbar wie Bibliothek (Zone + Cursor + Titel genügen). */}
               </div>
             );
           })}

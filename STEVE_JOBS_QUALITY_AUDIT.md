@@ -3635,3 +3635,23 @@ BottomSheet ohne Esc (→ Listener wie ModalShell).
 Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
 (sprint5resttest: 28 — TSX-Farb-Guards, Dialog-Einheitlichkeit, Bedien-Guards).
 Offen bleibt der echte Klick-Durchgang im Browser (E2E-Nutzer-Parcours).
+
+## §56 · S5.17 Ergebnis (Detail-Review, 4 Nutzerbefunde 2026-10-05)
+
+Nutzer-Rüge zu Recht: Der Theorie-Sweep war nicht detailtief genug. Befunde:
+(1) ⌘-Loop in der Bibliothek auf Windows — Ursache: Lucide-`Command`-Icon
+als ⌘K-Badge + Treffer-Glyphe (Text-Hints adaptieren längst). Fix: Badge
+plattformbedingt (`Strg+K` vs. ⌘K), Treffer-Icon → `Search` (bedeutungs-
+treu überall). Familien-Sweep: alle restlichen ⌘/⇧/⌥-UI-Stellen laufen über
+`adaptShortcut`/`Kbd`/`MenuItem-hint`; „⇧ oben“-Label → „↑ oben“.
+(2) Suche versprach „r 10k → Widerstand 10k“, setzte aber nie Werte. Fix:
+`lib/library/search.ts` (`splitValueQuery`: Wert = letztes Token mit
+Einheit/Infix, reine Zahlen bleiben Begriffe — „555“!; `mainValueParamKey`:
+nur Zahl-als-Hauptparameter) + `placingPreset` im Store (einmalig, leckt
+nicht: `setPlacing` setzt/löscht, `addInstance` verbraucht; beide Biblio-
+theks-Trichter Confirm + Drag liefern).
+(3) Kategorie-Baum startet eingeklappt (`CatNode`-Default).
+(4) Geräte-Fenster-Eckgriffe (SVG-Linien) → unsichtbar wie Bibliothek
+(Zone + Cursor + Titel + Aria bleiben).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 30 — Wert-Regel mit Toleranz, Detail-Guards).

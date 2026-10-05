@@ -10,6 +10,8 @@ import { getDatasheet, getDatasheetSearchUrl, getOctopartUrl } from "@/lib/libra
 import { resolveSymbolStyle } from "@/lib/settings";
 import { WINDOW_SHELL, WindowTitleBar } from "./ui";
 import { withSyncNonce } from "@/lib/desktopSync";
+import { mainValueParamKey, splitValueQuery } from "@/lib/library/search";
+import { useIsApple } from "@/lib/platform";
 
 // --- Symbol Preview (mini canvas) – ISO/ANSI aware, memoized ---
 function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
@@ -113,9 +115,8 @@ function scorePart(part: PartDef, tokens: string[]): number {
 }
 
 function searchAdvanced(query: string): PartDef[] {
-  const raw = query.trim().toLowerCase();
-  if (!raw) return [];
-  const tokens = raw.split(/\s+/).filter(Boolean);
+  const { terms: tokens } = splitValueQuery(query); // S5.17: „10k" scort nicht mit
+  if (!tokens.length) return [];
   const scored = PARTS.map((p) => ({ part: p, score: scorePart(p, tokens) }))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -235,7 +236,7 @@ function CatNode({
   selCat: string | null;
   onSel: (path: string) => void;
 }) {
-  const [open, setOpen] = useState(depth < 1);
+  const [open, setOpen] = useState(false); // S5.17: Kategorien starten eingeklappt
   const count = useMemo(() => {
     const flat = (n: CategoryNode): number => n.parts.length + n.children.reduce((a, c) => a + flat(c), 0);
     return flat(node);
@@ -465,13 +466,23 @@ export default function LibraryPalette({
     if (part) setSelected(part);
   };
 
+  const apple = useIsApple();
+  // S5.17: Such-Wert („r 10k") als Einmal-Vorbelegung fürs platzierte Teil.
+  const presetFor = useCallback((id: string) => {
+    const { value } = splitValueQuery(query);
+    if (value === undefined) return null;
+    const part = PART_MAP[id];
+    const key = part ? mainValueParamKey(part) : null;
+    return key ? { partId: id, params: { [key]: value } } : null;
+  }, [query]);
+
   // W132 & W133: Nur beim Klick auf den „Platzieren“-Button (bzw. Enter) oder
   // beim Klicken-und-Ziehen eines Bauteils schließt sich die Bibliothek.
   const onConfirmPlace = useCallback(
     (id: string) => {
       const part = PART_MAP[id];
       if (part) setSelected(part);
-      setPlacing(id);
+      setPlacing(id, presetFor(id));
       useEditor.setState({ libraryOpen: false });
       if (standalone && typeof window !== "undefined") {
         // WDA-5: Eine Nonce für beide Transporte — das Hauptfenster verwirft das Duplikat.
@@ -485,13 +496,13 @@ export default function LibraryPalette({
         window.multispiceDesktop?.windowControl("close");
       }
     },
-    [setPlacing, standalone],
+    [setPlacing, standalone, presetFor],
   );
 
   const onStartDragPart = (id: string) => {
     const part = PART_MAP[id];
     if (part) setSelected(part);
-    setPlacing(id);
+    setPlacing(id, presetFor(id));
     useHud.setState({ dragPart: id });
     useEditor.setState({ libraryOpen: false });
     if (standalone && typeof window !== "undefined") {
@@ -576,7 +587,7 @@ export default function LibraryPalette({
         }}
         extra={
           <span className="flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-ink-3 border border-hairline">
-            <Command size={9} />K
+            {apple ? (<><Command size={9} />K</>) : "Strg+K"}
           </span>
         }
         actions={
@@ -671,7 +682,7 @@ export default function LibraryPalette({
           {query ? (
             <div>
               <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3 flex items-center gap-1.5">
-                <Command size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
+                <Search size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
               </div>
               {results.map((p, idx) => (
                 <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id || idx === selectedIdx} />
@@ -803,7 +814,7 @@ export default function LibraryPalette({
 
               <div className="rounded-lg p-2 text-2xs text-ink-3 leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
                 <div className="font-medium text-2xs mb-1">Hinweis</div>
-                Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
+                Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k (Wert mit Einheit ans Ende).
               </div>
 
               <button

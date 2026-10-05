@@ -20,10 +20,11 @@ import { useHud } from "../hud";export function createPlacementSlice(set: StoreA
           placingProbeKind: t.startsWith("probe") ? get().placingProbeKind : null,
         });
       },
-      setPlacing: (partId) => {
+      setPlacing: (partId, preset = null) => {
         useHud.getState().cancelNetDrawing();
         set((s) => ({
           placingPartId: partId,
+          placingPreset: preset,
           placingRot: 0,
           placingMirror: false,
           tool: partId ? "place" : "select",
@@ -61,6 +62,12 @@ import { useHud } from "../hud";export function createPlacementSlice(set: StoreA
           params: defaultParams(part),
           text: part.interactive === "mcu" ? DEFAULT_MCU_SKETCH : undefined,
         };
+        // S5.17: Such-Vorbelegung („r 10k") gilt einmalig fürs passende Teil.
+        const preset = get().placingPreset;
+        if (preset && preset.partId === partId) {
+          Object.assign(inst.params, preset.params);
+          set({ placingPreset: null });
+        }
         let wireStats = { split: 0, connected: 0 };
         get().commit((d) => {
           d.instances.push(inst);

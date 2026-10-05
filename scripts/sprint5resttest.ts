@@ -15,6 +15,7 @@ import { Simulator } from "../src/lib/sim/engine";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
 import { isEditorSingleKey, normalizeControlKey, resolveBoundControls } from "../src/lib/sim/controls";
 import { inkOn } from "../src/lib/canvas-theme";
+import { mainValueParamKey, splitValueQuery } from "../src/lib/library/search";
 import { FOURTEENSEG_ASCII, FOURTEENSEG_FONT, PARTS, PART_MAP } from "../src/lib/library/catalog";
 import { WAV_MAX_SAMPLES, WAV_MIN_RATE, WAV_PEAK, curveToWav, encodeWavMono, medianDt, nativeRate, normalizePeak, toUniformGrid } from "../src/lib/wav";
 import {
@@ -605,7 +606,50 @@ async function main() {
     ok("S5.16c Bedien-Guards");
   }
 
-  console.log("sprint5resttest: 28 checks OK");
+  // ---------- S5.17a: Such-Wert („r 10k") ----------
+  {
+    const close = (got: number | undefined, want: number) => got !== undefined && Math.abs(got - want) <= Math.abs(want) * 1e-9;
+    const q1 = splitValueQuery("r 10k");
+    assert.deepEqual(q1.terms, ["r"], "r 10k: Begriff");
+    assert.ok(close(q1.value, 10000), "r 10k: Wert");
+    const q2 = splitValueQuery("c 100n");
+    assert.deepEqual(q2.terms, ["c"], "c 100n: Begriff");
+    assert.ok(close(q2.value, 1e-7), "c 100n: Wert");
+    const q3 = splitValueQuery("l 4k7");
+    assert.deepEqual(q3.terms, ["l"], "4k7: Begriff");
+    assert.ok(close(q3.value, 4700), "4k7: Wert");
+    const q4 = splitValueQuery("R 2R2");
+    assert.deepEqual(q4.terms, ["r"], "Groß/Klein: Begriff");
+    assert.ok(close(q4.value, 2.2), "2R2: Wert");
+    const noVal = splitValueQuery("555");
+    assert.deepEqual(noVal.terms, ["555"], "reine Zahl bleibt Begriff");
+    assert.equal(noVal.value, undefined, "555 kein Wert");
+    assert.equal(splitValueQuery("nmos").value, undefined, "Wort kein Wert");
+    assert.deepEqual(splitValueQuery(""), { terms: [] }, "leer");
+    assert.equal(mainValueParamKey(PART_MAP["resistor"]), "r", "Ziel r");
+    assert.equal(mainValueParamKey(PART_MAP["capacitor"]), "c", "Ziel c");
+    assert.equal(mainValueParamKey(PART_MAP["switch_spst"]), null, "Schalter ignoriert Werte");
+    ok("S5.17a Such-Wert");
+  }
+
+  // ---------- S5.17b: Detail-Guards (⌘, Standard, Griffe) ----------
+  {
+    const lib = fs.readFileSync("src/components/LibraryPalette.tsx", "utf8");
+    const cmdUses = lib.split("<Command").length - 1;
+    assert.equal(cmdUses, 1, "genau ein Command-Icon (nur Apple-Zweig)");
+    assert.ok(lib.includes("Strg+K"), "Strg+K-Badge vorhanden");
+    assert.ok(lib.includes("useIsApple"), "Plattform-Abfrage vorhanden");
+    assert.ok(!lib.includes("useState(depth < 1)"), "Kategorien nicht mehr offen by default");
+    const win = fs.readFileSync("src/components/Instruments/Window.tsx", "utf8");
+    assert.ok(!win.includes("M15 7 L7 15"), "kein Eck-Griff-SVG (unsichtbar wie Bibliothek)");
+    const place = fs.readFileSync("src/state/editor/slices/placement.ts", "utf8");
+    assert.ok(place.includes("placingPreset"), "Vorbelegung im Placement-Slice");
+    const ctx = fs.readFileSync("src/components/CanvasContextMenu.tsx", "utf8");
+    assert.ok(!ctx.includes("⇧ oben"), "kein ⇧-Label (plattformsensibel)");
+    ok("S5.17b Detail-Guards");
+  }
+
+  console.log("sprint5resttest: 30 checks OK");
 }
 
 main().catch((e) => {

@@ -10,6 +10,7 @@ export const initialState: EditorData = {
   hoverNet: null,
   tool: "select",
   placingPartId: null,
+  placingPreset: null,
   placingRot: 0,
   placingMirror: false,
   view: { x: 60, y: 20, zoom: 1 },
