@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Activity, BarChart3, Binary, Gauge, LineChart, Minus, Radio, SlidersHorizontal, SquareActivity, Timer, Waves, X, Zap } from "lucide-react";
 import dynamic from "next/dynamic";
 import { spectrum } from "@/lib/sim/fft";
@@ -195,7 +196,59 @@ export function Window({ win }: { win: InstrumentWindow }) {
         el.style.height = s.h + "px";
       }
     };
+    const clearDragFlag = () => {
+      // CSS-Schutz erst nach dem nächsten Paint lösen (Commit ist dann sichtbar).
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          winRef.current?.removeAttribute("data-windrag");
+        }),
+      );
+    };
+    const up = () => {
+      const el = winRef.current;
+      // Nur das Fenster, das gerade gezogen wird, committet und räumt auf –
+      // die Listener aller Fenster hängen am selben Pointer-Event.
+      if (activeDrag?.id === win.id) {
+        const p = livePos.current;
+        if (p && el) {
+          // Endwerte direkt ins DOM schreiben, DANN synchron committen: React
+          // schreibt denselben Wert noch vor dem Paint — kein Zwischenframe
+          // mit anderer Position („Aufblitzen" nach dem Loslassen).
+          el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+          flushSync(() => {
+            updateInstrument(win.id, { x: p.x, y: p.y });
+          });
+        }
+        activeDrag = null;
+        livePos.current = null;
+        clearDragFlag();
+      }
+      if (resize.current?.id === win.id) {
+        const p = livePos.current;
+        const size = liveSize.current;
+        if (el && size) {
+          el.style.width = size.w + "px";
+          el.style.height = size.h + "px";
+        }
+        if (el && p) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+        flushSync(() => {
+          updateInstrument(win.id, { ...(size ?? {}), ...(p ? { x: p.x, y: p.y } : {}) });
+        });
+        resize.current = null;
+        livePos.current = null;
+        liveSize.current = null;
+        clearDragFlag();
+      }
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    };
     const move = (e: PointerEvent) => {
+      // Taste schon los (Up ging außerhalb verloren)? Anstandslos beenden,
+      // statt dem Zeiger ohne Taste zu folgen (Zombie-Drag).
+      if ((activeDrag?.id === win.id || resize.current?.id === win.id) && e.buttons === 0) {
+        up();
+        return;
+      }
       if (activeDrag && activeDrag.id === win.id) {
         // W34: kontinuierlich klemmen – das Fenster kann nicht mehr aus dem
         // Bild rutschen (Rückholhilfe bleibt als zweites Netz bestehen).
@@ -226,42 +279,13 @@ export function Window({ win }: { win: InstrumentWindow }) {
         if (!raf) raf = requestAnimationFrame(apply);
       }
     };
-    const up = () => {
-      const el = winRef.current;
-      // Nur das Fenster, das gerade gezogen wird, committet und räumt auf –
-      // die Listener aller Fenster hängen am selben Pointer-Event.
-      if (activeDrag?.id === win.id) {
-        const p = livePos.current;
-        if (p) {
-          // Endwerte direkt ins DOM schreiben, DANN committen: Die Darstellung
-          // wechselt nie – es blitzt nichts an anderer Stelle auf.
-          if (el) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
-          updateInstrument(win.id, { x: p.x, y: p.y });
-        }
-        activeDrag = null;
-        livePos.current = null;
-      }
-      if (resize.current?.id === win.id) {
-        const p = livePos.current;
-        const s = liveSize.current;
-        if (el && s) {
-          el.style.width = s.w + "px";
-          el.style.height = s.h + "px";
-        }
-        if (el && p) el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
-        updateInstrument(win.id, { ...(s ?? {}), ...(p ? { x: p.x, y: p.y } : {}) });
-        resize.current = null;
-        livePos.current = null;
-        liveSize.current = null;
-      }
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
-    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [updateInstrument, win.id]);
@@ -271,6 +295,10 @@ export function Window({ win }: { win: InstrumentWindow }) {
     if (e.button !== 0) return;
     const cur = useEditor.getState().instruments.find((i) => i.id === win.id) ?? win;
     activeDrag = { id: win.id, x: e.clientX, y: e.clientY, wx: cur.x, wy: cur.y };
+    // Zombie-Status aus abgebrochenen Gesten (Up außerhalb des Fensters) vergessen.
+    livePos.current = null;
+    liveSize.current = null;
+    winRef.current?.setAttribute("data-windrag", "");
   };
 
   /** W43/W135: Skalieren an einer der vier Ecken starten – Seitenverhältnis
@@ -285,6 +313,9 @@ export function Window({ win }: { win: InstrumentWindow }) {
     const cfgAspect = Number(cur?.config.fitAspect);
     const localAspect = r.width / Math.max(r.height, 1);
     const keepAspect = win.kind !== "inspector";
+    livePos.current = null;
+    liveSize.current = null;
+    winRef.current?.setAttribute("data-windrag", "");
     resize.current = {
       id: win.id,
       rect: { x: r.left, y: r.top, w: r.width, h: r.height },

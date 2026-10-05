@@ -394,6 +394,16 @@ input[type="range"]::-moz-range-thumb {
 }
 .win-in { animation: win-in 150ms var(--ease) both; }
 
+/* Fenster-Drag (Instrumente + Bibliothek): Während des Zugs und bis einen
+   Frame nach dem Commit sind Transition/Animation am Fenster abgeschaltet.
+   Keine Bewegung am Fenster kann dann den Zug-Transform aushebeln oder nach
+   dem Loslassen einen Zwischenframe („Geisterbild") erzeugen. */
+[data-windrag],
+[data-windrag] * {
+  transition: none !important;
+  animation: none !important;
+}
+
 @keyframes fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol, partPins } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
@@ -336,6 +337,8 @@ export default function LibraryPalette({
   const dragRef = useRef<{ x: number; y: number; px: number; py: number; w: number } | null>(null);
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const resizePending = useRef<{ w: number; h: number } | null>(null);
+  const pendingPosRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingSizeRef = useRef<{ w: number; h: number } | null>(null);
   const paletteRef = useRef<HTMLDivElement>(null);
 
   // W32a: Nach jedem Render die direkten DOM-Schreibvorgänge wiederherstellen –
@@ -353,63 +356,84 @@ export default function LibraryPalette({
   // den Viewport (kein Hängenbleiben außerhalb) + Repair nach jedem Render.
   useEffect(() => {
     let raf = 0;
-    let pendingPos: { x: number; y: number } | null = null;
-    let pendingSize: { w: number; h: number } | null = null;
     const apply = () => {
       raf = 0;
       if (paletteRef.current) {
-        if (pendingPos && dragRef.current) {
-          paletteRef.current.style.transform = `translate3d(${pendingPos.x - dragRef.current.px}px, ${pendingPos.y - dragRef.current.py}px, 0)`;
+        if (pendingPosRef.current && dragRef.current) {
+          paletteRef.current.style.transform = `translate3d(${pendingPosRef.current.x - dragRef.current.px}px, ${pendingPosRef.current.y - dragRef.current.py}px, 0)`;
         }
-        if (pendingSize) {
-          paletteRef.current.style.width = pendingSize.w + "px";
-          paletteRef.current.style.height = pendingSize.h + "px";
+        if (pendingSizeRef.current) {
+          paletteRef.current.style.width = pendingSizeRef.current.w + "px";
+          paletteRef.current.style.height = pendingSizeRef.current.h + "px";
         }
       }
     };
+    const clearDragFlag = () => {
+      // CSS-Schutz erst nach dem nächsten Paint lösen (Commit ist dann sichtbar).
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          paletteRef.current?.removeAttribute("data-windrag");
+        }),
+      );
+    };
+    const onUp = () => {
+      if (dragRef.current && pendingPosRef.current && paletteRef.current) {
+        // Endwerte direkt ins DOM schreiben, DANN synchron committen: React
+        // schreibt denselben Wert noch vor dem Paint — kein Zwischenframe
+        // mit anderer Position („Aufblitzen" nach dem Loslassen).
+        paletteRef.current.style.left = pendingPosRef.current.x + "px";
+        paletteRef.current.style.top = pendingPosRef.current.y + "px";
+        paletteRef.current.style.transform = "";
+        flushSync(() => {
+          setPos(pendingPosRef.current!);
+        });
+      }
+      if (resizeRef.current && pendingSizeRef.current) {
+        flushSync(() => {
+          setSize(pendingSizeRef.current!);
+        });
+      }
+      dragRef.current = null;
+      resizeRef.current = null;
+      resizePending.current = null;
+      pendingPosRef.current = null;
+      pendingSizeRef.current = null;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      clearDragFlag();
+    };
     const onMove = (e: PointerEvent) => {
+      // Taste schon los (Up ging außerhalb verloren)? Anstandslos beenden,
+      // statt dem Zeiger ohne Taste zu folgen (Zombie-Drag).
+      if ((dragRef.current || resizeRef.current) && e.buttons === 0) {
+        onUp();
+        return;
+      }
       if (dragRef.current) {
         // Titelleiste bleibt greifbar: mindestens 180 px horizontal,
         // 60 px vertikal im Viewport.
-        pendingPos = {
+        pendingPosRef.current = {
           x: Math.min(window.innerWidth - 180, Math.max(180 - dragRef.current.w, dragRef.current.px + e.clientX - dragRef.current.x)),
           y: Math.min(window.innerHeight - 60, Math.max(0, dragRef.current.py + e.clientY - dragRef.current.y)),
         };
         if (!raf) raf = requestAnimationFrame(apply);
       }
       if (resizeRef.current) {
-        pendingSize = {
+        pendingSizeRef.current = {
           w: Math.max(640, Math.min(window.innerWidth - 20, resizeRef.current.w + e.clientX - resizeRef.current.x)),
           h: Math.max(380, Math.min(window.innerHeight - 20, resizeRef.current.h + e.clientY - resizeRef.current.y)),
         };
-        resizePending.current = pendingSize;
+        resizePending.current = pendingSizeRef.current;
         if (!raf) raf = requestAnimationFrame(apply);
       }
     };
-    const onUp = () => {
-      if (dragRef.current && pendingPos && paletteRef.current) {
-        // Endposition direkt setzen + Transform leeren, dann committen (kein Sprung).
-        paletteRef.current.style.left = pendingPos.x + "px";
-        paletteRef.current.style.top = pendingPos.y + "px";
-        paletteRef.current.style.transform = "";
-        setPos(pendingPos);
-      }
-      if (resizeRef.current && pendingSize) {
-        setSize(pendingSize);
-      }
-      dragRef.current = null;
-      resizeRef.current = null;
-      resizePending.current = null;
-      pendingPos = null;
-      pendingSize = null;
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
-    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [setPos, setSize]);
@@ -549,6 +573,10 @@ export default function LibraryPalette({
         className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3 border-b border-hairline"
         onPointerDown={(e) => {
           dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y, w: paletteRef.current?.offsetWidth ?? 420 };
+          // Zombie-Status aus abgebrochenen Gesten (Up außerhalb) vergessen.
+          pendingPosRef.current = null;
+          pendingSizeRef.current = null;
+          paletteRef.current?.setAttribute("data-windrag", "");
         }}
       >
         <span className="text-xs font-medium flex items-center gap-1.5">
@@ -801,6 +829,10 @@ export default function LibraryPalette({
         className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
         onPointerDown={(e) => {
           resizeRef.current = { x: e.clientX, y: e.clientY, w: size.w, h: size.h };
+          pendingPosRef.current = null;
+          pendingSizeRef.current = null;
+          resizePending.current = null;
+          paletteRef.current?.setAttribute("data-windrag", "");
         }}
         style={{ background: "linear-gradient(135deg, transparent 50%, var(--hairline-strong) 50%)" }}
       />
