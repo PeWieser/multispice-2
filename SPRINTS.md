@@ -3,8 +3,8 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.18 ✅ (2026-10-05); S5.19 offen.
-> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§57).
+> Stand: S5.10–S5.19 ✅ (2026-10-05); S5.20 offen.
+> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§58).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -144,6 +144,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.15 TEST_MATRIX-§14-Backlog (Nutzerwahl 2026-10-05, PASS)
 - [x] S5.16 Steve-Theorie-Sweep: Buttons/Fenster/Bedienung (Nutzerfrage 2026-10-05, PASS)
 - [x] S5.17 Detail-Review: Versprechen vs. Wirklichkeit (4 Nutzerbefunde 2026-10-05, PASS)
+- [x] S5.19 UI/UX-Komplettsweep mit Wirkungsprobe: 8 Flächen geprüft, Hinweis-Boxen raus, Mobile-Bib repariert (PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -212,6 +213,18 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   (statt am Ende nach Pins); IC-Vorschaubilder (`lib/library/preview.ts`:
   BBox-Fit mit Strich-Kompensation statt starrer 48er-Box). `tsc` ✅,
   `eslint` ✅, `npm test` ✅ (sprint5resttest: 33 Checks).
+- S5.19: Komplettsweep mit Wirkungsprobe (Bibliothek, Canvas, Inspector,
+  Bottom/Grapher/Probes, Instrumente, Menüs, Dialoge, Toasts).
+  Gefunden+gefixt: Hinweis-Box raus (Suchsyntax steht im Platzhalter,
+  Zeilen mit Grab-Cursor); mobile Bib war kaputt (fixed-Fenster im Sheet,
+  kein Platzieren, keine Tabs/Kategorien) → `fill`-Modus + Aktionsleiste +
+  Bereichs-Tabs + Kategorie-Select; Grapher-Leerzustand mit Aktion
+  („DC-Arbeitspunkt berechnen“); Touch-Toolbar Glyphen→Lucide.
+  Für sauber befunden: ⌘-Familie (MenuItem/Kbd/Tooltip adaptieren zentral),
+  Fokusfalle+Esc, Kontexmenü-Clamping, Toast, Slider-Styling, Modus-Banner.
+  Bewusste Ausnahmen: Folge-Hinweise (Projekte, Extrahieren), Probe-Leerstand
+  mit Buttons, Platzier-Log auf Desktop (einzige Affordanz dort).
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (sprint5resttest: 36 Checks).
 
 ## Nicht-Ziele (bewusst)
 

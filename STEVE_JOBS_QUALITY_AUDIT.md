@@ -3673,3 +3673,34 @@ gehört zu jedem UI-Sprint eine „Wirkungs-Probe“ (sichtbares Verhalten im
 Code nachvollzogen, nicht nur Verdrahtung).
 Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
 (sprint5resttest: 33 — Fit-Geometrie, CSS-/Layout-Guards).
+
+## §58 · S5.19 Ergebnis (UI/UX-Komplettsweep mit Wirkungsprobe, 2026-10-05)
+
+Anlass: Nutzerbefunde S5.18 („das hättest du erkennen müssen“) + Grundsatz
+„gutes Design erklärt sich selbst“. Methode: 8 Flächen, je Fläche Wirkung
+im Code nachvollzogen (Layout-Geometrie, Event-Fluss, Zustandswechsel).
+
+Gefunden + gefixt (4):
+(1) Hinweis-Box in der Bib-Details (inkl. falschem Wort „Schaltfläche“)
+entfernt — Suchsyntax steht im Platzhalter, Zeilen zeigen Grab-Cursor.
+(2) Mobile Bibliothek defekt: `fixed`-Fenster brach aus dem Bottom-Sheet,
+kein Platzieren (kein Enter, Detail `md+` versteckt), keine Tabs/Kategorien
+(Nav-Spalte `md+`) → `fill`-Modus (füllt Sheet, ohne Fenster-Chrom),
+Aktionsleiste unten (Vorschau + Name + Platzieren), Bereichs-Tabs
+(Alle/Favoriten/Zuletzt), Kategorie-`<select>`; Texte fill-bewusst
+(kein „Enter zum Platzieren“, kein „Rechtsklick“ auf Touch).
+(3) Grapher-Leerzustand war reiner Tipp („Menü Analysen wählen“) →
+Aktion „DC-Arbeitspunkt berechnen“ (läuft `.op` direkt, wie Menü).
+(4) Touch-Toolbar (Platzieren/Sonde/Leitung/Auswahl) nutzte Text-Glyphen
+(↻↺⇆✕, 7 Stellen) → Lucide-Icons.
+
+Für sauber befunden: ⌘/⇧/⌥-Familie (MenuItem, Kbd, Tooltip, Ctxmenu
+adaptieren zentral — Fehlalarm Menü per Probe widerlegt), Fokusfalle +
+Esc in Dialogen, Ctxmenu-Viewport-Clamping, Toast (einzeln, 5 s, Aktion),
+Slider (nativ + gestylt), Messleitungs-Banner (Modus-Anzeige, kein Tipp).
+Bewusste Ausnahmen (Folgen/Warnungen ≠ Tipps): Projekte-Dialog
+(„Öffnen ersetzt …“), Extrahier-Warnungen, Probe-Leerstand (mit Buttons),
+Platzier-Log auf Desktop („R = drehen …“ — dort einzige Affordanz, da
+Toolbar touch-only ist).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 36 — Selbst-Erklärungs-, Füll- und Aktions-Guards).

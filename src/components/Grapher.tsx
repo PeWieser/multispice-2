@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, AudioLines, Crosshair, Download, ImageDown, XCircle } from "lucide-react";
+import { AlertTriangle, AudioLines, Crosshair, Download, ImageDown, XCircle, Zap } from "lucide-react";
 import { formatValue } from "@/lib/format";
 import { curveStats, fMinus3dB, type CurveStats } from "@/lib/measure";
 import { combineSeries, envelopeWindow, movingEnvelope, postFFT } from "@/lib/postprocess";
@@ -778,7 +778,21 @@ export default function Grapher() {
     );
   }
   if (!analysis.data)
-    return <div className="p-4 text-xs text-ink-3">Noch keine Analyse ausgeführt — Menü „Analysen“ wählen.</div>;
+    return (
+      <div className="p-4 text-xs text-ink-3">
+        <div>Noch keine Analyse ausgeführt.</div>
+        <button
+          className="btn mt-2 text-2xs"
+          onClick={() => {
+            const st = useEditor.getState();
+            st.setBottomTab("results");
+            void st.runAnalysis("op", {});
+          }}
+        >
+          <Zap size={13} /> DC-Arbeitspunkt berechnen
+        </button>
+      </div>
+    );
 
   const def = ANALYSIS_MAP[analysis.kind];
   const d = analysis.data as Record<string, unknown>;

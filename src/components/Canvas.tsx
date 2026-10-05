@@ -23,6 +23,7 @@ import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScre
 import { findInstanceByValueLabel, findPinInfo, getNetObstacles, getNetPinPoints, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
 import { drawInstance, drawProbe } from "./Canvas/render";
 import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
+import { FlipHorizontal2, RotateCcw, RotateCw, X } from "lucide-react";
 
 
 /** Mini-Wellenform im Hover-Tooltip: der Oszilloskop-Blick ohne Klick. */
@@ -2998,21 +2999,21 @@ export default function Canvas() {
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().rotateSelection(1)}
                 >
-                  ↻ 90°
+                  <RotateCw size={13} /> 90°
                 </button>
                 <button
                   type="button"
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().rotateSelection(-1)}
                 >
-                  ↺ -90°
+                  <RotateCcw size={13} /> −90°
                 </button>
                 <button
                   type="button"
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().mirrorSelection()}
                 >
-                  ⇆ Spiegeln
+                  <FlipHorizontal2 size={13} /> Spiegeln
                 </button>
                 <button
                   type="button"
@@ -3020,7 +3021,7 @@ export default function Canvas() {
                   style={{ color: "var(--err)" }}
                   onClick={() => useEditor.getState().setPlacing(null)}
                 >
-                  ✕ Abbrechen
+                  <X size={13} /> Abbrechen
                 </button>
               </>
             ) : tool.startsWith("probe") && placingProbeKind ? (
@@ -3031,7 +3032,7 @@ export default function Canvas() {
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().setPlacingProbe(null)}
                 >
-                  ✕ Fertig
+                  <X size={13} /> Fertig
                 </button>
               </>
             ) : netDrawing || tool === "wire" ? (
@@ -3087,7 +3088,7 @@ export default function Canvas() {
                     useEditor.getState().setTool("select");
                   }}
                 >
-                  ✕ Abbrechen
+                  <X size={13} /> Abbrechen
                 </button>
               </>
             ) : (
@@ -3099,14 +3100,14 @@ export default function Canvas() {
                       className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                       onClick={() => useEditor.getState().rotateSelection(1)}
                     >
-                      ↻ 90°
+                      <RotateCw size={13} /> 90°
                     </button>
                     <button
                       type="button"
                       className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                       onClick={() => useEditor.getState().mirrorSelection()}
                     >
-                      ⇆ Spiegeln
+                      <FlipHorizontal2 size={13} /> Spiegeln
                     </button>
                   </>
                 )}
@@ -3203,7 +3204,7 @@ export default function Canvas() {
                   onClick={() => useEditor.getState().setSelection([])}
                   title="Auswahl aufheben" aria-label="Auswahl aufheben"
                 >
-                  ✕
+                  <X size={13} />
                 </button>
               </>
             )}

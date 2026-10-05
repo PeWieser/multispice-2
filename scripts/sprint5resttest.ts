@@ -686,7 +686,39 @@ async function main() {
     ok("S5.18c Aktionszone");
   }
 
-  console.log("sprint5resttest: 33 checks OK");
+  // ---------- S5.19a: keine Hinweis-Box, Affordanz sichtbar ----------
+  {
+    const lib = fs.readFileSync("src/components/LibraryPalette.tsx", "utf8");
+    assert.ok(!lib.includes(">Hinweis<"), "Hinweis-Box entfernt");
+    assert.ok(lib.includes("r 10k"), "Suchsyntax im Platzhalter");
+    assert.ok(lib.includes("cursor-grab"), "Zieh-Affordanz an Zeilen");
+    ok("S5.19a Selbst-Erklärung");
+  }
+
+  // ---------- S5.19b: mobiler Füll-Modus ----------
+  {
+    const lib = fs.readFileSync("src/components/LibraryPalette.tsx", "utf8");
+    assert.ok(lib.includes("standalone || fill"), "Füll-Layout");
+    assert.ok(lib.includes("{fill && selected && ("), "mobile Aktionsleiste");
+    assert.ok(lib.includes("Alle Kategorien"), "Kategorie-Select");
+    assert.ok(lib.includes('role="tablist"'), "Bereichs-Tabs");
+    const wb = fs.readFileSync("src/components/Workbench.tsx", "utf8");
+    assert.ok(wb.includes("<LibraryPalette fill"), "Sheet nutzt Füll-Modus");
+    ok("S5.19b Füll-Modus");
+  }
+
+  // ---------- S5.19c: Aktion statt Tipp, Icons statt Glyphen ----------
+  {
+    const g = fs.readFileSync("src/components/Grapher.tsx", "utf8");
+    assert.ok(g.includes("DC-Arbeitspunkt berechnen"), "Grapher-Aktionsbutton");
+    assert.ok(g.includes('runAnalysis("op"'), "führt OP-Analyse aus");
+    const c = fs.readFileSync("src/components/Canvas.tsx", "utf8");
+    assert.ok(c.includes("<RotateCw"), "Lucide statt ↻");
+    for (const g of ["↻", "↺", "⇆", "✕"]) assert.ok(!c.includes(g), `kein ${g} in Canvas`);
+    ok("S5.19c Aktion+Icons");
+  }
+
+  console.log("sprint5resttest: 36 checks OK");
 }
 
 main().catch((e) => {

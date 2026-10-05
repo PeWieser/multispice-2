@@ -427,7 +427,7 @@ export default function Workbench() {
             <InstrumentLayer />
             {/* Library as bottom sheet on mobile */}
             <BottomSheet open={libraryOpen} onClose={() => useEditor.getState().toggleLibrary()} title="Bibliothek" height="80vh">
-              <LibraryPalette onPartEditor={() => setPartEditorOpen(true)} />
+              <LibraryPalette fill onPartEditor={() => setPartEditorOpen(true)} />
             </BottomSheet>
             <BottomSheet open={rightOpen} onClose={() => useEditor.getState().toggleRight()} title="Inspector" height="70vh">
               <Inspector />

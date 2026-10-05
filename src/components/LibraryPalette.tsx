@@ -148,7 +148,7 @@ const PartRow = React.memo(function PartRow({
 
   return (
     <div
-      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)] cursor-pointer"
+      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)] cursor-grab active:cursor-grabbing"
       style={
         active || selected
           ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }
@@ -275,9 +275,12 @@ function CatNode({
 export default function LibraryPalette({
   onPartEditor,
   standalone = false,
+  fill = false,
 }: {
   onPartEditor?: () => void;
   standalone?: boolean;
+  /** S5.19: Füll-Modus fürs mobile Bottom-Sheet (kein Fenster-Chrom). */
+  fill?: boolean;
 } = {}) {
   const openStore = useEditor((s) => s.libraryOpen);
   const open = standalone ? true : openStore;
@@ -311,6 +314,18 @@ export default function LibraryPalette({
     void customRev;
     return buildCategoryTree(PARTS);
   }, [customRev]);
+  // S5.19: flache Kategorieliste fürs mobile <select> (Nav-Spalte ist md+).
+  const catOptions = useMemo(() => {
+    const out: { path: string; label: string }[] = [];
+    const walk = (nodes: CategoryNode[], prefix: string) => {
+      for (const n of nodes) {
+        out.push({ path: n.path, label: `${prefix}${n.path.split("/").slice(-1)[0]}` });
+        walk(n.children, `${prefix}– `);
+      }
+    };
+    walk(tree.children, "");
+    return out;
+  }, [tree]);
   const results = useMemo(() => {
     void customRev;
     return query ? searchAdvanced(query) : [];
@@ -565,17 +580,17 @@ export default function LibraryPalette({
     <div
       ref={paletteRef}
       className={
-        standalone
+        standalone || fill
           ? "flex h-full w-full flex-col overflow-hidden"
           : `fixed z-40 will-change-transform ${WINDOW_SHELL}`
       }
       style={
-        standalone
+        standalone || fill
           ? { background: "var(--surface)" }
           : { left: pos.x, top: pos.y, width: size.w, height: size.h }
       }
     >
-      {!standalone && (
+      {!standalone && !fill && (
       <WindowTitleBar
         icon={<LayoutGrid size={12} />}
         title="Bibliothek"
@@ -644,6 +659,44 @@ export default function LibraryPalette({
         </div>
       </div>
 
+      {fill && (
+        <div className="flex shrink-0 items-center gap-1.5 px-2.5 pb-2">
+          <div className="flex shrink-0 rounded-lg border border-hairline bg-surface-2 p-0.5" role="tablist" aria-label="Bibliotheksbereich">
+            {(
+              [
+                { t: "all", label: "Alle", Icon: LayoutGrid },
+                { t: "fav", label: "Favoriten", Icon: Star },
+                { t: "recent", label: "Zuletzt", Icon: Clock },
+              ] as const
+            ).map(({ t, label, Icon }) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                title={label}
+                aria-label={label}
+                className="grid h-7 w-9 place-items-center rounded-md"
+                style={tab === t ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--ink-3)" }}
+                onClick={() => { setQuery(""); setTab(t); setSelCat(null); }}
+              >
+                <Icon size={14} />
+              </button>
+            ))}
+          </div>
+          <select
+            className="input h-7 min-w-0 flex-1 text-2xs"
+            value={selCat ?? ""}
+            onChange={(e) => { setQuery(""); setTab("all"); setSelCat(e.target.value || null); }}
+            aria-label="Kategorie"
+          >
+            <option value="">Alle Kategorien</option>
+            {catOptions.map((c) => (
+              <option key={c.path} value={c.path}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
         {/* Spalte 1 – Navigation (Ref-1 Component Browser) */}
         <div className="hidden w-[170px] shrink-0 flex-col overflow-y-auto border-r py-1 md:flex border-hairline bg-surface-2">
@@ -685,7 +738,7 @@ export default function LibraryPalette({
           {query ? (
             <div>
               <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3 flex items-center gap-1.5">
-                <Search size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
+                <Search size={10} /> {results.length} Treffer für „{query}“{fill ? "" : " – Enter zum Platzieren"}
               </div>
               {results.map((p, idx) => (
                 <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id || idx === selectedIdx} />
@@ -696,7 +749,7 @@ export default function LibraryPalette({
               {favorites.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
                 <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
               ))}
-              {!favorites.length && <div className="p-6 text-center text-xs text-ink-3">Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit</div>}
+              {!favorites.length && <div className="p-6 text-center text-xs text-ink-3">{fill ? "Noch keine Favoriten – Stern am Bauteil tippen" : "Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit"}</div>}
             </div>
           ) : activeTab === "recent" ? (
             <div>
@@ -832,16 +885,40 @@ export default function LibraryPalette({
                 </div>
               )}
 
-              <div className="rounded-lg p-2 text-2xs text-ink-3 leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
-                <div className="font-medium text-2xs mb-1">Hinweis</div>
-                Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k (Wert mit Einheit ans Ende).
-              </div>
 
             </div>
           </div>
         )}
       </div>
 
+      {fill && selected && (
+        <div className="shrink-0 border-t border-hairline bg-surface p-2.5">
+          <div className="flex items-center gap-2.5">
+            <SymbolPreview part={selected} size={40} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-medium">{selected.name}</div>
+              <div className="mono text-2xs text-ink-3">
+                {selected.ref}
+                {(() => {
+                  const { value } = splitValueQuery(query);
+                  const key = value !== undefined ? mainValueParamKey(selected) : null;
+                  if (value === undefined || !key) return null;
+                  const pr = selected.params.find((d) => d.key === key);
+                  return <> · {formatValue(value, pr?.unit ?? "")}</>;
+                })()}
+              </div>
+            </div>
+            <button
+              className="btn btn-primary shrink-0 px-3 py-2 text-xs font-medium"
+              onClick={() => onConfirmPlace(selected.id)}
+            >
+              Platzieren
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!standalone && !fill && (
       <div
         className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
         onPointerDown={(e) => {
@@ -853,6 +930,7 @@ export default function LibraryPalette({
         }}
         style={{ background: "linear-gradient(135deg, transparent 50%, var(--hairline-strong) 50%)" }}
       />
+      )}
     </div>
   );
 }
