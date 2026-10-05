@@ -124,7 +124,7 @@ export default function NoteEditor({
           className="h-full w-full overflow-y-auto outline-none"
           style={{
             background: "linear-gradient(180deg, #FFFADE 0%, #FFF6C4 55%, #FFEFA8 100%)",
-            border: `${Math.max(1, 1.5 * zoom)}px solid #2E7CD6`,
+            border: `${Math.max(1, 1.5 * zoom)}px solid var(--wire-sel)`,
             borderRadius: 3,
             boxShadow: "0 6px 20px rgba(60, 40, 0, 0.30)",
             color: "#3B2F04",

@@ -59,7 +59,7 @@ function ColorCodeTable() {
               <td className={td}>
                 <span className="flex items-center gap-2">
                   <span
-                    className="inline-block h-4 w-6 shrink-0 rounded-sm border border-black/25"
+                    className="inline-block h-4 w-6 shrink-0 rounded-sm border border-hairline-strong"
                     style={{ background: r.hex }}
                   />
                   <span className="font-sans">{r.name}</span>
