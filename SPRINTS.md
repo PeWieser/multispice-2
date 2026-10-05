@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.23 ✅ (2026-10-05).
+> Stand: S5.10–S5.24 ✅ (2026-10-05).
 > Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§60).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
@@ -150,6 +150,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.21 Physikalisches Oszi-Rauschen: fest in Volt + ADC-Quantisierung (PASS)
 - [x] S5.22 Netzlabels + Notizzettel + Ein-Rahmen-Eingabe (Nutzerbefunde 2026-10-05, PASS)
 - [x] S5.23 Notizzettel 2.0: Einheitskarte, Scrollen, 3 Schriften (Nutzerbefunde 2026-10-05, PASS)
+- [x] S5.24 Bibliothek + Wertfluss + Referenz (Nutzerwünsche 2026-10-05, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -269,6 +270,16 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   Verlauf, Lichtkante, umgeknickter Ecke (bleibt gelb wie angeklebt —
   dokumentierte Ausnahme im Canvas-Hex-Lint, wie LED-Emission).
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (notetest: 41).
+- S5.24: (a) Bibliotheks-Diät: Mitte ohne Kategoriezeile + ohne generierte
+  Fülltexte, rechts ohne Badges, Pins einklappbar; neue Rubriken Sensoren
+  (NTC/LDR) und Stromversorgung (Regler, GND/VCC). (b) Nach Platzieren von
+  R/C/L + U/I-Quellen öffnet sofort das Wertfenster (Standard vorausgewählt,
+  Enter ok, Esc behält Standard; ⇧-Serie läuft weiter). (c) Rad in Zahlen-
+  feldern: Widerstand in E-Reihe-Schritten (E6/E12/E24 in Einstellungen →
+  Bauteilwerte), Rest ±5 % (⇧ ±1 %); gilt für Inspector + Wertefeld, Entwurf
+  bis Blur/Enter. (d) Referenz-Fenster über Hilfe: Farbcode, E-Reihen,
+  Kerko-/SMD-Codes, Suffixe (live gerechnet/gespiegelt).
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (referencetest neu: 58).
 
 ## Nicht-Ziele (bewusst)
 

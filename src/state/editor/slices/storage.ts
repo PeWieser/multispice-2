@@ -141,6 +141,7 @@ import type { InstrumentWindow } from "../types";export function createStorageSl
           const t = typeof window !== "undefined" ? window.localStorage.getItem("multispice.theme") : null;
           if (t === "dark" || t === "light" || t === "system") set({ theme: t as any });
           try { const sy = localStorage.getItem("multispice.symbolStyle") as any; if (sy) set({ symbolStyle: sy }); } catch {}
+          try { const es = localStorage.getItem("multispice.eSeries") as any; if (es === "E6" || es === "E12" || es === "E24") set({ eSeries: es }); } catch {}
         } catch {}
       },
 

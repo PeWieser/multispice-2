@@ -38,6 +38,8 @@ export const CATEGORY_COLORS: Record<string, { bg: string; fg: string }> = {
   "Switches": { bg: "rgba(106,112,118,0.14)", fg: "#6a7076" },
   "Connectors": { bg: "rgba(106,112,118,0.14)", fg: "#6a7076" },
   "Sensors": { bg: "rgba(31,95,208,0.12)", fg: "#1f5fd0" },
+  "Sensoren": { bg: "rgba(31,95,208,0.12)", fg: "#1f5fd0" },
+  "Stromversorgung": { bg: "rgba(179,55,44,0.14)", fg: "#b3372c" },
   "default": { bg: "rgba(106,112,118,0.13)", fg: "#6a7076" },
 };
 
@@ -59,6 +61,7 @@ export function CategoryIcon({ category, size = 16 }: { category: string; size?:
   else if (key.includes("opamp") || key.includes("op-amp")) iconKey = "opamp";
   else if (key.includes("ic") || key.includes("logic") || key.includes("gate") || key.includes("74") || key.includes("40")) iconKey = "ic";
   else if (key.includes("power") || key.includes("regulator") || key.includes("supply")) iconKey = "power";
+  else if (key.includes("strom") || key.includes("versorgung")) iconKey = "power";
   else if (key.includes("ground") || key.includes("gnd")) iconKey = "ground";
   else if (key.includes("source") || key.includes("voltage") || key.includes("current")) iconKey = "source";
   else if (key.includes("switch") || key.includes("button") || key.includes("relay")) iconKey = "switch";

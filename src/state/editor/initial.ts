@@ -17,6 +17,7 @@ export const initialState: EditorData = {
   theme: "system",
   uiFontSize: "standard",
   symbolStyle: "auto",
+  eSeries: "E12",
   showGrid: true,
   snap: true,
   autoRoute: true,

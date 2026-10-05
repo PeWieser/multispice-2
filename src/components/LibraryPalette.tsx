@@ -187,11 +187,9 @@ const PartRow = React.memo(function PartRow({
           </span>
           {datasheet?.direct && <span className="rounded bg-amber-500/20 px-1 py-0 text-2xs text-amber-400">PDF</span>}
         </span>
-        <span className="block truncate text-2xs text-ink-3 leading-[1.2] mt-0.5">{part.description ?? `${part.category.split("/").slice(-1)[0]} · ${part.mount} · ${part.footprint ?? ""}`}</span>
-        <span className="mt-1 flex gap-1">
-          <CategoryIcon category={part.category} size={12} />
-          <span className="text-2xs text-ink-3">{part.category.split("/").slice(-1)[0]}</span>
-        </span>
+        {part.description && (
+          <span className="block truncate text-2xs text-ink-3 leading-[1.2] mt-0.5">{part.description}</span>
+        )}
       </span>
       <div className="flex flex-col items-center gap-1 shrink-0">
         <button
@@ -808,19 +806,7 @@ export default function LibraryPalette({
                     </div>
                   );
                 })()}
-                <div className="mt-2 flex flex-wrap gap-1">
-                  <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
-                    {detailPart.ref}
-                  </span>
-                  <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
-                    {detailPart.mount}
-                  </span>
-                  {detailPart.footprint && (
-                    <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
-                      {detailPart.footprint}
-                    </span>
-                  )}
-                </div>
+
               </div>
 
               <div className="rounded-lg p-2.5 bg-surface border border-hairline">
@@ -875,14 +861,19 @@ export default function LibraryPalette({
               </div>
 
               {partPins(detailPart).length > 0 && (
-                <div className="rounded-lg p-2.5 bg-surface border border-hairline">
-                  <div className="text-2xs uppercase tracking-wide text-ink-3 mb-1.5">Pins ({partPins(detailPart).length})</div>
-                  <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-2xs text-ink-2">
+                <details
+                  className="rounded-lg bg-surface border border-hairline"
+                  open={partPins(detailPart).length <= 8}
+                >
+                  <summary className="cursor-pointer list-none px-2.5 py-2 text-2xs uppercase tracking-wide text-ink-3 [&::-webkit-details-marker]:hidden">
+                    Pins ({partPins(detailPart).length})
+                  </summary>
+                  <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-2xs text-ink-2 px-2.5 pb-2.5">
                     {partPins(detailPart).map((pn, i) => (
                       <span key={i}>{pn.name || `Pin ${i + 1}`}</span>
                     ))}
                   </div>
-                </div>
+                </details>
               )}
 
 

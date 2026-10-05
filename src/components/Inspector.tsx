@@ -5,6 +5,8 @@ import { probeHexColor } from "@/lib/probe-style";
 import { Cpu, Gauge, Settings2, SlidersHorizontal, Waves, Radio, Zap, GitBranch, Lock } from "lucide-react";
 import { PART_MAP, ParamDef, partPins } from "@/lib/library/catalog";
 import { formatValue } from "@/lib/format";
+import { loadESeries } from "@/lib/settings";
+import { stepEValue, stepPercent } from "@/lib/values/series";
 import { Button } from "./ui/Button";
 import { Checkbox, NumberField, SelectField, SliderField, TextField } from "./ui/Field";
 import { IntegrationMethod } from "@/lib/sim/engine";
@@ -13,7 +15,7 @@ import { ProbeKind } from "@/lib/schematic/model";
 import { isEditorSingleKey } from "@/lib/sim/controls";
 
 /** S5.2: ParamDef-Dispatcher auf die ui/-Primitives (ersetzt das lokale Field). */
-function ParamField({ def, value, onChange }: { def: ParamDef; value: number | string | boolean; onChange: (v: number | string | boolean) => void }) {
+function ParamField({ def, value, onChange, partId, isMain }: { def: ParamDef; value: number | string | boolean; onChange: (v: number | string | boolean) => void; partId?: string; isMain?: boolean }) {
   if (def.type === "bool") {
     return <Checkbox label={def.label} checked={!!value} onChange={onChange} />;
   }
@@ -41,7 +43,18 @@ function ParamField({ def, value, onChange }: { def: ParamDef; value: number | s
     );
   }
   if (def.type === "number") {
-    return <NumberField label={def.label} value={Number(value)} unit={def.unit} onChange={onChange} />;
+    return (
+      <NumberField
+        label={def.label}
+        value={Number(value)}
+        unit={def.unit}
+        onChange={onChange}
+        // S5.24: Rad läuft beim Widerstand in E-Reihe-Schritten, sonst prozentual.
+        wheel={(cur, dir, fine) =>
+          isMain && partId === "resistor" ? stepEValue(cur, loadESeries(), dir) : stepPercent(cur, dir, fine ? 0.01 : 0.05)
+        }
+      />
+    );
   }
   return <TextField label={def.label} value={String(value)} onChange={onChange} />;
 }
@@ -279,6 +292,8 @@ export default function Inspector() {
                         <div key={def.key}>
                           <ParamField
                             def={def}
+                            partId={part?.id}
+                            isMain={def.key === part?.params[0]?.key}
                             value={value}
                             onChange={(v) => (liveControl ? st.setControlLive(selected.id, def.key, v) : st.setParam(selected.id, def.key, v))}
                           />

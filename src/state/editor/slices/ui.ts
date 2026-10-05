@@ -5,11 +5,12 @@
 import type { EditorState } from "../types";
 import type { StoreApi } from "zustand";
 import { nextLogId, now } from "../shared";
-import { hashTeacherCode, isTeacherCodeFormat, saveTeacherLock, verifyTeacherCode } from "@/lib/teacher";export function createUiSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setTheme" | "setUiFontSize" | "setSymbolStyle" | "toggleTheme" | "toggleCurrentFlow" | "toggleVoltageColors" | "setCurrentFlowDirection" | "toggleInlineValues" | "toggleRulers" | "togglePageFrame" | "toggleErcMarkers" | "toggleRated" | "log" | "clearLogs" | "setBottomTab" | "toggleBottom" | "toggleLeft" | "toggleRight" | "toggleLibrary" | "setLibraryPos" | "setLibrarySize" | "setToast" | "clearToast" | "setTeacherCode" | "setTeacherLocked" | "unlockTeacher"> {
+import { hashTeacherCode, isTeacherCodeFormat, saveTeacherLock, verifyTeacherCode } from "@/lib/teacher";export function createUiSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setTheme" | "setUiFontSize" | "setSymbolStyle" | "setESeries" | "toggleTheme" | "toggleCurrentFlow" | "toggleVoltageColors" | "setCurrentFlowDirection" | "toggleInlineValues" | "toggleRulers" | "togglePageFrame" | "toggleErcMarkers" | "toggleRated" | "log" | "clearLogs" | "setBottomTab" | "toggleBottom" | "toggleLeft" | "toggleRight" | "toggleLibrary" | "setLibraryPos" | "setLibrarySize" | "setToast" | "clearToast" | "setTeacherCode" | "setTeacherLocked" | "unlockTeacher"> {
   return {
       setTheme: (t) => set({ theme: t }),
       setUiFontSize: (s) => set({ uiFontSize: s }),
       setSymbolStyle: (s) => set({ symbolStyle: s }),
+      setESeries: (s) => set({ eSeries: s }),
       toggleTheme: () => set((s) => ({ theme: s.theme === "dark" ? "light" : s.theme === "light" ? "system" : "dark" })),
       toggleCurrentFlow: () => set((s) => ({ showCurrentFlow: !s.showCurrentFlow })),
       toggleVoltageColors: () => set((s) => ({ showVoltageColors: !s.showVoltageColors })),

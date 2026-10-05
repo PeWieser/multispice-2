@@ -1828,11 +1828,15 @@ export default function Canvas() {
     // nahe Pins orthogonal in einem einzigen Undo-Schritt.
     if (st.tool === "place" && st.placingPartId) {
       if (e.button === 0) {
-        st.addInstance(st.placingPartId, sp.x, sp.y, {
+        const placedId = st.addInstance(st.placingPartId, sp.x, sp.y, {
           rot: st.placingRot,
           mirror: st.placingMirror,
           autoWire: true,
         });
+        if (placedId) {
+          const scr = toScreen(sp);
+          openPlacedValueEditor(placedId, scr.x, scr.y);
+        }
         if (!e.shiftKey) st.setPlacing(null);
       } else {
         st.setPlacing(null);
@@ -1988,9 +1992,36 @@ export default function Canvas() {
     }
   };
 
+  // S5.24: R/C/L + U/I-Quellen fragen sofort nach dem Wert — wie ein
+  // Doppelklick auf den Wert, nur ohne den Doppelklick. Standard vorausgewählt.
+  const openPlacedValueEditor = (instId: string, sx: number, sy: number) => {
+    const st = useEditor.getState();
+    const inst = st.doc.instances.find((i) => i.id === instId);
+    const part = inst ? PART_MAP[inst.partId] : undefined;
+    const main = part?.params[0];
+    const wantsValue =
+      !!part && !!main && main.type === "number" &&
+      ["resistor", "capacitor", "inductor", "vdc", "idc", "vac"].includes(part.id);
+    if (!inst || !main || !wantsValue) return;
+    const rawVal = Number(inst.params[main.key] ?? main.def);
+    editingDone.current = false;
+    editingOpenedAt.current = performance.now();
+    setEditing({
+      kind: "value",
+      instId: inst.id,
+      x: inst.x,
+      y: inst.y,
+      sx,
+      sy: sy + 18,
+      initial: Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : "",
+    });
+  };
+
   const commitEditing = (text: string | null) => {
     if (editingDone.current) return; editingDone.current = true;
-    const st = useEditor.getState(); const cur = editing; setEditing(null); st.setTool("select");
+    const st = useEditor.getState(); const cur = editing; setEditing(null);
+    // S5.24: Bei laufender Serienplatzierung (⇧) geht's nach dem Wert weiter.
+    if (!st.placingPartId) st.setTool("select");
     if (cur && text && text.trim()) {
       const clean = text.trim();
       if (cur.kind === "value" && cur.instId) {
@@ -2687,6 +2718,7 @@ export default function Canvas() {
           autoWire: true,
         });
         if (newId) st.setSelection([newId]);
+        if (newId) openPlacedValueEditor(newId, e.clientX - r.left, e.clientY - r.top);
         if (!e.shiftKey) st.setPlacing(null);
       }
     };
@@ -2785,11 +2817,15 @@ export default function Canvas() {
         e.preventDefault();
         const g = useHud.getState().cursor ?? { x: 0, y: 0 };
         const sp = snap(g);
-        st.addInstance(st.placingPartId, sp.x, sp.y, {
+        const placedId = st.addInstance(st.placingPartId, sp.x, sp.y, {
           rot: st.placingRot,
           mirror: st.placingMirror,
           autoWire: true,
         });
+        if (placedId) {
+          const scr = toScreen(sp);
+          openPlacedValueEditor(placedId, scr.x, scr.y);
+        }
         if (!e.shiftKey) st.setPlacing(null);
       } else if (e.key.toLowerCase() === "v") {
         // W90: V schaltet konsistent zu A die Spannungs-Probe (Volt) ein/aus;
@@ -3060,6 +3096,13 @@ export default function Canvas() {
             openedAt={editingOpenedAt}
             onCommit={commitEditing}
             placeholder={editing.kind === "value" && editMainParam?.type === "text" ? "z. B. VCC, NET_A" : undefined}
+            wheelMode={
+              editing.kind === "value" && editMainParam?.type === "number"
+                ? editInst?.partId === "resistor"
+                  ? "e-series"
+                  : "percent"
+                : undefined
+            }
           />
         );
       })()}

@@ -14,7 +14,7 @@ import { buildProjectEnvelopeJson } from "@/lib/storage";
 import { SHARE_HASH_KEY, SHARE_URL_LIMIT, buildShareUrl, encodeSharePayload } from "@/lib/share";
 import { REQUEST_OPEN_FILE_EVENT, openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 
-const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete"] as const;
+const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete", "hilfe"] as const;
 
 const INSTRUMENT_ITEMS: Array<[InstrumentKind, string]> = [
   ["dmm", "Digitalmultimeter"],
@@ -38,6 +38,7 @@ export default function MenuBar({
   onWizards,
   onProjects,
   onPartEditor,
+  onReference,
   isMobile = false,
 }: {
   onAnalysis: (kind: string) => void;
@@ -45,6 +46,7 @@ export default function MenuBar({
   onWizards?: () => void;
   onProjects?: () => void;
   onPartEditor?: () => void;
+  onReference?: () => void;
   isMobile?: boolean;
 }) {
   const docName = useEditor((s) => s.doc.name);
@@ -182,6 +184,7 @@ export default function MenuBar({
           <button className="btn w-full justify-start" onClick={() => st().fitView()}>Schaltplan einpassen</button>
           <button className="btn w-full justify-start" onClick={() => st().toggleBottom()}>Auswertung &amp; Konsole</button>
           <button className="btn w-full justify-start" onClick={() => onSettings?.()}>Einstellungen …</button>
+          <button className="btn w-full justify-start" onClick={() => onReference?.()}>Referenz …</button>
         </div>
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Vorlagen</div>
@@ -348,6 +351,9 @@ export default function MenuBar({
             {title}
           </MenuItem>
         ))}
+      </Menu>
+      <Menu label="Hilfe" {...menuProps("hilfe")}>
+        <MenuItem onClick={() => onReference?.()}>Referenz …</MenuItem>
       </Menu>
 
       <div className="mx-2 h-4 w-px bg-hairline" />

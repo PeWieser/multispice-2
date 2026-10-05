@@ -21,6 +21,7 @@ import { Button, IconButton } from "./ui";
 // der Erststart bezahlt nur noch Canvas, Menü und Statusleiste.
 const AnalysisDialog = dynamic(() => import("./AnalysisDialog"), { ssr: false });
 const SettingsDialog = dynamic(() => import("./SettingsDialog"), { ssr: false });
+const ReferenceDialog = dynamic(() => import("./ReferenceDialog"), { ssr: false });
 const WizardsDialog = dynamic(() => import("./WizardsDialog"), { ssr: false });
 const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false });
 const PartEditorDialog = dynamic(() => import("./PartEditorDialog"), { ssr: false });
@@ -212,6 +213,7 @@ export default function Workbench() {
   const [dialogKind, setDialogKind] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [referenceOpen, setReferenceOpen] = useState(false);
   const [wizardsOpen, setWizardsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [partEditorOpen, setPartEditorOpen] = useState(false);
@@ -443,7 +445,7 @@ export default function Workbench() {
                       <X size={14} />
                     </button>
                   </div>
-                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} isMobile />
+                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} onReference={() => setReferenceOpen(true)} isMobile />
                 </div>
               </div>
             )}
@@ -457,6 +459,7 @@ export default function Workbench() {
         <StatusBar isMobile />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         {partEditorOpen && (
@@ -479,7 +482,7 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-app">
-          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
+          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} onReference={() => setReferenceOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
@@ -495,6 +498,7 @@ export default function Workbench() {
         <StatusBar />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         {partEditorOpen && (
@@ -527,7 +531,7 @@ export default function Workbench() {
         <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} showSaveState />
       )}
       <header className="contents">
-      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
+      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} onReference={() => setReferenceOpen(true)} />
       <ComponentStrip tools={<DrawingTools />} />
       </header>
       <main id="workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
@@ -545,6 +549,7 @@ export default function Workbench() {
       <StatusBar />
       {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
       {partEditorOpen && (

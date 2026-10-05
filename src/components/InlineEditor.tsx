@@ -1,6 +1,9 @@
 "use client";
 
 import type { RefObject } from "react";
+import { formatValue, parseValue } from "@/lib/format";
+import { loadESeries } from "@/lib/settings";
+import { stepEValue, stepPercent } from "@/lib/values/series";
 
 export type InlineEdit = {
   kind: "label" | "value"; // S5.22: Notizen haben einen eigenen Direkteditor
@@ -25,6 +28,7 @@ export default function InlineEditor({
   openedAt,
   onCommit,
   placeholder,
+  wheelMode,
 }: {
   editing: InlineEdit;
   caption: string;
@@ -34,6 +38,8 @@ export default function InlineEditor({
   openedAt: RefObject<number>;
   onCommit: (text: string | null) => void;
   placeholder?: string;
+  /** S5.24: Rad-Schritte im Wertefeld (E-Reihe nur beim Widerstand). */
+  wheelMode?: "e-series" | "percent";
 }) {
   // S5.22: Ein Rahmen (statt Panel + Chip + Box), Breite folgt dem Inhalt —
   // kein 5-cm-Feld für vier Ziffern. Einheit dezent, ohne Chip.
@@ -62,6 +68,21 @@ export default function InlineEditor({
           className="mono min-w-0 flex-1 bg-transparent text-sm font-medium text-ink outline-none"
           defaultValue={editing.initial}
           placeholder={ph}
+          onWheel={
+            wheelMode
+              ? (e) => {
+                  const input = e.target as HTMLInputElement;
+                  const base = parseValue(input.value);
+                  if (!Number.isFinite(base)) return;
+                  const dir = e.deltaY < 0 ? 1 : -1;
+                  const next =
+                    wheelMode === "e-series"
+                      ? stepEValue(base, loadESeries(), dir)
+                      : stepPercent(base, dir, e.shiftKey ? 0.01 : 0.05);
+                  input.value = formatValue(next, "");
+                }
+              : undefined
+          }
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === "Enter") onCommit((e.target as HTMLInputElement).value);

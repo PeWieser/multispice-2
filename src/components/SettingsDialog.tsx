@@ -11,6 +11,8 @@ import {
   SymbolStylePref,
   saveSymbolStyle,
   detectLocaleSymbol,
+  ESeriesPref,
+  saveESeries,
 } from "@/lib/settings";
 
 type SettingsSection = "general" | "canvas" | "simulation" | "probes" | "teacher";
@@ -213,6 +215,7 @@ export default function SettingsDialog({
   const theme = useEditor((s) => s.theme);
   const uiFontSize = useEditor((s) => s.uiFontSize);
   const symbolStyle = useEditor((s) => s.symbolStyle);
+  const eSeries = useEditor((s) => s.eSeries);
   const showGrid = useEditor((s) => s.showGrid);
   const snap = useEditor((s) => s.snap);
   const autoRoute = useEditor((s) => s.autoRoute);
@@ -245,6 +248,11 @@ export default function SettingsDialog({
   const applySymbolStyle = (s: SymbolStylePref) => {
     st().setSymbolStyle(s);
     saveSymbolStyle(s);
+  };
+
+  const applyESeries = (s: ESeriesPref) => {
+    st().setESeries(s);
+    saveESeries(s);
   };
 
   // S5.12: UI-Schriftgröße (reine Darstellung — auch im Lehrer-Modus erlaubt).
@@ -356,6 +364,23 @@ export default function SettingsDialog({
                     <SymbolPreviewCard label="Kondensator" std={activeStd} kind="C" />
                     <SymbolPreviewCard label="Operationsverstärker" std={activeStd} kind="OP" />
                   </div>
+                </SettingsGroup>
+
+                <SettingsGroup title="Bauteilwerte">
+                  <SettingsRow
+                    title="E-Reihe"
+                    subtitle="Normwert-Schritte beim Scrollen über Widerstandswerten (Widerstand läuft in der Reihe, alle anderen Felder prozentual)"
+                  >
+                    <MacSegmented<ESeriesPref>
+                      value={eSeries}
+                      options={[
+                        { value: "E6", label: "E6" },
+                        { value: "E12", label: "E12" },
+                        { value: "E24", label: "E24" },
+                      ]}
+                      onChange={applyESeries}
+                    />
+                  </SettingsRow>
                 </SettingsGroup>
               </>
             )}

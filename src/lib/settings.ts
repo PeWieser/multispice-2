@@ -79,3 +79,22 @@ export function saveSymbolStyle(pref: SymbolStylePref) {
     localStorage.setItem("multispice.symbolStyle", pref);
   } catch {}
 }
+
+/* ------------------------------------------------------------------ */
+/* E-Reihe – Schrittweite beim Scrollen über Widerstandswerten (S5.24) */
+/* ------------------------------------------------------------------ */
+export type ESeriesPref = "E6" | "E12" | "E24";
+
+export function loadESeries(): ESeriesPref {
+  try {
+    const raw = localStorage.getItem("multispice.eSeries") as ESeriesPref | null;
+    if (raw === "E6" || raw === "E12" || raw === "E24") return raw;
+  } catch {}
+  return "E12";
+}
+
+export function saveESeries(pref: ESeriesPref) {
+  try {
+    localStorage.setItem("multispice.eSeries", pref);
+  } catch {}
+}

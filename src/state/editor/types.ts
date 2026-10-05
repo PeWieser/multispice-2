@@ -1,5 +1,5 @@
 
-import { SymbolStylePref } from "@/lib/settings";
+import { ESeriesPref, SymbolStylePref } from "@/lib/settings";
 import { Instance, NetLabel, NetlistBuildResult, Rotation, SchematicDoc, TextNote, Wire } from "@/lib/schematic/model";
 import { AnalysisPayload } from "@/lib/sim/runner";
 import { IntegrationMethod } from "@/lib/sim/engine";
@@ -103,6 +103,7 @@ export interface EditorState {
   theme: ThemePref;
   uiFontSize: UiFontSize;
   symbolStyle: SymbolStylePref;
+  eSeries: ESeriesPref;
   showGrid: boolean;
   snap: boolean;
   autoRoute: boolean;
@@ -223,6 +224,7 @@ export interface EditorState {
   setTheme: (t: ThemePref) => void;
   setUiFontSize: (s: UiFontSize) => void;
   setSymbolStyle: (s: SymbolStylePref) => void;
+  setESeries: (s: ESeriesPref) => void;
   toggleTheme: () => void;
   log: (level: LogEntry["level"], message: string) => void;
   clearLogs: () => void;

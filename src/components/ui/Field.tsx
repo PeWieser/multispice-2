@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatValue, parseValue } from "@/lib/format";
 
 export function FieldLabel({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
@@ -39,20 +39,39 @@ export function NumberField({
   value,
   onChange,
   unit,
+  wheel,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   unit?: string;
+  /** S5.24: Rad-Schrittweite (Entwurf — übernommen wird wie getippt bei Blur/Enter). */
+  wheel?: (current: number, dir: 1 | -1, fine: boolean) => number;
 }) {
   const [text, setText] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const shown = text ?? formatValue(value, "");
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el || !wheel) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const base = text !== null ? parseValue(text) : value;
+      if (!Number.isFinite(base)) return;
+      const next = wheel(base, e.deltaY < 0 ? 1 : -1, e.shiftKey);
+      setText(formatValue(next, ""));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [wheel, value, text]);
   return (
     <label className="block py-1.5">
       <FieldLabel aside={unit}>{label}</FieldLabel>
       <input
+        ref={inputRef}
         className="input mono"
         inputMode="decimal"
+        title={wheel ? "Scrollen ändert den Wert (⇧ = fein)" : undefined}
         value={shown}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {

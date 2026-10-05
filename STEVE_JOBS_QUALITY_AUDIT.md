@@ -3787,3 +3787,25 @@ dritte Ausnahme im S5.15a-Hex-Lint dokumentiert (`addColorStop`/`ink`-Kontext).
 Editor-Overlay spiegelt Karte, Größe und Ecke (WYSIWYG), scrollt nativ.
 Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (notetest: 41 Prüfungen —
 Einheitskarte, Stufen-Rundung, Scroll-Klemmung, Rad-/…-/SML-Wächter).
+
+## §63 · S5.24 Ergebnis (Bibliothek + Wertfluss + Referenz, 2026-10-05)
+
+Vier Nutzerwünsche, nach Rückfragen (Wahl: R/C/L+Quellen, E-Reihe nur R,
+Referenz unters Hilfe-Menü, Diät+Kategorien ja). (a) Bibliothek: Mitte ohne
+doppelte Kategoriezeile und ohne generierte „Beschreibungen“ (nur echte
+Texte), Detailspalte ohne Badge-Zeile, Pins als `<details>` (auf bis 8 Pins);
+neue Top-Rubriken Sensoren (NTC/LDR aus „Widerstände“) und Stromversorgung
+(Regler aus „Analoge ICs“, GND/VCC aus „Quellen“) inkl. Icon-/Farb-Zeilen.
+(b) Wertfenster nach Platzieren: `openPlacedValueEditor` an allen drei
+Pfaden (Klick, Enter, Drop), nur für R/C/L + vdc/idc/vac mit numerischem
+Hauptparameter; `commitEditing` beendet bei ⇧-Serie den Platziermodus nicht
+mehr (Wert → weiter platzieren). (c) Rad-Schritte: `lib/values/series.ts`
+(E6/E12/E24, `stepEValue`/`nearestEValue`/`stepPercent`), Einstellung
+E6/E12/E24 (Store + localStorage, wie Symbolstil); NumberField mit nativem
+passivem-nein-Listener (Panel scrollt nicht mit), Entwurf bis Blur/Enter;
+Wertefeld ebenso (E-Reihe nur bei `partId === "resistor"`). (d) Referenz über
+Hilfe-Menü (Desktop + mobil): Farbcode (IEC 60062), E-Reihen, Kerko-Codes
+(2-stellig = direkt pF), SMD (3/4-stellig, R-Komma, 0-Brücke; EIA-96 ehrlich
+ausgenommen), Suffixe als Spiegel des echten Parsers — der Test fand dabei
+zwei echte Bugs (Dekadenfaktor ×10, „f“ allein = Farad statt Femto).
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (referencetest: 58).
