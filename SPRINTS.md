@@ -3,8 +3,8 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.20 ✅ (2026-10-05); S5.21 offen.
-> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§59).
+> Stand: S5.10–S5.21 ✅ (2026-10-05); S5.22 offen.
+> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§60).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -146,6 +146,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.17 Detail-Review: Versprechen vs. Wirklichkeit (4 Nutzerbefunde 2026-10-05, PASS)
 - [x] S5.19 UI/UX-Komplettsweep mit Wirkungsprobe: 8 Flächen geprüft, Hinweis-Boxen raus, Mobile-Bib repariert (PASS)
 - [x] S5.20 Oszi-Skalenprüfung: Trigger/t/V auf allen Stufen, Archiv-Historie gegen „halbes Signal“ (PASS)
+- [x] S5.21 Physikalisches Oszi-Rauschen: fest in Volt + ADC-Quantisierung (PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -238,6 +239,13 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   Geometrie, Clamp-Ränder, Invert, Zoom, Slope, Holdoff, Roll, Auto-Timeout.
   Offene Fidelity-Notiz: Rauschmodell σ ∝ V/div (konstant in Divs statt Volt).
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (ozsitest: 32 Prüfungen).
+- S5.21: Rauschmodell physikalisch (Nutzerwunsch: maximal realitätsnah).
+  War: σ ∝ V/div (0,4 Divs Fuzz auf feiner Stufe, unruhig auf grober).
+  Jetzt: festes Front-End-Rauschen 100 µVrms × Tastkopf-Faktor, davor/dahinter
+  physikalische Kette (Rauschen→Filter→Quantisierung→Sättigung); 8-Bit-ADC
+  (LSB über 8 Divs, HiRes mittelt dank Dither); BW-Limit √(20/70), nur wo das
+  digitale Filter wirkungslos ist (kein Doppelzählen); Trigger analog
+  (ohne Quantisierung). `tsc` ✅, `eslint` ✅, `npm test` ✅ (ozsitest: 36).
 
 ## Nicht-Ziele (bewusst)
 

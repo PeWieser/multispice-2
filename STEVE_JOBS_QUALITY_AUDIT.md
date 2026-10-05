@@ -3730,3 +3730,19 @@ Offen (Fidelity, kein Defekt): Rauschmodell σ ∝ V/div — auf groben Stufen
 sichtbar unruhiger als ein echtes Gerät (dort: festes Eingangsrauschen).
 Kandidat für S5.21, falls gewünscht.
 Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (ozsitest: 32 Prüfungen).
+
+## §60 · S5.21 Ergebnis (Physikalisches Oszi-Rauschen, 2026-10-05)
+
+Nutzerprinzip (stehend): Alles so realitätsnah wie möglich. Das alte Modell
+(σ = 0,018·V/div + 0,0004·Tastkopf) war in Divs konstant — an feinen Stufen
+0,4 Divs Fuzz, an groben unruhig: beides unphysikalisch. Neues Modell in
+`oszi2/engine.ts`: 100 µVrms Front-End (70-MHz-Klasse) × Tastkopf-Faktor,
+Kette Rauschen→Filter→Quantisierung→Sättigung; 8-Bit-ADC (LSB = 8 Divs/256,
+HiRes ×0,22 mit Dither-Näherung); BW-Limit √(20/70) ≈ 0,53 nur bei dt ≫ τ
+(das digitale Filter überdämpft sonst doppelt); Trigger-Komparatoren analog
+(front-end only, kein Quantisierungsanteil). Peak-Hüllkurve quantisiert mit.
+Proben (ozsitest 11): GND-Rauschen folgt dem Modell ±40 % über 1 mV…10 V,
+bleibt unter 0,15 Divs, 10× ≈ 1 mVrms, BW-Verhältnis 0,53. Bewusst nicht
+getan: Trigger-Hysterese (mit physikalisch kleinem Rauschen kein Flattern
+mehr sichtbar — YAGNI), Tastkopf-Thermik (vernachlässigbar).
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (ozsitest: 36 Prüfungen).

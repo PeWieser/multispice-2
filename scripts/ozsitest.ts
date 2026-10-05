@@ -7,7 +7,7 @@
  * Der Test prüft beides – und dass der R22-Fix (keine 0-V-Linie aus pausierter
  * Simulation) erhalten bleibt.
  */
-import { Engine, HDIV, NPTS, acquire, findTrigger } from "../src/components/oszi2/engine";
+import { BW_NOISE_GAIN, Engine, FRONTEND_NOISE, HDIV, NPTS, acquire, adcLSB, findTrigger } from "../src/components/oszi2/engine";
 import { TDIV_MAX, defaultSettings, type Env, type Settings } from "../src/components/oszi2/types";
 import { applyKnob } from "../src/components/oszi2/menus";
 import { ARCH_CAP, ARCH_DT } from "../src/lib/sim/realtime";
@@ -206,9 +206,9 @@ for (const hd of [1e9, -1e9]) {
     let mx = -Infinity, mn = Infinity;
     for (let i = 0; i < d.length; i++) { if (d[i] > mx) mx = d[i]; if (d[i] < mn) mn = d[i]; }
     const lim = 5.2 * vdiv;
-    // Toleranz folgt dem modellierten Eingangsrauschen (σ ∝ V/div — siehe
-    // S5.20-Notiz im Audit: konstant in Divs statt konstant in Volt).
-    const tol = 0.05 + 5 * (0.018 * vdiv + 0.0004);
+    // S5.21: Toleranz folgt dem physikalischen Rauschen (fest + Quantisierung).
+    const sig = Math.sqrt(FRONTEND_NOISE ** 2 + (adcLSB(vdiv) / Math.sqrt(12)) ** 2);
+    const tol = 0.05 + 5 * sig;
     const clips = lim < 1.9; // 2-V-Sinus erreicht die Klemme nur unterhalb
     if (!clips) { if (!(mx > 2 - tol && mx < 2 + tol && mn < -2 + tol && mn > -2 - tol)) ok = false; }
     else if (!(mx <= lim + 1e-6 && mn >= -lim - 1e-6 && mx > lim * 0.95)) ok = false; // muss sauber klemmen
@@ -238,6 +238,38 @@ for (const hd of [1e9, -1e9]) {
   check("Triggerpegel klemmt auf ±8 Divs", Math.abs(lv.trig.level) <= 8 * s.ch[0].vdiv + 1e-9, `${lv.trig.level} V`);
   const line = applyKnob("trigLevel", 5, { ...s, trig: { ...s.trig, source: 4, level: 3 } });
   check("Netz-Trigger liegt fest auf 0 V", line.trig.level === 0);
+}
+
+/* 11 · S5.21: Rauschen ist fest in Volt (GND-Kopplung = reines Rauschen) */
+{
+  const stdOf = (vdiv: number, probe: 1 | 10, bw = false): number => {
+    const s = settings({ tdiv: 1e-3, ch: settings().ch.map((c, i) => (i === 0 ? { ...c, probe, vdiv, coupling: "GND" as const, bwLimit: bw } : c)) });
+    const d = acquire(0.5, 0, 1e-3, s, makeEnv("N001"), [0, 0, 0, 0], true).data[0];
+    let mean = 0;
+    for (let i = 0; i < d.length; i++) mean += d[i];
+    mean /= d.length;
+    let va = 0;
+    for (let i = 0; i < d.length; i++) va += (d[i] - mean) ** 2;
+    return Math.sqrt(va / d.length);
+  };
+  const model = (vdiv: number, probe: number, bw = false) => {
+    const fe = FRONTEND_NOISE * probe * (bw ? BW_NOISE_GAIN : 1);
+    return Math.sqrt(fe ** 2 + (adcLSB(vdiv) / Math.sqrt(12)) ** 2);
+  };
+  let ok = true, divOk = true;
+  for (const vdiv of [1e-3, 10e-3, 100e-3, 1, 10]) {
+    const got = stdOf(vdiv, 1);
+    const want = model(vdiv, 1);
+    if (Math.abs(got - want) / want > 0.4) ok = false;
+    const divs = got / vdiv; // altes Modell: 0,4 Divs auf feiner Stufe
+    if (divs < 0.005 || divs > 0.15) divOk = false;
+  }
+  check("Rauschspannung folgt dem physikalischen Modell (±40 %)", ok);
+  check("Rauschen bleibt unter 0,15 Divs (kein Skalen-Fuzz)", divOk);
+  const p10 = stdOf(10e-3, 10);
+  check("10×-Tastkopf: ≈1 mVrms Eingangsrauschen", Math.abs(p10 - model(10e-3, 10)) / model(10e-3, 10) < 0.4, `${(p10 * 1e3).toFixed(2)} mV`);
+  const off = stdOf(1e-3, 1, false), on = stdOf(1e-3, 1, true);
+  check("BW-Limit dämpft ≈ √(20/70)", Math.abs(on / off - BW_NOISE_GAIN) < 0.15, `${(on / off).toFixed(2)}`);
 }
 
 console.log(failed === 0 ? "\nOszi-Verhalten: alle Prüfungen bestanden." : `\nOszi-Verhalten: ${failed} FEHLER`);

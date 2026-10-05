@@ -44,6 +44,14 @@ const TAU_COMP = 120e-6;
 const TAU_1X = 1 / (2 * Math.PI * 6e6);
 const TAU_BW = 1 / (2 * Math.PI * 20e6);
 const TAU_SCOPE = 1 / (2 * Math.PI * 70e6);
+// S5.21: Physikalisches Rauschmodell — festes Eingangsrauschen der
+// 70-MHz-Klasse (≈100 µVrms, Tastkopf-Spitze bei 1×; 10×-Tastkopf ×10),
+// dazu Quantisierung des 8-Bit-ADCs (LSB über 8 Divs, nach dem Filter).
+export const FRONTEND_NOISE = 100e-6;
+/** 20-MHz-Limit über 70-MHz-Front-End: √(20/70). */
+export const BW_NOISE_GAIN = 0.53;
+/** ADC-Stufe (8 Bit über 8 Divs) in Volt. */
+export function adcLSB(vdiv: number): number { return (8 * vdiv) / 256; }
 
 /** Signal as seen by the scope input stage (displayed volts, no noise, no filters) */
 export function channelRaw(ch: number, t: number, s: Settings, env: Env, acMean: number[]): number {
@@ -107,12 +115,15 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
     const f0 = new Chain(aHp, kHp, aLp1, useLp1, aLp2, useLp2);
     const f1 = peak ? new Chain(aHp, kHp, aLp1, useLp1, aLp2, useLp2) : null;
     const f2 = peak ? new Chain(aHp, kHp, aLp1, useLp1, aLp2, useLp2) : null;
-    let sigma = 0.018 * c.vdiv + 0.0004 * c.probe;
-    // W32d: BW-Limit dämpft das Rauschen doppelt – empirisch um 0.55 (wirkt
-    // auch bei langsamen Timebases, wo dt ≫ τ ist) und analog über das
-    // Tiefpass-Filter im Pfad (siehe Sample-Zweig, wirkt bei schnellen).
-    if (c.bwLimit) sigma *= 0.55;
+    // S5.21: Eingangsrauschen ist fest in Volt (war: ∝ V/div — an groben
+    // Stufen unphysikalisch unruhig). BW-Limit skaliert nur, wo das digitale
+    // Filter wirkungslos ist (dt ≫ τ); bei schnellen Basen dämpft der Pfad.
+    let sigma = FRONTEND_NOISE * c.probe;
+    if (c.bwLimit && dt > TAU_BW) sigma *= BW_NOISE_GAIN;
     if (s.acq.mode === 'hires') sigma *= 0.22;
+    // Quantisierung entsteht am ADC (nach dem Filter, vor der Sättigung);
+    // HiRes mittelt sie dank Dither mit weg (Näherung).
+    const qSigma = (adcLSB(c.vdiv) / Math.sqrt(12)) * (s.acq.mode === 'hires' ? 0.22 : 1);
     const lo = (-5.2 - c.pos) * c.vdiv;
     const hi = (5.2 - c.pos) * c.vdiv;
     const inv = c.invert ? -1 : 1;
@@ -130,18 +141,22 @@ export function acquire(tt: number, centerT: number, tdiv: number, s: Settings, 
         if (i >= 0) {
           const n1 = Math.abs(gauss(seed + i * 3 + ch * 100003)) * sigma * 1.3;
           const n2 = Math.abs(gauss(seed + i * 3 + 1 + ch * 100003)) * sigma * 1.3;
-          const a = clamp(y1 - n1, lo, hi) * inv, b = clamp(y2 + n2, lo, hi) * inv;
+          const q1 = Math.abs(gauss(seed + i * 11 + ch * 100003)) * qSigma;
+          const q2 = Math.abs(gauss(seed + i * 13 + ch * 100003)) * qSigma;
+          const q0 = gauss(seed + i * 17 + ch * 100003) * qSigma;
+          const a = clamp(y1 - n1 - q1, lo, hi) * inv, b = clamp(y2 + n2 + q2, lo, hi) * inv;
           mn![i] = Math.min(a, b);
           mx![i] = Math.max(a, b);
-          d[i] = clamp(y0, lo, hi) * inv;
+          d[i] = clamp(y0 + q0, lo, hi) * inv;
         }
       } else {
-        // W32d: Eingangsrauschen liegt vor dem analogen Filter – die
-        // 20-MHz-Bandbreitenbegrenzung dämpft es physikalisch (nicht skaliert).
+        // S5.21: Eingangsrauschen vor dem Filter, Quantisierung dahinter
+        // (ADC), Sättigung zuletzt — physikalische Reihenfolge.
         const v = channelRaw(ch, t, s, env, acMean) + gauss(seed + i * 7 + ch * 100003) * sigma;
         const y = f0.run(v);
         if (i >= 0) {
-          d[i] = clamp(y, lo, hi) * inv;
+          const q = gauss(seed + i * 11 + ch * 100003) * qSigma;
+          d[i] = clamp(y + q, lo, hi) * inv;
         }
       }
     }
@@ -158,9 +173,11 @@ function trigValue(s: Settings, env: Env, acMean: number[], t: number): number {
   // gestörten Signal, nicht auf dem idealen. Bei ungünstigen Pegeln/Spannungs-
   // divisionen zittert die Triggerzeit sichtbar (wie am echten Gerät).
   const src = s.trig.source;
-  const vd = src === 4 ? 0.1 : s.ch[src].vdiv;
   const pr = src === 4 ? 1 : s.ch[src].probe;
-  const n = noiseAt(t, 0x747267 ^ (src * 977), 2e-8) * (0.018 * vd + 0.0004 * pr);
+  // S5.21: Trigger-Komparatoren sind analog (vor dem ADC) — nur festes
+  // Eingangsrauschen, keine Quantisierung; BW-Limit wirkt auch hier.
+  const bw = src !== 4 && s.ch[src].bwLimit ? BW_NOISE_GAIN : 1;
+  const n = noiseAt(t, 0x747267 ^ (src * 977), 2e-8) * FRONTEND_NOISE * pr * bw;
   if (src === 4) return lineValue(t) + n * 0.35;
   return channelRaw(src, t, s, env, acMean) + n;
 }
