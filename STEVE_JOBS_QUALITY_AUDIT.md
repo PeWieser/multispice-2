@@ -3432,3 +3432,17 @@ eine Rückfrage. Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` �
 | 5 | Desktop: Oszi/FG ohne Ein-/Ausgang, keine Messleitungen | GEFIXT. Drei Lücken: (a) `leadArmed` lebte nur im Kind-Store → neue Nachrichten `arm-lead`/`disarm-lead`, Haupt-Canvas legt die Leitung; (b) `leadArmed` jetzt im State-Snapshot (Platzieren/Abbrechen entwaffnet auch das Kind-Banner); (c) `set-doc-param` spiegelt FG-Zustand + Quellen-Parameter (Takt/Puls) ins Haupt-Doc, sonst simulierte die Engine veraltete Werte. Empfänger als reine Funktion (`applyChildMessageToMain`) + Sender-Verträge getestet. |
 | 6 | Leitungen: kürzeste freie Route, live, keine Pin-/Bauteil-Kreuzung | GEFIXT. Pins sind jetzt Hindernisse (A* mit ±4-px-Pad — bei 24-px-Raster bleibt ein Korridor; Start-/Zielpin ausgenommen/erreichbar); A* läuft immer wenn beide L-Knicks blockiert sind (vorher nur ohne Ecken); manuelle Ecken bleiben Fixpunkte (Vorschau-Knick wird beim Klick übernommen wie bisher). 9 neue Checks. |
 | 7 | Portable startet nicht (nichts beim Doppelklick) | GEFIXT (statisch; CI baut). Hauptverdacht bestätigt: .NET-Framework-`ZipArchive` versteht keine SFX-vorangestellten Daten + Trailer → „Central Directory corrupt“ → stiller Close. Jetzt: `SubStream`-Hülle (exakte Zip-Bytes), Fehler-Log (`%TEMP%\MultiSpice-Portable.log`), sichtbare Fehlermeldung statt stillem Verschwinden, Sofort-Absturz-Erkennung (Exit-Code). |
+
+## §49 · Fenster-Geist Nachschlag (2026-10-05)
+
+Nutzer-Rückmeldung zu §48 #4: betrifft **alle** verschiebbaren Fenster, nur
+Browser. Im Sandbox-Review kein Browser verfügbar (kein Chromium, kein Root
+für System-Libs, CDN-Mirror blockiert) — visuell nicht reproduzierbar. Statt
+weiterer Theorie beide Drag-Pfade identisch gehärtet (`Window.tsx`,
+`LibraryPalette.tsx`, Commit `1808d18`, `tsc`/`eslint`/`npm test` ✓):
+(1) Commit per `flushSync` — React schreibt denselben Endwert noch vor dem
+Paint; (2) `e.buttons === 0` + `pointercancel` beenden Zombie-Drags, statt
+dem Zeiger tastenlos zu folgen; (3) Drag-Start setzt allen Pending-Status
+zurück (kein Klick-ohne-Zug auf alten Werten); (4) `data-windrag`-CSS schaltet
+Transition/Animation am Fenster während Zug + 1 Frame nach Commit ab.
+Verifikation durch den Nutzer steht aus.
