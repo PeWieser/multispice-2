@@ -67,6 +67,40 @@ function Sparkline({ data }: { data: number[] }) {
 }
 
 
+// S5.24: R/C/L + U/I-Quellen fragen nach dem Platzieren sofort nach dem Wert —
+// wie ein Doppelklick auf den Wert, nur ohne den Doppelklick (Standard
+// vorausgewählt). Modul-Ebene: reiner Helfer, damit Handler Handler bleiben
+// (der Purity-Lint stuft Komponenten-Helfer sonst als Render ein).
+function openPlacedValueEditor(
+  instId: string,
+  sx: number,
+  sy: number,
+  setEditing: (e: InlineEdit | null) => void,
+  editingDone: { current: boolean },
+  editingOpenedAt: { current: number },
+) {
+  const st = useEditor.getState();
+  const inst = st.doc.instances.find((i) => i.id === instId);
+  const part = inst ? PART_MAP[inst.partId] : undefined;
+  const main = part?.params[0];
+  const wantsValue =
+    !!part && !!main && main.type === "number" &&
+    ["resistor", "capacitor", "inductor", "vdc", "idc", "vac"].includes(part.id);
+  if (!inst || !main || !wantsValue) return;
+  const rawVal = Number(inst.params[main.key] ?? main.def);
+  editingDone.current = false;
+  editingOpenedAt.current = performance.now();
+  setEditing({
+    kind: "value",
+    instId: inst.id,
+    x: inst.x,
+    y: inst.y,
+    sx,
+    sy: sy + 18,
+    initial: Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : "",
+  });
+}
+
 export default function Canvas() {
   const apple = useIsApple();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1835,7 +1869,7 @@ export default function Canvas() {
         });
         if (placedId) {
           const scr = toScreen(sp);
-          openPlacedValueEditor(placedId, scr.x, scr.y);
+          openPlacedValueEditor(placedId, scr.x, scr.y, setEditing, editingDone, editingOpenedAt);
         }
         if (!e.shiftKey) st.setPlacing(null);
       } else {
@@ -1990,31 +2024,6 @@ export default function Canvas() {
         }
       }
     }
-  };
-
-  // S5.24: R/C/L + U/I-Quellen fragen sofort nach dem Wert — wie ein
-  // Doppelklick auf den Wert, nur ohne den Doppelklick. Standard vorausgewählt.
-  const openPlacedValueEditor = (instId: string, sx: number, sy: number) => {
-    const st = useEditor.getState();
-    const inst = st.doc.instances.find((i) => i.id === instId);
-    const part = inst ? PART_MAP[inst.partId] : undefined;
-    const main = part?.params[0];
-    const wantsValue =
-      !!part && !!main && main.type === "number" &&
-      ["resistor", "capacitor", "inductor", "vdc", "idc", "vac"].includes(part.id);
-    if (!inst || !main || !wantsValue) return;
-    const rawVal = Number(inst.params[main.key] ?? main.def);
-    editingDone.current = false;
-    editingOpenedAt.current = performance.now();
-    setEditing({
-      kind: "value",
-      instId: inst.id,
-      x: inst.x,
-      y: inst.y,
-      sx,
-      sy: sy + 18,
-      initial: Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : "",
-    });
   };
 
   const commitEditing = (text: string | null) => {
@@ -2718,7 +2727,7 @@ export default function Canvas() {
           autoWire: true,
         });
         if (newId) st.setSelection([newId]);
-        if (newId) openPlacedValueEditor(newId, e.clientX - r.left, e.clientY - r.top);
+        if (newId) openPlacedValueEditor(newId, e.clientX - r.left, e.clientY - r.top, setEditing, editingDone, editingOpenedAt);
         if (!e.shiftKey) st.setPlacing(null);
       }
     };
@@ -2824,7 +2833,7 @@ export default function Canvas() {
         });
         if (placedId) {
           const scr = toScreen(sp);
-          openPlacedValueEditor(placedId, scr.x, scr.y);
+          openPlacedValueEditor(placedId, scr.x, scr.y, setEditing, editingDone, editingOpenedAt);
         }
         if (!e.shiftKey) st.setPlacing(null);
       } else if (e.key.toLowerCase() === "v") {
