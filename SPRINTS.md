@@ -3,8 +3,8 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: Sprint 5 Rest läuft (S5.10–S5.12 ✅ 2026-10-05; S5.13 offen).
-> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50).
+> Stand: S5.10–S5.14 ✅ (2026-10-05); S5.15 offen.
+> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§53).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -139,7 +139,8 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.10 Fenster-Chrom einheitlich (§50, Nutzerwunsch 2026-10-05)
 - [x] S5.11 Datensicherheit (§50, PASS)
 - [x] S5.12 Zugang (§50, PASS)
-- [ ] S5.13 Stilführer Symbole; 14-Segment/LCD; Sensoren (NTC/LDR); WAV-Export
+- [x] S5.13 Bauteile/Medien (§50, PASS — LCD begründet zurückgestellt)
+- [x] S5.14 Live-Steuerung wie in Multisim (Nutzerwunsch 2026-10-05, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -163,6 +164,22 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   Lehrer-Modus); Touch-Trefferflächen (Statusleisten-Buttons + Tab-× auf
   24 px). iPad-Sichtprüfung: Nutzer (Checkliste in §50). `tsc` ✅,
   `eslint` ✅, `npm test` ✅.
+- S5.13: WAV-Export (`lib/wav.ts`: native Sim-Rate, −1 dBFS, 2-M-Sample-Limit;
+  Grapher-Auswahl + ehrlicher Toast); Symbol-Stilführer
+  (`docs/symbol-stilfuehrer.md` + Lint-Test: 10-px-Pinraster, Text 7–13,
+  kein `w`); 14-Segment-Anzeige (15 LED-Devices, Hex + ASCII, DP-Bit,
+  Linien-Renderer); NTC (neue Engine-Device-Type, Beta-Gleichung, folgt
+  Sim-Temperatur); LDR (Potenzgesetz, 1 Ω–100 MΩ, statisch dokumentiert).
+  LCD zurückgestellt: ohne Digital-Bus-Schicht keine ehrliche Datenquelle
+  (§52). `tsc` ✅, `eslint` ✅, `npm test` ✅ (sprint5resttest: 18 Checks).
+- S5.14: Klicks auf Schalter/Taster/Poti wirken live in der Sim (Fix:
+  Controls per Instanz-ID statt Label — vorher reine Deko); Taster
+  momentan (Maus/Taste halten, Loslassen öffnet; Release bei Stopp/Blur);
+  Tastenbelegung pro Bauteil (`params.key`, Badge `S1 [A]` am Symbol,
+  gewinnt laufend gegen Editor-Kürzel); Poti-Schieber im Inspector ohne
+  Rebuild (`setControlLive`); Strom/Leistung im Inspector per Geräte-ID
+  (gleiche Bug-Familie); Hilfe-`?` ergänzt. `tsc` ✅, `eslint` ✅,
+  `npm test` ✅ (sprint5resttest: 22 Checks).
 
 ## Nicht-Ziele (bewusst)
 

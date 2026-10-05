@@ -3555,3 +3555,41 @@ entriegelt nur Leser.
 Verifikation: `webdesktoptest` 7 → 9 Checks (running-Spiegel, Slow-Füllung,
 Slow-Erhalt, Fremdtyp); `tsc` ✓, `eslint` (0 Errors) ✓, Suite ✓.
 Sichtprüfung Desktop: Nutzer.
+
+## §52 · S5.13 Ergebnis (Bauteile/Medien, 2026-10-05)
+
+WAV-Export: `lib/wav.ts` (16-bit-PCM-mono, native Rate aus Median-dt,
+1–192 kHz geklemmt, lineares Resampling aufs Gitter, Peak −1 dBFS,
+2-M-Sample-Limit) + Grapher-Auswahl im Tran (Kurve + Button, Rate im
+Tooltip/Dateinamen; unbrauchbare Achse/Überlänge = ehrlicher Toast, keine
+Datei). Stilführer: `docs/symbol-stilfuehrer.md` (10-px-Pinraster, 1,3-px-
+`--symbol`-Strich, Text 7–13, kein `w`) + Lint über alle 771 Teile grün.
+14-Segment: 16 Pins (a–n, DP, COM), 15 LED-Devices (Kathode/Anode), Hex
+0–F + ASCII (A–Z, Ziffern, `-`; +16/+128 = DP), Linien-Renderer mit Glow.
+NTC: Engine-Type `NTC` (Beta-Gleichung bei Sim-Temperatur, OP-verifiziert
+gegen Handrechnung 2,5 V / 0,49 V). LDR: R(lux)-Potenzgesetz in
+`toDevices` (statisch, ehrlich dokumentiert).
+LCD zurückgestellt (bewusst): HD44780 bräuchte Bus-Protokoll + Timing +
+Interpreter — ohne Digital-Schicht (nur skalare `controls`, analoge Netze)
+gäbe es keine ehrliche Datenquelle; ein Fake-Display bräche die
+Sprint-1-Regel. 14-Segment deckt alphanumerisch ab.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (sprint5resttest: 18).
+
+## §53 · S5.14 Ergebnis (Live-Steuerung, Nutzerwunsch 2026-10-05)
+
+Befund: Schalter-/Poti-Klicks bei laufender Sim waren reine Deko — UI
+schrieb `controls[Label]`, der Solver liest `controls[Geräte-ID]`
+(Instanz-ID ≠ Label). Tastenbelegung und Poti-Schieber fehlten ganz;
+Taster rasteten ein statt zu tasten; Inspector-Strom/Leistung las per
+Label (= immer 0).
+Fix: Controls per Instanz-ID (Canvas + Renderer, Label-Fallback);
+`lib/sim/controls.ts` (Tasten-Normalisierung, Belegungs-Auflösung;
+Leertaste/`?` reserviert); `key`-Param auf allen 12
+Schalter/Taster/Poti-Teilen + Badge am Symbol; Taster momentan (Maus +
+Taste, Loslassen/Stopp/Blur öffnet); belegte Tasten gewinnen laufend
+gegen Editor-Kürzel (sonst Editor; Konflikt-Hinweis im Inspector);
+`setControlLive` (Param persistieren + Control setzen, ohne Rebuild);
+`setParam` verwirft stale Controls (editierter Param = Wahrheit);
+Hilfe-`?` ergänzt.
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 22 — u. a. Label-statt-ID wirkungslos als Fix-Doku).
