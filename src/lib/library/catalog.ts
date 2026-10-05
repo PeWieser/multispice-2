@@ -384,6 +384,7 @@ add({
   params: [
     { key: "r", label: "Gesamtwiderstand", unit: "Ω", type: "number", def: 10000 },
     { key: "pos", label: "Schleiferposition", type: "number", def: 0.5, min: 0.01, max: 0.99, step: 0.01 },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" },
     { key: "taper", label: "Kennlinie", type: "select", def: "lin", options: [{ value: "lin", label: "linear" }, { value: "log", label: "logarithmisch" }] },
   ],
   toDevices: (i, n) => [{ id: i.id, type: "POT", nodes: n, params: { r: num(i, "r", 10000), pos: num(i, "pos", 0.5) } }],
@@ -1316,6 +1317,7 @@ add({
   params: [
     { key: "closed", label: "Geschlossen", type: "bool", def: false },
     { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" },
   ],
   toDevices: (i, n) => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i, "closed", 0), ron: num(i, "ron", 0.01), roff: 1e9 } }],
 });
@@ -1333,6 +1335,7 @@ add({
   params: [
     { key: "closed", label: "Gedrückt", type: "bool", def: false },
     { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" },
   ],
   toDevices: (i, n) => [{ id: i.id, type: "PUSHBUTTON", nodes: n, params: { closed: num(i, "closed", 0), ron: num(i, "ron", 0.01), roff: 1e9 } }],
 });
@@ -5891,7 +5894,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 
@@ -5906,7 +5910,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 
@@ -5921,7 +5926,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 
@@ -5936,7 +5942,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 
@@ -5951,7 +5958,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 
@@ -5966,7 +5974,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 
@@ -5981,7 +5990,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 
@@ -5996,7 +6006,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 
@@ -6011,7 +6022,8 @@ add({
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
   symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false }],
+  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
   toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
 });
 

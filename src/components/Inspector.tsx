@@ -10,6 +10,7 @@ import { Checkbox, NumberField, SelectField, SliderField, TextField } from "./ui
 import { IntegrationMethod } from "@/lib/sim/engine";
 import { engine, useEditor } from "@/state/editor";
 import { ProbeKind } from "@/lib/schematic/model";
+import { isEditorSingleKey } from "@/lib/sim/controls";
 
 /** S5.2: ParamDef-Dispatcher auf die ui/-Primitives (ersetzt das lokale Field). */
 function ParamField({ def, value, onChange }: { def: ParamDef; value: number | string | boolean; onChange: (v: number | string | boolean) => void }) {
@@ -257,7 +258,7 @@ export default function Inspector() {
                     <div className="col-span-2 rounded-md px-2 py-1 bg-surface-2">
                       <div className="text-2xs text-ink-3">Strom / Leistung</div>
                       <div className="mono text-2xs text-ok">
-                        {formatValue(live.currents[selected.label] ?? 0, "A")} · {formatValue(Math.abs(live.power[selected.label] ?? 0), "W")}
+                        {formatValue(live.currents[selected.id] ?? live.currents[selected.label] ?? 0, "A")} · {formatValue(Math.abs(live.power[selected.id] ?? live.power[selected.label] ?? 0), "W")}
                       </div>
                     </div>
                   </div>
@@ -266,14 +267,29 @@ export default function Inspector() {
                 {st.teacher.locked ? <LockNote /> : [...groups.entries()].map(([group, defs]) => (
                   <div key={group}>
                     <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">{group}</div>
-                    {defs.map((def) => (
-                      <ParamField
-                        key={def.key}
-                        def={def}
-                        value={selected.params[def.key] ?? def.def}
-                        onChange={(v) => st.setParam(selected.id, def.key, v)}
-                      />
-                    ))}
+                    {defs.map((def) => {
+                      const value = selected.params[def.key] ?? def.def;
+                      // S5.14: Steuerwerte (Schalter-zu, Poti-Position) wirken bei
+                      // laufender Sim live — ohne Rebuild/Sim-Neustart.
+                      const liveControl = st.sim.running && part && (
+                        (part.interactive === "pot" && def.key === "pos") ||
+                        ((part.interactive === "switch" || part.interactive === "button" || part.interactive === "dip") && def.key === "closed")
+                      );
+                      return (
+                        <div key={def.key}>
+                          <ParamField
+                            def={def}
+                            value={value}
+                            onChange={(v) => (liveControl ? st.setControlLive(selected.id, def.key, v) : st.setParam(selected.id, def.key, v))}
+                          />
+                          {def.key === "key" && isEditorSingleKey(value) && (
+                            <div className="mt-1 rounded-md px-2 py-1 text-2xs text-ink-3 bg-surface-2">
+                              „{String(value).trim().toUpperCase()}“ ist auch ein Editor-Kürzel — bei laufender Simulation steuert die Taste dieses Bauteil.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
 

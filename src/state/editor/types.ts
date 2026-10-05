@@ -174,6 +174,8 @@ export interface EditorState {
   pasteClipboard: () => void;
   duplicateSelection: () => void;
   setParam: (instanceId: string, key: string, value: number | string | boolean) => void;
+  /** S5.14: Live-Steuerwert (closed/pos) — Param persistieren + Control setzen, ohne Rebuild. */
+  setControlLive: (instanceId: string, key: string, value: number | string | boolean) => void;
   setInstanceText: (instanceId: string, text: string) => void;
   /** W81: Netzlabel umbenennen & Textnotiz bearbeiten. */
   updateLabel: (id: string, name: string) => void;

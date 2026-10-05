@@ -63,6 +63,16 @@ export const SHORTCUTS: ShortcutGroup[] = [
     ],
   },
   {
+    title: "Bauteil-Steuerung (Simulation läuft)",
+    items: [
+      { label: "Schalter umlegen", keys: [], note: "anklicken oder belegte Taste" },
+      { label: "Taster drücken", keys: [], note: "gedrückt halten (Maus oder Taste)" },
+      { label: "Poti ±5 %", keys: [], note: "Klick / ⇧Klick oder Taste / ⇧Taste (halten = laufen)" },
+      { label: "Poti-Schieber", keys: [], note: "Inspector, wirkt live ohne Neustart" },
+      { label: "Taste belegen", keys: [], note: "Inspector → Taste, z. B. A — steht dann am Bauteil" },
+    ],
+  },
+  {
     title: "Maus & Touch",
     items: [
       { label: "Leitung verschieben", keys: [], note: "Anfasser ziehen, Doppelklick löscht" },

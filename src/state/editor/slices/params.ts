@@ -4,7 +4,7 @@
 
 import type { EditorState } from "../types";
 import type { StoreApi } from "zustand";
-import { engine } from "../shared";export function createParamsSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setParam" | "setInstanceText" | "updateLabel" | "updateNote"> {
+import { engine } from "../shared";export function createParamsSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setParam" | "setControlLive" | "setInstanceText" | "updateLabel" | "updateNote"> {
   return {
       setParam: (instanceId, key, value) => {
         get().commit((d) => {
@@ -13,7 +13,18 @@ import { engine } from "../shared";export function createParamsSlice(set: StoreA
           if (key === "__label") inst.label = String(value);
           else inst.params[key] = value;
         });
+        // S5.14: editierter Param ist Wahrheit — stale Live-Control verwerfen
+        // (sonst würde z. B. ein alter Schalter-Klick params.closed überschatten).
+        if (key !== "__label") delete engine.controls[instanceId];
         if (get().sim.running) engine.rebuild(get().doc);
+      },
+
+      setControlLive: (instanceId, key, value) => {
+        get().commit((d) => {
+          const inst = d.instances.find((i) => i.id === instanceId);
+          if (inst) inst.params[key] = value;
+        });
+        engine.setControl(instanceId, Number(value));
       },
 
       setInstanceText: (instanceId, text) => {

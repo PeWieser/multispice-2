@@ -22,6 +22,7 @@ import { summarizeCircuit } from "@/lib/a11y";
 import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
 import { findInstanceByValueLabel, findPinInfo, getNetObstacles, getNetPinPoints, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
 import { drawInstance, drawProbe } from "./Canvas/render";
+import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
 
 
 /** Mini-Wellenform im Hover-Tooltip: der Oszilloskop-Blick ohne Klick. */
@@ -78,6 +79,10 @@ export default function Canvas() {
   const lastTouchTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const editingDone = useRef(false);
   const spaceDown = useRef(false);
+  // S5.14: Taster-Haltezustand — per Taste gedrückt (Taste → Instanz-IDs),
+  // per Maus gedrückt (IDs). Loslassen öffnet nur, wenn keine Quelle hält.
+  const pressedByKey = useRef<Record<string, string[]>>({});
+  const mousePressed = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!editing) return;
@@ -1789,15 +1794,31 @@ export default function Canvas() {
 
     if (hit && st.sim.running) {
       const part = PART_MAP[hit.partId];
-      if (part?.interactive === "switch" || part?.interactive === "button" || part?.interactive === "dip") {
-        const cur = engine.controls[hit.label] ?? (hit.params.closed ? 1 : 0);
-        engine.setControl(hit.label, cur > 0.5 ? 0 : 1);
+      // S5.14: Controls sind per Instanz-ID geschlüsselt (Solver liest die
+      // Geräte-ID = Instanz-ID; Label wäre wirkungslos, nur Deko).
+      if (part?.interactive === "switch" || part?.interactive === "dip") {
+        const cur = engine.controls[hit.id] ?? engine.controls[hit.label] ?? (hit.params.closed ? 1 : 0);
+        engine.setControl(hit.id, cur > 0.5 ? 0 : 1);
         st.log("info", `${hit.label} ${cur > 0.5 ? "geöffnet" : "geschlossen"}`); return;
       }
+      if (part?.interactive === "button") {
+        // S5.14: Taster tastet — schließen bei Drücken, öffnen bei Loslassen.
+        engine.setControl(hit.id, 1);
+        mousePressed.current.add(hit.id);
+        const id = hit.id;
+        const release = () => {
+          mousePressed.current.delete(id);
+          window.removeEventListener("mouseup", release);
+          const held = Object.values(pressedByKey.current).some((ids) => ids.includes(id));
+          if (!held) engine.setControl(id, 0);
+        };
+        window.addEventListener("mouseup", release);
+        st.log("info", `${hit.label} gedrückt`); return;
+      }
       if (part?.interactive === "pot") {
-        const cur = engine.controls[hit.label] ?? Number(hit.params.pos ?? 0.5);
+        const cur = engine.controls[hit.id] ?? engine.controls[hit.label] ?? Number(hit.params.pos ?? 0.5);
         const next = Math.min(0.99, Math.max(0.01, cur + (e.shiftKey ? -0.05 : 0.05)));
-        engine.setControl(hit.label, next);
+        engine.setControl(hit.id, next);
         st.log("info", `${hit.label} ${(next*100).toFixed(0)}%`); return;
       }
     }
@@ -2571,6 +2592,32 @@ export default function Canvas() {
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") { e.preventDefault(); st.pasteClipboard(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); st.duplicateSelection(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); st.selectAll(); }
+      // S5.14: belegte Bauteil-Tasten gewinnen bei laufender Simulation gegen
+      // Editor-Kürzel (Multisim-Verhalten). Unbelegte Tasten fallen durch.
+      else if (!e.ctrlKey && !e.metaKey && !e.altKey && st.sim.running && resolveBoundControls(st.doc.instances, e.key).length > 0) {
+        e.preventDefault();
+        for (const id of resolveBoundControls(st.doc.instances, e.key)) {
+          const inst = st.doc.instances.find((i) => i.id === id);
+          const kind = PART_MAP[inst?.partId ?? ""]?.interactive;
+          if (kind === "switch" || kind === "dip") {
+            if (e.repeat) continue;
+            const cur = engine.controls[id] ?? (inst?.params.closed ? 1 : 0);
+            engine.setControl(id, cur > 0.5 ? 0 : 1);
+            st.log("info", `${inst?.label} ${cur > 0.5 ? "geöffnet" : "geschlossen"}`);
+          } else if (kind === "button") {
+            if (e.repeat) continue;
+            engine.setControl(id, 1);
+            const k = normalizeControlKey(e.key) ?? "";
+            pressedByKey.current[k] = [...(pressedByKey.current[k] ?? []), id];
+            st.log("info", `${inst?.label} gedrückt`);
+          } else if (kind === "pot") {
+            const cur = engine.controls[id] ?? Number(inst?.params.pos ?? 0.5);
+            const next = Math.min(0.99, Math.max(0.01, cur + (e.shiftKey ? -0.05 : 0.05)));
+            engine.setControl(id, next);
+            if (!e.repeat) st.log("info", `${inst?.label} ${(next * 100).toFixed(0)}%`);
+          }
+        }
+      }
       // Multisim-Muskelgedächtnis: Strg/⌘+R rotiert, statt den Tab zu reloaden
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") { e.preventDefault(); st.rotateSelection(e.shiftKey ? -1 : 1); }
       else if (e.key === "Delete" || e.key === "Backspace") st.deleteSelection();
@@ -2651,11 +2698,42 @@ export default function Canvas() {
       }
       else if (e.key === "f") st.fitView();
     };
-    const onKeyUp = (e: KeyboardEvent) => { (window as any)._lastShift = e.shiftKey; if (e.code === "Space") spaceDown.current = false; };
+    const onKeyUp = (e: KeyboardEvent) => {
+      (window as any)._lastShift = e.shiftKey;
+      if (e.code === "Space") spaceDown.current = false;
+      // S5.14: per Taste gedrückte Taster beim Loslassen öffnen.
+      const k = normalizeControlKey(e.key);
+      if (k && pressedByKey.current[k]?.length) {
+        for (const id of pressedByKey.current[k]) {
+          if (!mousePressed.current.has(id)) engine.setControl(id, 0);
+        }
+        delete pressedByKey.current[k];
+      }
+    };
+    // S5.14: Fenster verliert Fokus → alle gehaltenen Taster öffnen
+    // (hängende Kontakte vermeiden, z. B. Alt-Tab bei gedrückter Taste).
+    const onBlur = () => {
+      for (const ids of Object.values(pressedByKey.current)) for (const id of ids) engine.setControl(id, 0);
+      for (const id of mousePressed.current) engine.setControl(id, 0);
+      pressedByKey.current = {};
+      mousePressed.current.clear();
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
-    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); };
+    window.addEventListener("blur", onBlur);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("blur", onBlur); };
   }, [syncNetDraft, ctxMenu]);
+
+  const simRunning = useEditor((s) => s.sim.running);
+  // S5.14: Sim-Stopp/Pause öffnet alle gehaltenen Taster (keine hängenden Kontakte).
+  useEffect(() => {
+    if (!simRunning) {
+      for (const ids of Object.values(pressedByKey.current)) for (const id of ids) engine.setControl(id, 0);
+      for (const id of mousePressed.current) engine.setControl(id, 0);
+      pressedByKey.current = {};
+      mousePressed.current.clear();
+    }
+  }, [simRunning]);
 
   useEffect(() => { const t = setTimeout(() => useEditor.getState().fitView(), 120); return () => clearTimeout(t); }, []);
 

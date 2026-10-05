@@ -6,6 +6,7 @@ import { LEGACY_PROBE_COLORS, PROBE_CSSVAR } from "@/lib/probe-style";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { canvasColor } from "@/lib/canvas-theme";
 import { hexAlpha, roundRect } from "./geometry";
+import { normalizeControlKey } from "@/lib/sim/controls";
 import { resolveLiveText } from "@/lib/descbox";
 import { nearestNetName } from "./hitTest";
 
@@ -620,7 +621,7 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
   for (const pin of partPins(part, inst.params)){ ctx.beginPath(); ctx.arc(pin.x,pin.y,1.5,0,Math.PI*2); ctx.fill(); } // W27: dezente Pin-Punkte
   if (part.interactive==="switch" || part.interactive==="button") {
     // W27: Ref-2-Schalter – dünner Hebel, gefüllte Lagerpunkte, neutrale Tinte
-    const closed=(engine.controls[inst.label] ?? (inst.params.closed?1:0))>0.5;
+    const closed=(engine.controls[inst.id] ?? engine.controls[inst.label] ?? (inst.params.closed?1:0))>0.5;
     ctx.strokeStyle=canvasColor("--symbol"); ctx.lineWidth=1.3; ctx.lineCap="round";
     ctx.beginPath();
     if (closed){ ctx.moveTo(-14,0); ctx.lineTo(14,0); }
@@ -631,7 +632,7 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
     ctx.beginPath(); ctx.arc(14,0,1.8,0,Math.PI*2); ctx.fill();
   }
   if (part.interactive==="pot") {
-    const pos=engine.controls[inst.label] ?? Number(inst.params.pos??0.5);
+    const pos=engine.controls[inst.id] ?? engine.controls[inst.label] ?? Number(inst.params.pos??0.5);
     ctx.fillStyle=canvasColor("--teal"); ctx.fillRect(-20+40*pos-1,-12,2,8);
   }
   // Fault visualization (S5.6d: im Lehrer-Modus versteckt)
@@ -657,7 +658,9 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
     const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;
     ctx.font="600 10.5px ui-sans-serif, system-ui"; ctx.textAlign="center";
     ctx.fillStyle=selected?canvasColor("--wire-sel"):canvasColor("--ink-2");
-    ctx.fillText(inst.label,0,dy);
+    // S5.14: belegte Steuer-Taste als Badge ans Label (Multisim-Verhalten sichtbar).
+    const ckey = normalizeControlKey(inst.params.key);
+    ctx.fillText(ckey ? `${inst.label}  [${ckey.toUpperCase()}]` : inst.label, 0, dy);
     const main=part.params[0];
     // S5.6d: Nennwerte im Lehrer-Modus verstecken (Label bleibt sichtbar).
     if (!teacherLocked && main && main.type==="number"){

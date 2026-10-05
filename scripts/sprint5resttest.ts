@@ -11,7 +11,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { emptyDoc } from "../src/lib/schematic/model";
+import { Simulator } from "../src/lib/sim/engine";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
+import { isEditorSingleKey, normalizeControlKey, resolveBoundControls } from "../src/lib/sim/controls";
 import { FOURTEENSEG_ASCII, FOURTEENSEG_FONT, PARTS, PART_MAP } from "../src/lib/library/catalog";
 import { WAV_MAX_SAMPLES, WAV_MIN_RATE, WAV_PEAK, curveToWav, encodeWavMono, medianDt, nativeRate, normalizePeak, toUniformGrid } from "../src/lib/wav";
 import {
@@ -419,7 +421,88 @@ async function main() {
     ok("S5.13g LDR");
   }
 
-  console.log("sprint5resttest: 18 checks OK");
+  // ---------- S5.14a: Tasten-Normalisierung + Belegungs-Auflösung ----------
+  {
+    assert.equal(normalizeControlKey("A"), "a", "Groß→klein");
+    assert.equal(normalizeControlKey(" 5 "), "5", "Whitespace egal");
+    assert.equal(normalizeControlKey(""), null, "leer = unbelegt");
+    assert.equal(normalizeControlKey("ab"), null, "nur Einzelzeichen");
+    assert.equal(normalizeControlKey(" "), null, "Leertaste reserviert");
+    assert.equal(normalizeControlKey("?"), null, "Hilfe reserviert");
+    assert.equal(normalizeControlKey(7), null, "kein String");
+    const insts = [
+      { id: "i1", params: { key: "A" } },
+      { id: "i2", params: { key: "" } },
+      { id: "i3", params: {} },
+      { id: "i4", params: { key: "a" } },
+    ];
+    assert.deepEqual(resolveBoundControls(insts, "a"), ["i1", "i4"], "Groß/Klein egal, Mehrfachbelegung");
+    assert.deepEqual(resolveBoundControls(insts, "b"), [], "nichts belegt");
+    assert.deepEqual(resolveBoundControls(insts, " "), [], "Leertaste nie");
+    assert.ok(isEditorSingleKey("r") && !isEditorSingleKey("q"), "Konflikt-Erkennung");
+    ok("S5.14a Tastenbelegung");
+  }
+
+  // ---------- S5.14b: Schalter/Taster folgen controls[Geräte-ID] ----------
+  {
+    const div = (type: string, ctrl: Record<string, number>) => {
+      const sim = new Simulator({
+        devices: [
+          { id: "V1", type: "V", nodes: ["TOP", "0"], params: { dc: 5 }, source: { kind: "dc", dc: 5 } },
+          { id: "R1", type: "R", nodes: ["TOP", "M"], params: { r: 10000 } },
+          { id: "S1dev", type, nodes: ["M", "0"], params: { closed: 0, ron: 0.01, roff: 1e9 } },
+        ],
+      }, { temperature: 27 });
+      sim.controls = ctrl;
+      sim.operatingPoint();
+      return sim.nodeVoltage("M");
+    };
+    for (const type of ["SWITCH", "PUSHBUTTON"]) {
+      const open = div(type, { S1dev: 0 });
+      const shut = div(type, { S1dev: 1 });
+      assert.ok(Math.abs(open - 5) < 0.01, `${type} offen ≈ 5 V (ist ${open})`);
+      assert.ok(shut < 0.01, `${type} geschlossen ≈ 0 V (ist ${shut})`);
+    }
+    // Label-Schlüssel (alter UI-Pfad) bleibt wirkungslos — Doku des S5.14-Fix.
+    const mislabeled = div("SWITCH", { S1: 1 });
+    assert.ok(Math.abs(mislabeled - 5) < 0.01, "Label statt ID = wirkungslos (S5.14-Fix nötig)");
+    ok("S5.14b Schalter-Control");
+  }
+
+  // ---------- S5.14c: Poti folgt controls[Geräte-ID] ----------
+  {
+    const wiper = (pos: number) => {
+      const sim = new Simulator({
+        devices: [
+          { id: "V1", type: "V", nodes: ["TOP", "0"], params: { dc: 10 }, source: { kind: "dc", dc: 10 } },
+          { id: "RV1dev", type: "POT", nodes: ["TOP", "M", "0"], params: { r: 10000, pos: 0.5 } },
+        ],
+      }, { temperature: 27 });
+      sim.controls = { RV1dev: pos };
+      sim.operatingPoint();
+      return sim.nodeVoltage("M");
+    };
+    // Konvention (Engine ≡ Renderer-Markierung): pos = Abstand von A,
+    // pos 0 = Schleifer an A (volle 10 V), pos 1 = an B (0 V).
+    assert.ok(Math.abs(wiper(0.25) - 7.5) < 0.05, `25 % ≈ 7.5 V (ist ${wiper(0.25)})`);
+    assert.ok(Math.abs(wiper(0.75) - 2.5) < 0.05, `75 % ≈ 2.5 V (ist ${wiper(0.75)})`);
+    ok("S5.14c Poti-Control");
+  }
+
+  // ---------- S5.14d: key-Param auf allen interaktiven Schalter/Taster/Poti ----------
+  {
+    const actives = PARTS.filter((p) => p.interactive === "switch" || p.interactive === "button" || p.interactive === "pot");
+    assert.ok(actives.length >= 12, `alle da (sind ${actives.length})`);
+    for (const p of actives) {
+      const k = p.params.find((d) => d.key === "key");
+      assert.ok(k, `${p.id} hat key-Param`);
+      assert.equal(k!.type, "text", `${p.id}: Typ text`);
+      assert.equal(k!.def, "", `${p.id}: Default unbelegt`);
+    }
+    ok("S5.14d key-Parameter");
+  }
+
+  console.log("sprint5resttest: 22 checks OK");
 }
 
 main().catch((e) => {
