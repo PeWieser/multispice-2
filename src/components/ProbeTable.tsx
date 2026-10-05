@@ -113,15 +113,15 @@ export default function ProbeTable() {
       <table className="w-full text-2xs">
         <thead className="sticky top-[33px] z-10 text-2xs text-ink-3 bg-surface-2">
           <tr>
-            <th className="px-2 py-1.5 text-left font-medium">Name</th>
-            <th className="px-2 py-1.5 text-left font-medium">Typ</th>
-            <th className="px-2 py-1.5 text-left font-medium">Netz</th>
-            <th className="px-2 py-1.5 text-left font-medium">REF</th>
-            <th className="px-2 py-1.5 text-right font-medium">Vdc</th>
-            <th className="px-2 py-1.5 text-right font-medium">Vrms</th>
-            <th className="px-2 py-1.5 text-right font-medium">Vpp</th>
-            <th className="px-2 py-1.5 text-right font-medium">Vavg</th>
-            <th className="px-2 py-1.5 text-right font-medium">Freq</th>
+            <th scope="col" className="px-2 py-1.5 text-left font-medium">Name</th>
+            <th scope="col" className="px-2 py-1.5 text-left font-medium">Typ</th>
+            <th scope="col" className="px-2 py-1.5 text-left font-medium">Netz</th>
+            <th scope="col" className="px-2 py-1.5 text-left font-medium">REF</th>
+            <th scope="col" className="px-2 py-1.5 text-right font-medium">Vdc</th>
+            <th scope="col" className="px-2 py-1.5 text-right font-medium">Vrms</th>
+            <th scope="col" className="px-2 py-1.5 text-right font-medium">Vpp</th>
+            <th scope="col" className="px-2 py-1.5 text-right font-medium">Vavg</th>
+            <th scope="col" className="px-2 py-1.5 text-right font-medium">Freq</th>
           </tr>
         </thead>
         <tbody className="mono">

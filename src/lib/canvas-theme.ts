@@ -52,6 +52,23 @@ export function canvasColor(name: string): string {
   return v;
 }
 
+/**
+ * S5.15: Lesbare Zeichentinte auf beliebigem Grund (Sonden-Badge, ERC-Marker,
+ * Messleitungs-Chip). Luminanz nach WCAG (Schwelle ≈ 4,5:1); unparsebare
+ * Eingabe (z. B. `var(--x)`) fällt auf Weiß zurück.
+ */
+export function inkOn(bg: string): string {
+  const m = bg.trim().match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+  if (!m) return "#ffffff";
+  const h = m[1].length === 3 ? m[1].split("").map((c) => c + c).join("") : m[1];
+  const lin = (i: number) => {
+    const v = parseInt(h.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const lum = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+  return lum > 0.179 ? "#101014" : "#ffffff";
+}
+
 /** Alle Canvas-relevanten Farben auf einmal. */
 export function getCanvasTheme() {
   const c = canvasColor;

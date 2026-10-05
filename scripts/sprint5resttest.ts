@@ -14,6 +14,7 @@ import { emptyDoc } from "../src/lib/schematic/model";
 import { Simulator } from "../src/lib/sim/engine";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
 import { isEditorSingleKey, normalizeControlKey, resolveBoundControls } from "../src/lib/sim/controls";
+import { inkOn } from "../src/lib/canvas-theme";
 import { FOURTEENSEG_ASCII, FOURTEENSEG_FONT, PARTS, PART_MAP } from "../src/lib/library/catalog";
 import { WAV_MAX_SAMPLES, WAV_MIN_RATE, WAV_PEAK, curveToWav, encodeWavMono, medianDt, nativeRate, normalizePeak, toUniformGrid } from "../src/lib/wav";
 import {
@@ -502,7 +503,55 @@ async function main() {
     ok("S5.14d key-Parameter");
   }
 
-  console.log("sprint5resttest: 22 checks OK");
+  // ---------- S5.15a: Canvas-Hex-Lint (nur dokumentierte Hardware-Ausnahmen) ----------
+  {
+    const render = fs.readFileSync("src/components/Canvas/render.ts", "utf8");
+    const canvas = fs.readFileSync("src/components/Canvas.tsx", "utf8");
+    // Hardware-Emission (LED-Gehäusefarben, Segment-Rot) bleibt Fix-Hex —
+    // eine grüne LED bleibt grün, unabhängig vom Theme (S5.12-Prinzip).
+    const HW = new Set(["#ff4d4f", "#4ade80", "#60a5fa", "#fde047", "#f8fafc"]);
+    const HWCTX = ["colorMap", "??", "segOn", "on ?", "dp ?", "shadowColor"]; // Glow = Hardware-Emission
+    for (const [name, src] of [["render.ts", render]] as Array<[string, string]>) {
+      const lines = src.split("\n");
+      lines.forEach((line, i) => {
+        for (const m of line.matchAll(/#[0-9a-fA-F]{3,8}/g)) {
+          assert.ok(HW.has(m[0]), `${name}:${i + 1} unerlaubtes Hex ${m[0]}`);
+          assert.ok(HWCTX.some((t) => line.includes(t)), `${name}:${i + 1} Hex ohne Hardware-Kontext`);
+        }
+      });
+    }
+    // Canvas.tsx: einziges Fix-Hex = Elektronen-Amber (Signal, dunkle Outline trägt).
+    canvas.split("\n").forEach((line, i) => {
+      for (const m of line.matchAll(/#[0-9a-fA-F]{3,8}/g)) {
+        assert.ok(m[0] === "#f59e0b" && line.includes("isElectron"), `Canvas.tsx:${i + 1} unerlaubtes Hex ${m[0]}`);
+      }
+    });
+    ok("S5.15a Canvas-Hex-Lint");
+  }
+
+  // ---------- S5.15b: Reduced-Motion- + Focus-CSS vorhanden (Guards) ----------
+  {
+    const css = fs.readFileSync("src/app/globals.css", "utf8");
+    assert.ok(css.includes("@media (prefers-reduced-motion: reduce)"), "Reduced-Motion-Block");
+    assert.ok(css.includes("[data-current-flow]"), "Stromfluss abschaltbar");
+    assert.ok(css.includes(":focus-visible"), ":focus-visible-Regel");
+    assert.ok(css.includes("outline-offset: 2px"), "Focus-Offset 2px");
+    ok("S5.15b Motion/Focus-CSS");
+  }
+
+  // ---------- S5.15c: inkOn (Kontrast-Tinte) ----------
+  {
+    assert.equal(inkOn("#ffffff"), "#101014", "Weiß → dunkel");
+    assert.equal(inkOn("#000000"), "#ffffff", "Schwarz → weiß");
+    assert.equal(inkOn("#fff"), "#101014", "Kurz-Hex geht");
+    assert.equal(inkOn("#b0362b"), "#ffffff", "err hell-Theme → weiß");
+    assert.equal(inkOn("#ff7a6b"), "#101014", "err dunkel-Theme → dunkel (S5.15-Fix)");
+    assert.equal(inkOn("#e0ab47"), "#101014", "warn dunkel-Theme → dunkel");
+    assert.equal(inkOn("var(--accent)"), "#ffffff", "Nicht-Hex → Weiß-Fallback");
+    ok("S5.15c inkOn");
+  }
+
+  console.log("sprint5resttest: 25 checks OK");
 }
 
 main().catch((e) => {

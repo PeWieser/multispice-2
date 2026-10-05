@@ -13,7 +13,7 @@ import ShortcutSheet from "./ShortcutSheet";
 import InlineEditor, { type InlineEdit } from "./InlineEditor";
 import ContextMenu, { type CtxTarget } from "./CanvasContextMenu";
 import ZoomButtons from "./ZoomButtons";
-import { canvasColor } from "@/lib/canvas-theme";
+import { canvasColor, inkOn } from "@/lib/canvas-theme";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
@@ -617,7 +617,7 @@ export default function Canvas() {
           ctx.fill();
           ctx.restore();
           // fill
-          ctx.fillStyle = isHoveredHandle ? "#ffffff" : canvasColor("--surface");
+          ctx.fillStyle = isHoveredHandle ? canvasColor("--accent-ink") : canvasColor("--surface");
           ctx.strokeStyle = isHoveredHandle ? canvasColor("--accent") : isEnd ? canvasColor("--ok") : canvasColor("--accent");
           ctx.lineWidth = (isHoveredHandle ? 2.2 : 1.5) * iz;
           ctx.beginPath();
@@ -667,7 +667,7 @@ export default function Canvas() {
           if (!showAlways && !isHoveredMid && !isHovered) continue;
           const msz = (isHoveredMid ? 10 : 6) * iz;
           ctx.save();
-          ctx.fillStyle = isHoveredMid ? "#ffffff" : "rgba(255,255,255,0.75)";
+          ctx.fillStyle = isHoveredMid ? canvasColor("--accent-ink") : "rgba(255,255,255,0.75)";
           ctx.strokeStyle = isHoveredMid ? canvasColor("--teal") : canvasColor("--ink-3");
           ctx.lineWidth = 1.2 * iz;
           ctx.beginPath();
@@ -709,7 +709,7 @@ export default function Canvas() {
           const isElectron = st.currentFlowDirection !== "conventional";
           ctx.save();
           ctx.globalAlpha = intensity;
-          ctx.fillStyle = isElectron ? "#f59e0b" : "#cbd5e1";
+          ctx.fillStyle = isElectron ? "#f59e0b" : canvasColor("--ink-3"); // S5.15: Fix-Amber = Signal, Grau = Token
           ctx.strokeStyle = "rgba(15, 23, 42, 0.45)";
           ctx.lineWidth = 0.85 * iz;
           for (let pos = flow.phase; pos <= totalLen; pos += FLOW_SPACING) {
@@ -880,13 +880,13 @@ export default function Canvas() {
         }
         // Draw red error marker
         ctx.fillStyle = canvasColor("--err");
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = inkOn(canvasColor("--err")); // S5.15: Weiß wäre auf hellem Badge unsichtbar
         ctx.lineWidth = 1.5*iz;
         ctx.beginPath();
         ctx.arc(mx, my, 8*iz, 0, Math.PI*2);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = inkOn(canvasColor("--err"));
         ctx.font = `bold ${10*iz}px ui-sans-serif`;
         ctx.textAlign = "center";
         ctx.fillText("!", mx, my + 3.5*iz);
@@ -908,13 +908,13 @@ export default function Canvas() {
           }
         }
         ctx.fillStyle = canvasColor("--warn");
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = inkOn(canvasColor("--warn")); // S5.15: s. Fehler-Badge
         ctx.lineWidth = 1.2*iz;
         ctx.beginPath();
         ctx.arc(mx, my, 6*iz, 0, Math.PI*2);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = inkOn(canvasColor("--warn"));
         ctx.font = `bold ${8*iz}px ui-sans-serif`;
         ctx.textAlign = "center";
         ctx.fillText("!", mx, my + 2.5*iz);
@@ -1297,7 +1297,7 @@ export default function Canvas() {
       ctx.fillStyle = canvasColor("--err");
       roundRect(ctx, sp.x - tw / 2, sp.y + r + 6, tw, 18, 5);
       ctx.fill();
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = inkOn(canvasColor("--err")); // S5.15: s. Fehler-Badge
       ctx.fillText(label, sp.x, sp.y + r + 19);
       ctx.restore();
     }
@@ -2967,7 +2967,7 @@ export default function Canvas() {
           />
           <span
             className="absolute left-0 top-3 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 py-[1px] text-[9.5px] font-bold"
-            style={{ background: leadArmed.color ?? "var(--accent)", color: "#101010" }}
+            style={{ background: leadArmed.color ?? "var(--accent)", color: leadArmed.color ? inkOn(leadArmed.color) : "var(--accent-ink)" }} // S5.15: Kontrast auf Buchsenfarbe
           >
             {leadArmed.name ?? "Messleitung"}
           </span>

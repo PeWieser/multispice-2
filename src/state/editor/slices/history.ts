@@ -54,6 +54,8 @@ import { gesture, clone } from "../shared";export function createHistorySlice(se
         set({ doc: prev, past: past.slice(0, -1), future: [doc, ...future].slice(0, 50) });
         get().refreshNets();
         get().log("info", "Rückgängig");
+        // S5.15: Undo-Toast mit Wiederholen-Aktion (TEST_MATRIX §14).
+        get().setToast({ message: "Rückgängig gemacht.", actionLabel: "Wiederholen", action: () => get().redo() });
       },
 
       redo: () => {
@@ -66,6 +68,7 @@ import { gesture, clone } from "../shared";export function createHistorySlice(se
         set({ doc: next, future: future.slice(1), past: [...past, doc] });
         get().refreshNets();
         get().log("info", "Wiederholen");
+        get().setToast({ message: "Wiederholt.", actionLabel: "Rückgängig", action: () => get().undo() });
       },
   };
 }

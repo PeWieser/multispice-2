@@ -3,8 +3,8 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.14 ✅ (2026-10-05); S5.15 offen.
-> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§53).
+> Stand: S5.10–S5.15 ✅ (2026-10-05); S5.16 offen.
+> Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§54).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
 
@@ -141,6 +141,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.12 Zugang (§50, PASS)
 - [x] S5.13 Bauteile/Medien (§50, PASS — LCD begründet zurückgestellt)
 - [x] S5.14 Live-Steuerung wie in Multisim (Nutzerwunsch 2026-10-05, PASS)
+- [x] S5.15 TEST_MATRIX-§14-Backlog (Nutzerwahl 2026-10-05, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -180,6 +181,15 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   Rebuild (`setControlLive`); Strom/Leistung im Inspector per Geräte-ID
   (gleiche Bug-Familie); Hilfe-`?` ergänzt. `tsc` ✅, `eslint` ✅,
   `npm test` ✅ (sprint5resttest: 22 Checks).
+- S5.15: §14-Backlog aufgearbeitet — verifiziert bereits-erledigt (Wire-Griffe,
+  Hover, Library-Tasten, Reduced-Motion, Focus-Ring, Log-Live-Regions);
+  Canvas-Tokens (Motor/Griffe/Flow-Grau/ERC/Sonden-Badge; `inkOn`-Helfer
+  fixt echten Dunkel-Theme-Kontrast auf --err/--warn); LED/Segment-Rot als
+  dokumentierte Hardware-Ausnahme (Lint S5.15a); Undo/Redo-Toast mit
+  Gegenaktion + 5-s-Auto-Dismiss; Feedback-Kanon dokumentiert; Benchmark
+  1001 Bauteile → OP 42 ms (`scripts/s515perf.ts`); E2E + Canvas-fps als
+  Nutzer-Parcours übergeben. `tsc` ✅, `eslint` ✅, `npm test` ✅
+  (sprint5resttest: 25 Checks).
 
 ## Nicht-Ziele (bewusst)
 

@@ -175,6 +175,12 @@ function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open
 function UndoToast() {
   const toast = useEditor((s) => s.toast);
   const clear = useEditor((s) => s.clearToast);
+  // S5.15: Hinweise schließen sich nach 5 s selbst (Undo-Spam klebt nicht).
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => useEditor.getState().clearToast(), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
   if (!toast) return null;
   return (
     <div role="status" aria-live="polite" className="rise fixed bottom-12 left-1/2 z-toast flex -translate-x-1/2 items-center gap-2 rounded-panel bg-overlay py-1.5 pl-4 pr-1.5 text-sm shadow-3 backdrop-blur-xl backdrop-saturate-150">

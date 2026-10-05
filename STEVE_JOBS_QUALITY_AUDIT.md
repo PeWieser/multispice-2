@@ -3593,3 +3593,26 @@ gegen Editor-Kürzel (sonst Editor; Konflikt-Hinweis im Inspector);
 Hilfe-`?` ergänzt.
 Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
 (sprint5resttest: 22 — u. a. Label-statt-ID wirkungslos als Fix-Doku).
+
+## §54 · S5.15 Ergebnis (§14-Backlog, Nutzerwahl 2026-10-05)
+
+Befund: 8 der 10 §14-Punkte waren bereits umgesetzt, aber nie abgehakt
+(Wire-Griffe + Drag, Hover-Highlight, Library-↑↓/Enter, Reduced-Motion-
+Block inkl. Stromfluss-Ausblendung, globale 2-px-`:focus-visible`-Regel,
+Log-Konsole `role=log aria-live=polite`); Probe-`<th>` ohne `scope`
+nachgetragen. Echte Lücken: (1) Canvas-Fix-Hex — dabei zwei wahre Fehler
+gefunden: ERC-/SP-Marker + Sonden-Badge mit fixem Weiß auf `--err`/`--warn`
+(kontrastarm im dunklen Theme, Badge-Grund teils beliebig) sowie fast
+unsichtbares Konventionell-Grau auf hellem Canvas; (2) kein Undo-Feedback
+(Toast-Komponente hieß schon `UndoToast`, wurde nie dafür genutzt, kein
+Auto-Dismiss).
+Fix: `inkOn()` (`canvas-theme.ts`, WCAG-Luminanz) für Badge-/Marker-Tinte;
+Motor/Griffe/Flow-Grau tokenisiert; LED- und Segment-Rot bleiben Fix-Hex
+als dokumentierte Hardware-Ausnahme (grüne LED bleibt grün) — Lint
+S5.15a verbietet neues Hex; Undo/Redo-Toast mit Gegenaktion + 5-s-Dismiss;
+Feedback-Kanon (Toast flüchtig / Log Protokoll / Chip Zustand).
+Skalierung: `scripts/s515perf.ts` (1001 Devices/1000 Knoten: Katalog 2 ms,
+Aufbau 4 ms, OP 42 ms, Sweep 2 ms; manuell, nicht in `npm test`).
+E2E-Geräte + Canvas-60-fps bleiben Nutzer-Parcours (Sandbox headless).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 25 — Hex-Lint, CSS-Guards, inkOn-Tabelle).

@@ -4,7 +4,7 @@ import { Instance, MeasurementProbe, instanceBounds, pinPosition } from "@/lib/s
 import { engine, inferWireAngleAt, useEditor } from "@/state/editor";
 import { LEGACY_PROBE_COLORS, PROBE_CSSVAR } from "@/lib/probe-style";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
-import { canvasColor } from "@/lib/canvas-theme";
+import { canvasColor, inkOn } from "@/lib/canvas-theme";
 import { hexAlpha, roundRect } from "./geometry";
 import { normalizeControlKey } from "@/lib/sim/controls";
 import { resolveLiveText } from "@/lib/descbox";
@@ -374,7 +374,7 @@ export function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe
   ctx.fillStyle = col;
   roundRect(ctx, 6, 4, 22, 16, 4);
   ctx.fill();
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = inkOn(col); // S5.15: Kontrast auf beliebiger Sondenfarbe
   ctx.font = `700 10.5px ui-monospace, monospace`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -608,7 +608,7 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
       const ang = (live.time * 3600 * i) % 360;
       ctx.save();
       ctx.rotate(ang * Math.PI/180);
-      ctx.strokeStyle = "#60a5fa";
+      ctx.strokeStyle = canvasColor("--accent"); // S5.15: Token statt Fix-Blau
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0,0); ctx.lineTo(12,0);
