@@ -55,6 +55,7 @@ export type InteractiveKind =
   | "led"
   | "lamp"
   | "sevenseg"
+  | "fourteenseg"
   | "motor"
   | "buzzer"
   | "relay"
@@ -324,6 +325,50 @@ add({
     P.tol, P.tc1, P.tnom,
   ],
   toDevices: (i, n) => [{ id: i.id, type: "R", nodes: n, params: { r: num(i, "r", 1000), tc1: num(i, "tc1", 0), tnom: num(i, "tnom", 27), tol: num(i, "tol", 5) } }],
+});
+
+add({
+  id: "ntc",
+  name: "NTC-Heißleiter",
+  ref: "NTC",
+  category: "Passive Bauteile/Widerstände",
+  tags: ["ntc", "heißleiter", "thermistor", "temperatur", "sensor"],
+  mount: "both",
+  footprint: "0805 / Scheibe",
+  description: "Heißleiter nach Beta-Gleichung R = R25·exp(B·(1/T−1/T25)) bei der globalen Sim-Temperatur (DC-Sweep ‚Temperatur‘ möglich).",
+  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
+  symbol: [...resSymbol, TXT(0, 16, "-t°", 7)],
+  params: [
+    { key: "r25", label: "Nennwiderstand R25", unit: "Ω", type: "number", def: 10000 },
+    { key: "b", label: "B-Konstante", unit: "K", type: "number", def: 3950 },
+    { key: "tnom", label: "Nenntemperatur", unit: "°C", type: "number", def: 25 },
+  ],
+  toDevices: (i, n) => [{ id: i.id, type: "NTC", nodes: n, params: { r25: num(i, "r25", 10000), b: num(i, "b", 3950), tnom: num(i, "tnom", 25) } }],
+});
+
+add({
+  id: "ldr",
+  name: "Fotowiderstand (LDR)",
+  ref: "LDR",
+  category: "Passive Bauteile/Widerstände",
+  tags: ["ldr", "fotowiderstand", "helligkeit", "licht", "sensor"],
+  mount: "both",
+  footprint: "5 mm / 7 mm",
+  description: "Fotowiderstand R = R10·(10/lux)^γ. Beleuchtungsstärke als Bauteil-Parameter (statisch — kein zeitabhängiges Lichtmodell).",
+  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
+  symbol: [...resSymbol,
+    L(-22, -19, -10, -7), L(-10, -7, -14, -7), L(-10, -7, -10, -11),
+    L(-7, -19, 5, -7), L(5, -7, 1, -7), L(5, -7, 5, -11)],
+  params: [
+    { key: "r10", label: "Widerstand bei 10 Lux", unit: "Ω", type: "number", def: 10000 },
+    { key: "gamma", label: "Gamma", type: "number", def: 0.7 },
+    { key: "lux", label: "Beleuchtungsstärke", unit: "lx", type: "number", def: 100 },
+  ],
+  toDevices: (i, n) => {
+    const r10 = Math.max(num(i, "r10", 10000), 1e-9);
+    const r = Math.min(Math.max(r10 * Math.pow(10 / Math.max(num(i, "lux", 100), 1e-3), num(i, "gamma", 0.7)), 1), 1e8);
+    return [{ id: i.id, type: "R", nodes: n, params: { r } }];
+  },
 });
 
 add({
@@ -1319,6 +1364,135 @@ add({
       const anode = str(i, "common", "cathode") === "cathode" ? n[k] : n[7];
       const cathode = str(i, "common", "cathode") === "cathode" ? n[7] : n[k];
       out.push({ id: `${i.id}_seg${k}`, type: "LED", nodes: [anode, cathode], params: { is, n: 2.2, rs: 20, bv: 5, cjo: 1e-12 } });
+    }
+    return out;
+  },
+});
+
+/**
+ * S5.13: 14-Segment-Zeichensatz (Hex 0–F). Reihenfolge: a b c d e f g1 g2
+ * h i j k l m (DP separat, Bit 4 des Steuerwerts). Wie sevenseg: Steuerwert
+ * 0–15 aus engine.controls[Label] (Fallbacks im Renderer).
+ */
+export const FOURTEENSEG_FONT: number[][] = [
+  [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], // 0
+  [0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // 1
+  [1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0], // 2
+  [1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0], // 3
+  [0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], // 4
+  [1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], // 5
+  [1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], // 6
+  [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // 7
+  [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], // 8
+  [1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], // 9
+  [1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], // A
+  [0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], // b
+  [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], // C
+  [0, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0], // d
+  [1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], // E
+  [1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], // F
+];
+
+/**
+ * S5.13: ASCII-Zeichensatz (Code → 14 Bits). Abdeckung: Leerzeichen, `-`,
+ * Ziffern, Großbuchstaben — Kleinbuchstaben mappt der Renderer auf Groß.
+ */
+export const FOURTEENSEG_ASCII: Record<number, number[]> = {
+  32: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // space
+  45: [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0], // -
+  48: FOURTEENSEG_FONT[0], // 0
+  49: FOURTEENSEG_FONT[1], // 1
+  50: FOURTEENSEG_FONT[2], // 2
+  51: FOURTEENSEG_FONT[3], // 3
+  52: FOURTEENSEG_FONT[4], // 4
+  53: FOURTEENSEG_FONT[5], // 5
+  54: FOURTEENSEG_FONT[6], // 6
+  55: FOURTEENSEG_FONT[7], // 7
+  56: FOURTEENSEG_FONT[8], // 8
+  57: FOURTEENSEG_FONT[9], // 9
+  65: FOURTEENSEG_FONT[10], // A
+  66: [1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0], // B
+  67: FOURTEENSEG_FONT[12], // C
+  68: [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1], // D
+  69: FOURTEENSEG_FONT[14], // E
+  70: FOURTEENSEG_FONT[15], // F
+  71: [1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0], // G
+  72: [0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], // H
+  73: [1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0], // I
+  74: [0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // J
+  75: [0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1], // K
+  76: [0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], // L
+  77: [0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0], // M
+  78: [0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1], // N
+  79: FOURTEENSEG_FONT[0], // O
+  80: [1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], // P
+  81: [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1], // Q
+  82: [1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1], // R
+  83: FOURTEENSEG_FONT[5], // S
+  84: [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0], // T
+  85: [0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], // U
+  86: [0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0], // V
+  87: [0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 1], // W
+  88: [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1], // X
+  89: [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0], // Y
+  90: [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0], // Z
+};
+
+/** Segment-Endpunkte im Symbol (a b c d e f g1 g2 h i j k l m) für Renderer. */
+export const FOURTEENSEG_SEGS: Array<[number, number, number, number]> = [
+  [-14, -28, 14, -28], // a
+  [16, -26, 16, -2], // b
+  [16, 2, 16, 26], // c
+  [-14, 28, 14, 28], // d
+  [-16, 2, -16, 26], // e
+  [-16, -26, -16, -2], // f
+  [-14, 0, -1, 0], // g1
+  [1, 0, 14, 0], // g2
+  [-15, -3, -1, -25], // h
+  [0, -25, 0, -3], // i
+  [15, -3, 1, -25], // j
+  [-15, 3, -1, 25], // k
+  [0, 3, 0, 25], // l
+  [15, 3, 1, 25], // m
+];
+
+add({
+  id: "fourteenseg",
+  name: "14-Segment-Anzeige",
+  ref: "DS",
+  category: "Anzeigen & Aktoren/Optisch",
+  tags: ["14-segment", "anzeige", "display", "alphanumerisch"],
+  mount: "THT",
+  interactive: "fourteenseg",
+  description: "14 Segmente + Dezimalpunkt, je eine LED gegen COM (Kathode/Anode wählbar). Anzeige: 0–15 Hex (+16 = DP an) oder ASCII-Code 32–90 (+128 = DP an, Klein→Groß).",
+  pins: ["a", "b", "c", "d", "e", "f", "g1", "g2", "h", "i", "j", "k", "l", "m", "dp", "COM"].map((pn, i) => ({
+    name: pn,
+    x: i < 8 ? -50 : 50,
+    y: (i % 8) * 20 - 70,
+    electrical: pn === "COM" ? "power_in" : "input",
+  })),
+  symbol: [
+    RECT(-40, -85, 80, 170, 4),
+    ...[-70, -50, -30, -10, 10, 30, 50, 70].flatMap((y): SymbolPrim[] => [L(-50, y, -40, y), L(40, y, 50, y)]),
+    ...FOURTEENSEG_SEGS.map(([x1, y1, x2, y2]): SymbolPrim => L(x1, y1, x2, y2)),
+    TXT(-30, -76, "14-SEG", 7),
+  ],
+  params: [
+    { key: "common", label: "Typ", type: "select", def: "cathode", options: [{ value: "cathode", label: "gemeinsame Kathode" }, { value: "anode", label: "gemeinsame Anode" }] },
+    { key: "vf", label: "Segment-Flussspannung", unit: "V", type: "number", def: 2 },
+  ],
+  toDevices: (i, n) => {
+    const out: Device[] = [];
+    const vf = num(i, "vf", 2);
+    const is = 0.02 / Math.exp(vf / (2.2 * 0.02585));
+    const cathode = str(i, "common", "cathode") === "cathode";
+    for (let k = 0; k < 15; k++) {
+      out.push({
+        id: `${i.id}_seg${k}`,
+        type: "LED",
+        nodes: cathode ? [n[k], n[15]] : [n[15], n[k]],
+        params: { is, n: 2.2, rs: 20, bv: 5, cjo: 1e-12 },
+      });
     }
     return out;
   },

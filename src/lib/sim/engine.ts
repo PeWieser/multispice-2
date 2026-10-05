@@ -516,6 +516,8 @@ export class Simulator {
       case "R":
       case "LAMP":
         return (va - vb) / Math.max(this.resistance(d), 1e-12);
+      case "NTC":
+        return (va - vb) / Math.max(this.ntcResistance(d), 1e-12);
       case "FUSE":
         return (va - vb) / Math.max(this.fuseResistance(d), 1e-12);
       case "C": {
@@ -707,6 +709,20 @@ export class Simulator {
     return blown ? Math.max(p(d, "roff", 1e9), 1) : this.resistance(d);
   }
 
+  /**
+   * S5.13: NTC-Widerstand nach Beta-Gleichung
+   * R = R25 · exp(B · (1/T − 1/T25)), T in Kelvin. Temperatur = globale
+   * Sim-Temperatur (wie alle S4-Modelle; Temperaturwechsel baut neu).
+   */
+  ntcResistance(d: Device): number {
+    const r25 = Math.max(p(d, "r25", 10000), 1e-9);
+    const b = p(d, "b", 3950);
+    const tnom = p(d, "tnom", 25);
+    const t = this.options.temperature + KELVIN;
+    const t25 = tnom + KELVIN;
+    return Math.max(r25 * Math.exp(b * (1 / t - 1 / t25)), 1e-9);
+  }
+
   /** S4.6: Laufzeit der Übertragungsleitung (td gewinnt, sonst len/vf/c). */
   tlineDelay(d: Device): number {
     const td = p(d, "td", 0);
@@ -792,6 +808,11 @@ export class Simulator {
         case "FUSE": {
           // S4.5: durchgebrannt → roff (rastend); Integral in acceptTimestep.
           this.stampConductance(m, n0, n1, 1 / this.fuseResistance(d));
+          break;
+        }
+        case "NTC": {
+          // S5.13: Heißleiter — Beta-Gleichung bei Sim-Temperatur.
+          this.stampConductance(m, n0, n1, 1 / this.ntcResistance(d));
           break;
         }
         case "LAMP": {

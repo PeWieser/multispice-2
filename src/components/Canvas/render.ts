@@ -1,4 +1,4 @@
-import { PART_MAP, SymbolPrim, formatValue, partPins, partSymbol, splitterWidth } from "@/lib/library/catalog";
+import { FOURTEENSEG_ASCII, FOURTEENSEG_FONT, FOURTEENSEG_SEGS, PART_MAP, SymbolPrim, formatValue, partPins, partSymbol, splitterWidth } from "@/lib/library/catalog";
 import { resolveSymbolStyle } from "@/lib/settings";
 import { Instance, MeasurementProbe, instanceBounds, pinPosition } from "@/lib/schematic/model";
 import { engine, inferWireAngleAt, useEditor } from "@/state/editor";
@@ -548,6 +548,56 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
       ctx.fillRect(sp.x - sp.w/2, sp.y - sp.h/2, sp.w, sp.h);
       ctx.shadowBlur = 0;
     });
+    ctx.restore();
+  }
+  // S5.13: 14-Segment-Anzeige – gleiche Steuerquelle wie sevenseg (Hex 0–F),
+  // Bit 4 = Dezimalpunkt. Linien-Renderer (Diagonalen!), Farben wie sevenseg.
+  if (part.interactive==="fourteenseg") {
+    let val = 0;
+    try {
+      const ctrl = engine.controls[inst.label];
+      if (ctrl !== undefined) val = Math.floor(ctrl);
+      else if (live) {
+        const dig = (engine as any).digitalStates?.[inst.label] ?? (engine as any).digitalStates?.[inst.id];
+        if (dig !== undefined) val = Math.floor(dig);
+        else {
+          const netVals = Object.values(live.nets);
+          if (netVals.length) {
+            const maxV = Math.max(...netVals.filter(v=> typeof v === "number") as number[]);
+            if (maxV > 0.5) val = Math.floor(maxV);
+            else val = Math.floor((live.time / 1.2) % 10);
+          } else {
+            val = Math.floor((live.time / 1.2) % 10);
+          }
+        }
+      }
+    } catch {}
+    const code = ((Math.floor(val) % 256) + 256) % 256;
+    let glyph: number[];
+    let dp: boolean;
+    if (code < 32) {
+      glyph = FOURTEENSEG_FONT[code % 16];
+      dp = code >= 16;
+    } else {
+      const c = code >= 128 ? code - 128 : code;
+      const up = c >= 97 && c <= 122 ? c - 32 : c;
+      glyph = FOURTEENSEG_ASCII[up] ?? FOURTEENSEG_ASCII[32];
+      dp = code >= 128;
+    }
+    ctx.save();
+    ctx.lineCap = "round";
+    FOURTEENSEG_SEGS.forEach(([x1, y1, x2, y2], i) => {
+      const on = glyph[i] === 1;
+      ctx.strokeStyle = on ? "#ff4d4f" : "rgba(255,255,255,0.08)";
+      ctx.lineWidth = on ? 3 : 2;
+      if (on) { ctx.shadowColor = "#ff4d4f"; ctx.shadowBlur = 6; }
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      ctx.shadowBlur = 0;
+    });
+    ctx.fillStyle = dp ? "#ff4d4f" : "rgba(255,255,255,0.08)";
+    if (dp) { ctx.shadowColor = "#ff4d4f"; ctx.shadowBlur = 6; }
+    ctx.beginPath(); ctx.arc(20, 28, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
   // Motor – spins when current flows

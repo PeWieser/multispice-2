@@ -11,6 +11,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { emptyDoc } from "../src/lib/schematic/model";
+import { runOperatingPoint } from "../src/lib/sim/analyses";
+import { FOURTEENSEG_ASCII, FOURTEENSEG_FONT, PARTS, PART_MAP } from "../src/lib/library/catalog";
+import { WAV_MAX_SAMPLES, WAV_MIN_RATE, WAV_PEAK, curveToWav, encodeWavMono, medianDt, nativeRate, normalizePeak, toUniformGrid } from "../src/lib/wav";
 import {
   loadProjectLocal,
   normalizeProjectDoc,
@@ -266,7 +269,157 @@ async function main() {
     ok("S5.12b Kontraste dunkel");
   }
 
-  console.log("sprint5resttest: 11 checks OK");
+  // ---------- S5.13a: WAV-Codec (Header, Skalierung, Clipping) ----------
+  {
+    const bytes = encodeWavMono([0, 1, -1, 2, -2], 48000);
+    assert.equal(bytes.length, 44 + 5 * 2, "Header + Daten");
+    const ascii = (off: number, len: number) => String.fromCharCode(...bytes.slice(off, off + len));
+    assert.equal(ascii(0, 4), "RIFF");
+    assert.equal(ascii(8, 4), "WAVE");
+    assert.equal(ascii(12, 4), "fmt ");
+    assert.equal(ascii(36, 4), "data");
+    const v = new DataView(bytes.buffer);
+    assert.equal(v.getUint32(24, true), 48000, "Samplerate");
+    assert.equal(v.getUint16(34, true), 16, "16-bit");
+    assert.equal(v.getInt16(44, true), 0);
+    assert.equal(v.getInt16(46, true), 32767);
+    assert.equal(v.getInt16(48, true), -32767);
+    assert.equal(v.getInt16(50, true), 32767, "Clip +");
+    assert.equal(v.getInt16(52, true), -32767, "Clip −");
+    ok("S5.13a WAV-Codec");
+  }
+
+  // ---------- S5.13b: Rate + Gitter + Normierung ----------
+  {
+    const t48: number[] = [];
+    for (let i = 0; i < 100; i++) t48.push(i / 48000);
+    assert.equal(nativeRate(t48), 48000, "48 kHz nativ");
+    assert.equal(nativeRate([0, 0.01, 0.02]), WAV_MIN_RATE, "10-ms-Achse → Minimum");
+    assert.equal(nativeRate([0, 1e-6, 2e-6]), 192000, "MHz-Achse → Maximum");
+    assert.equal(nativeRate([5]), 0, "Einzelpunkt → 0");
+    assert.equal(medianDt([0, 0.002, 0.004]), 0.002);
+    const grid = toUniformGrid([0, 0.002], [10, 20], 1000)!;
+    assert.equal(grid.length, 3, "0/1/2 ms");
+    assert.ok(Math.abs(grid[1] - 15) < 1e-9, "linear interpoliert");
+    assert.equal(toUniformGrid([0, 1], [1], 1000), null, "Längen-Mismatch");
+    assert.equal(toUniformGrid([0, 1000], [0, 0], 48000), null, "Längenbremse");
+    assert.deepEqual(normalizePeak([0, 0]), [0, 0], "Stille bleibt");
+    const norm = normalizePeak([-2, 1]);
+    assert.ok(Math.abs(Math.max(...norm.map(Math.abs)) - WAV_PEAK) < 1e-9, "Spitze auf −1 dBFS");
+    assert.ok(WAV_MAX_SAMPLES >= 1_000_000, "Bremse dokumentiert");
+    ok("S5.13b Rate/Gitter/Norm");
+  }
+
+  // ---------- S5.13c: Pipeline Zeitachse → Bytes ----------
+  {
+    const t: number[] = [];
+    const y: number[] = [];
+    for (let i = 0; i <= 48; i++) {
+      t.push(i / 48000);
+      y.push(Math.sin((2 * Math.PI * 1000 * i) / 48000));
+    }
+    const wav = curveToWav(t, y)!;
+    assert.equal(wav.rate, 48000);
+    assert.equal(wav.bytes.length, 44 + 49 * 2);
+    const v = new DataView(wav.bytes.buffer);
+    assert.ok(Math.abs(v.getInt16(44, true)) < 2000, "Sinus startet bei ~0");
+    assert.equal(curveToWav([0], [1]), null, "unbrauchbar → null");
+    ok("S5.13c WAV-Pipeline");
+  }
+
+  // ---------- S5.13d: Symbol-Stilführer-Lint (Raster, Typo, Strich) ----------
+  {
+    const sizes = new Set([7, 8, 9, 10, 11, 12, 13]);
+    let pins = 0;
+    const bad: string[] = [];
+    for (const p of PARTS) {
+      for (const pin of p.pins ?? []) {
+        pins++;
+        if (pin.x % 10 !== 0 || pin.y % 10 !== 0) bad.push(`${p.id}: Pin ${pin.name} abseits Raster`);
+      }
+      for (const prim of p.symbol ?? []) {
+        if (prim.t === "text" && !sizes.has(prim.size ?? 9)) {
+          bad.push(`${p.id}: Textgröße ${prim.size} außerhalb 7–13`);
+        }
+        if (prim.t === "line" && prim.w !== undefined) {
+          bad.push(`${p.id}: Linienbreite wird ignoriert (w setzen verboten)`);
+        }
+      }
+    }
+    assert.ok(pins > 2000, `Katalog gelesen (${pins} Pins)`);
+    assert.deepEqual(bad.slice(0, 8), [], `Stil-Verstöße: ${bad.slice(0, 8).join("; ")}`);
+    ok("S5.13d Symbol-Lint");
+  }
+
+  // ---------- S5.13e: 14-Segment (Font + LED-Verdrahtung) ----------
+  {
+    assert.equal(FOURTEENSEG_FONT.length, 16, "16 Hex-Glyphen");
+    for (const g of FOURTEENSEG_FONT) {
+      assert.equal(g.length, 14, "14 Segmente");
+      assert.ok(g.every((b) => b === 0 || b === 1), "nur Bits");
+    }
+    const codes = [32, 45, ...Array.from({ length: 10 }, (_, i) => 48 + i), ...Array.from({ length: 26 }, (_, i) => 65 + i)];
+    for (const c of codes) {
+      const g = FOURTEENSEG_ASCII[c];
+      assert.ok(g && g.length === 14 && g.every((b) => b === 0 || b === 1), `ASCII ${c} vollständig`);
+    }
+    assert.deepEqual(FOURTEENSEG_ASCII[32], new Array(14).fill(0), "Leerzeichen dunkel");
+    // Jede Segment-Position leuchtet in mind. einer Glyphe (kein totes Bit).
+    const all = [...FOURTEENSEG_FONT, ...Object.values(FOURTEENSEG_ASCII)];
+    for (let i = 0; i < 14; i++) {
+      assert.ok(all.some((g) => g[i] === 1), `Segment ${i} lebt`);
+    }
+    const part = PART_MAP["fourteenseg"];
+    assert.ok(part, "Bauteil registriert");
+    assert.equal(part.pins.length, 16, "14 + DP + COM");
+    const nets = Array.from({ length: 16 }, (_, i) => `N${i}`);
+    const mk = (common: string) => ({ id: "DS1", partId: "fourteenseg", params: { common, vf: 2 } });
+    const cath = part.toDevices(mk("cathode") as never, nets);
+    assert.equal(cath.length, 15, "15 LEDs");
+    assert.ok(cath.every((d) => d.type === "LED"), "alle LED");
+    assert.deepEqual(cath[0].nodes, ["N0", "N15"], "Kathode: Segment→COM");
+    const an = part.toDevices(mk("anode") as never, nets);
+    assert.deepEqual(an[0].nodes, ["N15", "N0"], "Anode: COM→Segment");
+    assert.deepEqual(an[14].nodes, ["N15", "N14"], "DP (Index 14) verdrahtet");
+    ok("S5.13e 14-Segment");
+  }
+
+  // ---------- S5.13f: NTC (Beta-Gleichung, handgerechnet) ----------
+  {
+    const div = (temp: number) => runOperatingPoint({
+      devices: [
+        { id: "V1", type: "V", nodes: ["TOP", "0"], params: { dc: 5 }, source: { kind: "dc", dc: 5 } },
+        { id: "R1", type: "R", nodes: ["TOP", "M"], params: { r: 10000 } },
+        { id: "NTC1", type: "NTC", nodes: ["M", "0"], params: { r25: 10000, b: 3950, tnom: 25 } },
+      ],
+    }, { temperature: temp }).nodes["M"];
+    const v25 = div(25);
+    assert.ok(Math.abs(v25 - 2.5) < 0.001, `25 °C ≈ 2.5 V (ist ${v25})`);
+    // Handrechnung: R(85 °C) = 10k·exp(3950·(1/358.15−1/298.15)) ≈ 1088 Ω → M ≈ 0.4905 V.
+    const v85 = div(85);
+    assert.ok(Math.abs(v85 - 0.4905) < 0.01, `85 °C ≈ 0.49 V (ist ${v85})`);
+    ok("S5.13f NTC");
+  }
+
+  // ---------- S5.13g: LDR (Potenzgesetz, Klemmen) ----------
+  {
+    const ldr = PART_MAP["ldr"];
+    assert.ok(ldr, "Bauteil registriert");
+    const r = (lux: number) => {
+      const d = ldr.toDevices({ id: "LDR1", partId: "ldr", params: { r10: 10000, gamma: 0.7, lux } } as never, ["A", "B"]);
+      assert.equal(d.length, 1, "ein Device");
+      assert.equal(d[0].type, "R", "linearer Widerstand");
+      return d[0].params.r;
+    };
+    // Handrechnung: 10k·(10/100)^0.7 ≈ 1995 Ω.
+    assert.ok(Math.abs(r(100) - 1995) < 20, `100 lx ≈ 1995 Ω (ist ${r(100)})`);
+    assert.ok(Math.abs(r(10) - 10000) < 1, "10 lx = R10");
+    assert.ok(r(0) <= 1e8, "Dunkelheit geklemmt (≤ 100 MΩ)");
+    assert.ok(r(1e6) >= 1, "Flutlicht geklemmt (≥ 1 Ω)");
+    ok("S5.13g LDR");
+  }
+
+  console.log("sprint5resttest: 18 checks OK");
 }
 
 main().catch((e) => {

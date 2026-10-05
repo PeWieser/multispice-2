@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Crosshair, Download, ImageDown, XCircle } from "lucide-react";
+import { AlertTriangle, AudioLines, Crosshair, Download, ImageDown, XCircle } from "lucide-react";
 import { formatValue } from "@/lib/format";
 import { curveStats, fMinus3dB, type CurveStats } from "@/lib/measure";
 import { combineSeries, envelopeWindow, movingEnvelope, postFFT } from "@/lib/postprocess";
 import { ANALYSIS_MAP } from "@/lib/sim/analysis_defs";
 import { useEditor } from "@/state/editor";
 import { downloadBlob, downloadText, safeName } from "@/lib/download";
+import { WAV_MAX_SAMPLES, curveToWav, nativeRate } from "@/lib/wav";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 const cssVar = (n: string, f: string) => {
@@ -634,6 +635,59 @@ function PostPanel({ time, signals, names }: { time: number[]; signals: Record<s
 /* Grapher: Ergebnisse der letzten Analyse                              */
 /* ------------------------------------------------------------------ */
 
+/** S5.13: Kurven-Auswahl + WAV-Export (16-bit PCM mono, spitzennormiert). */
+function WavExport({
+  base,
+  time,
+  signals,
+  names,
+}: {
+  base: string;
+  time: number[];
+  signals: Record<string, number[]>;
+  names: string[];
+}) {
+  const [sel, setSel] = useState(names[0] ?? "");
+  const name = names.includes(sel) ? sel : (names[0] ?? "");
+  if (!names.length) return null;
+  const rate = nativeRate(time);
+  return (
+    <span className="flex items-center gap-1">
+      <select
+        className="input h-6 max-w-[130px] truncate px-1 text-2xs"
+        value={name}
+        onChange={(e) => setSel(e.target.value)}
+        title="Kurve für den WAV-Export"
+        aria-label="Kurve für den WAV-Export"
+      >
+        {names.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      </select>
+      <button
+        className="btn py-1 text-2xs"
+        onClick={() => {
+          const wav = curveToWav(time, signals[name] ?? []);
+          if (!wav) {
+            useEditor.getState().setToast({
+              message: `WAV nicht möglich (Zeitachse unbrauchbar oder > ${WAV_MAX_SAMPLES.toLocaleString("de-DE")} Samples).`,
+            });
+            return;
+          }
+          const blob = new Blob([wav.bytes.buffer as ArrayBuffer], { type: "audio/wav" });
+          downloadBlob(`${base}_tran_${safeName(name)}_${wav.rate}Hz.wav`, blob);
+        }}
+        title={`„${name}" als WAV exportieren (16-bit PCM mono, ${rate ? `${rate} Hz nativ` : "—"}, spitzennormiert auf −1 dBFS)`}
+        aria-label={`„${name}" als WAV exportieren`}
+      >
+        <AudioLines size={13} /> WAV
+      </button>
+    </span>
+  );
+}
+
 export default function Grapher() {
   const analysis = useEditor((s) => s.analysis);
   const docName = useEditor((s) => s.doc.name);
@@ -737,7 +791,7 @@ export default function Grapher() {
     }, "image/png");
   };
 
-  const head = (extra: string, csv?: () => void, png = true) => (
+  const head = (extra: string, csv?: () => void, png = true, audio?: React.ReactNode) => (
     <div className="flex shrink-0 items-center gap-2 px-3 pb-1.5 pt-2">
       <span className="text-xs font-medium">{def?.title ?? analysis.kind}</span>
       <span className="mono text-2xs text-ink-3">
@@ -754,6 +808,7 @@ export default function Grapher() {
           <Download size={13} /> CSV
         </button>
       )}
+      {audio}
     </div>
   );
 
@@ -763,8 +818,12 @@ export default function Grapher() {
     const names = Object.keys(signals);
     return (
       <div className="flex h-full flex-col">
-        {head(`${time.length} Punkte · ${names.length} Kurven`, () =>
-          downloadText(`${base}_tran.csv`, toCsv(["t_s", ...names], [time, ...names.map((n) => signals[n])]), "text/csv"),
+        {head(
+          `${time.length} Punkte · ${names.length} Kurven`,
+          () =>
+            downloadText(`${base}_tran.csv`, toCsv(["t_s", ...names], [time, ...names.map((n) => signals[n])]), "text/csv"),
+          true,
+          <WavExport base={base} time={time} signals={signals} names={names} />,
         )}
         <div className="px-3"><Legend names={names} /></div>
         <div className="grid min-h-0 flex-1 grid-cols-[1fr_210px] gap-2 px-2 pb-2">
