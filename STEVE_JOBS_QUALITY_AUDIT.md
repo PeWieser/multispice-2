@@ -3452,3 +3452,9 @@ perfekt — aber Gerätefenster blinzelten nach dem Loslassen kurz aus/ein.
 Ursache: Lösen von `data-windrag` startete die `win-in`-Eintritts-Animation
 (Opacity) neu. Fix: `win-in`-Klasse wird beim Loslassen synchron abgestreift
 (Eintritt längst abgespielt) — Schutz + Commit-Logik unverändert.
+
+Nachtrag 2 (2026-10-05): FG-Display blitzte beim Verschieben (`lcd-fade` auf
+der LCD-Root wurde durch `animation: none` im Drag-Schutz beim Lösen neu
+gestartet — derselbe Mechanismus wie das win-in-Blinzeln). Fix: Guard deckt
+nur noch Transitionen ab; Inventur zeigt keine Transform-Animation in Fenstern
+(rise/commit-ment-Nutzung nur außerhalb), Neutstart-Klasse damit erledigt.

@@ -395,13 +395,15 @@ input[type="range"]::-moz-range-thumb {
 .win-in { animation: win-in 150ms var(--ease) both; }
 
 /* Fenster-Drag (Instrumente + Bibliothek): Während des Zugs und bis einen
-   Frame nach dem Commit sind Transition/Animation am Fenster abgeschaltet.
-   Keine Bewegung am Fenster kann dann den Zug-Transform aushebeln oder nach
-   dem Loslassen einen Zwischenframe („Geisterbild") erzeugen. */
+   Frame nach dem Commit sind Transitionen am Fenster abgeschaltet (keine
+   Bewegung kann den Zug-Transform aushebeln oder einen Zwischenframe
+   erzeugen). Animationen werden bewusst NICHT abgeschaltet: Alle Animationen
+   in Fenstern sind Opacity/Weite (win-in, lcd-*, fade-in) und können das
+   Fenster nicht verschieben — Abschalten würde Einmal-Animationen beim
+   Lösen neu starten (win-in-Blinzeln, lcd-fade-Blitz, je beobachtet). */
 [data-windrag],
 [data-windrag] * {
   transition: none !important;
-  animation: none !important;
 }
 
 @keyframes fade-in {
