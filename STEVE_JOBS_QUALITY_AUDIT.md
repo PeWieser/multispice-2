@@ -3769,3 +3769,21 @@ Einheit), Einheit dezent ohne Chip.
 Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (wiretest +5 Label-Checks,
 `notetest.ts` neu: 28 Prüfungen — Markup, Roundtrips, Editor-HTML, Karten-
 Caps, Verdrahtungs-Wächter).
+
+## §62 · S5.23 Ergebnis (Notizzettel 2.0, Nutzerbefunde 2026-10-05)
+
+Nutzer: „kein …, lieber scrollen, Zettel immer gleich groß, 3 Schriftgrößen,
+Zetteloptik verbessern“. Umsetzung: Einheitskarte 232×150 für jede Notiz
+(`getNoteBounds` konstant — Treffer, Auswahl und Editor folgen automatisch);
+Überlauf scrollt innen (Rad über dem Zettel fängt die Geste vor dem Zoom ab,
+Scrollstände in Refs — der Canvas zeichnet ohnehin jeden Frame neu;
+schlanke Leiste, dezent, betont bei Auswahl/Schweben). Schriftstufen 9/11/14
+(`NOTE_FONT_STEPS`, Legacy-Größen runden auf die nächste Stufe, M = alter
+Standard 11), Wahl als S/M/L-Segment in der Editor-Leiste, Größe committed
+mit dem Text in einem Undo-Schritt. Optik: Papier-Verlauf, Lichtkante oben,
+umgeknickte Ecke unten rechts, weicher Schatten — bewusst Fix-Gelb in beiden
+Themes (angelehnt ans S5.12-Prinzip: Objektfarbe wie LED-Emission), darum als
+dritte Ausnahme im S5.15a-Hex-Lint dokumentiert (`addColorStop`/`ink`-Kontext).
+Editor-Overlay spiegelt Karte, Größe und Ecke (WYSIWYG), scrollt nativ.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (notetest: 41 Prüfungen —
+Einheitskarte, Stufen-Rundung, Scroll-Klemmung, Rad-/…-/SML-Wächter).

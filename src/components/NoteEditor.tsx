@@ -3,31 +3,36 @@
 import { useEffect, useRef, useState } from "react";
 import { Bold, Italic, Underline } from "lucide-react";
 import type { TextNote } from "@/lib/schematic/model";
-import { htmlToMarkup, markupToHtml } from "@/lib/notes/markup";
+import { NOTE_FONT_STEPS, htmlToMarkup, markupToHtml, nearestFontStep } from "@/lib/notes/markup";
 
 /**
  * S5.22: Notiz-Direkteditor — man schreibt auf dem Zettel selbst (kein
- * separates Eingabefeld). Die B/I/U-Leiste existiert nur während des
- * Editierens. Esc oder Cmd/Ctrl+Enter oder Klick daneben übernimmt.
+ * separates Eingabefeld). S5.23: Zetteloptik wie auf dem Canvas (Einheitskarte,
+ * innen scrollbar) + Schriftgröße in drei Stufen. Esc oder Cmd/Ctrl+Enter
+ * oder Klick daneben übernimmt.
  */
 export default function NoteEditor({
   note,
   rect,
-  fontPx,
+  fontStep,
+  zoom,
   isNew,
   onCommit,
 }: {
   note: TextNote;
-  /** Kartenrechteck in Bildschirm-Pixeln. */
+  /** Kartenrechteck in Bildschirm-Pixeln (Einheitskarte, fest). */
   rect: { x: number; y: number; w: number; h: number };
-  fontPx: number;
+  /** Schriftstufe in Welt-px (9/11/14). */
+  fontStep: number;
+  zoom: number;
   /** Neu angelegt: leerer Abbruch löscht die Notiz wieder. */
   isNew: boolean;
-  onCommit: (markup: string | null, isNew: boolean) => void;
+  onCommit: (markup: string | null, isNew: boolean, size: number) => void;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const done = useRef(false);
   const [fmt, setFmt] = useState({ b: false, i: false, u: false });
+  const [size, setSize] = useState(() => nearestFontStep(fontStep));
 
   useEffect(() => {
     const el = cardRef.current;
@@ -46,7 +51,7 @@ export default function NoteEditor({
   const commit = () => {
     if (done.current) return;
     done.current = true;
-    onCommit(htmlToMarkup(cardRef.current?.innerHTML ?? ""), isNew);
+    onCommit(htmlToMarkup(cardRef.current?.innerHTML ?? ""), isNew, size);
   };
 
   const refreshFmt = () => {
@@ -70,6 +75,8 @@ export default function NoteEditor({
     `grid h-7 w-7 place-items-center rounded-md transition-colors ${
       active ? "bg-accent-soft text-accent" : "text-ink-2 hover:bg-surface-3 hover:text-ink"
     }`;
+  const stepLabel = (s: number) => (s <= 9 ? "klein" : s >= 14 ? "groß" : "mittel");
+  const ear = Math.max(8, 13 * zoom);
 
   return (
     <div className="absolute z-floating" style={{ left: rect.x, top: rect.y }} onPointerDown={(e) => e.stopPropagation()}>
@@ -78,7 +85,7 @@ export default function NoteEditor({
         style={{ position: "absolute", left: 0, top: above ? -36 : rect.h + 6 }}
         onMouseDown={(e) => e.preventDefault()}
         role="toolbar"
-        aria-label="Textstil"
+        aria-label="Textstil und Schriftgröße"
       >
         <button type="button" className={btn(fmt.b)} aria-label="Fett" title="Fett" onClick={() => run("bold")}>
           <Bold size={14} />
@@ -89,45 +96,77 @@ export default function NoteEditor({
         <button type="button" className={btn(fmt.u)} aria-label="Unterstrichen" title="Unterstrichen" onClick={() => run("underline")}>
           <Underline size={14} />
         </button>
+        <div className="mx-1 h-4 w-px bg-hairline-strong" aria-hidden />
+        {NOTE_FONT_STEPS.map((s) => (
+          <button
+            key={s}
+            type="button"
+            className={btn(size === s)}
+            aria-label={`Schrift ${stepLabel(s)}`}
+            aria-pressed={size === s}
+            title={`Schrift ${stepLabel(s)}`}
+            onClick={() => {
+              setSize(s);
+              cardRef.current?.focus();
+            }}
+          >
+            <span style={{ fontSize: 9 + (s - 9) * 0.9, fontWeight: 700, lineHeight: 1 }}>A</span>
+          </button>
+        ))}
       </div>
-      <div
-        ref={cardRef}
-        contentEditable
-        role="textbox"
-        aria-label="Notiz bearbeiten"
-        spellCheck={false}
-        className="overflow-auto rounded-md border-[1.5px] border-selection bg-surface text-ink shadow-3 outline-none"
-        style={{
-          width: Math.max(rect.w, 120),
-          height: Math.max(rect.h, 64),
-          maxHeight: 240,
-          fontSize: fontPx,
-          lineHeight: 1.45,
-          padding: "8px 10px 8px 14px",
-        }}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Escape") {
-            e.preventDefault();
+      <div className="relative" style={{ width: rect.w, height: rect.h }}>
+        <div
+          ref={cardRef}
+          contentEditable
+          role="textbox"
+          aria-label="Notiz bearbeiten"
+          spellCheck={false}
+          className="h-full w-full overflow-y-auto outline-none"
+          style={{
+            background: "linear-gradient(180deg, #FFFADE 0%, #FFF6C4 55%, #FFEFA8 100%)",
+            border: `${Math.max(1, 1.5 * zoom)}px solid #2E7CD6`,
+            borderRadius: 3,
+            boxShadow: "0 6px 20px rgba(60, 40, 0, 0.30)",
+            color: "#3B2F04",
+            fontSize: size * zoom,
+            lineHeight: 1.45,
+            padding: `${9 * zoom}px ${10 * zoom}px`,
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Escape") {
+              e.preventDefault();
+              commit();
+            } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          onKeyUp={refreshFmt}
+          onMouseUp={refreshFmt}
+          onBlur={(e) => {
+            if (e.relatedTarget && e.currentTarget.parentElement?.parentElement?.contains(e.relatedTarget as Node)) return;
             commit();
-          } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          }}
+          onPaste={(e) => {
+            // Nur Text übernehmen (kein Word-HTML in den Zettel).
             e.preventDefault();
-            commit();
-          }
-        }}
-        onKeyUp={refreshFmt}
-        onMouseUp={refreshFmt}
-        onBlur={(e) => {
-          if (e.relatedTarget && e.currentTarget.parentElement?.contains(e.relatedTarget as Node)) return;
-          commit();
-        }}
-        onPaste={(e) => {
-          // Nur Text übernehmen (kein Word-HTML in den Zettel).
-          e.preventDefault();
-          const text = e.clipboardData?.getData("text/plain") ?? "";
-          document.execCommand("insertText", false, text);
-        }}
-      />
+            const text = e.clipboardData?.getData("text/plain") ?? "";
+            document.execCommand("insertText", false, text);
+          }}
+        />
+        {/* Umgeknickte Ecke (wie auf dem Canvas-Zettel). */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute right-0 bottom-0"
+          style={{
+            width: ear,
+            height: ear,
+            background: "linear-gradient(135deg, rgba(0,0,0,0) 50%, rgba(120,90,10,0.28) 50%)",
+            borderBottomRightRadius: 3,
+          }}
+        />
+      </div>
     </div>
   );
 }

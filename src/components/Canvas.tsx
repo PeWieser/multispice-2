@@ -22,7 +22,7 @@ import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "@/lib/keyboard";
 import { summarizeCircuit } from "@/lib/a11y";
 import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
 import { findInstanceByValueLabel, findPinInfo, getNetObstacles, getNetPinPoints, getNoteBounds, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
-import { NOTE_MAX_H, NOTE_MAX_W, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
+import { NOTE_FONT_DEFAULT, NOTE_H, NOTE_W, clampNoteScroll, nearestFontStep, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
 import { drawInstance, drawProbe } from "./Canvas/render";
 import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
 import { FlipHorizontal2, RotateCcw, RotateCw, X } from "lucide-react";
@@ -78,6 +78,9 @@ export default function Canvas() {
   const [editing, setEditing] = useState<InlineEdit | null>(null);
   // S5.22: Notiz-Direkteditor (Overlay auf der Karte, null = geschlossen).
   const [editingNote, setEditingNote] = useState<{ id: string; isNew: boolean } | null>(null);
+  // S5.23: Scrollstände der Zettel (der Canvas zeichnet jeden Frame neu — kein State nötig).
+  const noteScrollRef = useRef<Map<string, number>>(new Map());
+  const noteMaxScrollRef = useRef<Map<string, number>>(new Map());
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; wx: number; wy: number; target: CtxTarget } | null>(null);
   const [isTouchActive, setIsTouchActive] = useState(false);
   const lastTouchTimeRef = useRef<number>(0);
@@ -1015,19 +1018,39 @@ export default function Canvas() {
       ctx.beginPath(); ctx.arc(label.x, label.y, 2.5, 0, Math.PI * 2); ctx.fill();
     }
 
-    // W117: Edle Laborbuch-Notizkarten (Callout-Cards mit warmem Bernstein-Akzentstreifen)
-    // S5.22: Klebezettel-Format (maximal 232×150), Wortumbruch, Markup-Läufe.
+    // S5.23: Echte Klebezettel — Einheitskarte, Text scrollt innen, drei Schriften.
     ctx.textAlign = "left";
     const runFont = (r: NoteRun, sz: number) => `${r.i ? "italic " : ""}${r.b ? "700" : "500"} ${sz}px ui-sans-serif, system-ui`;
+    // Scrollstände gelöschter Zettel aufräumen.
+    for (const id of [...noteScrollRef.current.keys()]) {
+      if (!doc.notes.some((n) => n.id === id)) {
+        noteScrollRef.current.delete(id);
+        noteMaxScrollRef.current.delete(id);
+      }
+    }
+    // Schwebt der Zeiger über einem Zettel? (betont dessen Scroll-Leiste)
+    let hoverNoteId: string | null = null;
+    for (let i = doc.notes.length - 1; i >= 0; i--) {
+      const b = getNoteBounds(doc.notes[i]);
+      if (cursor.x >= b.x && cursor.x <= b.x + b.w && cursor.y >= b.y && cursor.y <= b.y + b.h) {
+        hoverNoteId = doc.notes[i].id;
+        break;
+      }
+    }
     for (const note of doc.notes) {
       if (editingNote?.id === note.id) continue; // Direkteditor-Overlay zeigt sie
-      const sz = note.size ?? 11;
+      const sz = nearestFontStep(note.size ?? NOTE_FONT_DEFAULT);
       const isSel = selection.includes(note.id);
       const raw = note.text && note.text.trim() ? note.text : "";
+      const dimmed = !raw;
       const lineH = sz + 5;
       const padX = 10;
-      const headH = 18;
-      // Umbruch: Wörter mit Stil greifen auf die Maximalbreite.
+      const topPad = 9;
+      const cardX = note.x;
+      const cardY = note.y - 18;
+      const cardW = NOTE_W;
+      const cardH = NOTE_H;
+      // Umbruch: Wörter mit Stil auf die Kartenbreite.
       const wrapped: NoteRun[][] = [];
       for (const runs of parseNoteRuns(raw)) {
         let cur: NoteRun[] = [];
@@ -1037,7 +1060,7 @@ export default function Canvas() {
           const ww = ctx.measureText(word.t).width;
           ctx.font = runFont({ t: " ", b: false, i: false, u: false }, sz);
           const sp = cur.length ? ctx.measureText(" ").width : 0;
-          if (cur.length && curW + sp + ww > NOTE_MAX_W - padX - 10) {
+          if (cur.length && curW + sp + ww > NOTE_W - padX * 2) {
             wrapped.push(cur);
             cur = [];
             curW = 0;
@@ -1063,67 +1086,69 @@ export default function Canvas() {
         wrapped.push(cur);
       }
       if (!wrapped.length) wrapped.push([]);
-      const maxLines = Math.max(1, Math.floor((NOTE_MAX_H - headH - 8) / lineH));
-      const overflow = wrapped.length > maxLines;
-      const shown = wrapped.slice(0, maxLines);
-      let maxTw = 48;
-      for (const ln of shown) {
-        let wLn = 0;
-        for (const r of ln) {
-          ctx.font = runFont(r, sz);
-          wLn += ctx.measureText(r.t).width;
-        }
-        if (wLn > maxTw) maxTw = wLn;
-      }
-      const cardX = note.x;
-      const cardY = note.y - 18;
-      const cardW = Math.min(NOTE_MAX_W, Math.max(96, Math.ceil(maxTw + padX + 10)));
-      const cardH = Math.min(NOTE_MAX_H, headH + shown.length * lineH + 8);
+      const viewH = cardH - topPad - 7;
+      const contentH = dimmed ? lineH : wrapped.length * lineH;
+      const maxScroll = Math.max(0, contentH - viewH);
+      noteMaxScrollRef.current.set(note.id, maxScroll);
+      const scrollY = clampNoteScroll(noteScrollRef.current.get(note.id) ?? 0, contentH, viewH);
+      noteScrollRef.current.set(note.id, scrollY);
 
       ctx.save();
-      // Sanfter Kartenschatten
-      ctx.fillStyle = "rgba(0, 0, 0, 0.24)";
-      roundRect(ctx, cardX + 1.5, cardY + 2, cardW, cardH, 6);
+      // Papier: warmer Verlauf + weicher Schatten (ein Zettel bleibt gelb,
+      // auch im dunklen Theme — wie angeklebt über dem Schaltplan).
+      ctx.shadowColor = "rgba(60, 40, 0, 0.28)";
+      ctx.shadowBlur = 7 / Math.max(view.zoom, 0.4);
+      ctx.shadowOffsetY = 2 / Math.max(view.zoom, 0.4);
+      const paper = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
+      paper.addColorStop(0, "#FFFADE");
+      paper.addColorStop(0.55, "#FFF6C4");
+      paper.addColorStop(1, "#FFEFA8");
+      ctx.fillStyle = paper;
+      roundRect(ctx, cardX, cardY, cardW, cardH, 3);
       ctx.fill();
-
-      // Kartenkörper
-      ctx.fillStyle = canvasColor("--surface");
-      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
-      ctx.fill();
-
-      // Linker Akzentstreifen (3.5 px)
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      // Lichtkante oben, warme Kontur (blau bei Auswahl).
+      ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+      ctx.fillRect(cardX + 3, cardY + 0.75, cardW - 6, 1);
+      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : "rgba(133, 100, 4, 0.42)";
+      ctx.lineWidth = (isSel ? 1.8 : 1) / Math.max(view.zoom, 0.35);
+      roundRect(ctx, cardX, cardY, cardW, cardH, 3);
+      ctx.stroke();
+      // Umgeknickte Ecke unten rechts.
+      const ear = 13;
       ctx.save();
       ctx.beginPath();
-      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      roundRect(ctx, cardX, cardY, cardW, cardH, 3);
       ctx.clip();
-      ctx.fillStyle = canvasColor("--wire-sel");
-      ctx.fillRect(cardX, cardY, 3.5, cardH);
+      ctx.fillStyle = "rgba(120, 90, 10, 0.20)";
+      ctx.beginPath();
+      ctx.moveTo(cardX + cardW - ear, cardY + cardH);
+      ctx.lineTo(cardX + cardW, cardY + cardH - ear);
+      ctx.lineTo(cardX + cardW, cardY + cardH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(133, 100, 4, 0.55)";
+      ctx.lineWidth = 1 / Math.max(view.zoom, 0.35);
+      ctx.beginPath();
+      ctx.moveTo(cardX + cardW - ear, cardY + cardH);
+      ctx.lineTo(cardX + cardW, cardY + cardH - ear);
+      ctx.stroke();
       ctx.restore();
 
-      // Rahmen (hervorgehoben bei Auswahl)
-      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
-      ctx.lineWidth = (isSel ? 1.8 : 1.1) / Math.max(view.zoom, 0.35);
-      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
-      ctx.stroke();
-
-      // Kopfzeile "NOTIZ"
-      ctx.font = "700 8px ui-monospace, monospace";
-      ctx.fillStyle = canvasColor("--wire-sel");
-      ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
-
-      // Notiztext als Stil-Läufe (+ „…" bei Kappung)
+      // Text: geclippt + gescrollt (kein „…" mehr).
       ctx.save();
       ctx.beginPath();
-      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      roundRect(ctx, cardX, cardY, cardW, cardH, 3);
       ctx.clip();
-      const dimmed = !raw;
-      const ink = canvasColor(dimmed ? "--ink-3" : "--ink");
-      const drawLines = dimmed ? [[{ t: "Notiz", b: false, i: true, u: false }]] : shown;
+      const ink = dimmed ? "rgba(90, 70, 10, 0.55)" : "#3B2F04";
+      const drawLines = dimmed ? [[{ t: "Notiz", b: false, i: true, u: false }]] : wrapped;
       drawLines.forEach((ln, li) => {
-        const baseline = cardY + 16 + (li + 1) * lineH - 4;
+        const baseline = cardY + topPad + (li + 1) * lineH - 4 - scrollY;
+        if (baseline < cardY - lineH || baseline > cardY + cardH + lineH) return;
         let rx = cardX + padX;
-        const runs = overflow && li === drawLines.length - 1 && !dimmed ? [...ln, { t: "…", b: false, i: false, u: false }] : ln;
-        for (const r of runs) {
+        for (const r of ln) {
           ctx.font = runFont(r, sz);
           ctx.fillStyle = ink;
           ctx.fillText(r.t, rx, baseline);
@@ -1133,6 +1158,22 @@ export default function Canvas() {
         }
       });
       ctx.restore();
+
+      // Scroll-Leiste bei Überlauf (dezent, kräftiger bei Auswahl/Schweben).
+      if (maxScroll > 0 && !dimmed) {
+        const emph = isSel || hoverNoteId === note.id;
+        const trackX = cardX + cardW - 7;
+        const trackY = cardY + 6;
+        const trackH = cardH - 12;
+        const thumbH = Math.max(14, (viewH / contentH) * trackH);
+        const thumbY = trackY + (scrollY / maxScroll) * (trackH - thumbH);
+        ctx.fillStyle = emph ? "rgba(120, 90, 10, 0.30)" : "rgba(120, 90, 10, 0.16)";
+        roundRect(ctx, trackX, trackY, 4, trackH, 2);
+        ctx.fill();
+        ctx.fillStyle = emph ? "rgba(120, 90, 10, 0.75)" : "rgba(120, 90, 10, 0.45)";
+        roundRect(ctx, trackX, thumbY, 4, thumbH, 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 
@@ -1469,6 +1510,17 @@ export default function Canvas() {
     const st = useEditor.getState();
     const rect = canvasRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    // S5.23: Rad über einem überlaufenden Zettel scrollt ihn (statt zu zoomen).
+    if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const hit = hitTestNote(st.doc, { x: mx / st.view.zoom + st.view.x, y: my / st.view.zoom + st.view.y });
+      const max = hit ? (noteMaxScrollRef.current.get(hit.id) ?? 0) : 0;
+      if (hit && max > 0) {
+        const cur = noteScrollRef.current.get(hit.id) ?? 0;
+        const next = Math.min(max, Math.max(0, cur + e.deltaY));
+        if (next !== cur) noteScrollRef.current.set(hit.id, next);
+        return;
+      }
+    }
     if (e.shiftKey && !e.ctrlKey && !e.metaKey) {
       st.setView({ x: st.view.x + e.deltaY / st.view.zoom, y: st.view.y + e.deltaX / st.view.zoom });
       return;
@@ -1977,7 +2029,7 @@ export default function Canvas() {
   };
 
   // S5.22: Direkteditor-Übernahme — neue leere Notiz wird still verworfen.
-  const commitNote = (markup: string | null, wasNew: boolean) => {
+  const commitNote = (markup: string | null, wasNew: boolean, size?: number) => {
     const st = useEditor.getState();
     const id = editingNote?.id;
     setEditingNote(null);
@@ -1990,7 +2042,7 @@ export default function Canvas() {
       st.setSelection([]);
       return;
     }
-    st.updateNote(id, markup);
+    st.updateNote(id, markup, size);
     st.log("ok", wasNew ? "Notiz" : "Notiz aktualisiert");
   };
 
@@ -3021,7 +3073,8 @@ export default function Canvas() {
             key={note.id}
             note={note}
             rect={{ x: tl.x, y: tl.y, w: b.w * view.zoom, h: b.h * view.zoom }}
-            fontPx={Math.max(9, (note.size ?? 11) * view.zoom)}
+            fontStep={nearestFontStep(note.size ?? NOTE_FONT_DEFAULT)}
+            zoom={view.zoom}
             isNew={editingNote.isNew}
             onCommit={commitNote}
           />

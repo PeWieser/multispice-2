@@ -4,9 +4,28 @@
  * DOM-frei: Canvas, Editor und Tests nutzen dieselben Funktionen.
  */
 
-/** Notizzettel-Format (Welt-Einheiten, wie echte Klebezettel begrenzt). */
-export const NOTE_MAX_W = 232;
-export const NOTE_MAX_H = 150;
+/** S5.23: Jeder Zettel ist gleich groß (Welt-Einheiten) — innen wird gescrollt. */
+export const NOTE_W = 232;
+export const NOTE_H = 150;
+
+/** S5.23: Drei Schriftgrößen (S/M/L) in px; M ist der bisherige Standard. */
+export const NOTE_FONT_STEPS = [9, 11, 14] as const;
+export const NOTE_FONT_DEFAULT = 11;
+
+/** Fremde/legacy Größen auf die nächste Stufe runden. */
+export function nearestFontStep(px: number): number {
+  let best: number = NOTE_FONT_STEPS[0];
+  for (const s of NOTE_FONT_STEPS) {
+    if (Math.abs(s - px) < Math.abs(best - px)) best = s;
+  }
+  return best;
+}
+
+/** Scroll-Offset klemmen: 0 … (Inhalt − Sichtfenster), ohne Überlauf 0. */
+export function clampNoteScroll(offset: number, contentH: number, viewH: number): number {
+  const max = Math.max(0, contentH - viewH);
+  return Math.min(max, Math.max(0, offset));
+}
 
 export interface NoteRun {
   t: string;

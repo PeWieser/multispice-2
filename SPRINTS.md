@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.22 ✅ (2026-10-05).
+> Stand: S5.10–S5.23 ✅ (2026-10-05).
 > Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§60).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
@@ -149,6 +149,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.20 Oszi-Skalenprüfung: Trigger/t/V auf allen Stufen, Archiv-Historie gegen „halbes Signal“ (PASS)
 - [x] S5.21 Physikalisches Oszi-Rauschen: fest in Volt + ADC-Quantisierung (PASS)
 - [x] S5.22 Netzlabels + Notizzettel + Ein-Rahmen-Eingabe (Nutzerbefunde 2026-10-05, PASS)
+- [x] S5.23 Notizzettel 2.0: Einheitskarte, Scrollen, 3 Schriften (Nutzerbefunde 2026-10-05, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -260,6 +261,14 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   (c) Eingabefeld: ein Rahmen statt Panel+Chip+Box, Breite folgt dem
   Inhalt (8–26 ch + Einheit) — kein 5-cm-Feld für vier Ziffern.
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (wiretest +5, notetest neu: 28).
+- S5.23: Zettel 2.0 (Nutzer: kein „…“, feste Größe, Schriftstufen). Jeder
+  Zettel ist jetzt eine Einheitskarte (232×150), Überlauf scrollt innen
+  (Mausrad über dem Zettel, dezente Leiste, kräftiger bei Auswahl/Schweben)
+  statt zu kappen; Schrift in drei Stufen (S/M/L = 9/11/14, Wahl in der
+  Editor-Leiste, reist per Undo mit dem Text); Optik: warmes Papier mit
+  Verlauf, Lichtkante, umgeknickter Ecke (bleibt gelb wie angeklebt —
+  dokumentierte Ausnahme im Canvas-Hex-Lint, wie LED-Emission).
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (notetest: 41).
 
 ## Nicht-Ziele (bewusst)
 

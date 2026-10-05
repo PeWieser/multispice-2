@@ -181,7 +181,7 @@ export interface EditorState {
   setInstanceText: (instanceId: string, text: string) => void;
   /** W81: Netzlabel umbenennen & Textnotiz bearbeiten. */
   updateLabel: (id: string, name: string) => void;
-  updateNote: (id: string, text: string) => void;
+  updateNote: (id: string, text: string, size?: number) => void;
   addWire: (w: Wire) => void;
   /** W54/W78: ein Segment einer Leitung senkrecht verschieben (ohne Pin-Abriss). */
   setWireSegmentOffset: (wireId: string, segIdx: number, orig: Array<{ x: number; y: number }>, dx: number, dy: number) => void;

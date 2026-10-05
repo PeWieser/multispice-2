@@ -522,10 +522,15 @@ async function main() {
         }
       });
     }
-    // Canvas.tsx: einziges Fix-Hex = Elektronen-Amber (Signal, dunkle Outline trägt).
+    // Canvas.tsx: Fix-Hex = Elektronen-Amber (Signal, dunkle Outline trägt) +
+    // S5.23-Notizpapier (ein gelber Zettel bleibt gelb, auch im dunklen Theme —
+    // physikalische Objektfarbe wie die LED-Emission oben).
+    const NOTE = new Set(["#FFFADE", "#FFF6C4", "#FFEFA8", "#3B2F04"]);
     canvas.split("\n").forEach((line, i) => {
       for (const m of line.matchAll(/#[0-9a-fA-F]{3,8}/g)) {
-        assert.ok(m[0] === "#f59e0b" && line.includes("isElectron"), `Canvas.tsx:${i + 1} unerlaubtes Hex ${m[0]}`);
+        const electron = m[0] === "#f59e0b" && line.includes("isElectron");
+        const paper = NOTE.has(m[0]) && (line.includes("addColorStop") || line.includes("const ink"));
+        assert.ok(electron || paper, `Canvas.tsx:${i + 1} unerlaubtes Hex ${m[0]}`);
       }
     });
     ok("S5.15a Canvas-Hex-Lint");

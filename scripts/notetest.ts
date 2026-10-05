@@ -2,7 +2,7 @@
  * S5.22b: Notizzettel-Markup — Parsen, HTML-Roundtrip, Kartengrenzen.
  * Läuft ohne DOM (reine String-/Mathe-Funktionen).
  */
-import { NOTE_MAX_H, NOTE_MAX_W, htmlToMarkup, markupToHtml, parseNoteRuns } from "../src/lib/notes/markup";
+import { NOTE_FONT_DEFAULT, NOTE_FONT_STEPS, NOTE_H, NOTE_W, clampNoteScroll, htmlToMarkup, markupToHtml, nearestFontStep, parseNoteRuns } from "../src/lib/notes/markup";
 import { getNoteBounds } from "../src/components/Canvas/hitTest";
 import { readFileSync } from "node:fs";
 
@@ -55,19 +55,35 @@ for (const m of [
   check("leerer Editor", htmlToMarkup("<div><br></div>") === "");
 }
 
-/* 4 · Kartengrenzen (wie echte Klebezettel begrenzt) */
+/* 4 · Einheitskarte (S5.23: jeder Zettel gleich groß, Text scrollt innen) */
 {
-  check("Max-Breite 232", NOTE_MAX_W === 232);
-  check("Max-Höhe 150", NOTE_MAX_H === 150);
+  check("Kartenbreite 232", NOTE_W === 232);
+  check("Kartenhöhe 150", NOTE_H === 150);
   const big = { id: "n", x: 0, y: 100, text: `${"wort ".repeat(60)}\n${"zeile\n".repeat(30)}` };
   const b = getNoteBounds(big as never);
-  check("lange Notiz klemmt", b.w <= NOTE_MAX_W && b.h <= NOTE_MAX_H, `${b.w}×${b.h}`);
+  check("lange Notiz: volle Karte", b.w === NOTE_W && b.h === NOTE_H, `${b.w}×${b.h}`);
   const small = { id: "n", x: 0, y: 100, text: "kurz" };
   const s2 = getNoteBounds(small as never);
-  check("kurze Notiz bleibt kompakt", s2.w < NOTE_MAX_W && s2.h < NOTE_MAX_H, `${s2.w}×${s2.h}`);
+  check("kurze Notiz: gleiche Karte", s2.w === NOTE_W && s2.h === NOTE_H, `${s2.w}×${s2.h}`);
+  const empty = { id: "n", x: 5, y: 100, text: "" };
+  const e2 = getNoteBounds(empty as never);
+  check("leere Notiz: gleiche Karte, Anker bleibt", e2.w === NOTE_W && e2.h === NOTE_H && e2.x === 5 && e2.y === 82);
 }
 
-/* 5 · Verdrahtung (statische Regressions-Wächter) */
+/* 5 · Schriftstufen + Scroll-Arithmetik (S5.23) */
+{
+  check("drei Stufen", NOTE_FONT_STEPS.length === 3, NOTE_FONT_STEPS.join("/"));
+  check("Standard ist Mittel", NOTE_FONT_DEFAULT === 11);
+  check("klein rundet auf 9", nearestFontStep(8) === 9 && nearestFontStep(10) === 9);
+  check("mittel rundet auf 11", nearestFontStep(11) === 11 && nearestFontStep(12) === 11);
+  check("groß rundet auf 14", nearestFontStep(13) === 14 && nearestFontStep(20) === 14);
+  check("ohne Überlauf kein Scroll", clampNoteScroll(50, 100, 150) === 0);
+  check("Scroll klemmt oben", clampNoteScroll(-30, 300, 150) === 0);
+  check("Scroll klemmt unten", clampNoteScroll(999, 300, 150) === 150);
+  check("Scroll mittig bleibt", clampNoteScroll(60, 300, 150) === 60);
+}
+
+/* 6 · Verdrahtung (statische Regressions-Wächter) */
 {
   const canvas = readFileSync("src/components/Canvas.tsx", "utf8");
   const inline = readFileSync("src/components/InlineEditor.tsx", "utf8");
@@ -91,6 +107,21 @@ for (const m of [
     "Editor committed Markup",
     editor.includes("onCommit(htmlToMarkup(") && editor.includes("contentEditable"),
     "Direkteditor auf dem Zettel"
+  );
+  check(
+    "Rad scrollt den Zettel",
+    canvas.includes("noteMaxScrollRef.current.get(hit.id)") && canvas.includes("hitTestNote(st.doc, { x: mx /"),
+    "statt zu zoomen"
+  );
+  check(
+    "kein Auslassungs-… mehr",
+    !canvas.includes('t: "…"'),
+    "Überlauf scrollt statt zu kappen"
+  );
+  check(
+    "drei Schriftstufen im Editor",
+    editor.includes("NOTE_FONT_STEPS.map") && editor.includes("aria-pressed={size === s}"),
+    "S/M/L-Auswahl"
   );
 }
 

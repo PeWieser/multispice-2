@@ -47,12 +47,16 @@ import { engine } from "../shared";export function createParamsSlice(set: StoreA
         if (get().sim.running) engine.rebuild(get().doc);
       },
 
-      updateNote: (id, text) => {
+      updateNote: (id, text, size) => {
         const trimmed = text.trim();
         if (!trimmed) return;
         get().commit((d) => {
           const note = d.notes.find((n) => n.id === id);
-          if (note) note.text = trimmed;
+          if (note) {
+            note.text = trimmed;
+            // S5.23: Schriftstufe reist mit dem Text (ein Undo-Schritt).
+            if (size !== undefined) note.size = size;
+          }
         });
       },
   };
