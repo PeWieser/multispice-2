@@ -23,7 +23,7 @@ import { summarizeCircuit } from "@/lib/a11y";
 import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
 import { dipLeverAt, findInstanceByValueLabel, findPinInfo, findPotSliderAt, getNetObstacles, getNetPinPoints, getNoteBounds, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, instanceLocalPoint, nearestNetName, probeTarget } from "./Canvas/hitTest";
 import { potSliderPosFromLocalY, switchToggle } from "@/lib/interactive/switches";
-import { NOTE_FONT_DEFAULT, NOTE_H, NOTE_W, clampNoteScroll, nearestFontStep, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
+import { NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, nearestFontStep, noteFirstBaseline, noteLineH, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
 import { drawInstance, drawProbe } from "./Canvas/render";
 import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
 import { FlipHorizontal2, RotateCcw, RotateCw, X } from "lucide-react";
@@ -112,7 +112,8 @@ export default function Canvas() {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[]; spark?: number[] | null } | null>(null);
   const [editing, setEditing] = useState<InlineEdit | null>(null);
   // S5.22: Notiz-Direkteditor (Overlay auf der Karte, null = geschlossen).
-  const [editingNote, setEditingNote] = useState<{ id: string; isNew: boolean } | null>(null);
+  const [editingNote, setEditingNote] = useState<{ id: string; isNew: boolean; caret?: { x: number; y: number }; scroll?: number } | null>(null);
+  // S5.27: Aktuelle Editor-Notiz für den Unmount-Commit (stale Closure sieht sie nicht).
   // S5.23: Scrollstände der Zettel (der Canvas zeichnet jeden Frame neu — kein State nötig).
   const noteScrollRef = useRef<Map<string, number>>(new Map());
   const noteMaxScrollRef = useRef<Map<string, number>>(new Map());
@@ -1057,7 +1058,7 @@ export default function Canvas() {
 
     // S5.23: Echte Klebezettel — Einheitskarte, Text scrollt innen, drei Schriften.
     ctx.textAlign = "left";
-    const runFont = (r: NoteRun, sz: number) => `${r.i ? "italic " : ""}${r.b ? "700" : "500"} ${sz}px ui-sans-serif, system-ui`;
+    const runFont = (r: NoteRun, sz: number) => `${r.i ? "italic " : ""}${r.b ? "700" : "500"} ${sz}px ${NOTE_FONT_STACK}`;
     // Scrollstände gelöschter Zettel aufräumen.
     for (const id of [...noteScrollRef.current.keys()]) {
       if (!doc.notes.some((n) => n.id === id)) {
@@ -1080,9 +1081,9 @@ export default function Canvas() {
       // S5.25: Beim Verschieben kein Auswahlrahmen (er kehrt beim Loslassen zurück).
       const isSel = selection.includes(note.id) && !(stateRef.current as unknown as { dragging?: boolean }).dragging;
       const raw = note.text && note.text.trim() ? note.text : "";
-      const lineH = sz + 5;
-      const padX = 10;
-      const topPad = 9;
+      const lineH = noteLineH(sz);
+      const padX = NOTE_PAD_X;
+      const topPad = NOTE_TOP_PAD;
       const cardX = note.x;
       const cardY = note.y - 18;
       const cardW = NOTE_W;
@@ -1149,10 +1150,13 @@ export default function Canvas() {
       // Lichtkante oben, warme Kontur (blau bei Auswahl).
       ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
       ctx.fillRect(cardX + 3, cardY + 0.75, cardW - 6, 1);
-      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : "rgba(133, 100, 4, 0.42)";
-      ctx.lineWidth = (isSel ? 1.8 : 1) / Math.max(view.zoom, 0.35);
-      roundRect(ctx, cardX, cardY, cardW, cardH, 3);
-      ctx.stroke();
+      // S5.27: Während des Ziehens gar kein Rahmen — weder blau noch braun.
+      if (!(stateRef.current as unknown as { dragging?: boolean }).dragging) {
+        ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : "rgba(133, 100, 4, 0.42)";
+        ctx.lineWidth = (isSel ? 1.8 : 1) / Math.max(view.zoom, 0.35);
+        roundRect(ctx, cardX, cardY, cardW, cardH, 3);
+        ctx.stroke();
+      }
 
       // Text: geclippt + gescrollt (kein „…" mehr).
       ctx.save();
@@ -1161,7 +1165,7 @@ export default function Canvas() {
       ctx.clip();
       const ink = "#3B2F04";
       wrapped.forEach((ln, li) => {
-        const baseline = cardY + topPad + (li + 1) * lineH - 4 - scrollY;
+        const baseline = cardY + noteFirstBaseline(sz) + li * lineH - scrollY;
         if (baseline < cardY - lineH || baseline > cardY + cardH + lineH) return;
         let rx = cardX + padX;
         for (const r of ln) {
@@ -1690,13 +1694,13 @@ export default function Canvas() {
         const existingNote = hitTestNote(st.doc, world);
         if (existingNote) {
           st.setSelection([existingNote.id]);
-          setEditingNote({ id: existingNote.id, isNew: false });
+          setEditingNote({ id: existingNote.id, isNew: false, caret: { x: e.clientX, y: e.clientY }, scroll: noteScrollRef.current.get(existingNote.id) ?? 0 });
           return;
         }
         const nid = "n_" + Math.random().toString(36).slice(2, 8);
         st.commit((d) => d.notes.push({ id: nid, x: sp.x, y: sp.y, text: "" }));
         st.setSelection([nid]);
-        setEditingNote({ id: nid, isNew: true });
+        setEditingNote({ id: nid, isNew: true, caret: { x: e.clientX, y: e.clientY }, scroll: 0 });
       }
       return;
     }
@@ -2085,7 +2089,9 @@ export default function Canvas() {
   const commitNote = (markup: string | null, wasNew: boolean, size?: number) => {
     const st = useEditor.getState();
     const id = editingNote?.id;
-    setEditingNote(null);
+    // S5.27: Nur schließen, wenn dieser Zettel noch offen ist — beim
+    // Zettelwechsel committed der alte, ohne den neuen zuzumachen.
+    setEditingNote((prev) => (prev && prev.id === id ? null : prev));
     st.setTool("select");
     if (!id || markup === null) return;
     if (wasNew && !markup.trim()) {
@@ -2640,7 +2646,7 @@ export default function Canvas() {
     const noteHit = hitTestNote(st.doc, world);
     if (noteHit) {
       st.setSelection([noteHit.id]);
-      setEditingNote({ id: noteHit.id, isNew: false });
+      setEditingNote({ id: noteHit.id, isNew: false, caret: { x: e.clientX, y: e.clientY }, scroll: noteScrollRef.current.get(noteHit.id) ?? 0 });
       return;
     }
 
@@ -3167,6 +3173,9 @@ export default function Canvas() {
           <NoteEditor
             key={note.id}
             note={note}
+            selected={useEditor.getState().selection.includes(note.id)}
+            caret={editingNote.caret ?? null}
+            scroll={editingNote.scroll ?? 0}
             rect={{ x: tl.x, y: tl.y, w: b.w * view.zoom, h: b.h * view.zoom }}
             fontStep={nearestFontStep(note.size ?? NOTE_FONT_DEFAULT)}
             zoom={view.zoom}
@@ -3185,7 +3194,7 @@ export default function Canvas() {
             editingOpenedAt.current = performance.now();
             setEditing(item);
           }}
-          onEditNote={(id) => setEditingNote({ id, isNew: false })}
+          onEditNote={(id) => setEditingNote({ id, isNew: false, scroll: noteScrollRef.current.get(id) ?? 0 })}
         />
       )}
       {showHelp && <ShortcutSheet onClose={() => setShowHelp(false)} />}
@@ -3399,7 +3408,7 @@ export default function Canvas() {
                         });
                       } else if (selNote0) {
                         // S5.22: Notiz direkt auf dem Zettel bearbeiten.
-                        setEditingNote({ id: selNote0.id, isNew: false });
+                        setEditingNote({ id: selNote0.id, isNew: false, scroll: noteScrollRef.current.get(selNote0.id) ?? 0 });
                       }
                     }}
                   >

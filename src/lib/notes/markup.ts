@@ -12,6 +12,26 @@ export const NOTE_H = 150;
 export const NOTE_FONT_STEPS = [9, 12, 16] as const;
 export const NOTE_FONT_DEFAULT = 12;
 
+/* S5.27: Karten-Metrik — EINE Quelle für Canvas-Zettel und Direkteditor,
+   damit Bearbeitung und Ansicht pixelgleich aussehen (Position + Format).
+   Alle Maße in Welt-px; der Editor skaliert sie mit dem Zoom. */
+export const NOTE_PAD_X = 10;
+export const NOTE_TOP_PAD = 9;
+export const NOTE_FONT_STACK = "ui-sans-serif, system-ui";
+export const noteLineH = (sz: number): number => sz + 5;
+/** Erste Grundlinie ab Kartenoberkante: topPad + lineH − 4. */
+export const noteFirstBaseline = (sz: number): number => NOTE_TOP_PAD + noteLineH(sz) - 4;
+/** Editor-Innenabstand seitlich (Bildschirm-px): Text beginnt exakt wie auf dem Canvas. */
+export const noteEditorPadSide = (zoom: number, borderW: number): number => NOTE_PAD_X * zoom - borderW;
+/**
+ * Editor-Innenabstand oben (Bildschirm-px): erste Grundlinie wie auf dem Canvas.
+ * Herleitung: Grundlinie_0 = Kante + lineH + 5 (Welt); im CSS: Kante + Rahmen
+ * + padTop + halber Durchschuss (2.5) + Ascent (~0.83em bei system-ui).
+ * Restfehler ≤1px je nach Plattform-Schrift.
+ */
+export const noteEditorPadTop = (sz: number, zoom: number, borderW: number): number =>
+  (sz + 10) * zoom - borderW - 2.5 * zoom - 0.83 * sz * zoom;
+
 /** Fremde/legacy Größen auf die nächste Stufe runden. */
 export function nearestFontStep(px: number): number {
   let best: number = NOTE_FONT_STEPS[0];

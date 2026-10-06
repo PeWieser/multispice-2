@@ -3,13 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import { Bold, Italic, Underline } from "lucide-react";
 import type { TextNote } from "@/lib/schematic/model";
-import { NOTE_FONT_STEPS, htmlToMarkup, markupToHtml, nearestFontStep } from "@/lib/notes/markup";
+import {
+  NOTE_FONT_STACK,
+  NOTE_FONT_STEPS,
+  htmlToMarkup,
+  markupToHtml,
+  nearestFontStep,
+  noteEditorPadSide,
+  noteEditorPadTop,
+  noteLineH,
+} from "@/lib/notes/markup";
+import { canvasColor } from "@/lib/canvas-theme";
 
 /**
  * S5.22: Notiz-Direkteditor — man schreibt auf dem Zettel selbst (kein
  * separates Eingabefeld). S5.23: Zetteloptik wie auf dem Canvas (Einheitskarte,
- * innen scrollbar) + Schriftgröße in drei Stufen. Esc oder Cmd/Ctrl+Enter
- * oder Klick daneben übernimmt.
+ * innen scrollbar) + Schriftgröße in drei Stufen. S5.27: pixelgleich mit der
+ * Ansicht (eine Metrik-Quelle), keine Alles-Auswahl beim Öffnen (Klickstelle,
+ * sonst ans Ende), Unmount committed (kein Verlust beim Zettelwechsel).
+ * Esc oder Cmd/Ctrl+Enter oder Klick daneben übernimmt.
  */
 export default function NoteEditor({
   note,
@@ -19,6 +31,9 @@ export default function NoteEditor({
   viewport,
   isNew,
   onCommit,
+  selected,
+  caret,
+  scroll,
 }: {
   note: TextNote;
   /** Kartenrechteck in Bildschirm-Pixeln (Einheitskarte, fest). */
@@ -31,31 +46,77 @@ export default function NoteEditor({
   /** Neu angelegt: leerer Abbruch löscht die Notiz wieder. */
   isNew: boolean;
   onCommit: (markup: string | null, isNew: boolean, size: number) => void;
+  /** S5.27: Zettel ist ausgewählt (Kontur wie in der Ansicht). */
+  selected: boolean;
+  /** S5.27: Klickposition in Viewport-px (Caret dorthin) oder null (ans Ende). */
+  caret: { x: number; y: number } | null;
+  /** S5.27: Scrollstand der Ansicht in Welt-px (wird übernommen). */
+  scroll: number;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const done = useRef(false);
   const [fmt, setFmt] = useState({ b: false, i: false, u: false });
   const [size, setSize] = useState(() => nearestFontStep(fontStep));
+  const sizeRef = useRef(size);
+  useEffect(() => {
+    sizeRef.current = size;
+  });
+
+  const commit = () => {
+    if (done.current) return;
+    done.current = true;
+    onCommit(htmlToMarkup(cardRef.current?.innerHTML ?? ""), isNew, sizeRef.current);
+  };
 
   useEffect(() => {
     const el = cardRef.current;
     if (!el) return;
     el.innerHTML = markupToHtml(note.text);
-    el.focus();
-    // Alles wählen: Tippen ersetzt, Klick positioniert.
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
+    // S5.27: Scrollstand übernehmen — außer der Klick bestimmt die Position
+    // (der Browser scrollt dann selbst zum Caret).
+    if (!caret) el.scrollTop = scroll * zoom;
+    el.focus({ preventScroll: true });
+    // S5.27: Keine Alles-Auswahl mehr (ein Tastenschlag löschte sonst alles):
+    // an die Klickstelle, sonst ans Ende.
+    try {
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      let placed = false;
+      if (caret && typeof document.caretRangeFromPoint === "function") {
+        const r = document.caretRangeFromPoint(caret.x, caret.y);
+        if (r && el.contains(r.startContainer)) {
+          r.collapse(true);
+          sel?.addRange(r);
+          placed = true;
+        }
+      } else if (caret) {
+        const cp = (
+          document as Document & {
+            caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+          }
+        ).caretPositionFromPoint?.(caret.x, caret.y);
+        if (cp && el.contains(cp.offsetNode)) {
+          const r = document.createRange();
+          r.setStart(cp.offsetNode, cp.offset);
+          r.collapse(true);
+          sel?.addRange(r);
+          placed = true;
+        }
+      }
+      if (!placed) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel?.addRange(range);
+      }
+    } catch {}
+    // S5.27: Zettelwechsel ohne Esc/Blur committed statt zu verwerfen
+    // (kein StrictMode im Projekt — kein doppelter Mount im Dev).
+    return () => {
+      commit();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const commit = () => {
-    if (done.current) return;
-    done.current = true;
-    onCommit(htmlToMarkup(cardRef.current?.innerHTML ?? ""), isNew, size);
-  };
 
   const refreshFmt = () => {
     try {
@@ -91,6 +152,11 @@ export default function NoteEditor({
     }`;
   const stepLabel = (s: number) => (s <= NOTE_FONT_STEPS[0] ? "klein" : s >= NOTE_FONT_STEPS[2] ? "groß" : "mittel");
 
+  // S5.27: Kontur exakt wie die Ansicht (1/1.8 Welt-px); der Text beginnt dank
+  // Border-Box + Metrik-Padding auf demselben Pixel wie auf dem Canvas.
+  const borderW = (selected ? 1.8 : 1) * zoom;
+  const shadowXY = 2 / Math.max(zoom, 0.4);
+  const shadowBlur = 7 / Math.max(zoom, 0.4);
 
   return (
     <div className="absolute z-floating" style={{ left: rect.x, top: rect.y }} onPointerDown={(e) => e.stopPropagation()}>
@@ -137,15 +203,19 @@ export default function NoteEditor({
           spellCheck={false}
           className="h-full w-full overflow-y-auto outline-none"
           style={{
+            boxSizing: "border-box",
             background: "linear-gradient(180deg, #FFFADE 0%, #FFF6C4 55%, #FFEFA8 100%)",
-            // S5.25: Warme Papierkante statt Auswahlrahmen (die Leiste zeigt den Modus).
-            border: `${Math.max(1, 1.5 * zoom)}px solid rgba(133, 100, 4, 0.65)`,
-            borderRadius: 3,
-            boxShadow: "0 6px 20px rgba(60, 40, 0, 0.30)",
+            border: `${borderW}px solid ${selected ? canvasColor("--wire-sel") : "rgba(133, 100, 4, 0.42)"}`,
+            borderRadius: 3 * zoom,
+            boxShadow: `inset 0 ${Math.max(1, zoom)}px 0 rgba(255, 255, 255, 0.75), 0 ${shadowXY}px ${shadowBlur}px rgba(60, 40, 0, 0.28)`,
             color: "#3B2F04",
+            fontFamily: NOTE_FONT_STACK,
+            fontWeight: 500,
             fontSize: size * zoom,
-            lineHeight: 1.45,
-            padding: `${9 * zoom}px ${10 * zoom}px`,
+            lineHeight: `${noteLineH(size) * zoom}px`,
+            padding: `${noteEditorPadTop(size, zoom, borderW)}px ${noteEditorPadSide(zoom, borderW)}px`,
+            textUnderlineOffset: `${2 * zoom}px`,
+            textDecorationThickness: `${Math.max(1, Math.max(1, size / 11) * zoom)}px`,
           }}
           onKeyDown={(e) => {
             e.stopPropagation();

@@ -3860,3 +3860,23 @@ Raster-/Namen-Verstöße. Interaktions-Regel für alle Schalter in einem Modul
 (`switches.ts`: Klick, Taste, Inspektor-Live und Overlay lesen dieselbe
 Wahrheit); `setParam` räumt abgeleitete Geräte-Controls (`<id>_<suffix>`)
 mit ab, sonst überschatten sie editierte Params.
+
+## §66 · S5.27 Ergebnis (Notiz-Auswahl, Editor-WYSIWYG, Drag-Rahmen, 2026-10-06)
+
+Drei Nutzerbefunde an den Notizzetteln. (1) Der Direkteditor wählte beim
+Öffnen den gesamten Text („Tippen ersetzt") — ein Tastenschlag löschte so
+den ganzen Zettel. Jetzt steht der Caret ohne Auswahl an der Klickstelle
+(`caretRangeFromPoint`, Firefox-Fallback, sonst ans Ende); die
+Klickposition fließt vom Canvas in den Editor. (2) Bearbeitung und Ansicht
+sind jetzt pixelgleich: Eine Karten-Metrik (`NOTE_PAD_X`, `NOTE_TOP_PAD`,
+`noteLineH`, `noteFirstBaseline`, Editor-Padding mit Rahmen-Korrektur und
+Ascent-Herleitung) speist Canvas und Editor; Kontur (blau/braun je Auswahl),
+Eckenradius, Schatten, Lichtkante, Schrift (Gewicht 500, Familie, exakte
+px-Zeilenhöhe statt 1.45) und Unterstreichung sind gespiegelt, der
+Scrollstand wird übernommen. Restfehler ≤1px je nach Plattform-Schrift
+(dokumentiert). (3) Beim Ziehen zeichnet der Zettel gar keinen Rahmen mehr
+— weder den blauen Auswahl- noch den braunen Ruherahmen. Nebenbei gefixt:
+Zettelwechsel (B öffnen, während A offen ist) committed A per
+Unmount-Commit statt ihn zu verwerfen; `commitNote` schließt nur noch, wenn
+derselbe Zettel noch offen ist (funktionales setState, kein
+Render-Ref-Zugriff — der Lint verbietet ihn).

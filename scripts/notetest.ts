@@ -2,7 +2,7 @@
  * S5.22b: Notizzettel-Markup — Parsen, HTML-Roundtrip, Kartengrenzen.
  * Läuft ohne DOM (reine String-/Mathe-Funktionen).
  */
-import { NOTE_FONT_DEFAULT, NOTE_FONT_STEPS, NOTE_H, NOTE_W, clampNoteScroll, htmlToMarkup, markupToHtml, nearestFontStep, parseNoteRuns } from "../src/lib/notes/markup";
+import { NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_FONT_STEPS, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, htmlToMarkup, markupToHtml, nearestFontStep, noteEditorPadSide, noteEditorPadTop, noteFirstBaseline, noteLineH, parseNoteRuns } from "../src/lib/notes/markup";
 import { getNoteBounds } from "../src/components/Canvas/hitTest";
 import { readFileSync } from "node:fs";
 
@@ -152,6 +152,44 @@ for (const m of [
     "Vorschau ohne Diagonal-Retrace",
     !canvas.includes("i < preview.length") && canvas.includes("previewNetPath(ref, []"),
     "nur das lose Ende läuft gestrichelt"
+  );
+}
+
+/* 7 · S5.27: Eine Metrik für Ansicht + Editor (WYSIWYG-Regressions-Wächter) */
+{
+  check("Karten-Metrik", NOTE_PAD_X === 10 && NOTE_TOP_PAD === 9);
+  check("Zeilenrhythmus", noteLineH(9) === 14 && noteLineH(12) === 17 && noteLineH(16) === 21);
+  check(
+    "erste Grundlinie",
+    noteFirstBaseline(12) === NOTE_TOP_PAD + noteLineH(12) - 4 && noteFirstBaseline(12) === 22,
+    "topPad + lineH − 4"
+  );
+  check("Umbruchbreite 212", NOTE_W - 2 * NOTE_PAD_X === 212);
+  check("Editor-Seitenabstand", noteEditorPadSide(1, 1) === 9 && noteEditorPadSide(2, 2) === 18);
+  const pt = noteEditorPadTop(12, 1, 1);
+  check("Editor-Oberabstand ≈ 8.54", Math.abs(pt - 8.54) < 0.01, String(pt));
+  const canvasSrc = readFileSync("src/components/Canvas.tsx", "utf8");
+  const editorSrc = readFileSync("src/components/NoteEditor.tsx", "utf8");
+  check(
+    "Canvas nutzt Metrik",
+    canvasSrc.includes("noteFirstBaseline(sz)") && canvasSrc.includes("noteLineH(sz)") && canvasSrc.includes("NOTE_FONT_STACK")
+  );
+  check(
+    "Editor nutzt Metrik",
+    editorSrc.includes("noteLineH(size)") &&
+      editorSrc.includes("noteEditorPadTop(size, zoom, borderW)") &&
+      editorSrc.includes("NOTE_FONT_STACK")
+  );
+  check("keine Alles-Auswahl", editorSrc.includes("collapse(false)") && !editorSrc.includes("Alles wählen"));
+  check(
+    "Caret an Klickstelle",
+    editorSrc.includes("caretRangeFromPoint") && canvasSrc.includes("caret: { x: e.clientX, y: e.clientY }")
+  );
+  check("kein Rahmen beim Ziehen", canvasSrc.includes("Während des Ziehens gar kein Rahmen"));
+  check(
+    "Unmount committed",
+    editorSrc.includes("commit();") && canvasSrc.includes("prev.id === id ? null : prev"),
+    "Zettelwechsel verliert nichts"
   );
 }
 

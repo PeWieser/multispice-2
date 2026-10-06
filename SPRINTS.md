@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.26 ✅ (2026-10-06).
+> Stand: S5.10–S5.27 ✅ (2026-10-06).
 > Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§60).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
@@ -153,6 +153,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.24 Bibliothek + Wertfluss + Referenz (Nutzerwünsche 2026-10-05, PASS)
 - [x] S5.25 Notiz- und Wertfeld-Feinschliff (Nutzerbefunde 2026-10-05, PASS)
 - [x] S5.26 Echte Schalter + Poti-Schieber + Pinbeschriftungen (Nutzerbefunde 2026-10-06, PASS)
+- [x] S5.27 Notiz: keine Alles-Auswahl, Editor-WYSIWYG, kein Rahmen beim Ziehen (Nutzerbefunde 2026-10-06, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -303,6 +304,16 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   Pinbeschriftungen überall (benannte Pins, unrotiert, außen versetzt).
   Katalog-Audit alle 418 Teile: keine Befunde. `tsc` ✅, `eslint` ✅,
   `npm test` ✅ (switchtest neu: 68; sprint4test ans 5-Pin-Relais angepasst).
+- S5.27: Drei Notiz-Befunde. (a) Der Direkteditor wählte beim Öffnen alles
+  (ein Tastenschlag löschte alles) — jetzt steht der Caret an der Klickstelle
+  (sonst am Ende), ohne Auswahl. (b) Editor sieht pixelgleich aus wie die
+  Ansicht: eine Karten-Metrik (`NOTE_PAD_X/Y`, `noteLineH`, Grundlinie,
+  Editor-Padding mit Rahmen-Korrektur) für Canvas + Editor; Kontur/Radien/
+  Schatten/Lichtkante/Schrift (500, exakte px-Zeilenhöhe) gespiegelt;
+  Scrollstand wird übernommen. (c) Beim Ziehen gar kein Rahmen mehr (weder
+  blau noch braun). Nebenbei: Zettelwechsel committed statt zu verwerfen
+  (Unmount-Commit + Schließen-nur-wenn-noch-offen). `tsc` ✅, `eslint` ✅,
+  `npm test` ✅ (notetest +12 Wächter).
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (notetest +6, wiretest +3).
 
 ## Nicht-Ziele (bewusst)
