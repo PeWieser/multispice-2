@@ -483,8 +483,13 @@ function drawSwitchOverlay(ctx: CanvasRenderingContext2D, part: { id: string }, 
     const closed = switchReadClosed(inst, engine.controls);
     lever(-14, 0, closed ? 14 : 12, closed ? 0 : -12);
     if (id === "pushbutton") {
-      // Betätigungskappe am freien Hebelende (IEC-Drucktaster).
-      ctx.beginPath(); ctx.arc(closed ? 14 : 12, closed ? -5 : -12, 4, 0, Math.PI * 2); ctx.stroke();
+      // S5.29: Stößel-Betätigung (IEC-Drucktaster): kurzer Stiel vom Hebel
+      // nach oben, Kappe obenauf — klar getrennt vom rechten Lagerpunkt.
+      // Gedrückt fährt der Stößel mit dem Hebel herunter (Stiel sitzt dann
+      // auf dem geschlossenen Kontakt, Kappe schwebt 3 px darüber).
+      const sx = 12, top = closed ? 0 : -12;
+      lever(sx, top, sx, top - 5);
+      ctx.beginPath(); ctx.arc(sx, top - 8, 3, 0, Math.PI * 2); ctx.stroke();
     }
     return;
   }

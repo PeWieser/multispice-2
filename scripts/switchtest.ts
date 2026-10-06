@@ -10,11 +10,13 @@ import {
   potSliderPosFromLocalY,
   potSliderYFromPos,
   switchControlTargets,
+  switchPreviewPrims,
   switchReadClosed,
   switchReadDip,
   switchReadPos,
   switchToggle,
 } from "../src/lib/interactive/switches";
+import { readFileSync } from "node:fs";
 import { showPinLabel } from "../src/components/Canvas/render";
 import { dipLeverAt, findPotSliderAt, instanceLocalPoint } from "../src/components/Canvas/hitTest";
 import { instanceBounds, rotatePoint } from "../src/lib/schematic/model";
@@ -231,6 +233,45 @@ const res = (id: string, p: string, m: string, r: number): Netlist["devices"][nu
   check("DIP-Reihen", dipLeverAt("switch_dip_4", dip as never, { x: 0, y: -10 }) === 2
     && dipLeverAt("switch_dip_4", dip as never, { x: 0, y: 19 }) === 4
     && dipLeverAt("switch_dip_4", dip as never, { x: -8, y: -20 }) === 1);
+}
+
+/* 9 · S5.29: Vorschau-Hebel, Taster-Stößel, Drop-Position */
+{
+  const lines = (id: string) => switchPreviewPrims(PART_MAP[id]).filter((p) => p.t === "line")
+    .map((p) => (p.t === "line" ? p.pts.join(",") : ""));
+  check("Vorschau SPST: ein Hebel", JSON.stringify(lines("switch_spst")) === JSON.stringify(["-14,0,12,-12"]));
+  const pb = switchPreviewPrims(PART_MAP.pushbutton);
+  const cap = pb[2];
+  check("Vorschau Taster: Hebel + Stiel + Kappe",
+    pb.length === 3 && lines("pushbutton").join("|") === "-14,0,12,-12|12,-12,12,-17"
+    && cap.t === "circle" && cap.fill === false && cap.x === 12 && cap.y === -20 && cap.r === 3);
+  check("Vorschau SPDT: Ruhelage an NC", JSON.stringify(lines("switch_spdt")) === JSON.stringify(["-14,0,14,20"]));
+  check("Vorschau DPST: zwei offene Hebel",
+    JSON.stringify(lines("switch_dpst")) === JSON.stringify(["-14,-20,12,-32", "-14,20,12,8"]));
+  check("Vorschau DPDT: Ruhelage an NC",
+    JSON.stringify(lines("switch_dpdt")) === JSON.stringify(["-14,-20,14,-10", "-14,20,14,10"]));
+  check("Vorschau Dreh: Zeiger auf Abgriff 1",
+    JSON.stringify(lines("switch_rotary_4")) === JSON.stringify(["-14,0,16,-30"])
+    && JSON.stringify(lines("switch_rotary_8")) === JSON.stringify(["-14,0,16,-40"]));
+  const dip4 = switchPreviewPrims(PART_MAP.switch_dip_4);
+  const dip8 = switchPreviewPrims(PART_MAP.switch_dip_8);
+  check("Vorschau DIP: je Reihe ein offener Hebel",
+    dip4.length === 4 && dip8.length === 8
+    && JSON.stringify(lines("switch_dip_4")[0]) === JSON.stringify("-8,-20,6,-25"));
+  check("Vorschau Relais: Ruhelage (Wechsler an NC)",
+    JSON.stringify(lines("relay")) === JSON.stringify(["10,20,26,0"])
+    && JSON.stringify(lines("relay_spst_5v")) === JSON.stringify(["10,20,26,-14"])
+    && JSON.stringify(lines("relay_dpdt_12v")) === JSON.stringify(["10,-20,26,-10", "10,20,26,10"]));
+  check("Vorschau: Nicht-Schalter bleibt leer",
+    switchPreviewPrims(PART_MAP.resistor).length === 0 && switchPreviewPrims(PART_MAP.vdc).length === 0);
+  const renderSrc = readFileSync("src/components/Canvas/render.ts", "utf8");
+  check("Overlay Taster: Stößel (Stiel + Kappe über dem Hebel)",
+    renderSrc.includes("lever(sx, top, sx, top - 5)") && renderSrc.includes("ctx.arc(sx, top - 8, 3, 0, Math.PI * 2)")
+    && !renderSrc.includes("closed ? -5 : -12, 4,"));
+  const canvasSrc = readFileSync("src/components/Canvas.tsx", "utf8");
+  check("Drop: W133 nutzt toWorld (exakte Umkehr von toScreen)",
+    !canvasSrc.includes("(e.clientX - r.left - st.view.x)")
+    && (canvasSrc.match(/snap\(toWorld\(e\.clientX, e\.clientY\)\)/g) ?? []).length >= 4);
 }
 
 console.log(failed === 0 ? "\nSchalter-Prüfungen: alle bestanden." : `\nSchalter-Prüfungen: ${failed} FEHLER`);

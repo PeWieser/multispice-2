@@ -12,6 +12,7 @@ import { WINDOW_SHELL, WindowTitleBar } from "./ui";
 import { withSyncNonce } from "@/lib/desktopSync";
 import { mainValueParamKey, splitValueQuery } from "@/lib/library/search";
 import { previewFit } from "@/lib/library/preview";
+import { switchPreviewPrims } from "@/lib/interactive/switches";
 import { formatValue } from "@/lib/format";
 import { useIsApple } from "@/lib/platform";
 

@@ -324,6 +324,18 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   dunkel auf hell, hell auf dunkel). `tsc` ✅, `eslint` ✅, `npm test` ✅
   (notetest +9 Wächter).
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (notetest +6, wiretest +3).
+- S5.29: Zwei Befunde. (a) Schalter/Taster-Darstellung, per Render-Musterung
+  geprüft (echtes `drawInstance` + echte Vorschau-Logik, 17 Canvas- + 7
+  Vorschau-Bilder): Taster-Kappe saß mittig auf der Hebelspitze (offen) bzw.
+  auf dem Kontakt (geschlossen) — jetzt IEC-Stößel (Stiel vom Hebel nach
+  oben, Kappe obenauf; gedrückt fährt er mit herunter). Bibliotheks-Vorschau
+  zeigte Schalter ganz ohne Hebel (nur Stummel) — jetzt Ruhe-Stellung
+  (offen/NC, Dreh auf 1, DIP offen) aus `switchPreviewPrims`, vor dem Fit
+  angehängt. SPST/SPDT/DPST/DPDT/Dreh/DIP/Relais sonst korrekt (Wirkverbin-
+  dung kreuzt normgerecht). (b) Drag-&-Drop aus der Bibliothek landete weit
+  neben dem Cursor: W133 zog `view` vor dem Zoom ab statt `toWorld` zu
+  nutzen — Ghost + Ablage gehen jetzt über `toWorld`. `tsc` ✅, `eslint` ✅,
+  `npm test` ✅ (switchtest +11 Wächter).
 
 ## Nicht-Ziele (bewusst)
 

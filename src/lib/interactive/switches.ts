@@ -3,6 +3,7 @@
    werden hier exakt so auf ihre Geräte-Controls aufgefächert, wie toDevices sie
    anlegt (`<instanz>_<suffix>`). Wer hier ändert, ändert überall konsistent. */
 import type { Instance } from "../schematic/model";
+import type { PartDef, SymbolPrim } from "../library/catalog";
 
 export type ControlMap = Record<string, number>;
 
@@ -121,6 +122,44 @@ export function switchToggle(
     };
   }
   return null;
+}
+
+/* ------------------------- Vorschau-Hebel (Bibliothek) ------------------------- */
+
+/**
+ * S5.29: Hebel/Zeiger für die Bibliotheks-Vorschau in Ruhe-Stellung (offen
+ * bzw. NC, Dreh auf 1, DIP alle offen). Die Vorschau zeichnet nur
+ * Katalog-Statik — ohne diese Prims sähen Schalter wie bloße
+ * Leitungsstummel aus. Geometrie = Overlay-Ruhelage aus render.ts
+ * (ohne gestrichelte Wirkverbindungen — die Vorschau kennt keinen Strich).
+ * Für Nicht-Schalter leer.
+ */
+export function switchPreviewPrims(part: PartDef): SymbolPrim[] {
+  const id = part.id;
+  const line = (pts: number[]): SymbolPrim => ({ t: "line", pts });
+  const ring = (x: number, y: number, r: number): SymbolPrim => ({ t: "circle", x, y, r, fill: false });
+  if (id === "switch_spst") return [line([-14, 0, 12, -12])];
+  if (id === "pushbutton") return [line([-14, 0, 12, -12]), line([12, -12, 12, -17]), ring(12, -20, 3)];
+  if (id === "switch_spdt") return [line([-14, 0, 14, 20])];
+  if (id === "switch_dpst") return [line([-14, -20, 12, -32]), line([-14, 20, 12, 8])];
+  if (id === "switch_dpdt") return [line([-14, -20, 14, -10]), line([-14, 20, 14, 10])];
+  if (id.startsWith("switch_rotary_")) {
+    const tap1 = part.pins[1]; // pins[0] = COM, danach Abgriffe 1..N
+    if (!tap1) return [];
+    return [line([-14, 0, tap1.x - 14, tap1.y])];
+  }
+  if (id.startsWith("switch_dip_")) {
+    return part.pins
+      .filter((p) => p.x < 0)
+      .sort((a, b) => a.y - b.y)
+      .map((row) => line([-8, row.y, 6, row.y - 5]));
+  }
+  if (id === "relay" || id.startsWith("relay_")) {
+    if (id.includes("dpdt")) return [line([10, -20, 26, -10]), line([10, 20, 26, 10])];
+    if (id.includes("spst")) return [line([10, 20, 26, -14])];
+    return [line([10, 20, 26, 0])]; // Wechsler-Ruhelage: an NC
+  }
+  return [];
 }
 
 /* ------------------------- Poti-Schieberegler ------------------------- */

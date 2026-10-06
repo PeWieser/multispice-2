@@ -3895,3 +3895,30 @@ Stromanimation sind deutlicher, aber maßvoll: Punkt 2.0 → 2.4, Deckkraft
 0.32–0.68 → 0.40–0.78 (gleiche Log-Kurve), Kontur mit Theme-Kontrast
 (dunkel im Light-, hell im Dark-Mode). Abstand, Farben und Schwelle
 unverändert.
+
+## §68 · S5.29 Ergebnis (Taster-Stößel, Vorschau-Hebel, Drop-Position, 2026-10-06)
+
+Zwei Befunde. (1) Schalter/Taster-Darstellung: per Render-Musterung geprüft —
+echtes `drawInstance` aus `render.ts` plus echte `SymbolPreview`-Logik über
+Node-Canvas (17 Bauteil-Zustände, 7 Vorschauen). Befund A: Die Taster-Kappe
+saß mittig auf der Hebelspitze (offen, „Lolli" über dem rechten Lagerpunkt)
+bzw. auf dem Kontakt (geschlossen, Kollision mit Lagerpunkt und Leitung).
+Jetzt IEC-Stößel: kurzer Stiel vom Hebel senkrecht nach oben, Kappe (r=3)
+obenauf, klar getrennt vom Lagerpunkt; gedrückt fährt der Stößel mit dem
+Hebel herunter (Stiel auf dem geschlossenen Kontakt, Kappe 3 px darüber).
+Befund B: Die Bibliotheks-Vorschau zeichnet nur Katalog-Statik — Schalter
+erschienen ganz ohne Hebel (zwei Stummel mit Punkten), DIP als leeres
+Kästchen, Drehschalter ohne Zeiger. Jetzt hängt `SymbolPreview` die
+Ruhe-Stellung aus der neuen reinen Quelle `switchPreviewPrims` an (offen
+bzw. NC, Dreh auf Abgriff 1, DIP alle offen; ohne gestrichelte
+Wirkverbindung), vor dem Fit, damit der Hebel in die Einpassung zählt.
+Verifiziert korrekt und unverändert: SPST-Hebel, SPDT/DPDT-Wechsler (immer
+an einer Seite), DPST-Doppelhebel, Dreh-Zeiger, DIP-Hebel im Gehäuse,
+Relais-Anker (zieht sichtbar an); die Wirkverbindung kreuzt die Hebel
+normgerecht (mechanische Kopplung). (2) Drag-&-Drop aus der Bibliothek
+(ComponentStrip/DeviceBar gleich mit) landete weit links neben dem Cursor:
+die W133-Handler rechneten `(client - rect - view) / zoom` statt der exakten
+Umkehr von `toScreen` (`/ zoom + view`) — bei gepanntem/gezoomtem Canvas
+ein Versatz von `view * (1 + 1/zoom)`. Ghost und Ablage gehen jetzt über
+`toWorld` (stabile Referenz, Effekt-Dep). Nativer Datei-Drop war schon
+korrekt.

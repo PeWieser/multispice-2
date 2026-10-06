@@ -2745,20 +2745,17 @@ export default function Canvas() {
   };
 
   // W133: Echtes Klicken, gedrückt halten und Ziehen eines Bauteils aus
-  // LibraryPalette, ComponentStrip oder DeviceBar direkt auf den Schaltplan:
+  // LibraryPalette, ComponentStrip oder DeviceBar direkt auf den Schaltplan.
+  // S5.29: Weltkoordinaten über toWorld (exakte Umkehr von toScreen) — die
+  // alte Inline-Formel (view vor dem Zoom abgezogen) landete bei
+  // gepanntem/gezoomtem Canvas weit neben dem Cursor.
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const dragPartId = useHud.getState().dragPart;
       if (!dragPartId) return;
       const el = canvasRef.current;
       if (!el) return;
-      const r = el.getBoundingClientRect();
-      const st = useEditor.getState();
-      const world = {
-        x: (e.clientX - r.left - st.view.x) / st.view.zoom,
-        y: (e.clientY - r.top - st.view.y) / st.view.zoom,
-      };
-      const sp = snap(world);
+      const sp = snap(toWorld(e.clientX, e.clientY));
       setCursor(sp);
       useHud.setState({ cursor: sp });
     };
@@ -2771,11 +2768,7 @@ export default function Canvas() {
       const r = el.getBoundingClientRect();
       if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
         const st = useEditor.getState();
-        const world = {
-          x: (e.clientX - r.left - st.view.x) / st.view.zoom,
-          y: (e.clientY - r.top - st.view.y) / st.view.zoom,
-        };
-        const sp = snap(world);
+        const sp = snap(toWorld(e.clientX, e.clientY));
         const newId = st.addInstance(dragPartId, sp.x, sp.y, {
           rot: st.placingRot,
           mirror: st.placingMirror,
@@ -2792,7 +2785,7 @@ export default function Canvas() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, []);
+  }, [toWorld]);
 
   // keyboard
   useEffect(() => {
