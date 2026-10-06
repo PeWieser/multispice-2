@@ -1,5 +1,6 @@
 import { PART_MAP, partPins } from "@/lib/library/catalog";
-import { GRID, Instance, SchematicDoc, instanceBounds, pinPosition, MeasurementProbe } from "@/lib/schematic/model";
+import { GRID, Instance, Rotation, SchematicDoc, instanceBounds, pinPosition, rotatePoint, MeasurementProbe } from "@/lib/schematic/model";
+import { POT_SLIDER } from "@/lib/interactive/switches";
 import { nearestWireFoot } from "@/lib/schematic/netdraw";
 import { useEditor } from "@/state/editor";
 import { type Pt } from "./geometry";
@@ -71,6 +72,46 @@ export function findInstanceByValueLabel(doc: SchematicDoc, p: Pt): Instance | n
     if (hitTestInstanceValueLabel(inst, p)) return inst;
   }
   return null;
+}
+
+/* S5.26: Welt→Lokal (Inverse von drawInstance: Translate⁻¹ · Rotate⁻¹ · Mirror⁻¹). */
+export function instanceLocalPoint(inst: Instance, p: Pt): Pt {
+  const dx = p.x - inst.x;
+  const dy = p.y - inst.y;
+  const inv = ((360 - (inst.rot ?? 0)) % 360) as Rotation;
+  const u = rotatePoint(dx, dy, inv, false);
+  return inst.mirror ? { x: -u.x, y: u.y } : u;
+}
+
+/** S5.26: Poti-Schieber unter dem Zeiger (liegt bewusst außerhalb der Symbol-Bbox). */
+export function findPotSliderAt(doc: SchematicDoc, p: Pt): Instance | null {
+  for (let i = doc.instances.length - 1; i >= 0; i--) {
+    const inst = doc.instances[i];
+    if (PART_MAP[inst.partId]?.interactive !== "pot") continue;
+    const l = instanceLocalPoint(inst, p);
+    if (
+      Math.abs(l.x - POT_SLIDER.x) <= POT_SLIDER.hitHalfW
+      && l.y >= POT_SLIDER.yTop - POT_SLIDER.hitPad
+      && l.y <= POT_SLIDER.yBot + POT_SLIDER.hitPad
+    ) return inst;
+  }
+  return null;
+}
+
+/** S5.26: DIP-Hebel (1-basiert) unter dem Zeiger — nächstgelegene Reihe gewinnt. */
+export function dipLeverAt(partId: string, inst: Instance, p: Pt): number | null {
+  const part = PART_MAP[partId];
+  if (!part) return null;
+  const rows = partPins(part, inst.params).filter((q) => q.x < 0).sort((a, b) => a.y - b.y);
+  if (!rows.length) return null;
+  const l = instanceLocalPoint(inst, p);
+  let best = 1;
+  let bestD = Infinity;
+  rows.forEach((row, i) => {
+    const d = Math.abs(l.y - row.y);
+    if (d < bestD) { bestD = d; best = i + 1; }
+  });
+  return best;
 }
 
 /** W54: nächstes Leitungssegment unter dem Zeiger (für das Segment-Ziehen). */

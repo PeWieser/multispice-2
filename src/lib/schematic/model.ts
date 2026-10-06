@@ -5,6 +5,7 @@
 
 import { PART_MAP, PartDef, PartInstanceLike, PinElectrical, formatValue, partPins, partSymbol, pinElectrical, splitterWidth } from "@/lib/library/catalog";
 import { Device, Netlist } from "@/lib/sim/engine";
+import { POT_SLIDER } from "@/lib/interactive/switches";
 
 export const GRID = 10;
 
@@ -354,6 +355,12 @@ export function instanceBounds(inst: Instance): { x: number; y: number; w: numbe
     } else consider(prim.x, prim.y);
   }
   for (const pin of partPins(part, inst.params)) consider(pin.x, pin.y);
+  // S5.26: Der Poti-Schieber liegt neben dem Symbol und gehört zur Greifzone
+  // (Selektion, Routing-Hindernis, Fit-View) — Rotation löst consider auf.
+  if (part.interactive === "pot") {
+    consider(POT_SLIDER.x - POT_SLIDER.knobW / 2, POT_SLIDER.yTop);
+    consider(POT_SLIDER.x + POT_SLIDER.knobW / 2, POT_SLIDER.yBot);
+  }
   if (!Number.isFinite(minX)) return { x: inst.x - 20, y: inst.y - 20, w: 40, h: 40 };
   return { x: inst.x + minX, y: inst.y + minY, w: maxX - minX, h: maxY - minY };
 }

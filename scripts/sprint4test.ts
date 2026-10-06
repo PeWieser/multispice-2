@@ -187,7 +187,7 @@ const close = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol * Ma
 /* ---------------- S4.5: Relais + Sicherung ---------------- */
 {
   const relay = PARTS.find((p) => p.id === "relay")!;
-  const rdev = relay.toDevices({ id: "K1", params: {} } as never, ["CP", "CM", "COM", "NO"]);
+  const rdev = relay.toDevices({ id: "K1", params: {} } as never, ["CP", "CM", "COM", "NO", "NC"]); // S5.26: Relais ist echter Wechsler (5 Pins)
   const rNl: Netlist = {
     devices: [
       ...rdev,

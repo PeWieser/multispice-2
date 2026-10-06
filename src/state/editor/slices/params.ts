@@ -4,7 +4,9 @@
 
 import type { EditorState } from "../types";
 import type { StoreApi } from "zustand";
-import { engine } from "../shared";export function createParamsSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setParam" | "setControlLive" | "setInstanceText" | "updateLabel" | "updateNote"> {
+import { engine } from "../shared";
+import { switchControlTargets } from "@/lib/interactive/switches";
+export function createParamsSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "setParam" | "setControlLive" | "setInstanceText" | "updateLabel" | "updateNote"> {
   return {
       setParam: (instanceId, key, value) => {
         get().commit((d) => {
@@ -15,16 +17,32 @@ import { engine } from "../shared";export function createParamsSlice(set: StoreA
         });
         // S5.14: editierter Param ist Wahrheit — stale Live-Control verwerfen
         // (sonst würde z. B. ein alter Schalter-Klick params.closed überschatten).
-        if (key !== "__label") delete engine.controls[instanceId];
+        // S5.26: Mehrgeräte-Bauteile (SPDT/DPST/DPDT/Dreh/DIP, Relais-Spule)
+        // legen abgeleitete Geräte-IDs `<id>_<suffix>` an — die müssen mit weg,
+        // sonst überschatten sie die frisch editierten Params beim nächsten Lauf.
+        if (key !== "__label") {
+          delete engine.controls[instanceId];
+          for (const k of Object.keys(engine.controls)) {
+            if (k.startsWith(instanceId + "_")) delete engine.controls[k];
+          }
+        }
         if (get().sim.running) engine.rebuild(get().doc);
       },
 
       setControlLive: (instanceId, key, value) => {
+        let partId = "";
         get().commit((d) => {
           const inst = d.instances.find((i) => i.id === instanceId);
-          if (inst) inst.params[key] = value;
+          if (inst) {
+            inst.params[key] = value;
+            partId = inst.partId;
+          }
         });
-        engine.setControl(instanceId, Number(value));
+        // S5.26: Mehrgeräte-Bauteile fächern auf (SPDT→NO+NC, Dreh→alle Abgriffe,
+        // DIP→Einzelhebel) — sonst liefe der Inspektor bei laufender Sim ins Leere.
+        const targets = switchControlTargets(partId, instanceId, key, Number(value));
+        if (targets) for (const [id, v] of Object.entries(targets)) engine.setControl(id, v);
+        else engine.setControl(instanceId, Number(value));
       },
 
       setInstanceText: (instanceId, text) => {

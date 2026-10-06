@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.25 ✅ (2026-10-05).
+> Stand: S5.10–S5.26 ✅ (2026-10-06).
 > Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§60).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
@@ -152,6 +152,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.23 Notizzettel 2.0: Einheitskarte, Scrollen, 3 Schriften (Nutzerbefunde 2026-10-05, PASS)
 - [x] S5.24 Bibliothek + Wertfluss + Referenz (Nutzerwünsche 2026-10-05, PASS)
 - [x] S5.25 Notiz- und Wertfeld-Feinschliff (Nutzerbefunde 2026-10-05, PASS)
+- [x] S5.26 Echte Schalter + Poti-Schieber + Pinbeschriftungen (Nutzerbefunde 2026-10-06, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -290,6 +291,18 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   (warme Papierkante); Diagonal-Bug in der Leitungsvorschau gefixt (Schleife
   lief ab preview[1] über alle Ecken zurück — jetzt frischer Schweif ab der
   letzten festen Ecke mit Klick-identischer Knickfolge).
+- S5.26: Echte Schalter-Modelle + Poti-Schieber + Pinbeschriftungen.
+  SPDT/DPST/DPDT/Dreh (3/4/6/8)/DIP (4/8) waren baugleiche SPST-Fakes mit
+  doppeltem Hebel — jetzt echte Pole, Geräte und IEC-Zeichen (Wechsler mit
+  NO/NC-Komplement, Dreh mit COM + Abgriffen, DIP mit Gehäuse + echter
+  Nummerierung); Taster ohne T-Platte (Kappe im Overlay); alle Hebel/Zeiger
+  zustandsabhängig aus einer typ-bewussten Overlay-Quelle. Relais waren SPST
+  mit SPDT/DPDT-Etikett — jetzt echte Wechsler (VSWITCH-`invert`, NC-Pfad)
+  mit sichtbar anziehendem Anker. Poti: großer Schieber neben dem Bauteil
+  (Drag, eine Undo-Stufe, läuft + steht) statt unsichtbarem ±5-%-Klick.
+  Pinbeschriftungen überall (benannte Pins, unrotiert, außen versetzt).
+  Katalog-Audit alle 418 Teile: keine Befunde. `tsc` ✅, `eslint` ✅,
+  `npm test` ✅ (switchtest neu: 68; sprint4test ans 5-Pin-Relais angepasst).
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (notetest +6, wiretest +3).
 
 ## Nicht-Ziele (bewusst)

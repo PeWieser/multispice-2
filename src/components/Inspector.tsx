@@ -286,7 +286,7 @@ export default function Inspector() {
                       // laufender Sim live — ohne Rebuild/Sim-Neustart.
                       const liveControl = st.sim.running && part && (
                         (part.interactive === "pot" && def.key === "pos") ||
-                        ((part.interactive === "switch" || part.interactive === "button" || part.interactive === "dip") && def.key === "closed")
+                        ((part.interactive === "switch" || part.interactive === "button" || part.interactive === "dip") && (def.key === "pos" || def.key.startsWith("closed")))
                       );
                       return (
                         <div key={def.key}>

@@ -1,6 +1,7 @@
 import { FOURTEENSEG_ASCII, FOURTEENSEG_FONT, FOURTEENSEG_SEGS, PART_MAP, SymbolPrim, formatValue, partPins, partSymbol, splitterWidth } from "@/lib/library/catalog";
 import { resolveSymbolStyle } from "@/lib/settings";
-import { Instance, MeasurementProbe, instanceBounds, pinPosition } from "@/lib/schematic/model";
+import { Instance, MeasurementProbe, instanceBounds, pinPosition, rotatePoint } from "@/lib/schematic/model";
+import { POT_SLIDER, potSliderYFromPos, switchReadClosed, switchReadDip, switchReadPos } from "@/lib/interactive/switches";
 import { engine, inferWireAngleAt, useEditor } from "@/state/editor";
 import { LEGACY_PROBE_COLORS, PROBE_CSSVAR } from "@/lib/probe-style";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
@@ -463,6 +464,172 @@ export function drawDescBox(ctx: CanvasRenderingContext2D, inst: Instance, selec
   ctx.restore();
 }
 
+/* S5.26: Schalter-Overlay — jede Schaltfunktion bekommt ihren normgerechten,
+   zustandsabhängigen Hebel/Zeiger. Das Katalog-Symbol enthält nur Statik
+   (Anschlüsse, Lagerpunkte, Gehäuse); was sich bewegt, wird hier gezeichnet —
+   kein Hebel erscheint je doppelt. Koordinaten lokal (Transform steht schon). */
+function drawSwitchOverlay(ctx: CanvasRenderingContext2D, part: { id: string }, inst: Instance): void {
+  const id = part.id;
+  ctx.strokeStyle = canvasColor("--symbol");
+  ctx.lineWidth = 1.3;
+  ctx.lineCap = "round";
+  const lever = (x1: number, y1: number, x2: number, y2: number) => {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  };
+  const dashed = (x1: number, y1: number, x2: number, y2: number) => {
+    ctx.save(); ctx.setLineDash([4, 3]); lever(x1, y1, x2, y2); ctx.restore();
+  };
+  if (id === "switch_spst" || id === "pushbutton") {
+    const closed = switchReadClosed(inst, engine.controls);
+    lever(-14, 0, closed ? 14 : 12, closed ? 0 : -12);
+    if (id === "pushbutton") {
+      // Betätigungskappe am freien Hebelende (IEC-Drucktaster).
+      ctx.beginPath(); ctx.arc(closed ? 14 : 12, closed ? -5 : -12, 4, 0, Math.PI * 2); ctx.stroke();
+    }
+    return;
+  }
+  if (id === "switch_spdt") {
+    const toNo = switchReadClosed(inst, engine.controls);
+    lever(-14, 0, 14, toNo ? -20 : 20); // Wechsler berührt immer eine Seite
+    return;
+  }
+  if (id === "switch_dpst") {
+    const closed = switchReadClosed(inst, engine.controls);
+    for (const y of [-20, 20]) lever(-14, y, closed ? 14 : 12, closed ? y : y - 12);
+    dashed(0, -20, 0, 20); // mechanische Wirkverbindung beider Pole
+    return;
+  }
+  if (id === "switch_dpdt") {
+    const toNo = switchReadClosed(inst, engine.controls);
+    lever(-14, -20, 14, toNo ? -30 : -10);
+    lever(-14, 20, 14, toNo ? 30 : 10);
+    dashed(0, -20, 0, 20);
+    return;
+  }
+  if (id.startsWith("switch_rotary_")) {
+    const pos = switchReadPos(id, inst, engine.controls);
+    const pins = partPins(PART_MAP[id], inst.params);
+    const tp = pins[pos]; // pins[0] = COM, danach Abgriffe 1..N
+    if (tp) {
+      ctx.lineWidth = 2;
+      lever(-14, 0, tp.x - 14, tp.y);
+    }
+    return;
+  }
+  if (id.startsWith("switch_dip_")) {
+    const pins = partPins(PART_MAP[id], inst.params);
+    const rows = pins.filter((p) => p.x < 0).sort((a, b) => a.y - b.y);
+    ctx.fillStyle = canvasColor("--symbol");
+    rows.forEach((row, i) => {
+      const y = row.y;
+      if (switchReadDip(inst, engine.controls, i + 1)) lever(-8, y, 6, y);
+      else lever(-8, y, 6, y - 5);
+      ctx.beginPath(); ctx.arc(-8, y, 1.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(6, y, 1.6, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+}
+
+/** S5.26: Relais-Kontakt folgt dem echten Spulenzustand (zieht sichtbar an). */
+function relayEnergized(inst: Instance): boolean {
+  try {
+    const sim = (engine as unknown as { sim?: { netlist?: { devices?: Array<{ id?: string; state?: { extra?: { on?: number } } }> } } })?.sim;
+    const d = sim?.netlist?.devices?.find((x) => x?.id === inst.id);
+    return (d?.state?.extra?.on ?? 0) > 0.5;
+  } catch {
+    return false;
+  }
+}
+
+function drawRelayOverlay(ctx: CanvasRenderingContext2D, part: { id: string }, inst: Instance): void {
+  const id = part.id;
+  const on = relayEnergized(inst);
+  ctx.strokeStyle = canvasColor("--symbol");
+  ctx.lineWidth = 1.3;
+  ctx.lineCap = "round";
+  const lever = (x1: number, y1: number, x2: number, y2: number) => {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  };
+  const dashed = (x1: number, y1: number, x2: number, y2: number) => {
+    ctx.save(); ctx.setLineDash([4, 3]); lever(x1, y1, x2, y2); ctx.restore();
+  };
+  if (id === "relay" || id === "relay_spdt_5v" || id === "relay_spdt_12v") {
+    lever(10, 20, 26, on ? -20 : 0);
+    dashed(-6, 0, 10, 20); // Wirkverbindung Spule→Anker
+    return;
+  }
+  if (id === "relay_spst_5v" || id === "relay_spst_12v") {
+    lever(10, 20, 26, on ? -20 : -14);
+    dashed(-6, 0, 10, 20);
+    return;
+  }
+  if (id === "relay_dpdt_5v" || id === "relay_dpdt_12v") {
+    lever(10, -20, 26, on ? -30 : -10);
+    lever(10, 20, 26, on ? 30 : 10);
+    dashed(-6, 0, 18, 0);
+    dashed(18, -20, 18, 20);
+  }
+}
+
+/* S5.26: Großer Schieberegler direkt neben dem Poti — Ersatz für das unsichtbare
+   ±5-%-Klicken. Geometrie aus POT_SLIDER (gleiche Quelle wie der Hit-Test). */
+function drawPotSlider(ctx: CanvasRenderingContext2D, inst: Instance): void {
+  const pos = engine.controls[inst.id] ?? engine.controls[inst.label] ?? Number(inst.params.pos ?? 0.5);
+  const ky = potSliderYFromPos(pos);
+  const { x, yTop, yBot, knobW, knobH } = POT_SLIDER;
+  ctx.save();
+  ctx.fillStyle = canvasColor("--hairline-strong");
+  ctx.fillRect(x - 2.5, yTop, 5, yBot - yTop);
+  ctx.fillStyle = canvasColor("--teal");
+  ctx.fillRect(x - 2.5, ky, 5, yBot - ky);
+  ctx.beginPath();
+  ctx.rect(x - knobW / 2, ky - knobH / 2, knobW, knobH);
+  ctx.fillStyle = canvasColor("--surface");
+  ctx.fill();
+  ctx.strokeStyle = canvasColor("--symbol");
+  ctx.lineWidth = 1.3;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - 3, ky - 1.6); ctx.lineTo(x + 3, ky - 1.6);
+  ctx.moveTo(x - 3, ky + 1.6); ctx.lineTo(x + 3, ky + 1.6);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** S5.26: Welche Pin-Namen bekommen eine Beschriftung? Benannte ja, rein numerische nein. */
+export function showPinLabel(name: unknown): name is string {
+  if (typeof name !== "string") return false;
+  const t = name.trim();
+  return t.length > 0 && !/^\d+$/.test(t);
+}
+
+/* S5.26: Pinbeschriftungen überall — unrotiert lesbar, außen am Pin versetzt,
+   damit Leitung und Pin-Punkt frei bleiben. */
+function drawPinLabels(ctx: CanvasRenderingContext2D, part: { id: string }, inst: Instance): void {
+  const def = PART_MAP[part.id];
+  if (!def) return;
+  ctx.save();
+  ctx.translate(inst.x, inst.y);
+  ctx.font = "600 8px ui-sans-serif, system-ui";
+  ctx.fillStyle = canvasColor("--ink-3");
+  for (const pin of partPins(def, inst.params)) {
+    if (!showPinLabel(pin.name)) continue;
+    const w = rotatePoint(pin.x, pin.y, inst.rot, inst.mirror);
+    const horizLocal = Math.abs(pin.x) >= Math.abs(pin.y);
+    const o = rotatePoint(horizLocal ? Math.sign(pin.x) || 1 : 0, horizLocal ? 0 : Math.sign(pin.y) || 1, inst.rot, inst.mirror);
+    if (Math.abs(o.x) >= Math.abs(o.y)) {
+      ctx.textAlign = o.x > 0 ? "left" : "right";
+      ctx.textBaseline = "middle";
+      ctx.fillText(pin.name, w.x + Math.sign(o.x) * 6, w.y - 7);
+    } else {
+      ctx.textAlign = "left";
+      ctx.textBaseline = o.y > 0 ? "top" : "bottom";
+      ctx.fillText(pin.name, w.x + 4, w.y + Math.sign(o.y) * 6);
+    }
+  }
+  ctx.restore();
+}
+
 export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:boolean, zoom:number, live:any) {
   const part=PART_MAP[inst.partId]; if (!part) return;
   // S5.6c: Beschreibungsbox rendert eine eigene Karte (kein Symbol/Label darunter).
@@ -619,22 +786,10 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
   for (const prim of sym) drawPrim(ctx, prim);
   ctx.fillStyle=canvasColor("--pin");
   for (const pin of partPins(part, inst.params)){ ctx.beginPath(); ctx.arc(pin.x,pin.y,1.5,0,Math.PI*2); ctx.fill(); } // W27: dezente Pin-Punkte
-  if (part.interactive==="switch" || part.interactive==="button") {
-    // W27: Ref-2-Schalter – dünner Hebel, gefüllte Lagerpunkte, neutrale Tinte
-    const closed=(engine.controls[inst.id] ?? engine.controls[inst.label] ?? (inst.params.closed?1:0))>0.5;
-    ctx.strokeStyle=canvasColor("--symbol"); ctx.lineWidth=1.3; ctx.lineCap="round";
-    ctx.beginPath();
-    if (closed){ ctx.moveTo(-14,0); ctx.lineTo(14,0); }
-    else { ctx.moveTo(-14,0); ctx.lineTo(11,-10); }
-    ctx.stroke();
-    ctx.fillStyle=canvasColor("--symbol");
-    ctx.beginPath(); ctx.arc(-14,0,1.8,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(14,0,1.8,0,Math.PI*2); ctx.fill();
-  }
-  if (part.interactive==="pot") {
-    const pos=engine.controls[inst.id] ?? engine.controls[inst.label] ?? Number(inst.params.pos??0.5);
-    ctx.fillStyle=canvasColor("--teal"); ctx.fillRect(-20+40*pos-1,-12,2,8);
-  }
+  // S5.26: Typ-bewusste Overlays (Hebel/Zeiger/Schieber) statt Einheitshebel + Tick.
+  if (part.interactive==="switch" || part.interactive==="button") drawSwitchOverlay(ctx, part, inst);
+  if (part.id==="relay" || part.id.startsWith("relay_")) drawRelayOverlay(ctx, part, inst);
+  if (part.interactive==="pot") drawPotSlider(ctx, inst);
   // Fault visualization (S5.6d: im Lehrer-Modus versteckt)
   const teacherLocked = useEditor.getState().teacher.locked;
   if (!teacherLocked && (inst as any).fault && (inst as any).fault !== "none") {
@@ -653,6 +808,8 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
     ctx.restore();
   }
   ctx.restore();
+  // S5.26: Pinbeschriftungen überall (unrotiert lesbar).
+  if (zoom > 0.55) drawPinLabels(ctx, part, inst);
   if (zoom>0.42 && part.mount!=="virtual") {
     ctx.save(); ctx.translate(inst.x, inst.y);
     const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;

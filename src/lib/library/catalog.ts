@@ -1291,9 +1291,11 @@ add({
   interactive: "relay",
   pins: [
     { name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 },
-    { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 },
+    { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }, { name: "NC", x: 40, y: 0 },
   ],
-  symbol: [RECT(-30, -14, 24, 28, 2), L(-40, -20, -30, -20), L(-40, 20, -30, 20), L(-30, -20, -30, 20), L(10, 20, 40, 20), L(10, 20, 26, -14), L(40, -20, 26, -20), L(-2, -10, -2, 10)],
+  // S5.26: echter Wechsler (COM/NO/NC) statt SPST mit SPDT-Etikett; Hebel und
+  // gestrichelte Wirkverbindung malt zustandsabhängig das Canvas-Overlay.
+  symbol: [RECT(-30, -14, 24, 28, 2), L(-40, -20, -30, -20), L(-40, 20, -30, 20), L(-30, -20, -30, 20), L(10, 20, 40, 20), L(40, -20, 26, -20), L(40, 0, 26, 0), CIR(10, 20, 2.2, true), CIR(26, -20, 2, true), CIR(26, 0, 2, true)],
   params: [
     { key: "rcoil", label: "Spulenwiderstand", unit: "Ω", type: "number", def: 120 },
     { key: "vpull", label: "Anzugsspannung", unit: "V", type: "number", def: 4 },
@@ -1301,6 +1303,7 @@ add({
   toDevices: (i, n): Device[] => [
     { id: i.id + "_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i, "rcoil", 120) } },
     { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i, "vpull", 4), voff: num(i, "vpull", 4) * 0.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id + "_nc", type: "VSWITCH", nodes: [n[2], n[4], n[0], n[1]], params: { von: num(i, "vpull", 4), voff: num(i, "vpull", 4) * 0.5, ron: 0.05, roff: 1e9, invert: 1 } },
   ],
 });
 
@@ -1313,7 +1316,7 @@ add({
   mount: "THT",
   interactive: "switch",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30, 0, -14, 0), L(14, 0, 30, 0)], // W27: Hebel + Lagerpunkte zeichnet das Canvas-Overlay (Ref-2-Stil)
+  symbol: [L(-30, 0, -14, 0), L(14, 0, 30, 0), CIR(-14, 0, 2, true), CIR(14, 0, 2, true)], // S5.26: Lagerpunkte statisch im Symbol; nur der Hebel kommt aus dem Overlay
   params: [
     { key: "closed", label: "Geschlossen", type: "bool", def: false },
     { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
@@ -1331,7 +1334,7 @@ add({
   mount: "THT",
   interactive: "button",
   pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30, 0, -14, 0), L(14, 0, 30, 0), L(-14, -6, 14, -6), L(0, -6, 0, -16), L(-10, -16, 10, -16)],
+  symbol: [L(-30, 0, -14, 0), L(14, 0, 30, 0), CIR(-14, 0, 2, true), CIR(14, 0, 2, true)], // S5.26: T-Platte raus (lag doppelt zum Overlay-Hebel); Betätigungskappe malt das Overlay
   params: [
     { key: "closed", label: "Gedrückt", type: "bool", def: false },
     { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
@@ -5884,19 +5887,37 @@ add({
 });
 
 
+/* S5.26: Echte Schalter-Modelle. Jede Schaltfunktion bekommt ihre physikalisch
+   korrekten Pole, Geräte und IEC-Schaltzeichen (statt baugleicher SPST-Fakes
+   mit doppeltem Hebel). Regel: Das Symbol enthält nur Statik (Anschlüsse,
+   Lagerpunkte, Gehäuse); alle Hebel/Zeiger malt zustandsabhängig das
+   Canvas-Overlay. Abgeleitete Geräte-IDs: `<instanz>_<suffix>`. */
 add({
   id: "switch_spdt",
   name: "SPDT Schalter",
   ref: "S",
   category: "Elektromechanik/Schalter",
-  tags: ["schalter","spdt"],
+  tags: ["schalter", "wechsler", "spdt"],
   mount: "THT",
   interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
+  pins: [
+    { name: "COM", x: -30, y: 0 },
+    { name: "NO", x: 30, y: -20 },
+    { name: "NC", x: 30, y: 20 },
+  ],
+  symbol: [
+    L(-30, 0, -14, 0), L(14, -20, 30, -20), L(14, 20, 30, 20),
+    CIR(-14, 0, 2.2, true), CIR(14, -20, 2, true), CIR(14, 20, 2, true),
+  ],
+  params: [
+    { key: "closed", label: "Auf NO umgelegt (statt NC)", type: "bool", def: false },
+    { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" },
+  ],
+  toDevices: (i, n): Device[] => [
+    { id: i.id, type: "SWITCH", nodes: [n[0], n[1]], params: { closed: num(i, "closed", 0), ron: num(i, "ron", 0.01), roff: 1e9 } },
+    { id: i.id + "_nc", type: "SWITCH", nodes: [n[0], n[2]], params: { closed: num(i, "closed", 0) ? 0 : 1, ron: num(i, "ron", 0.01), roff: 1e9 } },
+  ],
 });
 
 
@@ -5905,14 +5926,30 @@ add({
   name: "DPST Schalter",
   ref: "S",
   category: "Elektromechanik/Schalter",
-  tags: ["schalter","dpst"],
+  tags: ["schalter", "dpst"],
   mount: "THT",
   interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
+  pins: [
+    { name: "1A", x: -30, y: -20 },
+    { name: "1B", x: 30, y: -20 },
+    { name: "2A", x: -30, y: 20 },
+    { name: "2B", x: 30, y: 20 },
+  ],
+  symbol: [
+    L(-30, -20, -14, -20), L(14, -20, 30, -20),
+    L(-30, 20, -14, 20), L(14, 20, 30, 20),
+    CIR(-14, -20, 2, true), CIR(14, -20, 2, true),
+    CIR(-14, 20, 2, true), CIR(14, 20, 2, true),
+  ],
+  params: [
+    { key: "closed", label: "Geschlossen (beide Pole)", type: "bool", def: false },
+    { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" },
+  ],
+  toDevices: (i, n): Device[] => [
+    { id: i.id, type: "SWITCH", nodes: [n[0], n[1]], params: { closed: num(i, "closed", 0), ron: num(i, "ron", 0.01), roff: 1e9 } },
+    { id: i.id + "_p2", type: "SWITCH", nodes: [n[2], n[3]], params: { closed: num(i, "closed", 0), ron: num(i, "ron", 0.01), roff: 1e9 } },
+  ],
 });
 
 
@@ -5921,112 +5958,115 @@ add({
   name: "DPDT Schalter",
   ref: "S",
   category: "Elektromechanik/Schalter",
-  tags: ["schalter","dpdt"],
+  tags: ["schalter", "wechsler", "dpdt"],
   mount: "THT",
   interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
+  pins: [
+    { name: "COM1", x: -30, y: -20 },
+    { name: "NO1", x: 30, y: -30 },
+    { name: "NC1", x: 30, y: -10 },
+    { name: "COM2", x: -30, y: 20 },
+    { name: "NO2", x: 30, y: 30 },
+    { name: "NC2", x: 30, y: 10 },
+  ],
+  symbol: [
+    L(-30, -20, -14, -20), L(14, -30, 30, -30), L(14, -10, 30, -10),
+    L(-30, 20, -14, 20), L(14, 30, 30, 30), L(14, 10, 30, 10),
+    CIR(-14, -20, 2.2, true), CIR(14, -30, 2, true), CIR(14, -10, 2, true),
+    CIR(-14, 20, 2.2, true), CIR(14, 30, 2, true), CIR(14, 10, 2, true),
+  ],
+  params: [
+    { key: "closed", label: "Auf NO umgelegt (statt NC)", type: "bool", def: false },
+    { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
+    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" },
+  ],
+  toDevices: (i, n): Device[] => {
+    const c = num(i, "closed", 0);
+    const ron = num(i, "ron", 0.01);
+    return [
+      { id: i.id, type: "SWITCH", nodes: [n[0], n[1]], params: { closed: c, ron, roff: 1e9 } },
+      { id: i.id + "_p1nc", type: "SWITCH", nodes: [n[0], n[2]], params: { closed: c ? 0 : 1, ron, roff: 1e9 } },
+      { id: i.id + "_p2", type: "SWITCH", nodes: [n[3], n[4]], params: { closed: c, ron, roff: 1e9 } },
+      { id: i.id + "_p2nc", type: "SWITCH", nodes: [n[3], n[5]], params: { closed: c ? 0 : 1, ron, roff: 1e9 } },
+    ];
+  },
 });
 
 
-add({
-  id: "switch_rotary_3",
-  name: "Drehschalter 3 Stellungen",
-  ref: "S",
-  category: "Elektromechanik/Schalter",
-  tags: ["schalter","rotary_3"],
-  mount: "THT",
-  interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
-});
+for (const rotaryN of [3, 4, 6, 8]) {
+  const rows: number[] =
+    rotaryN === 3 ? [-20, 0, 20] :
+    rotaryN === 4 ? [-30, -10, 10, 30] :
+    rotaryN === 6 ? [-30, -20, -10, 10, 20, 30] :
+    [-40, -30, -20, -10, 0, 10, 20, 30];
+  add({
+    id: `switch_rotary_${rotaryN}`,
+    name: `Drehschalter ${rotaryN} Stellungen`,
+    ref: "S",
+    category: "Elektromechanik/Schalter",
+    tags: ["schalter", "drehschalter", `rotary_${rotaryN}`],
+    mount: "THT",
+    interactive: "switch",
+    pins: [
+      { name: "COM", x: -30, y: 0 },
+      ...rows.map((y, k) => ({ name: String(k + 1), x: 30, y })),
+    ],
+    symbol: [
+      L(-30, 0, -14, 0), CIR(-14, 0, 2.4, true),
+      ...rows.flatMap((y) => [L(30, y, 16, y), CIR(16, y, 2, true)]),
+    ],
+    params: [
+      { key: "pos", label: "Stellung", type: "number", min: 1, max: rotaryN, step: 1, def: 1 },
+      { key: "ron", label: "Kontaktwiderstand", unit: "Ω", type: "number", def: 0.01 },
+      { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" },
+    ],
+    toDevices: (i, n): Device[] => {
+      const pos = Math.round(num(i, "pos", 1));
+      const ron = num(i, "ron", 0.01);
+      return rows.map((_, k): Device => ({
+        id: `${i.id}_t${k + 1}`,
+        type: "SWITCH",
+        nodes: [n[0], n[k + 1]],
+        params: { closed: pos === k + 1 ? 1 : 0, ron, roff: 1e9 },
+      }));
+    },
+  });
+}
 
 
-add({
-  id: "switch_rotary_4",
-  name: "Drehschalter 4 Stellungen",
-  ref: "S",
-  category: "Elektromechanik/Schalter",
-  tags: ["schalter","rotary_4"],
-  mount: "THT",
-  interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
-});
-
-
-add({
-  id: "switch_rotary_6",
-  name: "Drehschalter 6 Stellungen",
-  ref: "S",
-  category: "Elektromechanik/Schalter",
-  tags: ["schalter","rotary_6"],
-  mount: "THT",
-  interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
-});
-
-
-add({
-  id: "switch_rotary_8",
-  name: "Drehschalter 8 Stellungen",
-  ref: "S",
-  category: "Elektromechanik/Schalter",
-  tags: ["schalter","rotary_8"],
-  mount: "THT",
-  interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
-});
-
-
-add({
-  id: "switch_dip_4",
-  name: "DIP Schalter 4-fach",
-  ref: "S",
-  category: "Elektromechanik/Schalter",
-  tags: ["schalter","dip_4"],
-  mount: "THT",
-  interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
-});
-
-
-add({
-  id: "switch_dip_8",
-  name: "DIP Schalter 8-fach",
-  ref: "S",
-  category: "Elektromechanik/Schalter",
-  tags: ["schalter","dip_8"],
-  mount: "THT",
-  interactive: "switch",
-  pins: [{ name: "1", x: -30, y: 0 }, { name: "2", x: 30, y: 0 }],
-  symbol: [L(-30,0,-14,0), CIR(-14,0,3), L(-12,-2,14,-14), CIR(14,0,3), L(14,0,30,0)],
-  params: [{ key: "closed", label: "Geschlossen", type: "bool", def: false },
-    { key: "key", label: "Taste (bei laufender Simulation)", type: "text", def: "" }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "SWITCH", nodes: n, params: { closed: num(i,"closed",0), ron: 0.01, roff: 1e9 } }],
-});
-
+for (const dipN of [4, 8]) {
+  // Echte DIP-Nummerierung: links oben→unten 1..N, rechts unten→oben N+1..2N.
+  const rows: number[] = dipN === 4 ? [-20, -10, 10, 20] : [-40, -30, -20, -10, 10, 20, 30, 40];
+  const top = rows[0] - 8;
+  const h = rows[rows.length - 1] - rows[0] + 16;
+  add({
+    id: `switch_dip_${dipN}`,
+    name: `DIP Schalter ${dipN}-fach`,
+    ref: "S",
+    category: "Elektromechanik/Schalter",
+    tags: ["schalter", "dip", `dip_${dipN}`],
+    mount: "THT",
+    interactive: "switch",
+    pins: rows.flatMap((y, k) => [
+      { name: String(k + 1), x: -20, y },
+      { name: String(2 * dipN - k), x: 20, y },
+    ]),
+    symbol: [
+      RECT(-14, top, 28, h, 2),
+      ...rows.flatMap((y) => [L(-20, y, -14, y), L(14, y, 20, y)]),
+    ],
+    params: [...rows.map((_, k) => ({ key: `closed${k + 1}`, label: `Schalter ${k + 1} geschlossen`, type: "bool" as const, def: false })),
+      { key: "key", label: "Taste: alle Hebel (bei laufender Simulation)", type: "text", def: "" }],
+    toDevices: (i, n): Device[] => {
+      return rows.map((_, k): Device => ({
+        id: `${i.id}_sw${k + 1}`,
+        type: "SWITCH",
+        nodes: [n[2 * k], n[2 * k + 1]],
+        params: { closed: num(i, `closed${k + 1}`, 0), ron: 0.01, roff: 1e9 },
+      }));
+    },
+  });
+}
 
 add({
   id: "relay_spst_5v",
@@ -6036,7 +6076,7 @@ add({
   tags: ["relais","relay_spst_5v"],
   mount: "THT",
   pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }],
-  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(10,20,26,-14), L(40,-20,26,-20)],
+  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(40,-20,26,-20), CIR(10,20,2.2,true), CIR(26,-20,2,true)],
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 120 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",120) } },
@@ -6053,7 +6093,7 @@ add({
   tags: ["relais","relay_spst_12v"],
   mount: "THT",
   pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }],
-  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(10,20,26,-14), L(40,-20,26,-20)],
+  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(40,-20,26,-20), CIR(10,20,2.2,true), CIR(26,-20,2,true)],
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 288 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 12 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",288) } },
@@ -6069,12 +6109,13 @@ add({
   category: "Elektromechanik/Relais",
   tags: ["relais","relay_spdt_5v"],
   mount: "THT",
-  pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }],
-  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(10,20,26,-14), L(40,-20,26,-20)],
+  pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }, { name: "NC", x: 40, y: 0 }],
+  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(40,-20,26,-20), L(40,0,26,0), CIR(10,20,2.2,true), CIR(26,-20,2,true), CIR(26,0,2,true)],
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 120 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",120) } },
     { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id+"_nc", type: "VSWITCH", nodes: [n[2], n[4], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9, invert: 1 } },
   ],
 });
 
@@ -6086,12 +6127,13 @@ add({
   category: "Elektromechanik/Relais",
   tags: ["relais","relay_spdt_12v"],
   mount: "THT",
-  pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }],
-  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(10,20,26,-14), L(40,-20,26,-20)],
+  pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }, { name: "NC", x: 40, y: 0 }],
+  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(40,-20,26,-20), L(40,0,26,0), CIR(10,20,2.2,true), CIR(26,-20,2,true), CIR(26,0,2,true)],
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 288 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 12 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",288) } },
     { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id+"_nc", type: "VSWITCH", nodes: [n[2], n[4], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9, invert: 1 } },
   ],
 });
 
@@ -6103,12 +6145,15 @@ add({
   category: "Elektromechanik/Relais",
   tags: ["relais","relay_dpdt_5v"],
   mount: "THT",
-  pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }],
-  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(10,20,26,-14), L(40,-20,26,-20)],
+  pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM1", x: 40, y: -20 }, { name: "NO1", x: 40, y: -30 }, { name: "NC1", x: 40, y: -10 }, { name: "COM2", x: 40, y: 20 }, { name: "NO2", x: 40, y: 30 }, { name: "NC2", x: 40, y: 10 }],
+  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,-20,40,-20), L(40,-30,26,-30), L(40,-10,26,-10), L(10,20,40,20), L(40,30,26,30), L(40,10,26,10), CIR(10,-20,2.2,true), CIR(26,-30,2,true), CIR(26,-10,2,true), CIR(10,20,2.2,true), CIR(26,30,2,true), CIR(26,10,2,true)],
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 120 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 5 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",120) } },
     { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id+"_p1nc", type: "VSWITCH", nodes: [n[2], n[4], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9, invert: 1 } },
+    { id: i.id+"_p2", type: "VSWITCH", nodes: [n[5], n[6], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id+"_p2nc", type: "VSWITCH", nodes: [n[5], n[7], n[0], n[1]], params: { von: num(i,"vpull",5), voff: num(i,"vpull",5)*0.5, ron: 0.05, roff: 1e9, invert: 1 } },
   ],
 });
 
@@ -6120,12 +6165,15 @@ add({
   category: "Elektromechanik/Relais",
   tags: ["relais","relay_dpdt_12v"],
   mount: "THT",
-  pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM", x: 40, y: 20 }, { name: "NO", x: 40, y: -20 }],
-  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,20,40,20), L(10,20,26,-14), L(40,-20,26,-20)],
+  pins: [{ name: "COIL+", x: -40, y: -20 }, { name: "COIL-", x: -40, y: 20 }, { name: "COM1", x: 40, y: -20 }, { name: "NO1", x: 40, y: -30 }, { name: "NC1", x: 40, y: -10 }, { name: "COM2", x: 40, y: 20 }, { name: "NO2", x: 40, y: 30 }, { name: "NC2", x: 40, y: 10 }],
+  symbol: [RECT(-30,-14,24,28,2), L(-40,-20,-30,-20), L(-40,20,-30,20), L(-30,-20,-30,20), L(10,-20,40,-20), L(40,-30,26,-30), L(40,-10,26,-10), L(10,20,40,20), L(40,30,26,30), L(40,10,26,10), CIR(10,-20,2.2,true), CIR(26,-30,2,true), CIR(26,-10,2,true), CIR(10,20,2.2,true), CIR(26,30,2,true), CIR(26,10,2,true)],
   params: [{ key: "rcoil", label: "R Spule", unit: "Ω", type: "number", def: 288 }, { key: "vpull", label: "Vpull", unit: "V", type: "number", def: 12 }],
   toDevices: (i,n): Device[] => [
     { id: i.id+"_coil", type: "R", nodes: [n[0], n[1]], params: { r: num(i,"rcoil",288) } },
     { id: i.id, type: "VSWITCH", nodes: [n[2], n[3], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id+"_p1nc", type: "VSWITCH", nodes: [n[2], n[4], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9, invert: 1 } },
+    { id: i.id+"_p2", type: "VSWITCH", nodes: [n[5], n[6], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9 } },
+    { id: i.id+"_p2nc", type: "VSWITCH", nodes: [n[5], n[7], n[0], n[1]], params: { von: num(i,"vpull",12), voff: num(i,"vpull",12)*0.5, ron: 0.05, roff: 1e9, invert: 1 } },
   ],
 });
 

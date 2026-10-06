@@ -3833,3 +3833,30 @@ derselben Knickfolge wie der Klick (waagrecht angekommen → senkrecht weiter,
 Klick-Suffix + Orthogonal-Garantie stehen als wiretest-Checks.
 Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (notetest +6 Wächter,
 wiretest +3 Schweif-Checks).
+
+## §65 · S5.26 Ergebnis (Echte Schalter + Poti-Schieber + Pinbeschriftungen, 2026-10-06)
+
+Drei Nutzerwünsche, ein Sprint. (1) Schaltzeichen: SPDT/DPST/DPDT, alle Dreh-
+und alle DIP-Schalter waren derselbe 2-Pin-SPST-Fake — mit doppeltem Hebel
+(statisch im Symbol plus generisch im Overlay). Jetzt hat jede Schaltfunktion
+ihre echten Pole (SPDT: COM/NO/NC mit komplementären Geräten; DPST/DPDT:
+gekoppelte Pole; Dreh: COM plus Abgriffe; DIP: Gehäuse mit echter
+Pin-Nummerierung 1..N / 2N..N+1), ihr eigenes IEC-Zeichen (nur Statik im
+Symbol) und ihren zustandsabhängigen Hebel aus dem typ-bewussten Overlay
+(Wechsler berühren immer eine Seite, DP-Typen mit gestrichelter
+Wirkverbindung). Der Taster verlor seine T-Platte (lag doppelt zum Hebel)
+und bekam die IEC-Betätigungskappe. (2) Die Relais-Familie entpuppte sich
+beim Audit als dieselbe Fake-Klasse: „SPDT"/„DPDT" mit 4 Pins und einem
+SPST-Modell. Jetzt echte Wechsler (neuer VSWITCH-Parameter `invert`, NC-Pfad
+als eigenes Gerät) — und der Anker zieht im Overlay sichtbar an (liest den
+echten Spulen-Zustand aus dem Solver). (3) Poti: Das unsichtbare
+±5-%-Klicken ist gestrichen; daneben steht jetzt ein großer Schieberegler
+(Spur plus Füllung plus Knopf, Drag mit einer Undo-Stufe, live bei
+laufender Simulation, sonst Param-Editor). (4) Pinbeschriftungen überall:
+Jeder benannte Pin (Oszi, Funktionsgenerator, COM/NO/NC, COIL±, …) zeigt
+seinen Namen — unrotiert lesbar, außen versetzt; rein numerische entfallen.
+Katalog-Audit über alle 418 Bauteile: keine leeren Symbole, keine
+Raster-/Namen-Verstöße. Interaktions-Regel für alle Schalter in einem Modul
+(`switches.ts`: Klick, Taste, Inspektor-Live und Overlay lesen dieselbe
+Wahrheit); `setParam` räumt abgeleitete Geräte-Controls (`<id>_<suffix>`)
+mit ab, sonst überschatten sie editierte Params.

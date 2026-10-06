@@ -21,7 +21,8 @@ import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
 import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "@/lib/keyboard";
 import { summarizeCircuit } from "@/lib/a11y";
 import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
-import { findInstanceByValueLabel, findPinInfo, getNetObstacles, getNetPinPoints, getNoteBounds, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, nearestNetName, probeTarget } from "./Canvas/hitTest";
+import { dipLeverAt, findInstanceByValueLabel, findPinInfo, findPotSliderAt, getNetObstacles, getNetPinPoints, getNoteBounds, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, instanceLocalPoint, nearestNetName, probeTarget } from "./Canvas/hitTest";
+import { potSliderPosFromLocalY, switchToggle } from "@/lib/interactive/switches";
 import { NOTE_FONT_DEFAULT, NOTE_H, NOTE_W, clampNoteScroll, nearestFontStep, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
 import { drawInstance, drawProbe } from "./Canvas/render";
 import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
@@ -147,6 +148,8 @@ export default function Canvas() {
     netHover: null as null | NetTarget,
     lastMouse: { x: 0, y: 0 },
     duplicated: false,
+    // S5.26: Poti-Schieber in Arbeit (eine Undo-Stufe pro Zug).
+    potDrag: null as null | { id: string; value: number; changed: boolean },
   });
 
   const syncNetDraft = useCallback((draft: NetDraft | null) => {
@@ -1901,7 +1904,8 @@ export default function Canvas() {
 
     const labelHit = hitTestLabel(st.doc, world);
     const noteHit = !labelHit ? hitTestNote(st.doc, world) : null;
-    const hit = hitTestInstance(st.doc, world.x, world.y) ?? findInstanceByValueLabel(st.doc, world);
+    // S5.26: Der Poti-Schieber liegt außerhalb der Symbol-Bbox — eigener Hit davor.
+    const hit = hitTestInstance(st.doc, world.x, world.y) ?? findPotSliderAt(st.doc, world) ?? findInstanceByValueLabel(st.doc, world);
 
     if (st.tool === "erase") {
       if (hit) { st.setSelection([hit.id]); st.deleteSelection(); }
@@ -1936,14 +1940,36 @@ export default function Canvas() {
       return;
     }
 
+    // S5.26: Poti-Schieber greifen — steht UND läuft (ist Param-Editor, keine
+    // Sim-Steuerung). Radierer/sonstige Tools sind oben schon zurückgekehrt.
+    if (hit && PART_MAP[hit.partId]?.interactive === "pot" && findPotSliderAt(st.doc, world)?.id === hit.id) {
+      const v = potSliderPosFromLocalY(instanceLocalPoint(hit, world).y);
+      st.setSelection([hit.id]);
+      const cur = engine.controls[hit.id] ?? engine.controls[hit.label] ?? Number(hit.params.pos ?? 0.5);
+      if (Math.abs(v - cur) > 1e-4) {
+        st.beginGesture();
+        sr.potDrag = { id: hit.id, value: v, changed: true };
+        if (st.sim.running) engine.setControl(hit.id, v);
+        else st.setParam(hit.id, "pos", v);
+      } else {
+        sr.potDrag = { id: hit.id, value: cur, changed: false };
+      }
+      return;
+    }
+
     if (hit && st.sim.running) {
       const part = PART_MAP[hit.partId];
       // S5.14: Controls sind per Instanz-ID geschlüsselt (Solver liest die
       // Geräte-ID = Instanz-ID; Label wäre wirkungslos, nur Deko).
+      // S5.26: Typ-bewusstes Schalten — Wechsler legen um, Dreh schaltet weiter,
+      // DIP-Hebel einzeln (eine Wahrheit: switchToggle).
       if (part?.interactive === "switch" || part?.interactive === "dip") {
-        const cur = engine.controls[hit.id] ?? engine.controls[hit.label] ?? (hit.params.closed ? 1 : 0);
-        engine.setControl(hit.id, cur > 0.5 ? 0 : 1);
-        st.log("info", `${hit.label} ${cur > 0.5 ? "geöffnet" : "geschlossen"}`); return;
+        const dip = part && part.id.startsWith("switch_dip_") ? dipLeverAt(part.id, hit, world) : null;
+        const t = part ? switchToggle(part.id, hit, engine.controls, dip ?? undefined) : null;
+        if (t) {
+          for (const [cid, v] of Object.entries(t.targets)) engine.setControl(cid, v);
+          st.log("info", `${hit.label} ${t.log}`); return;
+        }
       }
       if (part?.interactive === "button") {
         // S5.14: Taster tastet — schließen bei Drücken, öffnen bei Loslassen.
@@ -1959,12 +1985,8 @@ export default function Canvas() {
         window.addEventListener("mouseup", release);
         st.log("info", `${hit.label} gedrückt`); return;
       }
-      if (part?.interactive === "pot") {
-        const cur = engine.controls[hit.id] ?? engine.controls[hit.label] ?? Number(hit.params.pos ?? 0.5);
-        const next = Math.min(0.99, Math.max(0.01, cur + (e.shiftKey ? -0.05 : 0.05)));
-        engine.setControl(hit.id, next);
-        st.log("info", `${hit.label} ${(next*100).toFixed(0)}%`); return;
-      }
+      // S5.26: Unsichtbares ±5-%-Klicken ersatzlos gestrichen — der Schieber
+      // neben dem Poti ist die Steuerung (Tastatur-Feinstellung bleibt).
     }
 
     if (hit) {
@@ -2096,6 +2118,22 @@ export default function Canvas() {
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;
+    // S5.26: Poti-Schieber ziehen — live bei laufender Sim, sonst als (eine) Param-Änderung.
+    if (sr.potDrag) {
+      const pd = sr.potDrag;
+      const inst = st.doc.instances.find((i) => i.id === pd.id);
+      if (!inst) sr.potDrag = null;
+      else {
+        const v = potSliderPosFromLocalY(instanceLocalPoint(inst, world).y);
+        if (Math.abs(v - pd.value) > 1e-4) {
+          if (!pd.changed) { st.beginGesture(); pd.changed = true; }
+          pd.value = v;
+          if (st.sim.running) engine.setControl(pd.id, v);
+          else st.setParam(pd.id, "pos", v);
+        }
+      }
+      return;
+    }
     setCursor(sp); useHud.setState({ cursor: sp });
 
     // Track hovered wire handle for delightful UX – show larger handle + tooltip
@@ -2460,6 +2498,18 @@ export default function Canvas() {
       touchState.current = null;
     }
     const st = useEditor.getState(); const sr = stateRef.current;
+    // S5.26: Poti-Schieber loslassen — Zielwert einmalig committen (eine Undo-Stufe).
+    if (sr.potDrag) {
+      const pd = sr.potDrag;
+      sr.potDrag = null;
+      if (pd.changed) {
+        st.setParam(pd.id, "pos", pd.value);
+        const inst = st.doc.instances.find((i) => i.id === pd.id);
+        st.log("info", `${inst?.label ?? "Poti"} ${(pd.value * 100).toFixed(0)}%`);
+      }
+      st.endGesture();
+      return;
+    }
     const wasMoved = sr.moved;
     st.endGesture();
 
@@ -2758,9 +2808,11 @@ export default function Canvas() {
           const kind = PART_MAP[inst?.partId ?? ""]?.interactive;
           if (kind === "switch" || kind === "dip") {
             if (e.repeat) continue;
-            const cur = engine.controls[id] ?? (inst?.params.closed ? 1 : 0);
-            engine.setControl(id, cur > 0.5 ? 0 : 1);
-            st.log("info", `${inst?.label} ${cur > 0.5 ? "geöffnet" : "geschlossen"}`);
+            // S5.26: Taste schaltet typ-bewusst (Dreh springt weiter, DIP alle Hebel).
+            const t = inst ? switchToggle(inst.partId, inst, engine.controls) : null;
+            if (!t) continue;
+            for (const [cid, v] of Object.entries(t.targets)) engine.setControl(cid, v);
+            st.log("info", `${inst?.label} ${t.log}`);
           } else if (kind === "button") {
             if (e.repeat) continue;
             engine.setControl(id, 1);

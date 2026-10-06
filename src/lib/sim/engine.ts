@@ -1059,7 +1059,9 @@ export class Simulator {
           break;
         }
         case "VSWITCH": {
-          const on = st.extra!.on ?? 0;
+          // S5.26: invert=1 kehrt den Ausgang um (NC-Pfad echter Wechsler-Relais;
+          // die Hysterese in updateEvents bleibt unverändert Rohzustand).
+          const on = (st.extra!.on ?? 0) ^ (p(d, "invert", 0) > 0.5 ? 1 : 0);
           const g = on ? 1 / Math.max(p(d, "ron", 1), 1e-6) : 1 / Math.max(p(d, "roff", 1e9), 1);
           this.stampConductance(m, n0, n1, g);
           break;
