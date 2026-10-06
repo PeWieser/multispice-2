@@ -4,7 +4,7 @@ import { POT_SLIDER } from "@/lib/interactive/switches";
 import { nearestWireFoot } from "@/lib/schematic/netdraw";
 import { useEditor } from "@/state/editor";
 import { type Pt } from "./geometry";
-import { NOTE_H, NOTE_W } from "@/lib/notes/markup";
+import { noteCardSize } from "@/lib/notes/markup";
 
 export function getNetObstacles(doc: SchematicDoc): Array<{ x: number; y: number; w: number; h: number }> {
   return doc.instances.map((inst) => {
@@ -44,7 +44,9 @@ export function hitTestLabel(doc: SchematicDoc, p: Pt): import("@/lib/schematic/
 
 export function getNoteBounds(n: import("@/lib/schematic/model").TextNote): { x: number; y: number; w: number; h: number } {
   // S5.23: Einheitskarte — der Zettel ist immer gleich groß, Text scrollt innen.
-  return { x: n.x, y: n.y - 18, w: NOTE_W, h: NOTE_H };
+  // S5.28: …in drei Blattgrößen (M = bisher).
+  const c = noteCardSize(n.card);
+  return { x: n.x, y: n.y - 18, w: c.w, h: c.h };
 }
 
 export function hitTestNote(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").TextNote | null {

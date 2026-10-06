@@ -14,7 +14,7 @@ import InlineEditor, { type InlineEdit } from "./InlineEditor";
 import NoteEditor from "./NoteEditor";
 import ContextMenu, { type CtxTarget } from "./CanvasContextMenu";
 import ZoomButtons from "./ZoomButtons";
-import { canvasColor, inkOn } from "@/lib/canvas-theme";
+import { canvasColor, inkOn, isDarkCanvas } from "@/lib/canvas-theme";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
@@ -744,19 +744,20 @@ export default function Canvas() {
       // W15 / W105–W107 / W113: Dezentere, sprungfreie Ladungsträger-Perlen
       // mit konstantem Abstand (FLOW_SPACING = 22 px) und kontinuierlich
       // integrierter Phase pro Leitung.
+      // S5.28: Etwas präsenter (größer, deckender, Theme-Kontrastkontur).
       const flow = flowByWire.get(wire.id);
       if (flow && flow.mag >= 1e-5 && wire.points.length > 1) {
         const totalLen = polyLength(wire.points);
         if (totalLen >= 6) {
           const iz = 1 / Math.max(view.zoom, 0.45);
-          // Dezente Deckkraft (0.32 bei 10 µA bis max. 0.68 ab 10 mA)
-          const intensity = Math.min(0.68, Math.max(0.32, 0.32 + (Math.log10(flow.mag / 1e-5) / 3) * 0.36));
-          const rDot = 2.0 * iz;
+          // Deckkraft (0.40 bei 10 µA bis max. 0.78 ab 10 mA)
+          const intensity = Math.min(0.78, Math.max(0.40, 0.40 + (Math.log10(flow.mag / 1e-5) / 3) * 0.38));
+          const rDot = 2.4 * iz;
           const isElectron = st.currentFlowDirection !== "conventional";
           ctx.save();
           ctx.globalAlpha = intensity;
           ctx.fillStyle = isElectron ? "#f59e0b" : canvasColor("--ink-3"); // S5.15: Fix-Amber = Signal, Grau = Token
-          ctx.strokeStyle = "rgba(15, 23, 42, 0.45)";
+          ctx.strokeStyle = isDarkCanvas() ? "rgba(255, 255, 255, 0.55)" : "rgba(15, 23, 42, 0.45)";
           ctx.lineWidth = 0.85 * iz;
           for (let pos = flow.phase; pos <= totalLen; pos += FLOW_SPACING) {
             const pt = pointAtLength(wire.points, pos);
@@ -1084,10 +1085,11 @@ export default function Canvas() {
       const lineH = noteLineH(sz);
       const padX = NOTE_PAD_X;
       const topPad = NOTE_TOP_PAD;
-      const cardX = note.x;
-      const cardY = note.y - 18;
-      const cardW = NOTE_W;
-      const cardH = NOTE_H;
+      const nb = getNoteBounds(note);
+      const cardX = nb.x;
+      const cardY = nb.y;
+      const cardW = nb.w;
+      const cardH = nb.h;
       // Umbruch: Wörter mit Stil auf die Kartenbreite.
       const wrapped: NoteRun[][] = [];
       for (const runs of parseNoteRuns(raw)) {
@@ -1098,7 +1100,7 @@ export default function Canvas() {
           const ww = ctx.measureText(word.t).width;
           ctx.font = runFont({ t: " ", b: false, i: false, u: false }, sz);
           const sp = cur.length ? ctx.measureText(" ").width : 0;
-          if (cur.length && curW + sp + ww > NOTE_W - padX * 2) {
+          if (cur.length && curW + sp + ww > cardW - padX * 2) {
             wrapped.push(cur);
             cur = [];
             curW = 0;
@@ -1692,6 +1694,12 @@ export default function Canvas() {
       } else {
         // S5.22: Direkt auf dem Zettel schreiben (kein separates Feld).
         const existingNote = hitTestNote(st.doc, world);
+        // S5.28: Offener Editor + Klick ins Leere beendet nur (keine neue Notiz).
+        if (editingNote && !existingNote) {
+          setEditingNote(null);
+          st.setTool("select");
+          return;
+        }
         if (existingNote) {
           st.setSelection([existingNote.id]);
           setEditingNote({ id: existingNote.id, isNew: false, caret: { x: e.clientX, y: e.clientY }, scroll: noteScrollRef.current.get(existingNote.id) ?? 0 });
@@ -3413,6 +3421,25 @@ export default function Canvas() {
                     }}
                   >
                     {selInst0 && mainParam0?.type === "text" ? "✎ Name" : "✎ Wert"}
+                  </button>
+                )}
+                {selNote0 && (
+                  <button
+                    type="button"
+                    className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                    title="Blattgröße wechseln (M → L → S)"
+                    onClick={() => {
+                      const st = useEditor.getState();
+                      const id = selNote0.id;
+                      const cur = st.doc.notes.find((n) => n.id === id)?.card ?? "m";
+                      const next = cur === "m" ? "l" : cur === "l" ? "s" : "m";
+                      st.commit((d) => {
+                        const n = d.notes.find((x) => x.id === id);
+                        if (n) n.card = next;
+                      });
+                    }}
+                  >
+                    {`Karte: ${(selNote0.card ?? "m").toUpperCase()}`}
                   </button>
                 )}
                 <button

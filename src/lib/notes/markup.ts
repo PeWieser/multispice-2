@@ -8,6 +8,19 @@
 export const NOTE_W = 232;
 export const NOTE_H = 150;
 
+/* S5.28: Drei Blattgrößen (S/M/L) — M ist der bisherige Zettel (Standard). */
+export const NOTE_CARD_SIZES = {
+  s: { w: 170, h: 110 },
+  m: { w: 232, h: 150 },
+  l: { w: 310, h: 200 },
+} as const;
+export type NoteCardSize = keyof typeof NOTE_CARD_SIZES;
+/** Blattmaß auflösen — unbekannt/leer fällt auf M zurück (alter Bestand). */
+export function noteCardSize(card: unknown): { w: number; h: number } {
+  if (card === "s" || card === "m" || card === "l") return NOTE_CARD_SIZES[card];
+  return NOTE_CARD_SIZES.m;
+}
+
 /** S5.23: Drei Schriftgrößen (S/M/L) in px. S5.25: M +1, L deutlich (S passt). */
 export const NOTE_FONT_STEPS = [9, 12, 16] as const;
 export const NOTE_FONT_DEFAULT = 12;

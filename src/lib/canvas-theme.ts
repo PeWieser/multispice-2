@@ -37,6 +37,11 @@ function currentTheme(): Theme {
   return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
 
+/** S5.28: Dunkles Theme? (z. B. kontrastreiche Elektronen-Kontur.) */
+export function isDarkCanvas(): boolean {
+  return currentTheme() === "dark";
+}
+
 /** Farbe eines Tokens (`--wire`, `--ink-3` …) für Canvas/SVG-Zeichnung. */
 export function canvasColor(name: string): string {
   const theme = currentTheme();

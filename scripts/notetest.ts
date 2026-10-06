@@ -2,7 +2,7 @@
  * S5.22b: Notizzettel-Markup — Parsen, HTML-Roundtrip, Kartengrenzen.
  * Läuft ohne DOM (reine String-/Mathe-Funktionen).
  */
-import { NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_FONT_STEPS, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, htmlToMarkup, markupToHtml, nearestFontStep, noteEditorPadSide, noteEditorPadTop, noteFirstBaseline, noteLineH, parseNoteRuns } from "../src/lib/notes/markup";
+import { NOTE_CARD_SIZES, NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_FONT_STEPS, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, htmlToMarkup, markupToHtml, nearestFontStep, noteCardSize, noteEditorPadSide, noteEditorPadTop, noteFirstBaseline, noteLineH, parseNoteRuns } from "../src/lib/notes/markup";
 import { getNoteBounds } from "../src/components/Canvas/hitTest";
 import { readFileSync } from "node:fs";
 
@@ -190,6 +190,40 @@ for (const m of [
     "Unmount committed",
     editorSrc.includes("commit();") && canvasSrc.includes("prev.id === id ? null : prev"),
     "Zettelwechsel verliert nichts"
+  );
+}
+
+/* 8 · S5.28: Drei Blattgrößen, One-Shot-Platzierung, deutlichere Elektronen */
+{
+  check(
+    "Blattmaße S/M/L",
+    NOTE_CARD_SIZES.s.w === 170 && NOTE_CARD_SIZES.s.h === 110 &&
+      NOTE_CARD_SIZES.m.w === NOTE_W && NOTE_CARD_SIZES.m.h === NOTE_H &&
+      NOTE_CARD_SIZES.l.w === 310 && NOTE_CARD_SIZES.l.h === 200,
+    "M ist der bisherige Zettel"
+  );
+  check(
+    "Größenauflösung mit M-Fallback",
+    noteCardSize(undefined) === NOTE_CARD_SIZES.m &&
+      noteCardSize("x") === NOTE_CARD_SIZES.m &&
+      noteCardSize("s") === NOTE_CARD_SIZES.s &&
+      noteCardSize("l") === NOTE_CARD_SIZES.l
+  );
+  const b = (card: unknown) => getNoteBounds({ id: "n", x: 10, y: 50, text: "", card } as never);
+  check("Bounds je Größe", b("s").w === 170 && b("s").h === 110 && b(undefined).w === 232 && b("l").w === 310 && b("l").h === 200);
+  check("Kartenanker oben-links", b("l").x === 10 && b("l").y === 32);
+  check(
+    "Umbruchbreiten 150/212/290",
+    [noteCardSize("s").w, noteCardSize("m").w, noteCardSize("l").w].map((w) => w - 2 * NOTE_PAD_X).join(",") === "150,212,290"
+  );
+  const canvasSrc = readFileSync("src/components/Canvas.tsx", "utf8");
+  check("One-Shot-Platzierung", canvasSrc.includes("keine neue Notiz") && canvasSrc.includes("if (editingNote && !existingNote)"));
+  check("Blattgrößen-Button", canvasSrc.includes("Karte:") && canvasSrc.includes("Blattgröße wechseln (M → L → S)"));
+  check(
+    "Elektronen präsenter",
+    canvasSrc.includes("const rDot = 2.4 * iz;") &&
+      canvasSrc.includes("Math.min(0.78, Math.max(0.40") &&
+      canvasSrc.includes('isDarkCanvas() ? "rgba(255, 255, 255, 0.55)"')
   );
 }
 

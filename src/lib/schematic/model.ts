@@ -61,6 +61,8 @@ export interface TextNote {
   y: number;
   text: string;
   size?: number;
+  /** S5.28: Blattgröße s/m/l (Standard m = bisheriger Zettel). */
+  card?: "s" | "m" | "l";
 }
 
 export type ProbeKind = "voltage" | "current" | "power" | "diff" | "ref" | "digital" | "voltage_current";

@@ -3880,3 +3880,18 @@ Zettelwechsel (B öffnen, während A offen ist) committed A per
 Unmount-Commit statt ihn zu verwerfen; `commitNote` schließt nur noch, wenn
 derselbe Zettel noch offen ist (funktionales setState, kein
 Render-Ref-Zugriff — der Lint verbietet ihn).
+
+## §67 · S5.28 Ergebnis (Blattgrößen, One-Shot-Platzierung, Elektronen, 2026-10-06)
+
+Drei Nutzerwünsche. (1) Drei Notizblatt-Größen: S (170×110), M (232×150,
+bisheriger Zettel, Standard) und L (310×200) — als `card`-Feld auf der
+Notiz (Altbestand fällt auf M zurück). Ein Button in der Auswahlleiste
+(„Karte: M") schaltet M → L → S (undo-fähig); Umbruch, Trefferzonen und
+Editor folgen der Größe aus derselben Quelle. (2) Platzieren ist One-Shot:
+Notiz setzen, schreiben, woanders hinklicken — die Notiz bleibt committed
+stehen, keine neue entsteht (offener Editor plus Klick ins Leere beendet
+nur; Klick auf einen anderen Zettel wechselt weiterhin). (3) Elektronen der
+Stromanimation sind deutlicher, aber maßvoll: Punkt 2.0 → 2.4, Deckkraft
+0.32–0.68 → 0.40–0.78 (gleiche Log-Kurve), Kontur mit Theme-Kontrast
+(dunkel im Light-, hell im Dark-Mode). Abstand, Farben und Schwelle
+unverändert.
