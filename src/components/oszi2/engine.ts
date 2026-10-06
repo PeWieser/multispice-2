@@ -184,16 +184,27 @@ function trigValue(s: Settings, env: Env, acMean: number[], t: number): number {
 
 export function findTrigger(a: number, b: number, s: Settings, env: Env, acMean: number[]): number | null {
   if (b <= a) return null;
-  const L = s.trig.source === 4 ? 0 : s.trig.level;
+  const src = s.trig.source;
+  const L = src === 4 ? 0 : s.trig.level;
+  // S5.31: Trigger-Hysterese (Schmitt) — echte Komparatoren schalten nicht
+  // auf dem eigenen Rauschen. 0,3 Divs der Triggerquelle (Netz: 0,25 auf dem
+  // normierten ±1-Sinus). Ohne sie feuerte jeder Frame auf Rauschen (120/120
+  // bei stehendem Signal) und das Bild lief scheinbar durch.
+  const hys = src === 4 ? 0.25 : 0.3 * s.ch[src].vdiv;
+  const bandHi = L + hys, bandLo = L - hys;
   const N = 4000;
   const step = (b - a) / N;
-  let prev = trigValue(s, env, acMean, a);
+  const p0 = trigValue(s, env, acMean, a);
+  let st = p0 > bandHi ? 1 : p0 < bandLo ? -1 : 0;
   const slope = s.trig.slope;
   for (let i = 1; i <= N; i++) {
     const t = a + i * step;
     const v = trigValue(s, env, acMean, t);
-    const rising = prev < L && v >= L;
-    const falling = prev > L && v <= L;
+    // Zwischen den Bändern: halten (nur volle Durchgänge zählen).
+    const nst = v > bandHi ? 1 : v < bandLo ? -1 : st;
+    const rising = st === -1 && nst === 1;
+    const falling = st === 1 && nst === -1;
+    st = nst;
     if ((slope !== 'fall' && rising) || (slope !== 'rise' && falling)) {
       let lo = t - step, hi = t;
       const up = rising;
@@ -205,7 +216,6 @@ export function findTrigger(a: number, b: number, s: Settings, env: Env, acMean:
       }
       return (lo + hi) / 2;
     }
-    prev = v;
   }
   return null;
 }

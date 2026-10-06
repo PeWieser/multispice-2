@@ -11,7 +11,7 @@ import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
 import ShortcutSheet from "./ShortcutSheet";
 import InlineEditor, { type InlineEdit } from "./InlineEditor";
-import NoteEditor from "./NoteEditor";
+import NoteEditor, { resolveNoteCommit } from "./NoteEditor";
 import ContextMenu, { type CtxTarget } from "./CanvasContextMenu";
 import ZoomButtons from "./ZoomButtons";
 import { canvasColor, inkOn, isDarkCanvas } from "@/lib/canvas-theme";
@@ -2112,6 +2112,7 @@ export default function Canvas() {
   };
 
   // S5.22: Direkteditor-Übernahme — neue leere Notiz wird still verworfen.
+  // S5.31: Entscheidung aus resolveNoteCommit (eine Wahrheit, testbar).
   const commitNote = (markup: string | null, wasNew: boolean, size?: number) => {
     const st = useEditor.getState();
     const id = editingNote?.id;
@@ -2119,15 +2120,16 @@ export default function Canvas() {
     // Zettelwechsel committed der alte, ohne den neuen zuzumachen.
     setEditingNote((prev) => (prev && prev.id === id ? null : prev));
     st.setTool("select");
-    if (!id || markup === null) return;
-    if (wasNew && !markup.trim()) {
+    const action = id ? resolveNoteCommit(markup, wasNew) : null;
+    if (!id || !action) return;
+    if (action.kind === "discard") {
       st.commit((d) => {
         d.notes = d.notes.filter((n) => n.id !== id);
       });
       st.setSelection([]);
       return;
     }
-    st.updateNote(id, markup, size);
+    st.updateNote(id, action.text, size);
     st.log("ok", wasNew ? "Notiz" : "Notiz aktualisiert");
   };
 

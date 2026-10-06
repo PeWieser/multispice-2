@@ -5,6 +5,8 @@
 import { NOTE_CARD_SIZES, NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_FONT_STEPS, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, htmlToMarkup, markupToHtml, nearestFontStep, noteCardSize, noteEditorPadSide, noteEditorPadTop, noteFirstBaseline, noteLineH, parseNoteRuns } from "../src/lib/notes/markup";
 import { getNoteBounds } from "../src/components/Canvas/hitTest";
 import { DIVIDER_JOKE, dividerJokeNoteIds } from "../src/lib/notes/easteregg";
+import { resolveNoteCommit } from "../src/components/NoteEditor";
+import { useEditor } from "../src/state/editor";
 import { readFileSync } from "node:fs";
 
 let failed = 0;
@@ -101,7 +103,8 @@ for (const m of [
   );
   check(
     "neue leere Notiz wird verworfen",
-    canvas.includes("wasNew && !markup.trim()"),
+    // S5.31: Regel lebt in resolveNoteCommit (NoteEditor), Canvas ruft sie auf.
+    canvas.includes("resolveNoteCommit(markup, wasNew)") && editor.includes("wasNew && !markup.trim()"),
     "kein leerer Zettel nach Esc"
   );
   check(
@@ -255,6 +258,32 @@ for (const m of [
   check("Stempel nur bei laufender Simulation",
     canvasSrc.includes("sim.running ? dividerJokeNoteIds(doc) : []")
     && canvasSrc.includes("ctx.fillText(DIVIDER_JOKE, 0, 0)"));
+}
+
+/* 10 · S5.31: Geschriebene Notiz geht nie verloren (Unmount-Commit) */
+{
+  const a1 = resolveNoteCommit("Hallo Welt", true);
+  check("getippt + neu → übernehmen (nie verwerfen)", a1?.kind === "update" && a1.text === "Hallo Welt");
+  check("leer + neu → still verwerfen",
+    resolveNoteCommit("  ", true)?.kind === "discard" && resolveNoteCommit("", true)?.kind === "discard");
+  check("Abbruch → nichts tun", resolveNoteCommit(null, true) === null && resolveNoteCommit(null, false) === null);
+  const a5 = resolveNoteCommit("  ", false);
+  check("bestehend + geleert → update (alter Text bleibt)", a5?.kind === "update" && a5.text === "  ");
+  // Echter Store: updateNote mit Leertext behält (löscht nicht), mit Text übernimmt.
+  const st = useEditor.getState();
+  st.commit((d) => { d.notes.push({ id: "nt_keep", x: 0, y: 0, text: "alt" }); });
+  st.updateNote("nt_keep", "   ");
+  const kept = useEditor.getState().doc.notes.find((n) => n.id === "nt_keep")?.text;
+  st.updateNote("nt_keep", "neu");
+  const updated = useEditor.getState().doc.notes.find((n) => n.id === "nt_keep")?.text;
+  st.commit((d) => { d.notes = d.notes.filter((n) => n.id !== "nt_keep"); });
+  check("updateNote: Leertext behält, Text übernimmt", kept === "alt" && updated === "neu");
+  // Spiegel statt Ref-im-Cleanup (React 19: Ref ist beim Unmount schon null).
+  const editorSrc = readFileSync("src/components/NoteEditor.tsx", "utf8");
+  check("Editor spiegelt input (Unmount-sicher)",
+    editorSrc.includes("onInput={mirror}")
+    && editorSrc.includes("htmlToMarkup(htmlRef.current ?? \"\")")
+    && !editorSrc.includes("htmlToMarkup(cardRef.current?.innerHTML ?? \"\")"));
 }
 
 console.log(failed === 0 ? "\nNotiz-Prüfungen: alle bestanden." : `\nNotiz-Prüfungen: ${failed} FEHLER`);

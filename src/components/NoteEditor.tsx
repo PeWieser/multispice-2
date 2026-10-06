@@ -15,6 +15,16 @@ import {
 } from "@/lib/notes/markup";
 import { canvasColor } from "@/lib/canvas-theme";
 
+/* S5.31: Reine Commit-Entscheidung (testbar, eine Wahrheit mit commitNote):
+   null = Abbruch (nichts tun), discard = neue leere Notiz still verwerfen,
+   update = Text übernehmen. Getippter Text führt NIE zu discard. */
+export type NoteCommitAction = { kind: "discard" } | { kind: "update"; text: string };
+export function resolveNoteCommit(markup: string | null, wasNew: boolean): NoteCommitAction | null {
+  if (markup === null) return null;
+  if (wasNew && !markup.trim()) return { kind: "discard" };
+  return { kind: "update", text: markup };
+}
+
 /**
  * S5.22: Notiz-Direkteditor — man schreibt auf dem Zettel selbst (kein
  * separates Eingabefeld). S5.23: Zetteloptik wie auf dem Canvas (Einheitskarte,
@@ -55,6 +65,10 @@ export default function NoteEditor({
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const done = useRef(false);
+  // S5.31: Spiegel des Editor-HTML (Unmount-sicher). In React 19 ist
+  // cardRef.current beim Unmount-Cleanup bereits null — wer dort innerHTML
+  // liest, committed "" und eine neue Notiz wird still gelöscht.
+  const htmlRef = useRef<string | null>(null);
   const [fmt, setFmt] = useState({ b: false, i: false, u: false });
   const [size, setSize] = useState(() => nearestFontStep(fontStep));
   const sizeRef = useRef(size);
@@ -65,13 +79,18 @@ export default function NoteEditor({
   const commit = () => {
     if (done.current) return;
     done.current = true;
-    onCommit(htmlToMarkup(cardRef.current?.innerHTML ?? ""), isNew, sizeRef.current);
+    onCommit(htmlToMarkup(htmlRef.current ?? ""), isNew, sizeRef.current);
+  };
+
+  const mirror = () => {
+    htmlRef.current = cardRef.current?.innerHTML ?? htmlRef.current;
   };
 
   useEffect(() => {
     const el = cardRef.current;
     if (!el) return;
     el.innerHTML = markupToHtml(note.text);
+    htmlRef.current = el.innerHTML;
     // S5.27: Scrollstand übernehmen — außer der Klick bestimmt die Position
     // (der Browser scrollt dann selbst zum Caret).
     if (!caret) el.scrollTop = scroll * zoom;
@@ -131,6 +150,7 @@ export default function NoteEditor({
   const run = (cmd: "bold" | "italic" | "underline") => {
     cardRef.current?.focus();
     document.execCommand(cmd, false);
+    mirror(); // Stil ändert das HTML ohne Input-Event (je nach Browser)
     refreshFmt();
   };
 
@@ -227,6 +247,7 @@ export default function NoteEditor({
               commit();
             }
           }}
+          onInput={mirror}
           onKeyUp={refreshFmt}
           onMouseUp={refreshFmt}
           onBlur={(e) => {
@@ -238,6 +259,7 @@ export default function NoteEditor({
             e.preventDefault();
             const text = e.clipboardData?.getData("text/plain") ?? "";
             document.execCommand("insertText", false, text);
+            mirror();
           }}
         />
       </div>

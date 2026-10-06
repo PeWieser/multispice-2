@@ -345,6 +345,18 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   case-insensitiv; Stromquelle und Stellwiderstand zählen nicht), Stempel
   passt sich der Kartenbreite an. Per Musterung gegengeschaut. `tsc` ✅,
   `eslint` ✅, `npm test` ✅ (notetest +10 Wächter).
+- S5.31: Zwei Befunde. (a) Notizen verschwanden beim Außerhalb-Klick: In
+  React 19 ist die Editor-Ref beim Unmount-Cleanup bereits null — der
+  Unmount-Commit las `""`, neue Notizen wurden still gelöscht (jsdom-Repro
+  rot/grün verifiziert). Jetzt spiegelt der Editor sein HTML bei jedem Input
+  (+ Paste/Format) und committed aus dem Spiegel; reine Entscheidung
+  `resolveNoteCommit` (getippt → nie verwerfen, leer + neu → weiter still
+  weg, Abbruch → nichts). (b) Oszi-Trigger lief scheinbar durch: Der
+  Komparator hatte keine Hysterese und feuerte 120/120 Frames auf Rauschen
+  (stehendes Signal/ruhige Messpunkte). Jetzt Schmitt mit 0,3 Divs (Netz:
+  0,25): schweigt auf Rauschen/Kleinsignal/DC-Ruhelage, steht phasenstabil
+  auf echten Flanken (Vollkette: 240/240, ≤ 10 µs). `tsc` ✅, `eslint` ✅,
+  `npm test` ✅ (notetest +7, ozsitest +6 Wächter).
 
 ## Nicht-Ziele (bewusst)
 

@@ -272,5 +272,43 @@ for (const hd of [1e9, -1e9]) {
   check("BW-Limit dämpft ≈ √(20/70)", Math.abs(on / off - BW_NOISE_GAIN) < 0.15, `${(on / off).toFixed(2)}`);
 }
 
+/* 12 · S5.31: Trigger-Hysterese — schweigt auf Rauschen, steht auf Signal */
+{
+  const s = settings({ ch: settings().ch.map((c, i) => (i === 0 ? { ...c, probe: 1 } : c)) });
+  const env = makeEnv("N001");
+  // Sim steht (0 V + Komparator-Rauschen): kein Fehltrigger (war 120/120).
+  const flat: Env = { ...env, sampler: () => 0 };
+  check("Trigger schweigt auf Rauschen bei stehendem Signal",
+    findTrigger(0, 0.05, s, flat, [0, 0, 0, 0]) === null);
+  // Kleinsignal (±0,1 V) innerhalb des Bands (±0,3 Divs) löst nicht aus.
+  const small: Env = { ...env, sampler: (net, t) => (!net || net === "0" ? 0 : Math.sin(2 * Math.PI * 1000 * t) * 0.1) };
+  check("Trigger schluckt Kleinsignal im Hysterese-Band",
+    findTrigger(0, 0.05, s, small, [0, 0, 0, 0]) === null);
+  // DC-Ruhelage im Band löst nicht aus (kein Scharfschalten ohne Durchgang).
+  const rest: Env = { ...env, sampler: (net) => (!net || net === "0" ? 0 : 0.1) };
+  check("Trigger schweigt bei DC-Ruhelage im Band",
+    findTrigger(0, 0.05, s, rest, [0, 0, 0, 0]) === null);
+  // Fallende Flanke trifft weiter (erstes fallendes Band-Null bei ~0,5 ms).
+  const ff = findTrigger(0, 0.016, { ...s, trig: { ...s.trig, slope: "fall" } }, env, [0, 0, 0, 0]);
+  const kf = ff === null ? NaN : ff * 1000;
+  check("Fallende Flanke trifft", ff !== null && Math.abs(kf - 0.5) < 0.05, ff === null ? "keiner" : `${kf.toFixed(3)} ms`);
+  // Echtes Signal: jeder Frame getriggert, Phase stabil (stehendes Bild).
+  const eng = new Engine();
+  const tts: number[] = [];
+  for (let k = 1; k <= 60; k++) { // ab Frame 1 (Frame 0 hat leeres Suchfenster)
+    const res = eng.step(k / 60, s, env);
+    if (res.newAcq && eng.display?.triggered) tts.push(eng.display.tt);
+  }
+  const dev = tts.slice(1).map((t, i) => { const g = ((t - tts[i]) * 1000) % 1; return Math.min(g, 1 - g); });
+  const maxDev = dev.length ? Math.max(...dev) : NaN;
+  check("1-kHz-Signal: 60/60 getriggert, Phase < 50 µs",
+    tts.length === 60 && maxDev < 0.05, `${tts.length}/60, max ${(maxDev * 1000).toFixed(1)} µs`);
+  // Netz-Trigger: 50-Hz-Nulldurchgänge im 10-ms-Raster (Band-Austritt +0,8 ms).
+  const sn = settings({ trig: { ...settings().trig, source: 4 } });
+  const f = findTrigger(0, 0.05, sn, env, [0, 0, 0, 0]);
+  const grid = f === null ? NaN : (f * 1000) % 10;
+  check("Netz-Trigger trifft 50-Hz-Raster", f !== null && grid < 1, f === null ? "keiner" : `${(f * 1000).toFixed(3)} ms`);
+}
+
 console.log(failed === 0 ? "\nOszi-Verhalten: alle Prüfungen bestanden." : `\nOszi-Verhalten: ${failed} FEHLER`);
 if (failed) process.exit(1);

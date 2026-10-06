@@ -3941,3 +3941,28 @@ unberührt) und Breitenklemmung auf `cardW − 24` (alle drei Blattformate).
 Theme-Rot `--err` (kein Fix-Hex — der S5.15a-Canvas-Lint verbietet es; auf dem
 immer gelben Zettelpapier in beiden Themes lesbar).
 Stempel-Geometrie per Musterung gegengeschaut (M- und S-Karte).
+
+## §70 · S5.31 Ergebnis (Notiz-Unmount-Spiegel, Trigger-Hysterese, 2026-10-06)
+
+Zwei Befunde. (1) Notizen verschwanden, wenn man nach dem Schreiben daneben
+klickte: In React 19 ist `cardRef.current` beim Unmount-Cleanup bereits
+null — der S5.27-Unmount-Commit las `innerHTML` als `""`, und `commitNote`
+verwarf die neue Notiz still (Regel: leer + neu = weg). Verifiziert mit
+jsdom-Repro am echten NoteEditor (ohne Fix `""`/rot, mit Fix Text/grün, per
+Stash gegengeprüft). Jetzt spiegelt der Editor sein HTML bei jedem Input
+sowie nach Paste und Format-Klicks (Stil ändert das HTML je nach Browser
+ohne Input-Event) und committed aus dem Spiegel; die Entscheidung lebt als
+reine, testbare Funktion `resolveNoteCommit` (getippt → nie verwerfen).
+`updateNote`-Leertext behält weiter den alten Text (echter Store-Test).
+(2) Der Oszi-Trigger „lief durch" (alle Messpunkte): Der Komparator hatte
+keine Hysterese — bei stehendem Signal (0 V + Rauschen) oder ruhigen
+Messpunkten feuerte er 120/120 Frames auf Rauschen; das Rauschband wurde
+jeden Frame neu erfasst und sprang. Echte Komparatoren haben Hysterese:
+`findTrigger` ist jetzt ein Schmitt mit 0,3 Divs der Triggerquelle (Netz:
+0,25 auf dem normierten ±1-Sinus) — nur volle Banddurchgänge zählen,
+dazwischen wird gehalten. Verifiziert: schweigt auf Rauschen, Kleinsignal
+im Band und DC-Ruhelage; Vollkette mit echter Simulation (rc-lowpass,
+1 kHz, echte Puffer + Sampler): 240/240 getriggert, Phasenfehler ≤ 10 µs
+(stehend); fallende Flanke und 50-Hz-Netz-Raster treffen. Seitenbefund:
+alles andere der Trigger-Kette (Modi, Quelle, Flanke, Menü, Pegel-Knopf,
+Darstellung, Clock, Sampler) war korrekt — nur die Hysterese fehlte.
