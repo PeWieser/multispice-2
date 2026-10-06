@@ -55,11 +55,12 @@ export default function InlineEditor({
     <div
       role="dialog"
       aria-label={caption}
-      className="absolute z-floating rounded-field border-[1.5px] border-selection bg-surface px-2.5 py-1.5 shadow-3"
+      className="absolute z-floating rounded-field border-[1.5px] border-selection bg-surface px-3 py-2 shadow-3"
       style={{ left, top, width: `${ch}ch`, minWidth: 96, maxWidth: 320 }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center gap-1.5">
+      {/* S5.25: Luft um Text und Einheit — symmetrisch zum Rahmen, Abstand dazwischen. */}
+      <div className="flex items-center gap-3">
         <input
           ref={inputRef}
           autoFocus

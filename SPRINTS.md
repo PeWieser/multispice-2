@@ -3,7 +3,7 @@
 > Lebendes Log: Nach jedem Sprint wird hier eingetragen, was gemacht wurde
 > (Stichpunkte) und was noch offen ist (Tabelle unten). Details je Sprint im
 > Audit-Protokoll (`STEVE_JOBS_QUALITY_AUDIT.md`, §42 ff.).
-> Stand: S5.10–S5.24 ✅ (2026-10-05).
+> Stand: S5.10–S5.25 ✅ (2026-10-05).
 > Details je Sprint im Audit-Protokoll (§42 ff., Rest: §50–§60).
 
 ## Sprint 1 — Vertrauen (✅ abgeschlossen 2026-10-03)
@@ -151,6 +151,7 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
 - [x] S5.22 Netzlabels + Notizzettel + Ein-Rahmen-Eingabe (Nutzerbefunde 2026-10-05, PASS)
 - [x] S5.23 Notizzettel 2.0: Einheitskarte, Scrollen, 3 Schriften (Nutzerbefunde 2026-10-05, PASS)
 - [x] S5.24 Bibliothek + Wertfluss + Referenz (Nutzerwünsche 2026-10-05, PASS)
+- [x] S5.25 Notiz- und Wertfeld-Feinschliff (Nutzerbefunde 2026-10-05, PASS)
 
 **Gemacht (Rest):**
 - S5.10: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL` + `WindowTitleBar`,
@@ -280,6 +281,16 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   bis Blur/Enter. (d) Referenz-Fenster über Hilfe: Farbcode, E-Reihen,
   Kerko-/SMD-Codes, Suffixe (live gerechnet/gespiegelt).
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (referencetest neu: 58).
+- S5.25: Sieben Befunde. Eselsohr weg (Canvas + Editor); Schriften 9/12/16
+  (S passt, M +1, L deutlich); Platzier-Geist als echte leere Einheitskarte
+  (auch bei offenem Editor kein Geist mehr); Wertefeld luftiger (px-3/py-2,
+  gap-3 zur Einheit); leere Notiz ganz leer (kein „Notiz“); Editor-Leiste
+  oben wenn möglich, sonst unten, waagrecht in die Sichtfläche geklemmt;
+  Notiz-Auswahlrahmen weg beim Ziehen (kehrt zurück) und Bearbeiten
+  (warme Papierkante); Diagonal-Bug in der Leitungsvorschau gefixt (Schleife
+  lief ab preview[1] über alle Ecken zurück — jetzt frischer Schweif ab der
+  letzten festen Ecke mit Klick-identischer Knickfolge).
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (notetest +6, wiretest +3).
 
 ## Nicht-Ziele (bewusst)
 

@@ -3809,3 +3809,27 @@ Hilfe-Menü (Desktop + mobil): Farbcode (IEC 60062), E-Reihen, Kerko-Codes
 ausgenommen), Suffixe als Spiegel des echten Parsers — der Test fand dabei
 zwei echte Bugs (Dekadenfaktor ×10, „f“ allein = Farad statt Femto).
 Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (referencetest: 58).
+
+## §64 · S5.25 Ergebnis (Notiz- und Wertfeld-Feinschliff, 2026-10-05)
+
+Sieben Nutzerbefunde. (1) Eselsohr entfernt (Canvas-Dreieck + Editor-Div —
+glatte Karte). (2) Schriften 9/12/16 (`NOTE_FONT_STEPS`, Default M = 12;
+Legacy-Größen runden weiter auf die nächste Stufe). (3) Platzier-Geist war
+noch das alte Callout-Design („NOTIZ“-Kopf, 136×42) — jetzt die echte leere
+Einheitskarte (WYSIWYG); Geist versteckt sich zusätzlich bei offenem Editor
+(`!editingNote`). (4) Wertefeld: `px-3/py-2`, `gap-3` zur Einheit (vorher
+klebte sie am Text, Ränder ungleich). (5) Leere Notiz rendert nichts mehr
+(`dimmed`-Zweig samt „Notiz“-Kursiv gestrichen). (6) Editor-Leiste: oben,
+wenn ≥48 px Platz; sonst unten, wenn es dort passt; sonst oben überlappend
+(sichtbar geht vor); waagrecht in die Sichtfläche geklemmt (neuer
+`viewport`-Prop). (7a) Notiz-Auswahlrahmen entfällt während `sr.dragging`
+(idle Selektion behält ihn) und im Editor (warme Papierkante statt
+Selection-Blau — die Leiste zeigt den Modus). (7b) Diagonal-Bug: Die
+Vorschau-Schleife lief `ab preview[1]` und damit bei ≥2 Treppen-Ecken
+diagonal zur ersten Ecke zurück — jetzt wird der Schweif ab der letzten
+festen Ecke frisch gerechnet (`previewNetPath(ref, [], target)`), mit
+derselben Knickfolge wie der Klick (waagrecht angekommen → senkrecht weiter,
+`preferDir`/`flipBend`/A* identisch durchgereicht). Gleichheit Schweif ≡
+Klick-Suffix + Orthogonal-Garantie stehen als wiretest-Checks.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (notetest +6 Wächter,
+wiretest +3 Schweif-Checks).

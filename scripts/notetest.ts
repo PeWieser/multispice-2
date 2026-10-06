@@ -73,10 +73,10 @@ for (const m of [
 /* 5 · Schriftstufen + Scroll-Arithmetik (S5.23) */
 {
   check("drei Stufen", NOTE_FONT_STEPS.length === 3, NOTE_FONT_STEPS.join("/"));
-  check("Standard ist Mittel", NOTE_FONT_DEFAULT === 11);
+  check("Standard ist Mittel", NOTE_FONT_DEFAULT === 12);
   check("klein rundet auf 9", nearestFontStep(8) === 9 && nearestFontStep(10) === 9);
-  check("mittel rundet auf 11", nearestFontStep(11) === 11 && nearestFontStep(12) === 11);
-  check("groß rundet auf 14", nearestFontStep(13) === 14 && nearestFontStep(20) === 14);
+  check("mittel rundet auf 12", nearestFontStep(11) === 12 && nearestFontStep(13) === 12);
+  check("groß rundet auf 16", nearestFontStep(15) === 16 && nearestFontStep(20) === 16);
   check("ohne Überlauf kein Scroll", clampNoteScroll(50, 100, 150) === 0);
   check("Scroll klemmt oben", clampNoteScroll(-30, 300, 150) === 0);
   check("Scroll klemmt unten", clampNoteScroll(999, 300, 150) === 150);
@@ -122,6 +122,36 @@ for (const m of [
     "drei Schriftstufen im Editor",
     editor.includes("NOTE_FONT_STEPS.map") && editor.includes("aria-pressed={size === s}"),
     "S/M/L-Auswahl"
+  );
+  check(
+    "kein Eselsohr mehr",
+    !canvas.includes("Umgeknickte Ecke") && !editor.includes("Umgeknickte Ecke"),
+    "glatte Karte"
+  );
+  check(
+    "leere Notiz bleibt leer",
+    !canvas.includes('t: "Notiz"'),
+    "kein Platzhalter"
+  );
+  check(
+    "Geist-Vorschau ist Einheitskarte",
+    canvas.includes("paperGhost") && !canvas.includes("Notiz platzieren"),
+    "WYSIWYG beim Platzieren"
+  );
+  check(
+    "kein Auswahlrahmen beim Ziehen",
+    canvas.includes("selection.includes(note.id) && !"),
+    "Rahmen kehrt beim Loslassen zurück"
+  );
+  check(
+    "Leiste sitzt intelligent",
+    editor.includes("placeAbove") && editor.includes("barLeft"),
+    "oben wenn möglich, sonst unten, waagrecht geklemmt"
+  );
+  check(
+    "Vorschau ohne Diagonal-Retrace",
+    !canvas.includes("i < preview.length") && canvas.includes("previewNetPath(ref, []"),
+    "nur das lose Ende läuft gestrichelt"
   );
 }
 

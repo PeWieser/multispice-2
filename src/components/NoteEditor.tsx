@@ -16,15 +16,18 @@ export default function NoteEditor({
   rect,
   fontStep,
   zoom,
+  viewport,
   isNew,
   onCommit,
 }: {
   note: TextNote;
   /** Kartenrechteck in Bildschirm-Pixeln (Einheitskarte, fest). */
   rect: { x: number; y: number; w: number; h: number };
-  /** Schriftstufe in Welt-px (9/11/14). */
+  /** Schriftstufe in Welt-px (9/12/16). */
   fontStep: number;
   zoom: number;
+  /** Sichtfläche in Bildschirm-Pixeln (für die Leistenposition). */
+  viewport: { w: number; h: number };
   /** Neu angelegt: leerer Abbruch löscht die Notiz wieder. */
   isNew: boolean;
   onCommit: (markup: string | null, isNew: boolean, size: number) => void;
@@ -70,19 +73,30 @@ export default function NoteEditor({
     refreshFmt();
   };
 
-  const above = rect.y >= 64;
+  // S5.25: Die Leiste sitzt oben — außer dort ist kein Platz, aber unten schon.
+  // (Fällt beides aus, bleibt sie oben und überlappt die Karte: sichtbar geht vor.)
+  // Waagrecht wird sie in die Sichtfläche geschoben.
+  const TOOLBAR_H = 40;
+  const TOOLBAR_W = 208;
+  const M = 8;
+  const vw = viewport.w > 0 ? viewport.w : 800;
+  const vh = viewport.h > 0 ? viewport.h : 600;
+  const aboveFits = rect.y >= TOOLBAR_H + M;
+  const belowFits = rect.y + rect.h + TOOLBAR_H + M <= vh;
+  const placeAbove = aboveFits || !belowFits;
+  const barLeft = Math.max(M - rect.x, Math.min(0, vw - rect.x - TOOLBAR_W - M));
   const btn = (active: boolean) =>
     `grid h-7 w-7 place-items-center rounded-md transition-colors ${
       active ? "bg-accent-soft text-accent" : "text-ink-2 hover:bg-surface-3 hover:text-ink"
     }`;
-  const stepLabel = (s: number) => (s <= 9 ? "klein" : s >= 14 ? "groß" : "mittel");
-  const ear = Math.max(8, 13 * zoom);
+  const stepLabel = (s: number) => (s <= NOTE_FONT_STEPS[0] ? "klein" : s >= NOTE_FONT_STEPS[2] ? "groß" : "mittel");
+
 
   return (
     <div className="absolute z-floating" style={{ left: rect.x, top: rect.y }} onPointerDown={(e) => e.stopPropagation()}>
       <div
         className="flex items-center gap-0.5 rounded-lg border border-hairline-strong bg-surface px-1 py-0.5 shadow-2"
-        style={{ position: "absolute", left: 0, top: above ? -36 : rect.h + 6 }}
+        style={{ position: "absolute", left: barLeft, top: placeAbove ? -TOOLBAR_H : rect.h + 6 }}
         onMouseDown={(e) => e.preventDefault()}
         role="toolbar"
         aria-label="Textstil und Schriftgröße"
@@ -124,7 +138,8 @@ export default function NoteEditor({
           className="h-full w-full overflow-y-auto outline-none"
           style={{
             background: "linear-gradient(180deg, #FFFADE 0%, #FFF6C4 55%, #FFEFA8 100%)",
-            border: `${Math.max(1, 1.5 * zoom)}px solid var(--wire-sel)`,
+            // S5.25: Warme Papierkante statt Auswahlrahmen (die Leiste zeigt den Modus).
+            border: `${Math.max(1, 1.5 * zoom)}px solid rgba(133, 100, 4, 0.65)`,
             borderRadius: 3,
             boxShadow: "0 6px 20px rgba(60, 40, 0, 0.30)",
             color: "#3B2F04",
@@ -153,17 +168,6 @@ export default function NoteEditor({
             e.preventDefault();
             const text = e.clipboardData?.getData("text/plain") ?? "";
             document.execCommand("insertText", false, text);
-          }}
-        />
-        {/* Umgeknickte Ecke (wie auf dem Canvas-Zettel). */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute right-0 bottom-0"
-          style={{
-            width: ear,
-            height: ear,
-            background: "linear-gradient(135deg, rgba(0,0,0,0) 50%, rgba(120,90,10,0.28) 50%)",
-            borderBottomRightRadius: 3,
           }}
         />
       </div>

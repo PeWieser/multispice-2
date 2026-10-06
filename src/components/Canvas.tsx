@@ -1074,9 +1074,9 @@ export default function Canvas() {
     for (const note of doc.notes) {
       if (editingNote?.id === note.id) continue; // Direkteditor-Overlay zeigt sie
       const sz = nearestFontStep(note.size ?? NOTE_FONT_DEFAULT);
-      const isSel = selection.includes(note.id);
+      // S5.25: Beim Verschieben kein Auswahlrahmen (er kehrt beim Loslassen zurück).
+      const isSel = selection.includes(note.id) && !(stateRef.current as unknown as { dragging?: boolean }).dragging;
       const raw = note.text && note.text.trim() ? note.text : "";
-      const dimmed = !raw;
       const lineH = sz + 5;
       const padX = 10;
       const topPad = 9;
@@ -1121,7 +1121,7 @@ export default function Canvas() {
       }
       if (!wrapped.length) wrapped.push([]);
       const viewH = cardH - topPad - 7;
-      const contentH = dimmed ? lineH : wrapped.length * lineH;
+      const contentH = wrapped.length * lineH;
       const maxScroll = Math.max(0, contentH - viewH);
       noteMaxScrollRef.current.set(note.id, maxScroll);
       const scrollY = clampNoteScroll(noteScrollRef.current.get(note.id) ?? 0, contentH, viewH);
@@ -1150,35 +1150,14 @@ export default function Canvas() {
       ctx.lineWidth = (isSel ? 1.8 : 1) / Math.max(view.zoom, 0.35);
       roundRect(ctx, cardX, cardY, cardW, cardH, 3);
       ctx.stroke();
-      // Umgeknickte Ecke unten rechts.
-      const ear = 13;
-      ctx.save();
-      ctx.beginPath();
-      roundRect(ctx, cardX, cardY, cardW, cardH, 3);
-      ctx.clip();
-      ctx.fillStyle = "rgba(120, 90, 10, 0.20)";
-      ctx.beginPath();
-      ctx.moveTo(cardX + cardW - ear, cardY + cardH);
-      ctx.lineTo(cardX + cardW, cardY + cardH - ear);
-      ctx.lineTo(cardX + cardW, cardY + cardH);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = "rgba(133, 100, 4, 0.55)";
-      ctx.lineWidth = 1 / Math.max(view.zoom, 0.35);
-      ctx.beginPath();
-      ctx.moveTo(cardX + cardW - ear, cardY + cardH);
-      ctx.lineTo(cardX + cardW, cardY + cardH - ear);
-      ctx.stroke();
-      ctx.restore();
 
       // Text: geclippt + gescrollt (kein „…" mehr).
       ctx.save();
       ctx.beginPath();
       roundRect(ctx, cardX, cardY, cardW, cardH, 3);
       ctx.clip();
-      const ink = dimmed ? "rgba(90, 70, 10, 0.55)" : "#3B2F04";
-      const drawLines = dimmed ? [[{ t: "Notiz", b: false, i: true, u: false }]] : wrapped;
-      drawLines.forEach((ln, li) => {
+      const ink = "#3B2F04";
+      wrapped.forEach((ln, li) => {
         const baseline = cardY + topPad + (li + 1) * lineH - 4 - scrollY;
         if (baseline < cardY - lineH || baseline > cardY + cardH + lineH) return;
         let rx = cardX + padX;
@@ -1194,7 +1173,7 @@ export default function Canvas() {
       ctx.restore();
 
       // Scroll-Leiste bei Überlauf (dezent, kräftiger bei Auswahl/Schweben).
-      if (maxScroll > 0 && !dimmed) {
+      if (maxScroll > 0) {
         const emph = isSel || hoverNoteId === note.id;
         const trackX = cardX + cardW - 7;
         const trackY = cardY + 6;
@@ -1259,7 +1238,6 @@ export default function Canvas() {
         obstacles: getNetObstacles(doc),
         pinPoints: getNetPinPoints(doc),
       };
-      const preview = previewNetPath(draft.anchor, draft.corners, magnetHit ?? { x: cursor.x, y: cursor.y }, pathOpts);
       const zLine = 2 / Math.max(view.zoom, 0.3);
       // fester Teil (Anker + gesetzte Ecken)
       ctx.strokeStyle = canvasColor("--wire-sel"); ctx.lineWidth = zLine;
@@ -1267,11 +1245,28 @@ export default function Canvas() {
       ctx.moveTo(draft.anchor.x, draft.anchor.y);
       for (const c of draft.corners) ctx.lineTo(c.x, c.y);
       ctx.stroke();
-      // Vorschau ab dem letzten festen Punkt
+      // S5.25: Nur das lose Ende läuft gestrichelt — ab der letzten festen Ecke
+      // frisch gerechnet (vorher lief die Schleife ab preview[1] zurück über alle
+      // Ecken und malte ab der zweiten Ecke Diagonalen). Knickfolge wie beim
+      // Klick: waagrecht angekommen → senkrecht weiter und umgekehrt.
+      const prevFixed = draft.corners.length > 1
+        ? draft.corners[draft.corners.length - 2]
+        : draft.corners.length === 1
+          ? draft.anchor
+          : null;
+      const contDir = prevFixed
+        ? prevFixed.y === ref.y && prevFixed.x !== ref.x
+          ? "v"
+          : prevFixed.x === ref.x && prevFixed.y !== ref.y
+            ? "h"
+            : undefined
+        : pathOpts.preferDir;
+      const target = magnetHit ?? { x: cursor.x, y: cursor.y };
+      const tail = previewNetPath(ref, [], target, { ...pathOpts, preferDir: contDir });
       ctx.setLineDash([5, 4]); ctx.lineWidth = zLine * 0.9;
       ctx.beginPath();
-      ctx.moveTo(ref.x, ref.y);
-      for (let i = 1; i < preview.length; i++) ctx.lineTo(preview[i].x, preview[i].y);
+      ctx.moveTo(tail[0].x, tail[0].y);
+      for (let i = 1; i < tail.length; i++) ctx.lineTo(tail[i].x, tail[i].y);
       ctx.stroke(); ctx.setLineDash([]);
       // Anker- und Eckpunkte sichtbar machen
       ctx.fillStyle = canvasColor("--wire-sel");
@@ -1378,7 +1373,7 @@ export default function Canvas() {
     }
 
     // W91: Live-Vorschau beim Platzieren eines Netznamens (label) oder einer Notiz (text)
-    if ((st.tool === "label" || st.tool === "text") && !editing) {
+    if ((st.tool === "label" || st.tool === "text") && !editing && !editingNote) {
       ctx.save();
       ctx.globalAlpha = 0.78;
       if (st.tool === "label") {
@@ -1401,26 +1396,22 @@ export default function Canvas() {
         ctx.arc(lx, ly, 3.2, 0, Math.PI * 2);
         ctx.fill();
       } else {
+        // S5.25: Die Einheitskarte als Vorschau — leer, wie sie entsteht.
         const cardX = cursor.x;
         const cardY = cursor.y - 18;
-        const cardW = 136;
-        const cardH = 42;
-        ctx.fillStyle = canvasColor("--surface");
-        roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+        const paperGhost = ctx.createLinearGradient(0, cardY, 0, cardY + NOTE_H);
+        paperGhost.addColorStop(0, "#FFFADE");
+        paperGhost.addColorStop(0.55, "#FFF6C4");
+        paperGhost.addColorStop(1, "#FFEFA8");
+        ctx.fillStyle = paperGhost;
+        roundRect(ctx, cardX, cardY, NOTE_W, NOTE_H, 3);
         ctx.fill();
-        ctx.fillStyle = canvasColor("--wire-sel");
-        ctx.fillRect(cardX, cardY + 3, 3.5, cardH - 6);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+        ctx.fillRect(cardX + 3, cardY + 0.75, NOTE_W - 6, 1);
         ctx.strokeStyle = canvasColor("--wire-sel");
-        ctx.lineWidth = 1.3 / Math.max(view.zoom, 0.35);
-        roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+        ctx.lineWidth = 1.4 / Math.max(view.zoom, 0.35);
+        roundRect(ctx, cardX, cardY, NOTE_W, NOTE_H, 3);
         ctx.stroke();
-        ctx.font = "700 8px ui-monospace, monospace";
-        ctx.fillStyle = canvasColor("--wire-sel");
-        ctx.textAlign = "left";
-        ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
-        ctx.font = "500 11px ui-sans-serif, system-ui";
-        ctx.fillStyle = canvasColor("--ink");
-        ctx.fillText("Notiz platzieren …", cardX + 10, cardY + 30);
       }
       ctx.restore();
     }
@@ -3127,6 +3118,7 @@ export default function Canvas() {
             rect={{ x: tl.x, y: tl.y, w: b.w * view.zoom, h: b.h * view.zoom }}
             fontStep={nearestFontStep(note.size ?? NOTE_FONT_DEFAULT)}
             zoom={view.zoom}
+            viewport={useHud.getState().viewport}
             isNew={editingNote.isNew}
             onCommit={commitNote}
           />

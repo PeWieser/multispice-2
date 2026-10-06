@@ -1123,5 +1123,30 @@ console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Strom
   check("Label≡Verbinder gleichen Namens vereint", n.pinNets["r1:0"] === n.pinNets["c1:0"], n.pinNets["r1:0"]);
 }
 
+/* ---------------- S5.25 · Vorschau-Schweif = Suffix des Klick-Pfads ---------------- */
+{
+  // Treppen-Entwurf: Der Canvas rechnet den Schweif ab der letzten festen Ecke
+  // frisch (statt ab preview[1] zurückzulaufen — das malte Diagonalen).
+  // Der Schweif muss exakt das Suffix dessen sein, was ein Klick verlegt.
+  const same = (a: Array<{ x: number; y: number }>, b: Array<{ x: number; y: number }>) =>
+    a.length === b.length && a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
+  const anchor = { x: 0, y: 0 };
+  const corners = [{ x: 100, y: 0 }, { x: 100, y: 100 }];
+  const ref = corners[corners.length - 1];
+  // Geradeaus: letztes Segment senkrecht → waagrecht weiter (preferDir "h").
+  const t1 = { x: 200, y: 100 };
+  const full1 = buildNetPath(anchor, corners, t1);
+  const tail1 = buildNetPath(ref, [], t1, { preferDir: "h" });
+  check("Schweif gerade = Klick-Suffix", same(tail1, full1.slice(-tail1.length)), JSON.stringify(tail1));
+  // Mit Knick: Schweif trägt denselben Knick wie der Klick-Pfad.
+  const t2 = { x: 200, y: 150 };
+  const full2 = buildNetPath(anchor, corners, t2);
+  const tail2 = buildNetPath(ref, [], t2, { preferDir: "h" });
+  check("Schweif mit Knick = Klick-Suffix", same(tail2, full2.slice(-tail2.length)), JSON.stringify(tail2));
+  // Orthogonal-Garantie: kein Segment des Schweifs ist diagonal.
+  const orth = (pts: Array<{ x: number; y: number }>) => pts.every((p, i) => i === 0 || p.x === pts[i - 1].x || p.y === pts[i - 1].y);
+  check("Schweif immer orthogonal", orth(tail1) && orth(tail2));
+}
+
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);
 if (failed) process.exit(1);

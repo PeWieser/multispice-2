@@ -8,9 +8,9 @@
 export const NOTE_W = 232;
 export const NOTE_H = 150;
 
-/** S5.23: Drei Schriftgrößen (S/M/L) in px; M ist der bisherige Standard. */
-export const NOTE_FONT_STEPS = [9, 11, 14] as const;
-export const NOTE_FONT_DEFAULT = 11;
+/** S5.23: Drei Schriftgrößen (S/M/L) in px. S5.25: M +1, L deutlich (S passt). */
+export const NOTE_FONT_STEPS = [9, 12, 16] as const;
+export const NOTE_FONT_DEFAULT = 12;
 
 /** Fremde/legacy Größen auf die nächste Stufe runden. */
 export function nearestFontStep(px: number): number {
