@@ -336,6 +336,15 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   neben dem Cursor: W133 zog `view` vor dem Zoom ab statt `toWorld` zu
   nutzen — Ghost + Ablage gehen jetzt über `toWorld`. `tsc` ✅, `eslint` ✅,
   `npm test` ✅ (switchtest +11 Wächter).
+- S5.30: Spannungsteiler-Easter-Egg. Wer eine Spannungsquelle (VDC/VAC/
+  Puls) + genau einen schlichten Widerstand aufbaut, dazu „Spannungsteiler"
+  in eine Notiz schreibt und die Simulation startet, bekommt auf der Notiz
+  einen roten, leicht gedrehten Stempel: „r u serious?" — nur zur Laufzeit,
+  der Notiztext bleibt unangetastet (danach ist alles wie vorher). Reiner
+  Trigger `dividerJokeNoteIds` (Quelle ≥ 1, R genau 1, Stichwort
+  case-insensitiv; Stromquelle und Stellwiderstand zählen nicht), Stempel
+  passt sich der Kartenbreite an. Per Musterung gegengeschaut. `tsc` ✅,
+  `eslint` ✅, `npm test` ✅ (notetest +10 Wächter).
 
 ## Nicht-Ziele (bewusst)
 

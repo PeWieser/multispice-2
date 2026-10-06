@@ -24,6 +24,7 @@ import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScre
 import { dipLeverAt, findInstanceByValueLabel, findPinInfo, findPotSliderAt, getNetObstacles, getNetPinPoints, getNoteBounds, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, instanceLocalPoint, nearestNetName, probeTarget } from "./Canvas/hitTest";
 import { potSliderPosFromLocalY, switchToggle } from "@/lib/interactive/switches";
 import { NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, nearestFontStep, noteFirstBaseline, noteLineH, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
+import { DIVIDER_JOKE, dividerJokeNoteIds } from "@/lib/notes/easteregg";
 import { drawInstance, drawProbe } from "./Canvas/render";
 import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
 import { FlipHorizontal2, RotateCcw, RotateCw, X } from "lucide-react";
@@ -1076,6 +1077,8 @@ export default function Canvas() {
         break;
       }
     }
+    // S5.30: Easter-Egg — Notizen mit Stempel (nur bei laufender Simulation).
+    const jokeNotes = sim.running ? dividerJokeNoteIds(doc) : [];
     for (const note of doc.notes) {
       if (editingNote?.id === note.id) continue; // Direkteditor-Overlay zeigt sie
       const sz = nearestFontStep(note.size ?? NOTE_FONT_DEFAULT);
@@ -1195,6 +1198,21 @@ export default function Canvas() {
         ctx.fillStyle = emph ? "rgba(120, 90, 10, 0.75)" : "rgba(120, 90, 10, 0.45)";
         roundRect(ctx, trackX, thumbY, 4, thumbH, 2);
         ctx.fill();
+      }
+      // S5.30: Easter-Egg-Stempel über die Karte (Text darunter bleibt).
+      if (jokeNotes.includes(note.id)) {
+        ctx.save();
+        ctx.translate(cardX + cardW / 2, cardY + cardH / 2);
+        ctx.rotate((-8 * Math.PI) / 180);
+        ctx.font = "italic 700 15px ui-sans-serif, system-ui";
+        const maxW = cardW - 24;
+        const w0 = ctx.measureText(DIVIDER_JOKE).width;
+        if (w0 > maxW) ctx.scale(maxW / w0, maxW / w0);
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = canvasColor("--err"); // Zettelpapier ist immer gelb → Theme-Rot trägt in beiden Themes
+        ctx.fillText(DIVIDER_JOKE, 0, 0);
+        ctx.restore();
       }
       ctx.restore();
     }

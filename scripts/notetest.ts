@@ -4,6 +4,7 @@
  */
 import { NOTE_CARD_SIZES, NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_FONT_STEPS, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, htmlToMarkup, markupToHtml, nearestFontStep, noteCardSize, noteEditorPadSide, noteEditorPadTop, noteFirstBaseline, noteLineH, parseNoteRuns } from "../src/lib/notes/markup";
 import { getNoteBounds } from "../src/components/Canvas/hitTest";
+import { DIVIDER_JOKE, dividerJokeNoteIds } from "../src/lib/notes/easteregg";
 import { readFileSync } from "node:fs";
 
 let failed = 0;
@@ -225,6 +226,35 @@ for (const m of [
       canvasSrc.includes("Math.min(0.78, Math.max(0.40") &&
       canvasSrc.includes('isDarkCanvas() ? "rgba(255, 255, 255, 0.55)"')
   );
+}
+
+/* 9 · S5.30: Spannungsteiler-Easter-Egg */
+{
+  const doc = (partIds: string[], texts: string[]) => ({
+    instances: partIds.map((partId, k) => ({ id: `I${k}`, partId })),
+    notes: texts.map((text, k) => ({ id: `N${k}`, text })),
+  }) as never;
+  check("Quelle + 1 R + Stichwort → Stempel",
+    JSON.stringify(dividerJokeNoteIds(doc(["vdc", "resistor"], ["Spannungsteiler"]))) === `["N0"]`);
+  check("Groß-/Kleinschreibung egal",
+    JSON.stringify(dividerJokeNoteIds(doc(["vac", "resistor"], ["mein SPANNUNGSTEILER-Versuch"]))) === `["N0"]`);
+  check("zwei Widerstände → kein Stempel",
+    dividerJokeNoteIds(doc(["vdc", "resistor", "resistor"], ["Spannungsteiler"])).length === 0);
+  check("kein Widerstand → kein Stempel",
+    dividerJokeNoteIds(doc(["vdc"], ["Spannungsteiler"])).length === 0);
+  check("keine Quelle → kein Stempel",
+    dividerJokeNoteIds(doc(["resistor"], ["Spannungsteiler"])).length === 0);
+  check("Stromquelle zählt nicht",
+    dividerJokeNoteIds(doc(["idc", "resistor"], ["Spannungsteiler"])).length === 0);
+  check("Stellwiderstand zählt nicht",
+    dividerJokeNoteIds(doc(["vdc", "resistor_var"], ["Spannungsteiler"])).length === 0);
+  check("ohne Stichwort → kein Stempel",
+    dividerJokeNoteIds(doc(["vdc", "resistor"], ["Teiler"])).length === 0);
+  check("Spruch wörtlich", DIVIDER_JOKE === "r u serious?");
+  const canvasSrc = readFileSync("src/components/Canvas.tsx", "utf8");
+  check("Stempel nur bei laufender Simulation",
+    canvasSrc.includes("sim.running ? dividerJokeNoteIds(doc) : []")
+    && canvasSrc.includes("ctx.fillText(DIVIDER_JOKE, 0, 0)"));
 }
 
 console.log(failed === 0 ? "\nNotiz-Prüfungen: alle bestanden." : `\nNotiz-Prüfungen: ${failed} FEHLER`);

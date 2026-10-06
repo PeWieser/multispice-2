@@ -3922,3 +3922,22 @@ Umkehr von `toScreen` (`/ zoom + view`) — bei gepanntem/gezoomtem Canvas
 ein Versatz von `view * (1 + 1/zoom)`. Ghost und Ablage gehen jetzt über
 `toWorld` (stabile Referenz, Effekt-Dep). Nativer Datei-Drop war schon
 korrekt.
+
+## §69 · S5.30 Ergebnis (Spannungsteiler-Easter-Egg, 2026-10-06)
+
+Ein Wunsch, ein Witz. Bedingung: mindestens eine Spannungsquelle (VDC, VAC
+oder Pulsquelle — Stromquelle zählt nicht, Funktionsgenerator auch nicht),
+genau ein schlichter Widerstand (Stellwiderstand zählt nicht) und eine
+Notiz mit dem Wort „Spannungsteiler" (Groß-/Kleinschreibung egal). Läuft die
+Simulation, trägt die Notiz einen roten, 8° gedrehten Stempel
+(„r u serious?", kursiv-fett, wörtlich mit kleinem r) mittig über der Karte;
+der Notiztext darunter bleibt stehen und lesbar. Angebracht nur zur
+Laufzeit — anhalten oder umbauen (zweiten Widerstand dazu!) lässt den
+Stempel kommentarlos verschwinden. Umsetzung: reiner Trigger
+`dividerJokeNoteIds(doc)` in `src/lib/notes/easteregg.ts` (ein Scan pro
+Frame, vernachlässigbar), Stempel im Notiz-Zweig von `draw` nach Text und
+Scroll-Leiste, mit eigener Save-Ebene (Ausrichtung/Schrift des Rests
+unberührt) und Breitenklemmung auf `cardW − 24` (alle drei Blattformate).
+Theme-Rot `--err` (kein Fix-Hex — der S5.15a-Canvas-Lint verbietet es; auf dem
+immer gelben Zettelpapier in beiden Themes lesbar).
+Stempel-Geometrie per Musterung gegengeschaut (M- und S-Karte).
