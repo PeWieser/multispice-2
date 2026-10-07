@@ -4,7 +4,7 @@ import { Instance, NetLabel, NetlistBuildResult, Rotation, SchematicDoc, TextNot
 import { AnalysisPayload } from "@/lib/sim/runner";
 import { IntegrationMethod } from "@/lib/sim/engine";
 import type { TeacherLockState } from "@/lib/teacher";
-import type { CustomPartParamLink, CustomPinSpec, SubcircuitElement } from "@/lib/library/customParts";
+import type { CustomPartParamLink, CustomPinSpec, ExtractBoundaryNet, SubcircuitElement } from "@/lib/library/customParts";
 import type { SymbolPrim } from "@/lib/library/catalog";
 
 export type Tool = "select" | "wire" | "junction" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
@@ -117,6 +117,23 @@ export interface ParkedEditorState {
   savePending: boolean;
 }
 
+/** S6.3: Ergebnis des letzten Testlaufs im Bauteile-Editor. */
+export interface PartEditorTestResult {
+  ok: boolean;
+  message: string;
+  devices: number;
+  nodes: number;
+  at: number;
+}
+
+/** S6.3: Ausstehende Ersetzung nach „Auswahl als Bauteil“ (wird beim
+ * Speichern mit Platzieren ausgeführt: Originale raus, Instanz rein). */
+export interface PendingReplace {
+  boundary: ExtractBoundaryNet[];
+  consumed: { instances: string[]; wires: string[]; labels: string[]; junctions: string[]; notes: string[] };
+  center: { x: number; y: number };
+}
+
 /** S6.2 (Phase 2): Zustand des Bauteile-Editors (Doc-Swap-Modus). */
 export interface PartEditorData {
   open: boolean;
@@ -130,6 +147,13 @@ export interface PartEditorData {
   /** Legacy-Transistor-Tabelle (Rückhalt beim Öffnen alter Bauteile). */
   legacyTable: SubcircuitElement[] | null;
   parked: ParkedEditorState | null;
+  /** S6.3: Live-Testlauf aktiv (Engine rechnet auf dem Editor-Doc). */
+  testRunning: boolean;
+  testResult: PartEditorTestResult | null;
+  /** S6.3: Spannungsfarben vor dem Testlauf (null = kein Test aktiv). */
+  testVoltColors: boolean | null;
+  /** S6.3: Ersetzung nach Extrakt (oder null). */
+  pendingReplace: PendingReplace | null;
 }
 
 export interface EditorState {
@@ -335,6 +359,10 @@ export interface EditorState {
   setPinOverride: (portName: string, patch: Partial<CustomPinSpec> | null) => void;
   setPartEditorSymbol: (prims: SymbolPrim[]) => void;
   markPartEditorDirty: () => void;
+  startPartEditorTest: () => void;
+  stopPartEditorTest: () => void;
+  /** S6.3: Auswahl prüfen → Editor mit Extrakt öffnen (Ersetzen vorgemerkt). */
+  extractSelectionToEditor: () => void;
   refreshNets: () => void;
 }
 

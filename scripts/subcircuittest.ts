@@ -1,6 +1,7 @@
 /* S6.1: Schaltplan-Innenschaltung — Compiler (Macro-Expansion), Ports,
  * Schachtelung, GND-Passthrough, Legacy-Migration, Validierung.
  * S6.2 (Phase 2): paramLinks, Pin-Ableitung, Editor-Filter, Store-Roundtrip.
+ * S6.3 (Phase 3): Extrakt als Dokument, Ersetzen, Live-Testlauf.
  * Run: tsx scripts/subcircuittest.ts (Teil von npm test). */
 import { buildNets, pinPosition, Instance, SchematicDoc, Wire } from "../src/lib/schematic/model";
 import {
@@ -8,6 +9,7 @@ import {
   collectPorts,
   compileSchematicToDevices,
   derivePinsFromPorts,
+  extractSelectionAsDoc,
   findSpecCycle,
   isEditorPlaceable,
   migrateSubcircuitToDoc,
@@ -396,6 +398,109 @@ registerCustomPart(linkSpec);
   const after = useEditor.getState();
   check("Editor: zu + Doc zurück", !after.partEditor.open && after.doc.id === before.id);
   check("Editor: History zurück", after.past.length === 0 && after.future.length === 0);
+}
+
+// 14. S6.3: Extrakt als Dokument (exakte Kopie + Boundary-Ports)
+function extractOuter(): SchematicDoc {
+  return doc("outerX", [
+    inst("v1", "vdc", -160, 0, { dc: 10 }, "V1"),
+    inst("r1", "resistor", 0, 0, { r: 1000 }, "R1"),
+    inst("r2", "resistor", 120, 0, { r: 2000 }, "R2"),
+  ], [
+    wire("w_top", [[-160, -30], [-30, 0]]),
+    wire("w_mid", [[30, 0], [90, 0]]),
+  ], [
+    { id: "l_in", x: -160, y: -30, name: "IN" },
+    { id: "l_mid", x: 30, y: 0, name: "MID" },
+    { id: "l_0", x: 150, y: 0, name: "0" },
+    { id: "l_gnd", x: -160, y: 30, name: "0" },
+  ]);
+}
+{
+  const res = extractSelectionAsDoc(extractOuter(), ["r1"]);
+  check("Extrakt: ok", res.ok, res.errors.join("; "));
+  check("Extrakt: Ports IN,MID", res.boundary.map((b) => b.port).join(",") === "IN,MID");
+  check("Extrakt: 1 Teil + 2 Ports", (res.schematic?.instances.length ?? 0) === 3);
+  check("Extrakt: Drähte wandern mit", (res.schematic?.wires.length ?? 0) === 2);
+  check("Extrakt: IN+MID-Labels wandern mit", (res.schematic?.labels.length ?? 0) === 2);
+  check("Extrakt: kein Innen-Netz", res.internalNets.length === 0);
+  check("Extrakt: GND wird kein Port", !res.boundary.some((b) => b.net === "0"));
+  const ports = (res.schematic?.instances ?? []).filter((i) => i.partId.startsWith("port_"));
+  const pinsOnAnchor = ports.every((p) => {
+    const b = res.boundary.find((x) => x.port === p.params.pname);
+    if (!b) return false;
+    const pp = pinPosition(p, 0);
+    return Math.abs(pp.x - b.anchor.x) < 1 && Math.abs(pp.y - b.anchor.y) < 1;
+  });
+  check("Extrakt: Port-Pins sitzen auf Ankern", pinsOnAnchor);
+  check("Extrakt: Verbrauch zählt", res.consumed.instances.join(",") === "r1" && res.consumed.wires.length === 2);
+  const island = extractSelectionAsDoc(doc("iso", [inst("r3", "resistor", 0, 0, { r: 100 }, "R3")], [], []), ["r3"]);
+  check("Extrakt: Insel ok mit Warnung", island.ok && island.boundary.length === 0 && island.warnings.length > 0);
+  const denied = extractSelectionAsDoc(doc("dn", [inst("sc", "oscilloscope", 0, 0, {}, "SC")], [], []), ["sc"]);
+  check("Extrakt: Messgerät blockiert", !denied.ok && denied.errors.length > 0);
+  const unk = extractSelectionAsDoc(doc("uk", [inst("x", "nope_xyz", 0, 0, {}, "X")], [], []), ["x"]);
+  check("Extrakt: unbekannt blockiert", !unk.ok);
+  const empty = extractSelectionAsDoc(extractOuter(), []);
+  check("Extrakt: leer blockiert", !empty.ok);
+}
+
+// 15. S6.3: Ersetzen — Auswahl wird Instanz (ein Undo-Schritt, Treue per Sim)
+{
+  const st = useEditor.getState();
+  st.setDoc(extractOuter(), false);
+  st.openExtractDialog(["r1"]);
+  st.extractSelectionToEditor();
+  const ed = useEditor.getState();
+  check("Replace: Editor mit Extrakt offen", ed.partEditor.open && ed.doc.instances.length === 3);
+  check("Replace: Ersetzen vorgemerkt", (ed.partEditor.pendingReplace?.boundary.length ?? 0) === 2);
+  check("Replace: Kategorie Extrahiert", ed.partEditor.meta.category === "Eigene Bauteile/Extrahiert");
+  ed.setPartEditorMeta({ name: "Ersatz-Widerstand" });
+  const saved = useEditor.getState().savePartEditor(true);
+  const rp = useEditor.getState();
+  check("Replace: gespeichert", saved === true);
+  check("Replace: Editor zu", !rp.partEditor.open);
+  const custom = rp.doc.instances.find((i) => i.partId.startsWith("custom_"));
+  check("Replace: Instanz sitzt", !!custom);
+  check("Replace: R1 weg, R2+V1 da", !rp.doc.instances.some((i) => i.id === "r1") && rp.doc.instances.some((i) => i.id === "r2"));
+  check("Replace: ein Undo-Schritt", rp.past.length === 1);
+  const built = buildNets(rp.doc);
+  check("Replace: keine Build-Fehler", built.errors.length === 0, built.errors.join("; "));
+  const op = runOperatingPoint(built.netlist, {});
+  checkNear("Replace: Treue MID=6.667 V", custom ? op.nodes[built.pinNets[`${custom.id}:1`]] : NaN, 20 / 3, 1e-3);
+  rp.undo();
+  const undone = useEditor.getState();
+  check("Replace: Undo stellt R1 her", undone.doc.instances.some((i) => i.id === "r1"));
+  undone.closeExtractDialog();
+}
+
+// 16. S6.3: Live-Testlauf im Editor (Flags, Farben, Stopp-Pfade)
+{
+  const st = useEditor.getState();
+  st.openPartEditor(null);
+  useEditor.getState().commit((d) => {
+    d.instances.push(inst("v1", "vdc", 0, 0, { dc: 10 }, "V1"));
+    d.instances.push(inst("r1", "resistor", 200, 0, { r: 1000 }, "R1"));
+    d.wires.push(wire("w", [[0, -30], [170, 0]]));
+    d.labels.push({ id: "g0", x: 230, y: 0, name: "0" });
+  });
+  const voltBefore = useEditor.getState().showVoltageColors;
+  useEditor.getState().startPartEditorTest();
+  const run = useEditor.getState();
+  check("Testlauf: läuft", run.partEditor.testRunning && run.sim.running);
+  check("Testlauf: Ergebnis ok", (run.partEditor.testResult?.ok ?? false) && (run.partEditor.testResult?.devices ?? 0) === 2);
+  check("Testlauf: Spannungsfarben an", run.showVoltageColors === true);
+  check("Testlauf: Knoten gezählt", (run.partEditor.testResult?.nodes ?? 0) >= 2);
+  run.stopPartEditorTest();
+  const stop = useEditor.getState();
+  check("Testlauf: gestoppt", !stop.partEditor.testRunning && !stop.sim.running);
+  check("Testlauf: Farben zurück", stop.showVoltageColors === voltBefore);
+  stop.startPartEditorTest();
+  stop.savePartEditor(false);
+  check("Testlauf: Speichern stoppt", !useEditor.getState().partEditor.testRunning);
+  useEditor.getState().startPartEditorTest();
+  useEditor.getState().closePartEditor();
+  const closed = useEditor.getState();
+  check("Testlauf: Schließen stoppt Sim", !closed.sim.running && closed.showVoltageColors === voltBefore);
 }
 
 if (failed > 0) {

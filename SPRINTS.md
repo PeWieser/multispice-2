@@ -403,6 +403,17 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   Symbol-Zeicheneditor extrahiert, strenger Bibliotheks-Filter + Ports-
   Schnellzugriff, alter Dialog entfernt. `tsc` ✅, `eslint` ✅, `npm test` ✅
   (subcircuittest +36 Wächter, 65 gesamt).
+- S6.3: Bauteile-Editor 2.0 – Phase 3 (Testlauf + Extrakt-Umbau): Live-Test-
+  lauf im Editor (TestBar mit Start/Stopp + Ergebniszeile, Engine läuft auf
+  dem Editor-Doc, Spannungsfarben zwangs-an mit Wiederherstellung, Auto-
+  Stopp bei Speichern/Schließen/Öffnen), Extrakt als exakte Dokument-Kopie
+  (`extractSelectionAsDoc`: Auswahl+Drähte+Labels wandern unverändert in die
+  Innenschaltung, Boundary-Netze→Ports mit Anker=Außenkontakt, GND bleibt
+  global, Insel ok mit Warnung, Legacy-Skizzen-Extrakt entfernt), Review-
+  Dialog (Übernahme/Ports/Innen-Tabellen, „Im Editor öffnen“), Ersetzen per
+  „Speichern & Ersetzen“ (Matching Port-Name-zuerst, L-Drähte+Label-Fallback,
+  genau ein Undo-Schritt). `tsc` ✅, `eslint` ✅, `npm test` ✅
+  (subcircuittest +32 Wächter, 97 gesamt).
 
 ## Nicht-Ziele (bewusst)
 

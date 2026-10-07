@@ -1,6 +1,6 @@
 import { PARTS, PART_MAP, PartDef, PinDef, SymbolPrim, ParamDef, partPins } from "./catalog";
 import { Device } from "@/lib/sim/engine";
-import { Instance, SchematicDoc, buildNets, pinPosition } from "@/lib/schematic/model";
+import { Instance, SchematicDoc, buildNets, instanceBounds, pinPosition, pointOnSegment } from "@/lib/schematic/model";
 
 export type PinSide = "left" | "right" | "top" | "bottom";
 export type PinRole = "signal" | "input" | "output" | "vcc" | "gnd";
@@ -758,169 +758,79 @@ export function extractSubcircuitFromSchematic(doc: SchematicDoc): {
 export function inferPortRole(name: string): PinRole {
   const upper = name.toUpperCase();
   if (upper === "GND" || upper === "VSS" || upper === "0" || upper === "VEE") return "gnd";
-  if (upper === "VCC" || upper === "VDD" || upper === "V+" || upper === "VCC5" || upper === "V+") return "vcc";
-  if (upper.startsWith("OUT") || upper === "Q" || upper === "Y" || upper === "DIS" || upper.startsWith("F")) return "output";
-  if (upper.startsWith("IN") || upper === "TRIG" || upper === "THR" || upper === "CLK" || upper === "B" || upper === "G" || upper.startsWith("D") || upper.startsWith("A")) return "input";
+  if (upper === "VCC" || upper === "VDD" || upper.startsWith("V+") || upper.startsWith("+")) return "vcc";
+  if (upper.startsWith("OUT") || upper.startsWith("Q") || upper.startsWith("Y")) return "output";
+  if (upper.startsWith("IN") || upper.startsWith("D") || upper.startsWith("A") || upper.startsWith("CLK")) return "input";
   return "signal";
 }
 
-export interface ExtractPortInfo {
-  /** Port-Name am neuen Bauteil */
+/** S6.3: Ein Netz, das die Auswahl verlässt (→ Port im Bauteil). */
+export interface ExtractBoundaryNet {
+  /** Port-Name (Netzname oder P1, P2 …). */
   port: string;
-  /** Netzname im Schaltplan */
+  /** Netzname im Original-Plan. */
   net: string;
-  /** Refs der außen angeschlossenen Bauteile */
-  outside: string[];
+  /** Außen-Pins an diesem Netz (Koordinaten zum Wiederverdrahten). */
+  outsidePins: Array<{ x: number; y: number }>;
+  /** Netz ist außen nur per Namens-Label verbunden (kein Außen-Pin). */
+  labelOnly: boolean;
+  /** Anker-Koordinate für den Port im Bauteil. */
+  anchor: { x: number; y: number };
 }
 
-export interface ExtractInstanceInfo {
-  ref: string;
-  partName: string;
-  /** Abbildung, z. B. "R (exakt)" oder "OPV (nur Gain)" */
-  mapping: string;
-  /** Leere Zeichenkette = exakt übernommen */
-  note: string;
-}
-
-export interface ExtractSelectionResult {
+export interface ExtractDocResult {
   ok: boolean;
   errors: string[];
   warnings: string[];
-  pins: CustomPinSpec[];
-  subcircuit: SubcircuitElement[];
-  ports: ExtractPortInfo[];
+  schematic: SchematicDoc | null;
+  boundary: ExtractBoundaryNet[];
   internalNets: string[];
-  instances: ExtractInstanceInfo[];
+  instances: Array<{ ref: string; partName: string; note: string }>;
+  /** Original-IDs, die beim Ersetzen aus dem Plan verschwinden. */
+  consumed: { instances: string[]; wires: string[]; labels: string[]; junctions: string[]; notes: string[] };
+  /** Mitte der Auswahl (Platzier-Vorschlag für die Instanz). */
+  center: { x: number; y: number };
 }
 
-const numParam = (inst: Instance, key: string, fallback: number): number => {
-  const v = Number(inst.params?.[key]);
-  return Number.isFinite(v) ? v : fallback;
-};
+const EXTRACT_EPS = 3;
 
-const partDefault = (part: PartDef, key: string, fallback: number): number => {
-  const found = part.params.find((p) => p.key === key)?.def;
-  return typeof found === "number" && Number.isFinite(found) ? found : fallback;
-};
+function dist2(ax: number, ay: number, bx: number, by: number): number {
+  return (ax - bx) * (ax - bx) + (ay - by) * (ay - by);
+}
 
 /**
- * S3.2: Exakte Abbildung Bauteil -> Subcircuit-Element.
- * Nur Einträge dieser Tabelle sind extrahierbar; alles andere bricht mit
- * Fehler ab (statt stillschweigend zu entfallen wie im Legacy-Extraktor).
+ * S6.3: Extrahiert eine Instanz-Auswahl als Schaltplan-Dokument für den
+ * Bauteile-Editor (exakte Kopie statt Legacy-Tabelle — Schachtelung und alle
+ * editor-fähigen Teile werden unterstützt). Ports entstehen an den Netzen,
+ * die Auswahl UND Außenwelt berühren; GND (Netz "0") bleibt global und wird
+ * kein Port. Drähte/Labels/Knoten/Notizen der Auswahl wandern mit.
  */
-const EXTRACT_TABLE: Array<{ test: (partId: string) => boolean; map: (inst: Instance, part: PartDef, pinNet: (idx: number) => string, push: (el: SubcircuitElement) => void, notes: string[]) => void }> = [
-  { test: (id) => id === "resistor", map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "resistor", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "r", partDefault(part, "r", 1000)) });
-      void notes;
-  } },
-  { test: (id) => id === "capacitor" || id === "capacitor_elko", map: (inst, part, pinNet, push) => {
-      push({ id: inst.label || inst.id, kind: "capacitor", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "c", partDefault(part, "c", 1e-7)) });
-  } },
-  { test: (id) => id === "inductor", map: (inst, part, pinNet, push) => {
-      push({ id: inst.label || inst.id, kind: "inductor", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "l", partDefault(part, "l", 1e-3)) });
-  } },
-  { test: (id) => id === "potentiometer", map: (inst, part, pinNet, push) => {
-      // Exakt: Engine modelliert das Poti linear als zwei Teilwiderstände.
-      const r = numParam(inst, "r", partDefault(part, "r", 10000));
-      const pos = Math.min(0.9999, Math.max(0.0001, numParam(inst, "pos", 0.5)));
-      const base = inst.label || inst.id;
-      push({ id: `${base}_A`, kind: "resistor", label: `${base} Poti A–W`, nodes: [pinNet(0), pinNet(1)], value: Math.max(1e-3, r * pos) });
-      push({ id: `${base}_B`, kind: "resistor", label: `${base} Poti W–B`, nodes: [pinNet(1), pinNet(2)], value: Math.max(1e-3, r * (1 - pos)) });
-  } },
-  { test: (id) => id.startsWith("diode_") && id !== "diode_zener", map: (inst, part, pinNet, push, notes) => {
-      const n = numParam(inst, "n", partDefault(part, "n", 1));
-      push({ id: inst.label || inst.id, kind: "diode", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: n });
-      notes.push(`${inst.label}: Diode übernimmt N=${n} — IS/BV/RS/CJO fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id === "diode_zener", map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "zener", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "vz", partDefault(part, "vz", 5.1)) });
-      notes.push(`${inst.label}: Z-Diode übernimmt VZ — IS/N fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id === "bridge", map: (inst, part, pinNet, push, notes) => {
-      // Exakte Topologie: 4 Dioden wie in catalog.toDevices (n=1.8).
-      const base = inst.label || inst.id;
-      const pairs: Array<[number, number, string]> = [[0, 2, "D1"], [1, 2, "D2"], [3, 0, "D3"], [3, 1, "D4"]];
-      for (const [a, b, d] of pairs) push({ id: `${base}_${d}`, kind: "diode", label: `${base} Brücke ${d}`, nodes: [pinNet(a), pinNet(b)], value: 1.8 });
-      notes.push(`${inst.label}: Brücke als 4 Dioden (N=1.8) — IS/BV/RS/CJO fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id.startsWith("npn_"), map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "npn", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2)], value: numParam(inst, "bf", partDefault(part, "bf", 200)) });
-      notes.push(`${inst.label}: NPN übernimmt BF — IS/VAF/BR/CJE/CJC fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id.startsWith("pnp_"), map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "pnp", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2)], value: numParam(inst, "bf", partDefault(part, "bf", 180)) });
-      notes.push(`${inst.label}: PNP übernimmt BF — IS/VAF/BR/CJE/CJC fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id === "nmos" || id === "nmos_irf540", map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "nmos", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2)], value: numParam(inst, "vto", partDefault(part, "vto", 2)) });
-      notes.push(`${inst.label}: NMOS übernimmt Vth — KP=2e-4 und Geometrie fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id === "pmos" || id === "pmos_irf9540", map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "pmos", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2)], value: numParam(inst, "vto", partDefault(part, "vto", 2)) });
-      notes.push(`${inst.label}: PMOS übernimmt Vth — KP=2e-4 und Geometrie fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id === "vdc", map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "vdc", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "dc", partDefault(part, "dc", 12)) });
-      notes.push(`${inst.label}: VDC übernimmt DC — AC-Anregung entfällt, RSER=0.05 Ω`);
-  } },
-  { test: (id) => id === "idc", map: (inst, part, pinNet, push) => {
-      push({ id: inst.label || inst.id, kind: "idc", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1)], value: numParam(inst, "dc", partDefault(part, "dc", 0.001)) });
-  } },
-  { test: (id) => id.startsWith("opamp_"), map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "opamp", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2), pinNet(3), pinNet(4)], value: numParam(inst, "gain", partDefault(part, "gain", 100000)) });
-      notes.push(`${inst.label}: OPV übernimmt Gain — GBW=1 MHz, Slew/RIN/ROUT/VCC/VEE fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id === "comparator_lm393", map: (inst, part, pinNet, push, notes) => {
-      push({ id: inst.label || inst.id, kind: "comparator", label: `${inst.label} (${part.name})`, nodes: [pinNet(0), pinNet(1), pinNet(2), pinNet(3), pinNet(4)], value: numParam(inst, "gain", partDefault(part, "gain", 200000)) });
-      notes.push(`${inst.label}: Komparator übernimmt Gain — ROUT/VCC/VEE fallen auf Standardwerte zurück`);
-  } },
-  { test: (id) => id === "ne555", map: (inst, part, pinNet, push) => {
-      push({ id: inst.label || inst.id, kind: "timer555_core", label: `${inst.label} NE555-Kern`, nodes: [pinNet(0), pinNet(1), pinNet(2), pinNet(3), pinNet(4), pinNet(5), pinNet(6), pinNet(7)], value: numParam(inst, "vdd", partDefault(part, "vdd", 9)) });
-  } },
-];
-
-/** Instanzen ohne elektrische Wirkung (still übersprungen, aber für Port-Erkennung gezählt). */
-const EXTRACT_VIRTUAL = new Set(["gnd", "vcc", "oscilloscope", "onpage_connector", "bus_tap", "bus_splitter"]);
-
-/**
- * S3.2: Extrahiert eine Instanz-Auswahl als wiederverwendbares Bauteil.
- * Ports entstehen exakt an den Netzen, die Auswahl UND Außenwelt berühren;
- * GND (Netz "0") bleibt global und wird kein Port. Nicht abbildbare
- * Bauteile brechen mit Fehler ab; gedroppte Parameter landen in `warnings`.
- */
-export function extractSelectionAsPart(doc: SchematicDoc, instanceIds: string[]): ExtractSelectionResult {
+export function extractSelectionAsDoc(doc: SchematicDoc, instanceIds: string[]): ExtractDocResult {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const subcircuit: SubcircuitElement[] = [];
-  const instances: ExtractInstanceInfo[] = [];
+  const empty: ExtractDocResult = {
+    ok: false, errors, warnings, schematic: null, boundary: [], internalNets: [], instances: [],
+    consumed: { instances: [], wires: [], labels: [], junctions: [], notes: [] }, center: { x: 0, y: 0 },
+  };
   const selected = doc.instances
     .filter((i) => instanceIds.includes(i.id))
     .sort((a, b) => (a.label || a.id).localeCompare(b.label || b.id));
   if (selected.length === 0) {
-    return { ok: false, errors: ["Keine Bauteile ausgewählt."], warnings, pins: [], subcircuit, ports: [], internalNets: [], instances };
+    errors.push("Keine Bauteile ausgewählt.");
+    return empty;
   }
 
-  // 1) Abbildung prüfen (Fehler blockieren, nichts wird still gedroppt)
-  const customInside = selected.filter((i) => PART_MAP[i.partId]?.tags?.includes("custom"));
-  if (customInside.length > 0) {
-    errors.push(`Verschachtelung nicht unterstützt: ${customInside.map((i) => i.label || i.id).join(", ")} ${customInside.length === 1 ? "ist" : "sind"} bereits ein eigenes Bauteil.`);
-  }
+  // 1) Alle Teile müssen editor-fähig sein (Schachtelung ist erlaubt).
   for (const inst of selected) {
     const part = PART_MAP[inst.partId];
-    if (!part) {
-      errors.push(`${inst.label || inst.id}: unbekanntes Bauteil (${inst.partId}).`);
-      continue;
-    }
-    if (EXTRACT_VIRTUAL.has(part.id)) continue;
-    if (part.tags?.includes("custom")) continue; // oben bereits gemeldet
-    const entry = EXTRACT_TABLE.find((e) => e.test(part.id));
-    if (!entry) errors.push(`${inst.label || inst.id}: ${part.name} wird beim Extrahieren nicht unterstützt (Messgerät, Quelle mit Zeitverlauf, Digital, Schalter, Spezialbauteil).`);
+    const ref = inst.label || inst.id;
+    if (!part) errors.push(`${ref}: unbekanntes Bauteil (${inst.partId}).`);
+    else if (!isEditorPlaceable(inst.partId, null))
+      errors.push(`${ref}: ${part.name} kann nicht in ein Bauteil übernommen werden (Messung/Deko/Seitenverbinder).`);
   }
-  if (errors.length > 0) {
-    return { ok: false, errors, warnings, pins: [], subcircuit, ports: [], internalNets: [], instances };
-  }
+  if (errors.length > 0) return empty;
 
-  // 2) Netze + Berührung (gewählt vs. außen) je Netz bestimmen
+  // 2) Netze + Berührung (gewählt vs. außen) je Netz bestimmen.
   const netRes = buildNets(doc);
   const pinNet = (instId: string, idx: number): string => netRes.pinNets[`${instId}:${idx}`] ?? `${instId}_nc${idx}`;
   const selIds = new Set(selected.map((i) => i.id));
@@ -931,19 +841,22 @@ export function extractSelectionAsPart(doc: SchematicDoc, instanceIds: string[])
     if (!arr.includes(ref)) arr.push(ref);
     touched.set(net, e);
   };
+  const pinPosOf = new Map<string, { x: number; y: number }>();
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) continue;
     const isSel = selIds.has(inst.id);
     const ref = inst.label || inst.id;
-    partPins(part, inst.params).forEach((_, idx) => touch(pinNet(inst.id, idx), ref, isSel));
+    partPins(part, inst.params).forEach((_, idx) => {
+      touch(pinNet(inst.id, idx), ref, isSel);
+      try {
+        const pp = pinPosition(inst, idx);
+        pinPosOf.set(`${inst.id}:${idx}`, { x: pp.x, y: pp.y });
+      } catch { /* Pin ohne Geometrie: ignorieren */ }
+    });
   }
 
-  // 3) Ports: berührt gewählt UND außen, außer GND
-  const usedNames = new Set<string>();
-  const ports: ExtractPortInfo[] = [];
-  const internalNets: string[] = [];
-  // Deterministische Reihenfolge: Auswahl-Reihenfolge, dann Pin-Index
+  // 3) Boundary-Netze in deterministischer Reihenfolge (Auswahl, dann Pin-Index).
   const orderedNets: string[] = [];
   for (const inst of selected) {
     const part = PART_MAP[inst.partId];
@@ -953,6 +866,10 @@ export function extractSelectionAsPart(doc: SchematicDoc, instanceIds: string[])
       if (!orderedNets.includes(net)) orderedNets.push(net);
     });
   }
+  const usedNames = new Set<string>();
+  const boundaryNets: string[] = [];
+  const internalNets: string[] = [];
+  const portNameOf = new Map<string, string>();
   let autoPort = 1;
   for (const net of orderedNets) {
     const t = touched.get(net);
@@ -962,54 +879,149 @@ export function extractSelectionAsPart(doc: SchematicDoc, instanceIds: string[])
       internalNets.push(net);
       continue;
     }
+    boundaryNets.push(net);
     let port = /^N\d+$/.test(net) ? "" : net;
     if (!port || usedNames.has(port.toUpperCase())) {
       do { port = `P${autoPort++}`; } while (usedNames.has(port.toUpperCase()));
     }
     usedNames.add(port.toUpperCase());
-    ports.push({ port, net, outside: [...t.out].sort() });
+    portNameOf.set(net, port);
   }
 
-  // 4) Elemente + Instanz-Protokoll
+  // 4) Geometrie einbeziehen: Drähte mit gewähltem Kontakt wandern mit.
+  const selPinPts: Array<{ x: number; y: number }> = [];
   for (const inst of selected) {
     const part = PART_MAP[inst.partId];
-    if (!part || EXTRACT_VIRTUAL.has(part.id)) continue;
-    const entry = EXTRACT_TABLE.find((e) => e.test(part.id));
-    if (!entry) continue; // oben bereits als Fehler gemeldet (unreachable)
-    const notes: string[] = [];
-    const before = subcircuit.length;
-    entry.map(inst, part, (idx) => pinNet(inst.id, idx), (el) => subcircuit.push(el), notes);
-    warnings.push(...notes);
-    const kinds = [...new Set(subcircuit.slice(before).map((el) => el.kind))].join("+");
-    instances.push({ ref: inst.label || inst.id, partName: part.name, mapping: kinds, note: notes.join(" ") });
+    if (!part) continue;
+    partPins(part, inst.params).forEach((_, idx) => {
+      const pp = pinPosOf.get(`${inst.id}:${idx}`);
+      if (pp) selPinPts.push(pp);
+    });
   }
+  const nearSelPin = (x: number, y: number): boolean =>
+    selPinPts.some((p) => dist2(x, y, p.x, p.y) <= EXTRACT_EPS * EXTRACT_EPS);
+  const includedWires = doc.wires.filter((w) => {
+    if (w.points.length === 0) return false;
+    const a = w.points[0];
+    const b = w.points[w.points.length - 1];
+    return nearSelPin(a.x, a.y) || nearSelPin(b.x, b.y);
+  });
+  const onIncludedWire = (x: number, y: number): boolean =>
+    includedWires.some((w) =>
+      w.points.some((p, i) => {
+        if (i === 0) return false;
+        const q = w.points[i - 1];
+        return pointOnSegment(x, y, q.x, q.y, p.x, p.y);
+      }),
+    );
+  const knownNets = new Set([...boundaryNets, ...internalNets]);
+  const includedLabels = doc.labels.filter(
+    (l) => knownNets.has(l.name) && (nearSelPin(l.x, l.y) || onIncludedWire(l.x, l.y)),
+  );
+  const includedJunctions = (doc.junctions ?? []).filter((j) => onIncludedWire(j.x, j.y));
+  let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
   for (const inst of selected) {
-    const part = PART_MAP[inst.partId];
-    if (part && EXTRACT_VIRTUAL.has(part.id)) {
-      instances.push({ ref: inst.label || inst.id, partName: part.name, mapping: "—", note: part.id === "gnd" ? "Masse (global, kein Port)" : part.id === "vcc" ? "Netzanker (kein Element)" : "Messung/Verbinder (kein Element)" });
+    try {
+      const b = instanceBounds(inst);
+      minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
+    } catch {
+      minX = Math.min(minX, inst.x); minY = Math.min(minY, inst.y);
+      maxX = Math.max(maxX, inst.x); maxY = Math.max(maxY, inst.y);
     }
   }
+  const includedNotes = doc.notes.filter(
+    (n) => n.x >= minX - 20 && n.x <= maxX + 20 && n.y >= minY - 20 && n.y <= maxY + 20,
+  );
 
-  // 5) Pin-Spezifikation (Seite aus Rolle, Position automatisch)
-  const pins: CustomPinSpec[] = [];
-  const touchesGround = orderedNets.includes("0");
-  let altLeft = true;
-  for (const p of ports) {
-    let role = inferPortRole(p.port);
-    // Eine GND-Rolle würde interne "0"-Bezüge auf den Port umleiten —
-    // bei gleichzeitigem Global-Masse-Bezug daher zur Signal-Rolle abstufen.
-    if (role === "gnd" && touchesGround) role = "signal";
-    const side: PinSide = role === "output" || role === "vcc" ? "right" : role === "gnd" ? "bottom" : altLeft ? "left" : "right";
-    if (role !== "output" && role !== "vcc" && role !== "gnd") altLeft = !altLeft;
-    pins.push({ name: p.port, side, role, internalNode: p.net });
+  // 5) Port-Anker: bevorzugt Außen-Pin auf einbezogenem Draht, sonst Innen-Pin.
+  const wireEnds: Array<{ x: number; y: number }> = [];
+  for (const w of includedWires) {
+    if (w.points.length === 0) continue;
+    wireEnds.push(w.points[0], w.points[w.points.length - 1]);
+  }
+  const boundary: ExtractBoundaryNet[] = boundaryNets.map((net) => {
+    const outsidePins: Array<{ x: number; y: number }> = [];
+    for (const inst of doc.instances) {
+      if (selIds.has(inst.id)) continue;
+      const part = PART_MAP[inst.partId];
+      if (!part) continue;
+      partPins(part, inst.params).forEach((_, idx) => {
+        if (pinNet(inst.id, idx) !== net) return;
+        const pp = pinPosOf.get(`${inst.id}:${idx}`);
+        if (pp && !outsidePins.some((q) => dist2(q.x, q.y, pp.x, pp.y) <= EXTRACT_EPS * EXTRACT_EPS)) outsidePins.push(pp);
+      });
+    }
+    const onWire = outsidePins.find((pp) => wireEnds.some((e) => dist2(e.x, e.y, pp.x, pp.y) <= EXTRACT_EPS * EXTRACT_EPS));
+    let anchor = onWire;
+    if (!anchor) {
+      for (const inst of selected) {
+        const part = PART_MAP[inst.partId];
+        if (!part) continue;
+        const pins = partPins(part, inst.params);
+        for (let idx = 0; idx < pins.length; idx++) {
+          if (pinNet(inst.id, idx) !== net) continue;
+          const pp = pinPosOf.get(`${inst.id}:${idx}`);
+          if (pp) { anchor = pp; break; }
+        }
+        if (anchor) break;
+      }
+    }
+    const labelOnly = outsidePins.length === 0;
+    if (labelOnly) warnings.push(`Netz „${net}“ ist außen nur per Name verbunden — der Port sitzt am Innen-Pin.`);
+    return { port: portNameOf.get(net) ?? net, net, outsidePins, labelOnly, anchor: anchor ?? { x: 0, y: 0 } };
+  });
+
+  // 6) Schaltplan-Dokument bauen (Port-IDs erzwingen die Pin-Reihenfolge).
+  const cloneJson = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+  const portInstances: Instance[] = boundary.map((b, idx) => {
+    const role = inferPortRole(b.port);
+    const partId = role === "input" ? "port_in" : role === "output" || role === "vcc" ? "port_out" : "port_io";
+    return {
+      id: `xport_${String(idx).padStart(2, "0")}`,
+      partId,
+      x: Math.round((b.anchor.x + 30) / 10) * 10,
+      y: Math.round(b.anchor.y / 10) * 10,
+      rot: 0,
+      label: b.port,
+      params: { pname: b.port },
+    };
+  });
+  const schematic: SchematicDoc = {
+    id: `extract_${Date.now().toString(36)}`,
+    name: "Extrahiert",
+    instances: [...cloneJson(selected), ...portInstances],
+    wires: cloneJson(includedWires),
+    labels: cloneJson(includedLabels),
+    notes: cloneJson(includedNotes),
+    junctions: cloneJson(includedJunctions),
+    probes: [],
+  };
+  if (boundary.length === 0) {
+    warnings.push("Insellösung: kein Netz verlässt die Auswahl — im Editor Ports von Hand ergänzen oder Auswahl erweitern.");
   }
 
-  if (subcircuit.length === 0) {
-    errors.push("Die Auswahl enthält keine extrahierbaren Bauelemente (nur Verbinder/Masse/Messung).");
-    return { ok: false, errors, warnings, pins: [], subcircuit, ports: [], internalNets: [], instances };
-  }
-  return { ok: true, errors, warnings, pins, subcircuit, ports, internalNets, instances };
+  return {
+    ok: true, errors, warnings, schematic, boundary, internalNets,
+    instances: selected.map((i) => ({
+      ref: i.label || i.id,
+      partName: PART_MAP[i.partId]?.name ?? i.partId,
+      note: i.partId === "gnd" ? "Masse (global, kein Port)" : "",
+    })),
+    consumed: {
+      instances: selected.map((i) => i.id),
+      wires: includedWires.map((w) => w.id),
+      labels: includedLabels.map((l) => l.id),
+      junctions: includedJunctions.map((j) => j.id),
+      notes: includedNotes.map((n) => n.id),
+    },
+    center: {
+      x: Math.round((minX + maxX) / 20) * 10,
+      y: Math.round((minY + maxY) / 20) * 10,
+    },
+  };
 }
+
 
 /**
  * Erzeugt ein auf das 10-px-Raster (GRID=10) ausgerichtetes Schaltzeichen

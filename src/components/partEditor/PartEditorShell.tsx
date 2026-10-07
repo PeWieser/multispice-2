@@ -7,7 +7,7 @@
    speichern. Lebend-Validierung zeigt Fehler vor dem Speichern. */
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, ChevronDown, CircuitBoard, PenTool, Package, Save, Sliders, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, CircuitBoard, PenTool, Package, Play, Save, Sliders, Square, X } from "lucide-react";
 import { useEditor } from "@/state/editor";
 import type { PartDef } from "@/lib/library/catalog";
 import {
@@ -36,6 +36,9 @@ export default function PartEditorShell() {
   const links = useEditor((s) => s.partEditor.links);
   const pinOverrides = useEditor((s) => s.partEditor.pinOverrides);
   const customSymbol = useEditor((s) => s.partEditor.customSymbol);
+  const testRunning = useEditor((s) => s.partEditor.testRunning);
+  const testResult = useEditor((s) => s.partEditor.testResult);
+  const pendingReplace = useEditor((s) => s.partEditor.pendingReplace);
   const [confirmClose, setConfirmClose] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
 
@@ -155,7 +158,7 @@ export default function PartEditorShell() {
             <Save size={13} /> Speichern
           </Button>
           <Button size="sm" onClick={() => useEditor.getState().savePartEditor(true)}>
-            Speichern & Platzieren
+            {pendingReplace ? "Speichern & Ersetzen" : "Speichern & Platzieren"}
           </Button>
         </div>
       </div>
@@ -258,6 +261,30 @@ export default function PartEditorShell() {
             </div>
             <div className="flex min-w-[420px] flex-1 flex-col">
               <ComponentStrip tools={<DrawingTools />} editorMode />
+              <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-surface-2 px-3 py-1.5">
+                {!testRunning ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => useEditor.getState().startPartEditorTest()}
+                    title="Live-Simulation auf der Innenschaltung starten — Leitungen färben sich nach Spannung"
+                  >
+                    <Play size={13} /> Testlauf
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={() => useEditor.getState().stopPartEditorTest()} title="Testlauf stoppen">
+                    <Square size={13} /> Stopp
+                  </Button>
+                )}
+                {testResult ? (
+                  <span className={`flex min-w-0 items-center gap-1.5 text-xs ${testResult.ok ? "text-ok" : "text-err"}`}>
+                    {testResult.ok ? <Check size={13} className="shrink-0" /> : <AlertTriangle size={13} className="shrink-0" />}
+                    <span className="truncate">{testRunning && testResult.ok ? `Läuft — ${testResult.message}` : testResult.message}</span>
+                  </span>
+                ) : (
+                  <span className="text-2xs text-ink-3">Noch kein Testlauf.</span>
+                )}
+              </div>
               <div className="relative min-h-0 flex-1">
                 <Canvas />
               </div>

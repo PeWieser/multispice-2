@@ -4,16 +4,18 @@ import {
   CustomPartSpec,
   PORT_PART_IDS,
   derivePinsFromPorts,
+  extractSelectionAsDoc,
   loadCustomParts,
   migrateSubcircuitToDoc,
   saveCustomPart,
   validatePartSchematic,
 } from "@/lib/library/customParts";
-import { SchematicDoc, emptyDoc } from "@/lib/schematic/model";
-import type { CustomPartParamLink, CustomPinSpec } from "@/lib/library/customParts";
-import type { EditorState, PartEditorMeta } from "../types";
+import { Instance, SchematicDoc, emptyDoc, pinPosition } from "@/lib/schematic/model";
+import type { CustomPartParamLink, CustomPinSpec, ExtractBoundaryNet } from "@/lib/library/customParts";
+import type { EditorState, PartEditorMeta, PartEditorTestResult, PendingReplace } from "../types";
 import type { StoreApi } from "zustand";
-import { clone, cloneJson, engine } from "../shared";
+import { clone, cloneJson, engine, newId } from "../shared";
+import { nextLabel } from "../docUtils";
 
 const DEFAULT_META: PartEditorMeta = {
   name: "",
@@ -44,6 +46,9 @@ export function createPartEditorSlice(
   | "setPinOverride"
   | "setPartEditorSymbol"
   | "markPartEditorDirty"
+  | "startPartEditorTest"
+  | "stopPartEditorTest"
+  | "extractSelectionToEditor"
 > {
   return {
     openPartEditor: (partId) => {
@@ -110,6 +115,10 @@ export function createPartEditorSlice(
           pinOverrides,
           customSymbol: spec?.customSymbol ? cloneJson(spec.customSymbol) : [],
           legacyTable,
+          testRunning: false,
+          testResult: null,
+          testVoltColors: null,
+          pendingReplace: null,
           parked: {
             doc: s.doc,
             past: s.past,
@@ -161,7 +170,9 @@ export function createPartEditorSlice(
       engine.reset(p.doc);
       engine.running = false;
       set({
-        partEditor: { ...pe, open: false, dirty: false, parked: null },
+        partEditor: { ...pe, open: false, dirty: false, parked: null, testRunning: false, testResult: null, testVoltColors: null, pendingReplace: null },
+        sim: { ...st.sim, running: false },
+        showVoltageColors: pe.testVoltColors ?? st.showVoltageColors,
         doc: p.doc,
         past: p.past,
         future: p.future,
@@ -188,6 +199,7 @@ export function createPartEditorSlice(
       const st = get();
       const pe = st.partEditor;
       if (!pe.open) return false;
+      if (pe.testRunning) st.stopPartEditorTest();
       const cleanName = pe.meta.name.trim() || "Eigenes Bauteil";
       const id =
         pe.editingId ?? `custom_${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${Date.now().toString(36).slice(-4)}`;
@@ -228,8 +240,12 @@ export function createPartEditorSlice(
       );
       for (const w of issues.filter((i) => i.severity === "warning").slice(0, 3)) st.log("warn", w.message);
       if (place) {
-        st.closePartEditor();
-        get().setPlacing(id);
+        if (pe.pendingReplace) {
+          replaceSelectionWithPart(get, set, id, pins, cleanName, pe.pendingReplace);
+        } else {
+          st.closePartEditor();
+          get().setPlacing(id);
+        }
       }
       return true;
     },
@@ -321,9 +337,187 @@ export function createPartEditorSlice(
     setPartEditorSymbol: (prims) =>
       set((s) => ({ partEditor: { ...s.partEditor, customSymbol: prims, dirty: true } })),
 
+    startPartEditorTest: () => {
+      const st = get();
+      if (!st.partEditor.open || st.partEditor.testRunning) return;
+      // S6.3: Live-Engine auf dem Editor-Doc — Leitungen färben sich nach
+      // Spannung, Inspector zeigt Live-Werte (Canvas treibt die Takte).
+      const { doc, sim } = st;
+      engine.options.sampleRate = sim.sampleRate;
+      engine.options.timeScale = sim.timeScale;
+      engine.options.method = sim.method;
+      engine.options.temperature = sim.temperature;
+      engine.rebuild(doc);
+      engine.running = true;
+      const live = engine.lastState;
+      const devices = engine.netlist.devices.length;
+      const nodes = engine.netNames().length;
+      const result: PartEditorTestResult = live.ok
+        ? { ok: true, message: `${devices} Teile · ${nodes} Knoten`, devices, nodes, at: Date.now() }
+        : { ok: false, message: live.message ?? "keine Konvergenz", devices, nodes, at: Date.now() };
+      set((s) => ({
+        sim: { ...s.sim, running: true },
+        showVoltageColors: true,
+        partEditor: { ...s.partEditor, testRunning: true, testResult: result, testVoltColors: s.showVoltageColors },
+      }));
+      if (!live.ok) {
+        st.log("error", `Testlauf: ${result.message}`);
+        const suspect = (live.suspects ?? []).find((x) => !x.startsWith("I("));
+        if (suspect) st.spotlightNet(suspect);
+        else if (live.suspects?.length) st.log("warn", `Verdächtig: ${live.suspects.join(", ")}`);
+      } else {
+        st.log("ok", `Testlauf gestartet — ${result.message}`);
+      }
+      for (const w of engine.warnings) st.log("warn", w);
+      for (const e of engine.errors) st.log("error", e);
+    },
+
+    stopPartEditorTest: () => {
+      const st = get();
+      if (!st.partEditor.open || !st.partEditor.testRunning) return;
+      engine.running = false;
+      engine.reset(st.doc);
+      engine.running = false;
+      set((s) => ({
+        sim: { ...s.sim, running: false },
+        showVoltageColors: s.partEditor.testVoltColors ?? s.showVoltageColors,
+        partEditor: { ...s.partEditor, testRunning: false, testVoltColors: null },
+      }));
+      st.log("info", "Testlauf gestoppt.");
+    },
+
+    extractSelectionToEditor: () => {
+      const st = get();
+      if (st.partEditor.open) return;
+      const ids = st.extractIds;
+      if (!ids || ids.length === 0) return;
+      const res = extractSelectionAsDoc(st.doc, ids);
+      const schematic = res.schematic;
+      if (!res.ok || !schematic) {
+        st.log("error", `Extrahieren blockiert: ${res.errors[0] ?? "unbekannter Fehler"}`);
+        return;
+      }
+      st.closeExtractDialog();
+      st.openPartEditor(null);
+      set((s) => ({
+        partEditor: {
+          ...s.partEditor,
+          meta: {
+            ...s.partEditor.meta,
+            category: "Eigene Bauteile/Extrahiert",
+            description: `Aus ${ids.length} Elementen extrahiert.`,
+          },
+          pendingReplace: { boundary: res.boundary, consumed: res.consumed, center: res.center },
+          dirty: true,
+        },
+        doc: { ...schematic, name: "Extrahiert" },
+        past: [],
+        future: [],
+        selection: [],
+      }));
+      get().refreshNets();
+      st.log(
+        "ok",
+        `Auswahl extrahiert (${schematic.instances.length} Teile, ${res.boundary.length} Ports) — im Editor prüfen und speichern.`,
+      );
+      for (const w of res.warnings.slice(0, 3)) st.log("warn", w);
+    },
+
     markPartEditorDirty: () => {
       if (!get().partEditor.open) return;
       set((s) => (s.partEditor.dirty ? s : { partEditor: { ...s.partEditor, dirty: true } }));
     },
   };
+}
+
+/** S6.3: Ersetzt die extrahierte Auswahl durch eine Instanz des neuen
+ * Bauteils (ein Undo-Schritt): Originale löschen, Instanz in die Mitte
+ * setzen, Boundary-Netze per L-Drähte (oder Namens-Labels) anbinden. */
+function replaceSelectionWithPart(
+  get: StoreApi<EditorState>["getState"],
+  set: StoreApi<EditorState>["setState"],
+  partId: string,
+  specPins: import("@/lib/library/customParts").CustomPinSpec[],
+  name: string,
+  pending: PendingReplace,
+): void {
+  void set;
+  const st = get();
+  st.closePartEditor();
+  const after = get();
+  const def = PART_MAP[partId];
+  if (!def) {
+    after.log("error", `Ersetzen gescheitert: „${name}“ ist nicht in der Bibliothek.`);
+    return;
+  }
+  const label = nextLabel(after.doc, def);
+  const inst: Instance = { id: newId("i"), partId, x: pending.center.x, y: pending.center.y, rot: 0, label, params: {} };
+  // Pin → Boundary: erst exakte Port-Namen, Reste per Reihenfolge (mit Warnung).
+  const used = new Set<ExtractBoundaryNet>();
+  const matchOf = new Map<number, ExtractBoundaryNet>();
+  specPins.forEach((pin, idx) => {
+    const hit = pending.boundary.find((b) => !used.has(b) && b.port === pin.name);
+    if (hit) {
+      used.add(hit);
+      matchOf.set(idx, hit);
+    }
+  });
+  const freePins = specPins.map((_, idx) => idx).filter((idx) => !matchOf.has(idx));
+  const freeBounds = pending.boundary.filter((b) => !used.has(b));
+  const orderPaired = freePins.length > 0 && freeBounds.length > 0;
+  freePins.forEach((idx, k) => {
+    if (freeBounds[k]) matchOf.set(idx, freeBounds[k]);
+  });
+  const unwired: string[] = [];
+  after.commit((d) => {
+    const c = pending.consumed;
+    const ci = new Set(c.instances);
+    const cw = new Set(c.wires);
+    const cl = new Set(c.labels);
+    const cj = new Set(c.junctions);
+    const cn = new Set(c.notes);
+    d.instances = d.instances.filter((i) => !ci.has(i.id));
+    d.wires = d.wires.filter((w) => !cw.has(w.id));
+    d.labels = d.labels.filter((l) => !cl.has(l.id));
+    if (d.junctions) d.junctions = d.junctions.filter((j) => !cj.has(j.id));
+    d.notes = d.notes.filter((n) => !cn.has(n.id));
+    d.instances.push(inst);
+    specPins.forEach((pin, idx) => {
+      let pp: { x: number; y: number };
+      try {
+        pp = pinPosition(inst, idx);
+      } catch {
+        unwired.push(pin.name);
+        return;
+      }
+      const b = matchOf.get(idx);
+      if (!b) {
+        unwired.push(pin.name);
+        return;
+      }
+      if (b.outsidePins.length > 0) {
+        for (const q of b.outsidePins) {
+          const pts =
+            pp.x === q.x || pp.y === q.y
+              ? [{ x: pp.x, y: pp.y }, { x: q.x, y: q.y }]
+              : [
+                  { x: pp.x, y: pp.y },
+                  { x: q.x, y: pp.y },
+                  { x: q.x, y: q.y },
+                ];
+          d.wires.push({ id: newId("w"), points: pts });
+        }
+      } else {
+        // Nur per Name verbunden: stabilen Netznamen ans Pin heften
+        // (Auto-Netze bekämen sonst bei jedem Build eine neue Nummer).
+        const nm = /^N\d+$/.test(b.net) ? b.port : b.net;
+        d.labels.push({ id: newId("l"), x: pp.x, y: pp.y, name: nm });
+      }
+    });
+  });
+  get().setSelection([inst.id]);
+  get().log("ok", `Auswahl durch „${name}“ (${label}) ersetzt — ${specPins.length - unwired.length} von ${specPins.length} Pins verdrahtet.`);
+  if (orderPaired)
+    get().log("warn", "Ports umbenannt oder umsortiert — Zuordnung per Pin-Reihenfolge, bitte prüfen.");
+  for (const u of unwired.slice(0, 4)) get().log("warn", `Pin „${u}“ bleibt unverdrahtet (Port gelöscht?).`);
 }
