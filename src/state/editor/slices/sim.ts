@@ -8,6 +8,7 @@ import { engine } from "../shared";export function createSimSlice(set: StoreApi<
   return {
       startSim: () => {
         const { doc, sim } = get();
+        if (get().partEditor.open) { get().log("warn", "Im Bauteile-Editor läuft keine Simulation."); return; }
         engine.options.sampleRate = sim.sampleRate;
         engine.options.timeScale = sim.timeScale;
         engine.options.method = sim.method;

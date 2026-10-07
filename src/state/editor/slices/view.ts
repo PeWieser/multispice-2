@@ -35,7 +35,10 @@ import { useHud } from "../hud";export function createViewSlice(set: StoreApi<Ed
         spotlightTimer = null;
         set({ spotlight: null });
       },
-      openExtractDialog: (ids) => set({ extractIds: [...ids] }),
+      openExtractDialog: (ids) => {
+        if (get().partEditor.open) return; // S6.2: kein Extrahieren im Editor.
+        set({ extractIds: [...ids] });
+      },
       closeExtractDialog: () => set({ extractIds: null }),
 
       fitView: () => {

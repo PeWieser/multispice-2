@@ -566,7 +566,7 @@ async function main() {
     for (const m of ctx.matchAll(/#[0-9a-fA-F]{6}/g)) {
       assert.ok(PALETTE.has(m[0]), `Kontextmenü: Hex außerhalb der Palette: ${m[0]}`);
     }
-    const pe = fs.readFileSync("src/components/PartEditorDialog.tsx", "utf8");
+    const pe = fs.readFileSync("src/components/partEditor/SymbolCanvas.tsx", "utf8");
     const vcc = pe.split("\n").filter((l) => l.includes("#f87171"));
     assert.equal(vcc.length, 1, "nur noch VCC-Canvas-Farbe");
     assert.ok(vcc[0].includes("vcc:"), "VCC-Zeile");
@@ -580,7 +580,7 @@ async function main() {
     const SHELLED = [
       "src/components/AnalysisDialog.tsx",
       "src/components/ExtractPartDialog.tsx",
-      "src/components/PartEditorDialog.tsx",
+      "src/components/partEditor/PartEditorShell.tsx",
       "src/components/ProjectsDialog.tsx",
       "src/components/SettingsDialog.tsx",
       "src/components/WizardsDialog.tsx",

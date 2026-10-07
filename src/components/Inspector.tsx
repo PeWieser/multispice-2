@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { probeHexColor } from "@/lib/probe-style";
-import { Cpu, Gauge, Settings2, SlidersHorizontal, Waves, Radio, Zap, GitBranch, Lock } from "lucide-react";
+import { Cpu, Gauge, Settings2, SlidersHorizontal, Waves, Radio, Zap, GitBranch, Lock, Link2, Unlink } from "lucide-react";
 import { PART_MAP, ParamDef, partPins } from "@/lib/library/catalog";
+import { PORT_PART_IDS } from "@/lib/library/customParts";
 import { formatValue } from "@/lib/format";
 import { loadESeries } from "@/lib/settings";
 import { stepEValue, stepPercent } from "@/lib/values/series";
@@ -98,11 +99,13 @@ export default function Inspector() {
             <Waves size={12} /> Netze
           </span>
         </button>
+        {!st.partEditor.open && (
         <button className="tab" data-active={tab === "sim"} onClick={() => setTab("sim")}>
           <span className="flex items-center gap-1.5">
             <Gauge size={12} /> Solver
           </span>
         </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -227,7 +230,7 @@ export default function Inspector() {
                 <SlidersHorizontal size={22} className="mx-auto mb-2 opacity-50" />
                 Kein Bauteil ausgewählt.
                 <div className="mt-1 text-2xs">Wähle ein Element im Schaltplan aus, um Parameter, SPICE-Modell und Messwerte zu sehen. Probes via Toolbar oder Rechtsklick → Probe hinzufügen.</div>
-                {!st.teacher.locked && (
+                {!st.teacher.locked && !st.partEditor.open && (
                 <div className="mt-3 flex justify-center gap-2">
                   <Button size="sm" onClick={()=> { const s=useEditor.getState(); const id=s.addMeasurementProbe("voltage",200,200); if(id) s.setSelection([id]); }}>+ V Probe</Button>
                   <Button size="sm" onClick={()=> { const s=useEditor.getState(); const id=s.addMeasurementProbe("current",240,200); if(id) s.setSelection([id]); }}>+ A Probe</Button>
@@ -288,6 +291,11 @@ export default function Inspector() {
                         (part.interactive === "pot" && def.key === "pos") ||
                         ((part.interactive === "switch" || part.interactive === "button" || part.interactive === "dip") && (def.key === "pos" || def.key.startsWith("closed")))
                       );
+                      const linked = st.partEditor.open
+                        ? st.partEditor.links.find((l) => l.targets.some((t) => t.instanceId === selected.id && t.key === def.key))
+                        : undefined;
+                      // S6.2: Port-Namen sind Pin-Namen (keine Werte) — nicht verknüpfbar.
+                      const linkable = st.partEditor.open && !(PORT_PART_IDS as readonly string[]).includes(part?.id ?? "");
                       return (
                         <div key={def.key}>
                           <ParamField
@@ -297,6 +305,17 @@ export default function Inspector() {
                             value={value}
                             onChange={(v) => (liveControl ? st.setControlLive(selected.id, def.key, v) : st.setParam(selected.id, def.key, v))}
                           />
+                          {linkable && (
+                            <button
+                              type="button"
+                              onClick={() => st.toggleParamLink(selected.id, def.key)}
+                              title={linked ? `Freigabe „${linked.name}“ lösen` : "Als einstellbaren Bauteil-Parameter freigeben"}
+                              className={`mt-1 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-2xs pressable ${linked ? "text-accent" : "text-ink-3 hover:text-ink-2"}`}
+                            >
+                              {linked ? <Unlink size={12} /> : <Link2 size={12} />}
+                              <span>{linked ? `Freigegeben: ${linked.name}` : "Als Parameter freigeben"}</span>
+                            </button>
+                          )}
                           {def.key === "key" && isEditorSingleKey(value) && (
                             <div className="mt-1 rounded-md px-2 py-1 text-2xs text-ink-3 bg-surface-2">
                               „{String(value).trim().toUpperCase()}“ ist auch ein Editor-Kürzel — bei laufender Simulation steuert die Taste dieses Bauteil.
@@ -334,7 +353,7 @@ export default function Inspector() {
                   </div>
                 )}
 
-                {!st.teacher.locked && part.tags?.includes("custom") && (
+                {!st.teacher.locked && !st.partEditor.open && part.tags?.includes("custom") && (
                   <Button
                     variant="ghost"
                     className="w-full"
@@ -343,15 +362,11 @@ export default function Inspector() {
                       color: "var(--wire-sel)",
                     }}
                     onClick={() => {
-                      window.dispatchEvent(
-                        new CustomEvent("multispice-open-part-studio", {
-                          detail: { partId: selected.partId },
-                        }),
-                      );
+                      st.openPartEditor(selected.partId);
                     }}
                   >
                     <Cpu size={13} />
-                    <span>Im Bauteil-Studio bearbeiten (Innenschaltung & Symbol)</span>
+                    <span>Im Bauteile-Editor bearbeiten</span>
                   </Button>
                 )}
 

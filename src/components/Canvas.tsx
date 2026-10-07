@@ -2906,12 +2906,12 @@ export default function Canvas() {
           openPlacedValueEditor(placedId, scr.x, scr.y, setEditing, editingDone, editingOpenedAt);
         }
         if (!e.shiftKey) st.setPlacing(null);
-      } else if (e.key.toLowerCase() === "v") {
+      } else if (e.key.toLowerCase() === "v" && !st.partEditor.open) { // S6.2: keine Sonden im Bauteil.
         // W90: V schaltet konsistent zu A die Spannungs-Probe (Volt) ein/aus;
         // für das Auswahl-Werkzeug dient Esc.
         syncNetDraft(null);
         st.setPlacingProbe(st.placingProbeKind === "voltage" ? null : "voltage");
-      } else if (e.key.toLowerCase() === "a") {
+      } else if (e.key.toLowerCase() === "a" && !st.partEditor.open) { // S6.2
         syncNetDraft(null);
         st.setPlacingProbe(st.placingProbeKind === "current" ? null : "current");
       }
@@ -2932,7 +2932,7 @@ export default function Canvas() {
         const sr = stateRef.current;
         if (sr.netDraft) {
           sr.netDraft = { ...sr.netDraft, flipBend: !sr.netDraft.flipBend };
-        } else {
+        } else if (!st.partEditor.open) { // S6.2: keine Simulation im Bauteil.
           if (st.sim.running) st.pauseSim(); else st.startSim();
         }
       }

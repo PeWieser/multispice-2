@@ -54,6 +54,21 @@ export interface CustomParamSpec {
   def: number;
 }
 
+/** S6.2 (Phase 2): Ein von außen einstellbarer Parameter eines Schaltplan-
+ * Makros. `targets` binden Innen-Bauteil-Parameter daran (z. B. R1.r und
+ * R2.r folgen „R“); beim Kompilieren überschreibt der Außenwert (oder `def`
+ * als Rückfall) alle Ziele. Instanz-IDs beziehen sich auf `schematic`. */
+export interface CustomPartParamLink {
+  name: string;
+  label?: string;
+  unit?: string;
+  def: number | string | boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  targets: Array<{ instanceId: string; key: string }>;
+}
+
 export interface CustomPartSpec {
   id: string;
   name: string;
@@ -75,6 +90,9 @@ export interface CustomPartSpec {
   schematic?: SchematicDoc;
   /** Benutzerdefinierte Parameter für Inspector & Doppelklick-Bearbeitung */
   customParams?: CustomParamSpec[];
+  /** S6.2 (Phase 2): Von außen einstellbare Parameter eines Schaltplan-Makros
+   * (Inspector-Link-Schalter). Hat Vorrang vor `customParams`. */
+  paramLinks?: CustomPartParamLink[];
 }
 
 const STORAGE_KEY = "multispice.customParts.v1";
@@ -1317,6 +1335,57 @@ export function compileSubcircuitToDevices(
 
 export const PORT_PART_IDS = ["port_in", "port_out", "port_io"] as const;
 
+/** S6.2 (Phase 2): Strenger Editor-Filter — diese Bauteile tragen elektrisch
+ * nichts bei (Messgeräte, Displays, Zeichenhilfen, seitenlokale Verbinder)
+ * und wären in einem Makro toter Ballast oder irreführend. */
+export const EDITOR_DENY_PARTS: ReadonlySet<string> = new Set([
+  "oscilloscope",
+  "probe",
+  "voltmeter",
+  "ammeter",
+  "lcd_16x2",
+  "onpage_connector",
+  "descbox",
+  "bus_tap",
+  "bus_splitter",
+]);
+
+/** Darf `partId` in den Bauteile-Editor gesetzt werden? Schließt das gerade
+ * bearbeitete Teil (Selbsteinbau), die Deny-Liste und modellose Alt-Bauteile
+ * (reine „ic“-Hüllen ohne Innenschaltung) aus. Ports sind immer erlaubt. */
+export function isEditorPlaceable(partId: string, editingId?: string | null): boolean {
+  if (editingId && partId === editingId) return false;
+  if ((PORT_PART_IDS as readonly string[]).includes(partId)) return true;
+  if (EDITOR_DENY_PARTS.has(partId)) return false;
+  if (!PART_MAP[partId]) return false;
+  const spec = CUSTOM_SPECS.get(partId);
+  if (spec && !spec.schematic && !(spec.subcircuit && spec.subcircuit.length > 0)) return false;
+  return true;
+}
+
+/** S6.2 (Phase 2): Außenpins aus den Ports eines Innen-Dokuments ableiten.
+ * Seiten-Konvention: Eingänge links, Ausgänge rechts, Bidirektionale links;
+ * `overrides` (Pin-Reiter/Symbol) können Seite, Markierung, Rolle und freie
+ * Position je Port-Namen überschreiben. */
+export function derivePinsFromPorts(
+  doc: SchematicDoc,
+  overrides?: Record<string, Partial<CustomPinSpec>>,
+): CustomPinSpec[] {
+  return collectPorts(doc).map((p) => {
+    const ov = overrides?.[p.name];
+    return {
+      name: p.name,
+      side: ov?.side ?? (p.role === "output" ? "right" : "left"),
+      role: ov?.role ?? p.role,
+      ...(ov?.marker ? { marker: ov.marker } : {}),
+      internalNode: p.name,
+      ...(ov?.x !== undefined ? { x: ov.x } : {}),
+      ...(ov?.y !== undefined ? { y: ov.y } : {}),
+    };
+  });
+}
+
+
 export interface CollectedPort {
   instanceId: string;
   partId: string;
@@ -1378,6 +1447,17 @@ export function compileSchematicToDevices(
   for (const w of clone.wires) w.id = pre + w.id;
   for (const l of clone.labels) l.id = pre + l.id;
   for (const j of clone.junctions ?? []) j.id = pre + j.id;
+  // S6.2 (Phase 2): Freigegebene Parameter auf die gebundenen Innen-Werte
+  // legen (Außenwert gewinnt, sonst Link-Default; Ziele auf dem präfixierten
+  // Klon suchen, damit Instanzen untereinander isoliert bleiben).
+  const byId = new Map(clone.instances.map((i) => [i.id, i]));
+  for (const link of spec.paramLinks ?? []) {
+    const v = inst.params?.[link.name] ?? link.def;
+    for (const t of link.targets) {
+      const inner = byId.get(pre + t.instanceId);
+      if (inner) inner.params = { ...(inner.params ?? {}), [t.key]: v };
+    }
+  }
   schematicCompileDepth++;
   try {
     const built = buildNets(clone);
@@ -1456,6 +1536,44 @@ export function validatePartSchematic(spec: CustomPartSpec): PartIssue[] {
       issues.push({ severity: "error", code: "unknown-part", message: `Unbekanntes Bauteil „${i.partId}"`, instanceId: i.id });
     if (i.partId === spec.id)
       issues.push({ severity: "error", code: "self-nesting", message: "Das Bauteil enthält sich selbst.", instanceId: i.id });
+    else if (EDITOR_DENY_PARTS.has(i.partId))
+      issues.push({
+        severity: "error",
+        code: "denied-part",
+        message: `„${PART_MAP[i.partId]?.name ?? i.partId}“ trägt elektrisch nichts bei und ist im Bauteil nicht erlaubt.`,
+        instanceId: i.id,
+      });
+  }
+  // S6.2 (Phase 2): Freigegebene Parameter prüfen (Namen eindeutig/nicht leer,
+  // Ziele müssen existieren und den Parameter-Key besitzen).
+  const linkNames = new Set<string>();
+  for (const link of spec.paramLinks ?? []) {
+    const nm = link.name.trim();
+    if (!nm) {
+      issues.push({ severity: "error", code: "link-noname", message: "Ein freigegebener Parameter hat keinen Namen." });
+      continue;
+    }
+    const k = nm.toUpperCase();
+    if (linkNames.has(k))
+      issues.push({ severity: "error", code: "link-dup", message: `Parameter-Name doppelt: „${nm}“` });
+    else linkNames.add(k);
+    if (link.targets.length === 0)
+      issues.push({ severity: "warning", code: "link-orphan", message: `Parameter „${nm}“ steuert kein Bauteil.` });
+    for (const t of link.targets) {
+      const inner = doc.instances.find((x) => x.id === t.instanceId);
+      if (!inner) {
+        issues.push({ severity: "error", code: "link-dangling", message: `Parameter „${nm}“ verweist auf ein gelöschtes Bauteil.` });
+        continue;
+      }
+      const pdef = PART_MAP[inner.partId];
+      if (pdef && !pdef.params.some((p) => p.key === t.key))
+        issues.push({
+          severity: "error",
+          code: "link-badkey",
+          message: `Parameter „${nm}“: „${pdef.name}“ hat keinen Wert „${t.key}“.`,
+          instanceId: t.instanceId,
+        });
+    }
   }
   const cycle = findSpecCycle(spec);
   if (cycle) issues.push({ severity: "error", code: "nest-cycle", message: `Verschachtelungs-Zyklus: ${cycle.join(" → ")}` });
@@ -1564,7 +1682,18 @@ export function specToPartDef(spec: CustomPartSpec): PartDef {
   const valDef = spec.defaultValue ?? (spec.modelKind === "resistor" ? 1000 : spec.modelKind === "vreg" ? 5 : 5);
 
   const paramDefs: ParamDef[] =
-    spec.customParams && spec.customParams.length > 0
+    spec.paramLinks && spec.paramLinks.length > 0
+      ? spec.paramLinks.map((link) => ({
+          key: link.name,
+          label: link.label || link.name,
+          unit: link.unit || undefined,
+          type: typeof link.def === "number" ? "number" : typeof link.def === "boolean" ? "bool" : "text",
+          def: link.def,
+          ...(link.min !== undefined ? { min: link.min } : {}),
+          ...(link.max !== undefined ? { max: link.max } : {}),
+          ...(link.step !== undefined ? { step: link.step } : {}),
+        }))
+      : spec.customParams && spec.customParams.length > 0
       ? spec.customParams.map((cp) => ({
           key: cp.key,
           label: cp.label,

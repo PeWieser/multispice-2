@@ -275,14 +275,20 @@ export default function LibraryPalette({
   onPartEditor,
   standalone = false,
   fill = false,
+  partFilter,
+  docked = false,
 }: {
   onPartEditor?: () => void;
   standalone?: boolean;
   /** S5.19: Füll-Modus fürs mobile Bottom-Sheet (kein Fenster-Chrom). */
   fill?: boolean;
+  /** S6.2: Angedockt in der Bauteile-Editor-Shell (immer offen, Fluss-Layout). */
+  docked?: boolean;
+  /** S6.2: Strenger Filter für den Bauteile-Editor (nur sim-fähige Teile + Ports). */
+  partFilter?: (p: PartDef) => boolean;
 } = {}) {
   const openStore = useEditor((s) => s.libraryOpen);
-  const open = standalone ? true : openStore;
+  const open = standalone || docked ? true : openStore;
   const pos = useEditor((s) => s.libraryPos);
   const size = useEditor((s) => s.librarySize);
   const setPos = useEditor((s) => s.setLibraryPos);
@@ -311,8 +317,8 @@ export default function LibraryPalette({
 
   const tree = useMemo(() => {
     void customRev;
-    return buildCategoryTree(PARTS);
-  }, [customRev]);
+    return buildCategoryTree(partFilter ? PARTS.filter(partFilter) : PARTS);
+  }, [customRev, partFilter]);
   // S5.19: flache Kategorieliste fürs mobile <select> (Nav-Spalte ist md+).
   const catOptions = useMemo(() => {
     const out: { path: string; label: string }[] = [];
@@ -327,8 +333,9 @@ export default function LibraryPalette({
   }, [tree]);
   const results = useMemo(() => {
     void customRev;
-    return query ? searchAdvanced(query) : [];
-  }, [query, customRev]);
+    const hits = query ? searchAdvanced(query) : [];
+    return partFilter ? hits.filter(partFilter) : hits;
+  }, [query, customRev, partFilter]);
   // Runde 12 (W22): Dreispalter – Spalte 2 zeigt die Teile der gewählten Kategorie
   const groups = useMemo(() => {
     const flat = (n: CategoryNode): PartDef[] => [...n.parts, ...n.children.flatMap(flat)];
@@ -348,10 +355,10 @@ export default function LibraryPalette({
   }, [selCat, tree]);
   const visibleList = useMemo(() => {
     if (query) return results;
-    if (tab === "fav") return favorites.map((id) => PART_MAP[id]).filter(Boolean) as PartDef[];
-    if (tab === "recent") return recent.map((id) => PART_MAP[id]).filter(Boolean) as PartDef[];
+    if (tab === "fav") return favorites.map((id) => PART_MAP[id]).filter((p): p is PartDef => !!p && (!partFilter || partFilter(p)));
+    if (tab === "recent") return recent.map((id) => PART_MAP[id]).filter((p): p is PartDef => !!p && (!partFilter || partFilter(p)));
     return groups.flatMap((g) => g.parts);
-  }, [query, results, tab, favorites, recent, groups]);
+  }, [query, results, tab, favorites, recent, groups, partFilter]);
 
   const dragRef = useRef<{ x: number; y: number; px: number; py: number; w: number } | null>(null);
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -571,7 +578,7 @@ export default function LibraryPalette({
   }, [open, selected, selectedIdx, query, tab, results, visibleList, onConfirmPlace]);
 
   if (!open) return null;
-  if (!standalone && typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
+  if (!standalone && !docked && typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
     return null;
   }
 
@@ -579,17 +586,17 @@ export default function LibraryPalette({
     <div
       ref={paletteRef}
       className={
-        standalone || fill
+        standalone || fill || docked
           ? "flex h-full w-full flex-col overflow-hidden"
           : `fixed z-40 will-change-transform ${WINDOW_SHELL}`
       }
       style={
-        standalone || fill
+        standalone || fill || docked
           ? { background: "var(--surface)" }
           : { left: pos.x, top: pos.y, width: size.w, height: size.h }
       }
     >
-      {!standalone && !fill && (
+      {!standalone && !fill && !docked && (
       <WindowTitleBar
         icon={<LayoutGrid size={12} />}
         title="Bibliothek"
@@ -658,7 +665,7 @@ export default function LibraryPalette({
         </div>
       </div>
 
-      {fill && (
+      {(fill || docked) && (
         <div className="flex shrink-0 items-center gap-1.5 px-2.5 pb-2">
           <div className="flex shrink-0 rounded-lg border border-hairline bg-surface-2 p-0.5" role="tablist" aria-label="Bibliotheksbereich">
             {(
@@ -910,7 +917,7 @@ export default function LibraryPalette({
         </div>
       )}
 
-      {!standalone && !fill && (
+      {!standalone && !fill && !docked && (
       <div
         className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
         onPointerDown={(e) => {

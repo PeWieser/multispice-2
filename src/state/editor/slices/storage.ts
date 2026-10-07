@@ -14,6 +14,7 @@ import { scopeDefaultSize } from "../windows";
 import type { InstrumentWindow } from "../types";export function createStorageSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "saveProject" | "restoreLocalProject" | "markFavorite"> {
   return {
       saveProject: async (name, opts) => {
+        if (get().partEditor.open) { get().log("warn", "Im Bauteile-Editor speichert der Speichern-Knopf das Bauteil."); return; }
         const { doc } = get();
         const next = name && name !== doc.name ? { ...doc, name } : doc;
         if (next !== doc) get().setDoc(next, false);

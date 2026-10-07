@@ -28,7 +28,8 @@ import { resolveNearestNetPoint } from "../docUtils";export function createMiscS
         }
         // Jede Netz-Aktualisierung folgt auf eine Doc-Änderung → ein einziger
         // Hook-Punkt für den debounceten Auto-Save.
-        scheduleAutosave();
+        // S6.2: Das Editor-Doc gehört dem Bauteil, nicht dem Projekt.
+        if (!get().partEditor.open) scheduleAutosave();
       },
   };
 }

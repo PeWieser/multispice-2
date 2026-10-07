@@ -61,6 +61,7 @@ import { resolveNearestNetPoint, inferWireAngleAt } from "../docUtils";export fu
       setLeadArmed: (a) => set({ leadArmed: a }),
 
       addMeasurementProbe: (kind, x, y) => {
+        if (get().partEditor.open) return null; // S6.2: keine Sonden im Bauteil.
         const id = newId("pr");
         const defaults: Record<string, any> = {
           voltage: { show: { vdc: true }, periodic: false, direction: 0, rotation: 0, thresholds: { low: 0.8, high: 2.0 }, name: "" },

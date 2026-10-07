@@ -24,7 +24,7 @@ const SettingsDialog = dynamic(() => import("./SettingsDialog"), { ssr: false })
 const ReferenceDialog = dynamic(() => import("./ReferenceDialog"), { ssr: false });
 const WizardsDialog = dynamic(() => import("./WizardsDialog"), { ssr: false });
 const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false });
-const PartEditorDialog = dynamic(() => import("./PartEditorDialog"), { ssr: false });
+const PartEditorShell = dynamic(() => import("./partEditor/PartEditorShell"), { ssr: false });
 const ExtractPartDialog = dynamic(() => import("./ExtractPartDialog"), { ssr: false });
 const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
 const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
@@ -216,21 +216,10 @@ export default function Workbench() {
   const [referenceOpen, setReferenceOpen] = useState(false);
   const [wizardsOpen, setWizardsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
-  const [partEditorOpen, setPartEditorOpen] = useState(false);
-  const [partEditorInitialId, setPartEditorInitialId] = useState<string | undefined>(undefined);
+  const editorOpen = useEditor((s) => s.partEditor.open);
   const docName = useEditor((s) => s.doc.name);
   const titleSavePending = useEditor((s) => s.savePending);
   const titleSaveHealth = useEditor((s) => s.saveHealth);
-
-  useEffect(() => {
-    const onOpenStudio = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ partId?: string }>).detail;
-      setPartEditorInitialId(detail?.partId);
-      setPartEditorOpen(true);
-    };
-    window.addEventListener("multispice-open-part-studio", onOpenStudio);
-    return () => window.removeEventListener("multispice-open-part-studio", onOpenStudio);
-  }, []);
 
   const desktopParams = useSyncExternalStore(
     () => () => {},
@@ -408,9 +397,8 @@ export default function Workbench() {
           compact
         />
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <LibraryPalette standalone onPartEditor={() => setPartEditorOpen(true)} />
+          <LibraryPalette standalone />
         </div>
-        {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
         <ExtractPartDialog />
       </div>
     );
@@ -425,11 +413,11 @@ export default function Workbench() {
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <Canvas />
+            {!editorOpen && <Canvas />}
             <InstrumentLayer />
             {/* Library as bottom sheet on mobile */}
             <BottomSheet open={libraryOpen} onClose={() => useEditor.getState().toggleLibrary()} title="Bibliothek" height="80vh">
-              <LibraryPalette fill onPartEditor={() => setPartEditorOpen(true)} />
+              <LibraryPalette fill onPartEditor={() => useEditor.getState().openPartEditor()} />
             </BottomSheet>
             <BottomSheet open={rightOpen} onClose={() => useEditor.getState().toggleRight()} title="Inspector" height="70vh">
               <Inspector />
@@ -445,7 +433,7 @@ export default function Workbench() {
                       <X size={14} />
                     </button>
                   </div>
-                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} onReference={() => setReferenceOpen(true)} isMobile />
+                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} isMobile />
                 </div>
               </div>
             )}
@@ -462,15 +450,7 @@ export default function Workbench() {
         {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-        {partEditorOpen && (
-          <PartEditorDialog
-            initialPartId={partEditorInitialId}
-            onClose={() => {
-              setPartEditorOpen(false);
-              setPartEditorInitialId(undefined);
-            }}
-          />
-        )}
+        {editorOpen && <PartEditorShell />}
         <ExtractPartDialog />
         <UndoToast />
       <PrintSheet />
@@ -482,14 +462,14 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-app">
-          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} onReference={() => setReferenceOpen(true)} />
+          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1 overflow-hidden">
-              <Canvas />
+              {!editorOpen && <Canvas />}
               <InstrumentLayer />
-              <LibraryPalette onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
+              <LibraryPalette onPartEditor={() => useEditor.getState().openPartEditor()} />
               <DeviceBar />
             </div>
             <BottomPanel />
@@ -501,15 +481,7 @@ export default function Workbench() {
         {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-        {partEditorOpen && (
-          <PartEditorDialog
-            initialPartId={partEditorInitialId}
-            onClose={() => {
-              setPartEditorOpen(false);
-              setPartEditorInitialId(undefined);
-            }}
-          />
-        )}
+        {editorOpen && <PartEditorShell />}
         <ExtractPartDialog />
         <UndoToast />
       <PrintSheet />
@@ -531,15 +503,15 @@ export default function Workbench() {
         <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} showSaveState />
       )}
       <header className="contents">
-      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} onReference={() => setReferenceOpen(true)} />
+      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} />
       <ComponentStrip tools={<DrawingTools />} />
       </header>
       <main id="workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <Canvas />
+            {!editorOpen && <Canvas />}
             <InstrumentLayer />
-            <LibraryPalette onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
+            <LibraryPalette onPartEditor={() => useEditor.getState().openPartEditor()} />
             <DeviceBar />
           </div>
           <BottomPanel />
@@ -552,15 +524,7 @@ export default function Workbench() {
         {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-      {partEditorOpen && (
-        <PartEditorDialog
-          initialPartId={partEditorInitialId}
-          onClose={() => {
-            setPartEditorOpen(false);
-            setPartEditorInitialId(undefined);
-          }}
-        />
-      )}
+      {editorOpen && <PartEditorShell />}
       <ExtractPartDialog />
       <UndoToast />
       <PrintSheet />

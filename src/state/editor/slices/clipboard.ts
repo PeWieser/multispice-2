@@ -57,7 +57,7 @@ import { cloneJson, newId } from "../shared";export function createClipboardSlic
       pasteClipboard: () => {
         const cb = get().clipboard;
         if (!cb) return;
-        const total = cb.instances.length + cb.wires.length + cb.labels.length + cb.notes.length + cb.probes.length;
+        const total = cb.instances.length + cb.wires.length + cb.labels.length + cb.notes.length + (get().partEditor.open ? 0 : cb.probes.length);
         if (!total) return;
         // W55: Einfüge-Kaskade – jede weitere Einfügung rückt weiter, und wenn die
         // Kopie auf einem fremden Bauteil landen würde, wird weiter gerückt.
@@ -108,7 +108,7 @@ import { cloneJson, newId } from "../shared";export function createClipboardSlic
           d.wires.push(...freshWires);
           d.labels.push(...freshLabels);
           d.notes.push(...freshNotes);
-          d.probes.push(...freshProbes);
+          if (!get().partEditor.open) d.probes.push(...freshProbes); // S6.2: Sonden bleiben draußen.
           if (freshJunctions.length) {
             if (!Array.isArray(d.junctions)) d.junctions = [];
             d.junctions.push(...freshJunctions);

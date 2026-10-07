@@ -25,6 +25,13 @@ const QUICK: Array<{ id: string; label: string }> = [
   { id: "gnd", label: "GND" },
 ];
 
+/* S6.2: Ports definieren die Außenpins des Bauteils — im Editor direkt griffbereit. */
+const PORTS: Array<{ id: string; label: string }> = [
+  { id: "port_in", label: "IN" },
+  { id: "port_out", label: "OUT" },
+  { id: "port_io", label: "IO" },
+];
+
 interface ProbeItem {
   k: ProbeKind;
   l: string;
@@ -46,7 +53,7 @@ const EXTRA_PROBES: ProbeItem[] = [
   { k: "digital", l: "D", t: "Digital-Probe", c: "var(--ok)" },
 ];
 
-export function ComponentStrip({ tools }: { tools?: ReactNode }) {
+export function ComponentStrip({ tools, editorMode = false }: { tools?: ReactNode; editorMode?: boolean }) {
   const apple = useIsApple();
   const placing = useEditor((s) => s.placingPartId);
   const placingProbe = useEditor((s) => s.placingProbeKind);
@@ -63,6 +70,7 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
 
   const resolvedStyle = resolveSymbolStyle(symbolStylePref);
   const quickParts: PartDef[] = QUICK.map((q) => PARTS.find((p) => p.id === q.id)!).filter(Boolean);
+  const portParts: PartDef[] = PORTS.map((q) => PARTS.find((p) => p.id === q.id)!).filter(Boolean);
   const activeExtraProbe = EXTRA_PROBES.find((p) => p.k === placingProbe) ?? null;
 
   useEffect(() => {
@@ -100,6 +108,7 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
     <div
       className="flex h-11 shrink-0 items-center gap-3 overflow-x-auto no-scrollbar border-b px-3.5 border-hairline bg-surface"
     >
+      {!editorMode && (<>
       <button
         type="button"
         aria-pressed={libraryOpen}
@@ -115,6 +124,7 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
       </button>
 
       <div className="h-5 w-px shrink-0 bg-hairline" />
+      </>)}
 
       {/* 1. Grundbauteile (R, C, L, VDC, GND) – großzügige Schaltzeichen-Kacheln */}
       <ToolGroup label="Schnell-Bauteile">
@@ -161,10 +171,38 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
 
       <div className="h-5 w-px shrink-0 bg-hairline" />
 
+      {editorMode && (
+        <>
+          <div className="h-5 w-px shrink-0 bg-hairline" />
+          <ToolGroup label="Ports (Außenpins)">
+            {portParts.map((p) => {
+              const active = placing === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={cx(
+                    "pressable ring-focus grid h-7 w-9 shrink-0 place-items-center rounded-[8px]",
+                    active ? "bg-accent-soft text-accent shadow-[inset_0_0_0_0.5px_var(--accent-mid)]" : "text-ink hover:bg-surface-3",
+                  )}
+                  title={`${p.name} – platzieren (definiert einen Außenpin des Bauteils)`}
+                  aria-label={p.name}
+                  aria-pressed={active}
+                  onClick={() => setPlacing(active ? null : p.id)}
+                >
+                  <PartGlyph partId={p.id} category={p.category} size={20} symbolStyle={resolvedStyle} />
+                </button>
+              );
+            })}
+          </ToolGroup>
+        </>
+      )}
+
       {/* 2. Zeichenwerkzeuge (Auswahl, [Stift | Radiergummi | Knotenpunkt], [Netzname | Notiz]) */}
       {tools ? <div className="flex shrink-0 items-center">{tools}</div> : null}
       {tools ? <div className="h-5 w-px shrink-0 bg-hairline" /> : null}
 
+      {!editorMode && (<>
       {/* 3. Messsonden (Probes) – V & A direkt + Dropdown für Spezial-Sonden */}
       <ToolGroup label="Messsonden">
         {PRIMARY_PROBES.map((b) => {
@@ -274,6 +312,7 @@ export function ComponentStrip({ tools }: { tools?: ReactNode }) {
             document.body,
           )}
       </ToolGroup>
+      </>)}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import type { SheetEntry } from "../types";
 import { applyDoc } from "../store";export function createSheetsSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "loadPreset" | "newDocument" | "openSheet" | "renameSheet" | "reorderSheets"> {
   return {
       loadPreset: (id) => {
+        if (get().partEditor.open) { get().log("warn", "Schließe erst den Bauteile-Editor."); return; }
         if (get().teacher.locked) { get().log("warn", "Lehrer-Modus: Plan ist gesperrt."); return; }
         const preset = PRESETS.find((p) => p.id === id);
         if (!preset) return;
@@ -31,6 +32,7 @@ import { applyDoc } from "../store";export function createSheetsSlice(set: Store
       },
 
       newDocument: () => {
+        if (get().partEditor.open) { get().log("warn", "Schließe erst den Bauteile-Editor."); return; }
         if (get().teacher.locked) { get().log("warn", "Lehrer-Modus: Plan ist gesperrt."); return; }
         // W72: „+" legt einen neuen leeren Entwurf an und öffnet ihn als Reiter.
         engine.running = false;
@@ -55,6 +57,7 @@ import { applyDoc } from "../store";export function createSheetsSlice(set: Store
       },
 
       openSheet: (id) => {
+        if (get().partEditor.open) { get().log("warn", "Schließe erst den Bauteile-Editor."); return; }
         const entry = sheets.find((s2) => s2.id === id);
         if (!entry) return;
         // Der aktuelle Entwurf behält seinen Stand (inkl. Namen) in der Liste.

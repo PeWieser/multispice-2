@@ -3,6 +3,7 @@
 
 
 import { PART_MAP, defaultParams } from "@/lib/library/catalog";
+import { isEditorPlaceable } from "@/lib/library/customParts";
 import { GRID, Instance } from "@/lib/schematic/model";
 import { insertComponentIntoWires } from "@/lib/schematic/netdraw";
 import { DEFAULT_MCU_SKETCH } from "@/lib/sim/digital";
@@ -21,6 +22,11 @@ import { useHud } from "../hud";export function createPlacementSlice(set: StoreA
         });
       },
       setPlacing: (partId, preset = null) => {
+        // S6.2: strenger Editor-Filter (kein Selbsteinbau, keine Mess-/Deko-Teile).
+        if (partId && get().partEditor.open && !isEditorPlaceable(partId, get().partEditor.editingId)) {
+          get().log("warn", `„${PART_MAP[partId]?.name ?? partId}“ kann nicht in ein Bauteil eingesetzt werden.`);
+          return;
+        }
         useHud.getState().cancelNetDrawing();
         set((s) => ({
           placingPartId: partId,
@@ -33,6 +39,7 @@ import { useHud } from "../hud";export function createPlacementSlice(set: StoreA
         }));
       },
       setPlacingProbe: (kind) => {
+        if (kind && get().partEditor.open) return; // S6.2: keine Sonden im Bauteil.
         useHud.getState().cancelNetDrawing();
         set({
           placingProbeKind: kind,
@@ -44,6 +51,7 @@ import { useHud } from "../hud";export function createPlacementSlice(set: StoreA
       addInstance: (partId, x, y, opts) => {
         const part = PART_MAP[partId];
         if (!part) return null;
+        if (get().partEditor.open && !isEditorPlaceable(partId, get().partEditor.editingId)) return null; // S6.2
         const id = "i_" + Math.random().toString(36).slice(2, 10);
         // W49/B5: auch programmatische Platzierung rastet aufs Raster – krumme
         // Koordinaten waren die Ursache für Leitungen, die neben dem Pin enden.

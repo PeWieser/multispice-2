@@ -32,6 +32,7 @@ import { gesture, clone } from "../shared";export function createHistorySlice(se
           future: shouldPush ? [] : s.future,
         }));
         get().refreshNets();
+        get().markPartEditorDirty(); // S6.2: Editor-Änderung (Undo-fähig, aber Projekt-unabhängig).
       },
 
       beginGesture: () => {
@@ -53,6 +54,7 @@ import { gesture, clone } from "../shared";export function createHistorySlice(se
         const prev = past[past.length - 1];
         set({ doc: prev, past: past.slice(0, -1), future: [doc, ...future].slice(0, 50) });
         get().refreshNets();
+        get().markPartEditorDirty();
         get().log("info", "Rückgängig");
         // S5.15: Undo-Toast mit Wiederholen-Aktion (TEST_MATRIX §14).
         get().setToast({ message: "Rückgängig gemacht.", actionLabel: "Wiederholen", action: () => get().redo() });
@@ -67,6 +69,7 @@ import { gesture, clone } from "../shared";export function createHistorySlice(se
         const next = future[0];
         set({ doc: next, future: future.slice(1), past: [...past, doc] });
         get().refreshNets();
+        get().markPartEditorDirty();
         get().log("info", "Wiederholen");
         get().setToast({ message: "Wiederholt.", actionLabel: "Rückgängig", action: () => get().undo() });
       },

@@ -76,12 +76,12 @@ export default function ContextMenu({
               <button className="ctx-row justify-center" onClick={() => { st.rotateSelection(-1); onClose(); }} title={adaptShortcut("Drehen -90° (⇧R)", apple)}>↺ -90°</button>
               <button className="ctx-row justify-center" onClick={() => { st.mirrorSelection(); onClose(); }} title="Spiegeln (M)">⇆ Spiegel</button>
             </div>
-            <button className="ctx-row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>
+            {!st.partEditor.open && (<button className="ctx-row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>)}
             <button className="ctx-row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
             <button className="ctx-row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘C", apple)}</span></button>
             {(() => {
               const selInst = doc.instances.filter((i) => st.selection.includes(i.id));
-              if (selInst.length === 0) return null;
+              if (selInst.length === 0 || st.partEditor.open) return null; // S6.2
               return (
                 <button className="ctx-row" onClick={() => { st.openExtractDialog(selInst.map((i) => i.id)); onClose(); }} title="Auswahl als wiederverwendbares Bauteil speichern (S3.2)">
                   <span>⬢ Auswahl als Bauteil… ({selInst.length})</span>
@@ -137,6 +137,7 @@ export default function ContextMenu({
               ))}
             </div>
             <div className="ctx-sep" />
+            {!st.partEditor.open && (<>
             <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Messpunkt auf Netz{netLabel}</div>
             <div className="grid grid-cols-2 gap-1">
               {([
@@ -148,6 +149,7 @@ export default function ContextMenu({
                 <button key={k} className="ctx-row" onClick={() => addProbe(k as any)}><span className="ctx-badge" style={{ background: `color-mix(in srgb, var(${v}) 15%, transparent)`, color: `var(${v})`, borderColor: `color-mix(in srgb, var(${v}) 30%, transparent)` }}>{sym}</span> {k}</button>
               ))}
             </div>
+            </>)}
             <div className="ctx-sep" />
             <button className="ctx-row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Löschen</span><span className="ml-auto text-2xs text-ink-3">Entf</span></button>
           </>
@@ -328,6 +330,7 @@ export default function ContextMenu({
               ))}
             </div>
             <div className="ctx-sep" />
+            {!st.partEditor.open && (<>
             <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Messpunkt setzen</div>
             <div className="grid grid-cols-2 gap-1">
               {([
@@ -342,6 +345,7 @@ export default function ContextMenu({
                 </button>
               ))}
             </div>
+            </>)}
             <div className="ctx-sep" />
             <button className="ctx-row danger" onClick={() => { st.setSelection([target.id]); st.deleteSelection(); onClose(); }}><span>Leitung löschen</span></button>
           </>
@@ -401,6 +405,7 @@ export default function ContextMenu({
           <button className="ctx-row" onClick={() => { st.setTool("label" as any); onClose(); }}><span>Netzname hinzufügen</span><span className="ml-auto text-2xs text-ink-3">L</span></button>
           <button className="ctx-row" onClick={() => { st.setTool("text" as any); onClose(); }}><span>Notiz hinzufügen</span><span className="ml-auto text-2xs text-ink-3">T</span></button>
           <div className="ctx-sep" />
+          {!st.partEditor.open && (<>
           <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Messpunkt setzen</div>
           <div className="grid grid-cols-2 gap-1">
           {([
@@ -415,6 +420,7 @@ export default function ContextMenu({
             </button>
           ))}
           </div>
+          </>)}
           <div className="ctx-sep" />
           <div className="grid grid-cols-2 gap-1">
             <button className="ctx-row justify-center" onClick={() => { st.fitView(); onClose(); }}><span>⛶ Einpassen</span><span className="ml-auto text-2xs text-ink-3">F</span></button>

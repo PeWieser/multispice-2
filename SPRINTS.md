@@ -389,7 +389,20 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   + statischer Zyklenerkennung über Spec-Register, rein prüfbare Validierung
   (Doppelnamen, offene Ports, Selbst-Einbau, Fremdteile), Legacy-Migration
   Tabelle→Dokument (Teile + Netzlabels, Ports in Pin-Reihenfolge).
-  `tsc` ✅, `eslint` ✅, `npm test` ✅ (subcircuittest, 30 Wächter).
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (subcircuittest, 29 Wächter —
+  gezählt 2026-10-07, vorher fälschlich „30“).
+- S6.2: Bauteile-Editor 2.0 – Phase 2 (Editor-Modus): Doc-Swap-Vollbild-Shell
+  (`PartEditorShell` ersetzt das alte Studio in allen Layouts, genau eine
+  Canvas-Instanz), Store-Slice mit Parken/Wiederherstellen (Doc, History,
+  Kamera, Auswahl, Panels), Guards (keine Sim/Analyse/Sonden/Instrumente/
+  Entwürfe/Extrakt im Editor, Autosave unterdrückt), explizites Speichern
+  (validieren → Pins aus Ports → registrieren, Strg+S, Dirty-Rückfrage),
+  Lebend-Validierung mit Klick-Sprung, Pin-Reiter (Seite/Rolle/Markierung,
+  Umnummerieren per Commit), Parameter-Reiter + Inspector-Link-Schalter,
+  Compiler-`paramLinks` (Außenwert → Innen-Ziele, isoliert je Instanz),
+  Symbol-Zeicheneditor extrahiert, strenger Bibliotheks-Filter + Ports-
+  Schnellzugriff, alter Dialog entfernt. `tsc` ✅, `eslint` ✅, `npm test` ✅
+  (subcircuittest +36 Wächter, 65 gesamt).
 
 ## Nicht-Ziele (bewusst)
 

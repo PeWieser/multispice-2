@@ -8,6 +8,7 @@ import { WINDOW_SPECS, recallPos, CHROME_W, CHROME_H, fgDefaultSize, DEVICE_MIN,
 import type { InstrumentKind } from "../types";export function createInstrumentsSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "openInstrument" | "toggleInspector" | "closeInstrument" | "updateInstrument" | "focusInstrument" | "toggleProbe"> {
   return {
       openInstrument: (kind, opts) => {
+        if (get().partEditor.open) { get().log("warn", "Im Bauteile-Editor gibt es keine Messgeräte."); return; }
         // W29: Instrument-Fenster sind an ein Schaltsymbol auf dem Plan gebunden
         // (Doppelklick). Pro Instanz genau ein Fenster; entkoppelte Oszi-/FG-Fenster
         // gibt es nicht mehr. W18: gleiche Mechanik für den FG-2500.
@@ -118,6 +119,7 @@ import type { InstrumentKind } from "../types";export function createInstruments
       },
 
       toggleInspector: () => {
+        if (get().partEditor.open) return; // S6.2: Inspector bleibt geparkt.
         const ex = get().instruments.find((w) => w.kind === "inspector");
         if (ex) get().closeInstrument(ex.id);
         else get().openInstrument("inspector");

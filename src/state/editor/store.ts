@@ -22,6 +22,7 @@ import { createSheetsSlice } from "./slices/sheets";
 import { createAnalysisSlice } from "./slices/analysis";
 import { createStorageSlice } from "./slices/storage";
 import { createMiscSlice } from "./slices/misc";
+import { createPartEditorSlice } from "./slices/partEditor";
 
 /* Auto-Save: 1.5 s nach der letzten Schaltplan-Änderung in den localStorage /
    Windows-AppData UND – sobald der Nutzer die Datei das erste Mal gespeichert
@@ -33,6 +34,11 @@ export function scheduleAutosave() {
   if (!useEditor.getState().savePending) useEditor.setState({ savePending: true });
   autosaveTimer = setTimeout(() => {
     autosaveTimer = null;
+    // S6.2: Editor-Doc gehört dem Bauteil, nicht dem Projekt — still verwerfen.
+    if (useEditor.getState().partEditor.open) {
+      useEditor.setState({ savePending: false });
+      return;
+    }
     const { doc, instruments, log } = useEditor.getState();
     const { ok } = saveProjectLocal(doc, instruments);
     const prevHealth = useEditor.getState().saveHealth;
@@ -98,4 +104,5 @@ export const useEditor = create<EditorState>((set, get) => ({
   ...createAnalysisSlice(set, get),
   ...createStorageSlice(set, get),
   ...createMiscSlice(set, get),
+  ...createPartEditorSlice(set, get),
 }));

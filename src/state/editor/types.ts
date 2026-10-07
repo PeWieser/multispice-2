@@ -4,6 +4,8 @@ import { Instance, NetLabel, NetlistBuildResult, Rotation, SchematicDoc, TextNot
 import { AnalysisPayload } from "@/lib/sim/runner";
 import { IntegrationMethod } from "@/lib/sim/engine";
 import type { TeacherLockState } from "@/lib/teacher";
+import type { CustomPartParamLink, CustomPinSpec, SubcircuitElement } from "@/lib/library/customParts";
+import type { SymbolPrim } from "@/lib/library/catalog";
 
 export type Tool = "select" | "wire" | "junction" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
 
@@ -88,6 +90,48 @@ export interface ClipboardData {
 export type ThemePref = "system" | "dark" | "light";
 export type UiFontSize = "compact" | "standard" | "large";
 
+export type PartEditorTab = "circuit" | "symbol" | "pins" | "params";
+
+export interface PartEditorMeta {
+  name: string;
+  ref: string;
+  category: string;
+  footprint: string;
+  mount: "THT" | "SMD" | "both";
+  description: string;
+}
+
+/** S6.2 (Phase 2): Geparkter Haupt-Plan, während der Bauteile-Editor offen ist. */
+export interface ParkedEditorState {
+  doc: SchematicDoc;
+  past: SchematicDoc[];
+  future: SchematicDoc[];
+  view: { x: number; y: number; zoom: number };
+  selection: string[];
+  tool: Tool;
+  placingPartId: string | null;
+  libraryOpen: boolean;
+  rightOpen: boolean;
+  leftOpen: boolean;
+  bottomOpen: boolean;
+  savePending: boolean;
+}
+
+/** S6.2 (Phase 2): Zustand des Bauteile-Editors (Doc-Swap-Modus). */
+export interface PartEditorData {
+  open: boolean;
+  editingId: string | null;
+  dirty: boolean;
+  tab: PartEditorTab;
+  meta: PartEditorMeta;
+  links: CustomPartParamLink[];
+  pinOverrides: Record<string, Partial<CustomPinSpec>>;
+  customSymbol: SymbolPrim[];
+  /** Legacy-Transistor-Tabelle (Rückhalt beim Öffnen alter Bauteile). */
+  legacyTable: SubcircuitElement[] | null;
+  parked: ParkedEditorState | null;
+}
+
 export interface EditorState {
   doc: SchematicDoc;
   selection: string[];
@@ -154,6 +198,8 @@ export interface EditorState {
   placingProbeKind: import("@/lib/schematic/model").ProbeKind | null;
   /** S5.6d: Lehrer-Modus (Werte/Faults versteckt + Plan gesperrt). */
   teacher: TeacherLockState;
+  /** S6.2 (Phase 2): Bauteile-Editor (Doc-Swap-Modus). */
+  partEditor: PartEditorData;
 
   /* actions */
   setDoc: (doc: SchematicDoc, pushHistory?: boolean) => void;
@@ -277,6 +323,18 @@ export interface EditorState {
   saveProject: (name?: string, opts?: { saveAs?: boolean }) => Promise<void>;
   restoreLocalProject: () => void;
   markFavorite: (partId: string) => void;
+  /* S6.2 (Phase 2): Bauteile-Editor */
+  openPartEditor: (partId?: string | null) => void;
+  closePartEditor: () => void;
+  savePartEditor: (place?: boolean) => boolean;
+  setPartEditorTab: (t: PartEditorTab) => void;
+  setPartEditorMeta: (patch: Partial<PartEditorMeta>) => void;
+  toggleParamLink: (instanceId: string, key: string) => void;
+  updateParamLink: (name: string, patch: Partial<CustomPartParamLink>) => void;
+  deleteParamLink: (name: string) => void;
+  setPinOverride: (portName: string, patch: Partial<CustomPinSpec> | null) => void;
+  setPartEditorSymbol: (prims: SymbolPrim[]) => void;
+  markPartEditorDirty: () => void;
   refreshNets: () => void;
 }
 

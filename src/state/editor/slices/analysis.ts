@@ -13,6 +13,7 @@ import type { StoreApi } from "zustand";export function createAnalysisSlice(set:
       setAnalysis: (a) => set((s) => ({ analysis: { ...s.analysis, ...a } })),
 
       runAnalysis: async (kind, payload = {}) => {
+        if (get().partEditor.open) { get().log("warn", "Keine Analyse im Bauteile-Editor."); return; }
         // S2.1: Eine Analyse zur Zeit — die alte wird sauber abgebrochen,
         // damit kein verwaister Worker einen stale Report setzt.
         activeTask?.cancel();
