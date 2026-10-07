@@ -10,6 +10,11 @@ export interface DigitalPort {
   pin: number;
   /** -1 = hi-Z, otherwise logical level 0..1 */
   level: number;
+  /**
+   * S5.32: optional raw analog output voltage. When present, the engine
+   * stamps `volts` instead of `level * vdd` (DACs, analog muxes, drivers).
+   */
+  volts?: number;
 }
 
 export interface DigitalDeviceLike {
@@ -70,6 +75,7 @@ export function evalDigital(dev: DigitalDeviceLike, ctx: DigitalContext): Digita
     case "nand2":
     case "nand3":
     case "nand4":
+    case "nand8": // S5.32 (7430 fiel zuvor in default = AND!)
       gate((a) => (a.every((x) => x === 1) ? 1 : 0), true);
       break;
     case "or2":
@@ -79,6 +85,7 @@ export function evalDigital(dev: DigitalDeviceLike, ctx: DigitalContext): Digita
       break;
     case "nor2":
     case "nor3":
+    case "nor4": // S5.32 (4002 fiel zuvor in default = AND!)
       gate((a) => (a.some((x) => x === 1) ? 1 : 0), true);
       break;
     case "xor2":
@@ -175,7 +182,9 @@ export function evalDigital(dev: DigitalDeviceLike, ctx: DigitalContext): Digita
     case "mux4": {
       // pins: I0..I3, S0, S1, Y
       const sel = (inputs[4] ?? 0) | ((inputs[5] ?? 0) << 1);
-      out.push({ pin: 6, level: inputs[sel] ?? 0 });
+      // S5.32: params.analog=1 schaltet echte Spannungs-Weitergabe (405x).
+      if ((dev.params.analog ?? 0) === 1) out.push({ pin: 6, level: inputs[sel] ?? 0, volts: v[sel] ?? 0 });
+      else out.push({ pin: 6, level: inputs[sel] ?? 0 });
       break;
     }
     case "demux4": {
@@ -254,13 +263,18 @@ export function evalDigital(dev: DigitalDeviceLike, ctx: DigitalContext): Digita
       break;
     }
     case "mux8": {
+      // pins: I0..I7, S0, S1, S2, Y (74151 digital, 4051 mit params.analog=1)
       const sel = (inputs[8] ?? 0) | ((inputs[9] ?? 0) << 1) | ((inputs[10] ?? 0) << 2);
-      out.push({ pin: 11, level: inputs[sel] ?? 0 });
+      if ((dev.params.analog ?? 0) === 1) out.push({ pin: 11, level: inputs[sel] ?? 0, volts: v[sel] ?? 0 });
+      else out.push({ pin: 11, level: inputs[sel] ?? 0 });
       break;
     }
     case "mux2": {
+      // pins: I0, I1, S, Y
       const sel = inputs[2] ?? 0;
-      out.push({ pin: 3, level: sel ? inputs[1] ?? 0 : inputs[0] ?? 0 });
+      const inIdx = sel ? 1 : 0;
+      if ((dev.params.analog ?? 0) === 1) out.push({ pin: 3, level: inputs[inIdx] ?? 0, volts: v[inIdx] ?? 0 });
+      else out.push({ pin: 3, level: inputs[inIdx] ?? 0 });
       break;
     }
     case "demux8": {
@@ -286,23 +300,23 @@ export function evalDigital(dev: DigitalDeviceLike, ctx: DigitalContext): Digita
       break;
     }
     case "switch4": {
-      // quad analog switch – if control high, output = input
+      // quad analog switch (4066/4016): pins I,O,C ×4 — offen = hi-Z, ein = echte Spannung
       for (let i=0;i<4;i++) {
-        const inp = inputs[i*3] ?? 0;
+        const inIdx = i*3;
         const ctrl = inputs[i*3+2] ?? 0;
-        out.push({ pin: i*3+1, level: ctrl ? inp : 0 });
+        // S5.32: war digital (aus = 0 V getrieben); 4066-offen ist hochohmig.
+        if (ctrl) out.push({ pin: i*3+1, level: inputs[inIdx] ?? 0, volts: v[inIdx] ?? 0 });
+        else out.push({ pin: i*3+1, level: -1 });
       }
       break;
     }
     case "dac8": {
-      // 8-bit DAC: Vout = (digital/255)*Vref
+      // 8-bit DAC: Vout = (digital/255)*Vref; pins D0..D7, VOUT
       const bits = inputs.slice(0,8).reduce((s,b,i)=>s|(b<<i),0);
       const vref = dev.params.vref ?? ctx.vdd;
       const vout = (bits/255)*vref;
-      // We push analog as level? For behavioral we store vout in mem
-      mem.vout = vout;
-      // Digital output not used, but we can output analog via special pin handling in engine – for now output high if vout > vth
-      out.push({ pin: 8, level: vout > ctx.vth ? 1 : 0 });
+      // S5.32: echte Spannung statt Engine-Sonderfall (mem.vout entfällt).
+      out.push({ pin: 8, level: vout > ctx.vth ? 1 : 0, volts: vout });
       break;
     }
     case "adc8": {
@@ -379,12 +393,295 @@ export function evalDigital(dev: DigitalDeviceLike, ctx: DigitalContext): Digita
       }
       break;
     }
+    // ---- S5.32: MSI/treiber-korrekte Modelle (Pin-Konvention im Kommentar) ----
+    case "nand2s": {
+      // Schmitt-NAND (4093, 74132): pins A, B, Y
+      const st2 = (idx: number): number => {
+        const key = "sn" + idx;
+        const prev = mem[key] ?? 0;
+        const vin = v[idx] ?? 0;
+        const r = vin > ctx.vdd * 0.66 ? 1 : vin < ctx.vdd * 0.33 ? 0 : prev;
+        mem[key] = r;
+        return r;
+      };
+      out.push({ pin: last, level: st2(0) && st2(1) ? 0 : 1 });
+      break;
+    }
+    case "tbuf": {
+      // Tri-State-Buffer (1/4 74125 mit oeLow=1, 1/4 74126): pins I, OE, Y
+      const oeRaw = inputs[1] ?? 0;
+      const oe = (dev.params.oeLow ?? 0) === 1 ? 1 - oeRaw : oeRaw;
+      out.push({ pin: 2, level: oe ? inputs[0] ?? 0 : -1 });
+      break;
+    }
+    case "piso8": {
+      // 74165 PISO: pins P0..P7, CLK, SHLD, SER, Q, /Q (SHLD=L: laden, H: schieben)
+      const shld = inputs[9] ?? 1;
+      let reg = mem.reg ?? 0;
+      if (shld === 0) reg = inputs.slice(0, 8).reduce((s, b, i) => s | (b << i), 0);
+      else if (rising("clk", inputs[8] ?? 0)) reg = ((reg << 1) | (inputs[10] ?? 0)) & 0xff;
+      mem.reg = reg;
+      const q = (reg >> 7) & 1;
+      out.push({ pin: 11, level: q }, { pin: 12, level: 1 - q });
+      break;
+    }
+    case "buf8": {
+      // 74244 Octal-Buffer: pins I0..I7, /OE1, /OE2, Y0..Y7
+      const oe1 = inputs[8] ?? 0, oe2 = inputs[9] ?? 0;
+      for (let i = 0; i < 8; i++) out.push({ pin: 10 + i, level: (i < 4 ? oe1 : oe2) ? -1 : inputs[i] ?? 0 });
+      break;
+    }
+    case "latch8": {
+      // 74373 Octal-Latch: pins D0..D7, LE, /OE, Q0..Q7 (LE=H: transparent)
+      const le = inputs[8] ?? 0, oe = inputs[9] ?? 0;
+      for (let i = 0; i < 8; i++) {
+        if (le === 1) mem["q" + i] = inputs[i] ?? 0;
+        out.push({ pin: 10 + i, level: oe ? -1 : mem["q" + i] ?? 0 });
+      }
+      break;
+    }
+    case "ff8": {
+      // 74273 Octal-D-FF: pins D0..D7, CLK, /CLR, Q0..Q7
+      const edge = rising("clk", inputs[8] ?? 0);
+      const clr = inputs[9] ?? 1;
+      for (let i = 0; i < 8; i++) {
+        if (clr === 0) mem["q" + i] = 0;
+        else if (edge) mem["q" + i] = inputs[i] ?? 0;
+        out.push({ pin: 10 + i, level: mem["q" + i] ?? 0 });
+      }
+      break;
+    }
+    case "transceiver8": {
+      // 74245: pins A0..A7, B0..B7, DIR, /OE — DIR=H: A→B (Nexperia-Tabelle)
+      const dir = inputs[16] ?? 1, oe = inputs[17] ?? 0;
+      for (let i = 0; i < 8; i++) {
+        if (oe === 1) out.push({ pin: i, level: -1 }, { pin: 8 + i, level: -1 });
+        else if (dir === 1) out.push({ pin: i, level: -1 }, { pin: 8 + i, level: inputs[i] ?? 0 });
+        else out.push({ pin: i, level: inputs[8 + i] ?? 0 }, { pin: 8 + i, level: -1 });
+      }
+      break;
+    }
+    case "add4": {
+      // 7483/4008 4-Bit-Addierer: pins A0..A3, B0..B3, CIN, S0..S3, COUT
+      const a = inputs.slice(0, 4).reduce((s, b, i) => s | (b << i), 0);
+      const b = inputs.slice(4, 8).reduce((s, x, i) => s | (x << i), 0);
+      const r = a + b + (inputs[8] ?? 0);
+      for (let i = 0; i < 4; i++) out.push({ pin: 9 + i, level: (r >> i) & 1 });
+      out.push({ pin: 13, level: r > 15 ? 1 : 0 });
+      break;
+    }
+    case "magcomp4": {
+      // 7485 4-Bit-Komparator: A0..A3, B0..B3, IAGTB, IAEQB, IALTB, OAGTB, OAEQB, OALTB
+      const a = inputs.slice(0, 4).reduce((s, b, i) => s | (b << i), 0);
+      const b = inputs.slice(4, 8).reduce((s, x, i) => s | (x << i), 0);
+      let gt = 0, eq = 0, lt = 0;
+      if (a > b) gt = 1;
+      else if (a < b) lt = 1;
+      else { gt = inputs[8] ?? 0; eq = inputs[9] ?? 0; lt = inputs[10] ?? 0; }
+      out.push({ pin: 11, level: gt }, { pin: 12, level: eq }, { pin: 13, level: lt });
+      break;
+    }
+    case "bcddec": {
+      // BCD→Dezimal (7442 low=1 aktiv-low, 4028 aktiv-high): pins A,B,C,D, Y0..Y9
+      // params: low (7442), oc (offen = hi-Z statt Pegel). Ungültiges BCD: alles aus.
+      const val = (inputs[0] ?? 0) | ((inputs[1] ?? 0) << 1) | ((inputs[2] ?? 0) << 2) | ((inputs[3] ?? 0) << 3);
+      const low = (dev.params.low ?? 0) === 1;
+      const oc = (dev.params.oc ?? 0) === 1;
+      for (let i = 0; i < 10; i++) {
+        const sel = val < 10 && i === val;
+        const lvl = low ? (sel ? 0 : oc ? -1 : 1) : sel ? 1 : 0;
+        out.push({ pin: 4 + i, level: lvl });
+      }
+      break;
+    }
+    case "bcd7seglow": {
+      // 7447/7448 aktiv-low: pins A,B,C,D, LT, RBI, BI, a..g (LT/RBI/BI aktiv-low)
+      const val = (inputs[0] ?? 0) | ((inputs[1] ?? 0) << 1) | ((inputs[2] ?? 0) << 2) | ((inputs[3] ?? 0) << 3);
+      const table = [0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71];
+      let seg = table[val & 0xf];
+      const lt = inputs[4] ?? 1, rbi = inputs[5] ?? 1, bi = inputs[6] ?? 1;
+      if (lt === 0) seg = 0x7f;
+      else if (bi === 0 || (rbi === 0 && val === 0)) seg = 0x00;
+      const oc = (dev.params.oc ?? 0) === 1;
+      for (let i = 0; i < 7; i++) out.push({ pin: 7 + i, level: (seg >> i) & 1 ? 0 : oc ? -1 : 1 });
+      break;
+    }
+    case "bcd7seglatch": {
+      // 4511 mit Latch: pins A,B,C,D, LE, /BI, /LT, a..g — LE=H: halten (verifiziert)
+      const val = (inputs[0] ?? 0) | ((inputs[1] ?? 0) << 1) | ((inputs[2] ?? 0) << 2) | ((inputs[3] ?? 0) << 3);
+      const table = [0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71];
+      const le = inputs[4] ?? 0, bi = inputs[5] ?? 1, lt = inputs[6] ?? 1;
+      if (le === 0) mem.val = val;
+      const held = mem.val ?? 0;
+      let seg = held > 9 ? 0x00 : table[held]; // 4511 blankt A–F
+      if (lt === 0) seg = 0x7f;
+      else if (bi === 0) seg = 0x00;
+      for (let i = 0; i < 7; i++) out.push({ pin: 7 + i, level: (seg >> i) & 1 });
+      break;
+    }
+    case "encoder83": {
+      // 74148 Priority-Encoder, alles aktiv-low: /I0../I7, /EI, /A0,/A1,/A2, /GS, /EO
+      const ei = inputs[8] ?? 0;
+      let pri = -1;
+      for (let i = 7; i >= 0; i--) if ((inputs[i] ?? 1) === 0) { pri = i; break; }
+      let code: number, gs: number, eo: number;
+      if (ei !== 0) { code = 7; gs = 1; eo = 1; }
+      else if (pri < 0) { code = 7; gs = 1; eo = 0; }
+      else { code = (~pri) & 7; gs = 0; eo = 1; }
+      out.push({ pin: 9, level: (code >> 0) & 1 }, { pin: 10, level: (code >> 1) & 1 }, { pin: 11, level: (code >> 2) & 1 }, { pin: 12, level: gs }, { pin: 13, level: eo });
+      break;
+    }
+    case "shift8latch": {
+      // 74595: pins SER, SRCLK, RCLK, /SRCLR, /OE, QA..QH, QH'
+      const ser = inputs[0] ?? 0;
+      let sr = mem.sr ?? 0, lat = mem.lat ?? 0;
+      if ((inputs[3] ?? 1) === 0) sr = 0;
+      else if (rising("srclk", inputs[1] ?? 0)) sr = ((sr << 1) | ser) & 0xff;
+      if (rising("rclk", inputs[2] ?? 0)) lat = sr;
+      mem.sr = sr; mem.lat = lat;
+      const oe = inputs[4] ?? 0;
+      for (let i = 0; i < 8; i++) out.push({ pin: 5 + i, level: oe ? -1 : (lat >> i) & 1 });
+      out.push({ pin: 13, level: (sr >> 7) & 1 });
+      break;
+    }
+    case "counter4ud": {
+      // 4-Bit auf/ab (74191/4029/4516-Stil, behavioral aktiv-high): P0..P3, CLK, LOAD, UD, EN, Q0..Q3
+      const load = inputs[5] ?? 0, ud = inputs[6] ?? 1, en = inputs[7] ?? 1;
+      let cnt = mem.cnt ?? 0;
+      if (load === 1) cnt = inputs.slice(0, 4).reduce((s, b, i) => s | (b << i), 0);
+      else if (en === 1 && rising("clk", inputs[4] ?? 0)) cnt = ud ? (cnt + 1) & 0xf : (cnt + 15) & 0xf;
+      mem.cnt = cnt;
+      for (let i = 0; i < 4; i++) out.push({ pin: 8 + i, level: (cnt >> i) & 1 });
+      break;
+    }
+    case "counter8dec": {
+      // 4022 ÷8-Dekade: pins CLK, RST, Q0..Q7 (one-hot)
+      const clk = inputs[0] ?? 0, rst = inputs[1] ?? 0;
+      let cnt = mem.cnt ?? 0;
+      if (rising("clk", clk)) cnt = (cnt + 1) % 8;
+      if (rst === 1) cnt = 0;
+      mem.cnt = cnt;
+      for (let i = 0; i < 8; i++) out.push({ pin: 2 + i, level: i === cnt ? 1 : 0 });
+      break;
+    }
+    case "bcd7seglcd": {
+      // 4543 LCD-Treiber: pins A,B,C,D, LD, PH, BI, a..g (LD=H: halten, BI=H: aus, seg^PH)
+      const val = (inputs[0] ?? 0) | ((inputs[1] ?? 0) << 1) | ((inputs[2] ?? 0) << 2) | ((inputs[3] ?? 0) << 3);
+      const table = [0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71];
+      const ld = inputs[4] ?? 1, ph = inputs[5] ?? 0, bi = inputs[6] ?? 0;
+      if (ld === 0) mem.val = val;
+      const held = mem.val ?? 0;
+      const seg = held > 9 || bi === 1 ? 0x00 : table[held];
+      for (let i = 0; i < 7; i++) out.push({ pin: 7 + i, level: ((seg >> i) & 1) ^ ph });
+      break;
+    }
+    case "mux16": {
+      // 4067 16-Kanal: pins I0..I15, S0..S3, COM, /EN (+ params.analog)
+      const sel = (inputs[16] ?? 0) | ((inputs[17] ?? 0) << 1) | ((inputs[18] ?? 0) << 2) | ((inputs[19] ?? 0) << 3);
+      if ((inputs[21] ?? 0) === 1) { out.push({ pin: 20, level: -1 }); break; }
+      if ((dev.params.analog ?? 0) === 1) out.push({ pin: 20, level: inputs[sel] ?? 0, volts: v[sel] ?? 0 });
+      else out.push({ pin: 20, level: inputs[sel] ?? 0 });
+      break;
+    }
+    case "mux4dual": {
+      // 4052 Dual-4-Kanal: IA0..IA3, IB0..IB3, S0, S1, COMA, COMB, /EN (analog default)
+      const sel = (inputs[8] ?? 0) | ((inputs[9] ?? 0) << 1);
+      const dis = (inputs[12] ?? 0) === 1;
+      const ana = (dev.params.analog ?? 1) === 1;
+      for (let ch = 0; ch < 2; ch++) {
+        const inIdx = ch * 4 + sel;
+        if (dis) { out.push({ pin: 10 + ch, level: -1 }); continue; }
+        if (ana) out.push({ pin: 10 + ch, level: inputs[inIdx] ?? 0, volts: v[inIdx] ?? 0 });
+        else out.push({ pin: 10 + ch, level: inputs[inIdx] ?? 0 });
+      }
+      break;
+    }
+    case "mux2triple": {
+      // 4053 Triple-2-Kanal: IA0,IA1, IB0,IB1, IC0,IC1, SA,SB,SC, COMA,COMB,COMC, /EN
+      const dis = (inputs[12] ?? 0) === 1;
+      const ana = (dev.params.analog ?? 1) === 1;
+      for (let ch = 0; ch < 3; ch++) {
+        const inIdx = ch * 2 + (inputs[6 + ch] ?? 0);
+        if (dis) { out.push({ pin: 9 + ch, level: -1 }); continue; }
+        if (ana) out.push({ pin: 9 + ch, level: inputs[inIdx] ?? 0, volts: v[inIdx] ?? 0 });
+        else out.push({ pin: 9 + ch, level: inputs[inIdx] ?? 0 });
+      }
+      break;
+    }
+    case "hbridge": {
+      // L293D/L298 Brückenpaar: pins IN1, IN2, EN, OUT1, OUT2 — EN=L: Z (TI-Tabelle)
+      // params: vs (Motorspannung, default vdd), vdrop (Sättigung, default 1,4)
+      const en = inputs[2] ?? 0;
+      if (en === 0) { out.push({ pin: 3, level: -1 }, { pin: 4, level: -1 }); break; }
+      const vs = dev.params.vs ?? ctx.vdd;
+      const drop = dev.params.vdrop ?? 1.4;
+      for (let ch = 0; ch < 2; ch++) {
+        const on = (inputs[ch] ?? 0) === 1;
+        out.push({ pin: 3 + ch, level: on ? 1 : 0, volts: on ? vs - drop : drop * 0.25 });
+      }
+      break;
+    }
+    case "uln2003": {
+      // ULN2003 7× Darlington (invertierend, OC): pins I0..I6, O0..O6
+      for (let i = 0; i < 7; i++) {
+        if ((inputs[i] ?? 0) === 1) out.push({ pin: 7 + i, level: 0, volts: 1.0 });
+        else out.push({ pin: 7 + i, level: -1 });
+      }
+      break;
+    }
+    case "uln2803": {
+      // ULN2803 8× Darlington: pins I0..I7, O0..O7
+      for (let i = 0; i < 8; i++) {
+        if ((inputs[i] ?? 0) === 1) out.push({ pin: 8 + i, level: 0, volts: 1.0 });
+        else out.push({ pin: 8 + i, level: -1 });
+      }
+      break;
+    }
+    case "max232": {
+      // MAX232 behavioral: T1IN,T2IN,R1IN,R2IN, T1OUT,T2OUT,R1OUT,R2OUT (Treiber ±V invertierend)
+      const vrs = dev.params.vrs ?? 9;
+      for (let ch = 0; ch < 2; ch++) {
+        const tin = (inputs[ch] ?? 0) === 1;
+        out.push({ pin: 4 + ch, level: tin ? 0 : 1, volts: tin ? -vrs : vrs });
+      }
+      for (let ch = 0; ch < 2; ch++) {
+        const rin = v[2 + ch] ?? 0;
+        out.push({ pin: 6 + ch, level: rin > 1.5 ? 0 : 1 });
+      }
+      break;
+    }
     default:
       gate((a) => (a.every((x) => x === 1) ? 1 : 0));
       break;
   }
   return out;
 }
+
+/**
+ * S5.32: Pinzahl-Register — jedes DIGITAL/GATE-Modell (kleingeschrieben)
+ * mit seiner exakten Knotenzahl. Der Katalog-Konsistenztest erzwingt
+ * Modell ∈ Register und nodes.length === Registerwert (S5.33).
+ */
+export const DIGITAL_MODEL_PINS: Record<string, number> = {
+  and2: 3, and3: 4, and4: 5,
+  nand2: 3, nand3: 4, nand4: 5, nand8: 9, nand2s: 3,
+  or2: 3, or3: 4, or4: 5, nor2: 3, nor3: 4, nor4: 5,
+  xor2: 3, xnor2: 3, not: 2, inverter: 2, buffer: 2, schmitt: 2, tbuf: 3,
+  dff: 6, jkff: 6, tff: 4, srlatch: 4,
+  counter4: 7, counter8: 11, counter10: 7, counter12: 15, counter14: 16, counter16: 18,
+  counter4ud: 12, counter8dec: 10, bcdcounter: 7,
+  shift8: 11, piso8: 13, shift8latch: 14,
+  mux2: 4, mux4: 7, mux8: 12, mux16: 22, mux4dual: 13, mux2triple: 13,
+  demux4: 7, demux8: 12,
+  decoder24: 6, decoder38: 11, decoder416: 20, bcddec: 14,
+  encoder42: 6, encoder83: 14,
+  bcd7seg: 11, bcd7seglow: 14, bcd7seglatch: 14, bcd7seglcd: 14, "7seg_common": 11,
+  alu4: 15, add4: 14, magcomp4: 14,
+  buf8: 18, latch4: 12, latch8: 18, ff8: 18, transceiver8: 18,
+  switch4: 12, dac8: 9, adc8: 9,
+  pll4046: 2, monostable: 4, clockgen: 1, ram8: 19,
+  hbridge: 5, uln2003: 14, uln2803: 18, max232: 8,
+};
 
 /* ------------------------------------------------------------------ */
 /* MCU co-simulation                                                   */

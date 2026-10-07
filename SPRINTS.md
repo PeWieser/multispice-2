@@ -357,6 +357,15 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   0,25): schweigt auf Rauschen/Kleinsignal/DC-Ruhelage, steht phasenstabil
   auf echten Flanken (Vollkette: 240/240, ≤ 10 µs). `tsc` ✅, `eslint` ✅,
   `npm test` ✅ (notetest +7, ozsitest +6 Wächter).
+- S5.32: Library-Inventur (265 ICs) + Engine-Fundament fürs IC-Programm:
+  23 neue Digital-Modelle (PISO, Octal-Puffer/Latch/FF, Transceiver, Addierer,
+  Komparator, BCD-Dekoder, 7447/4511/4543-Treiber, Priority-Encoder, 74595,
+  Up/Down-Zähler, 4022, 16-Kanal-MUX, 4052/53, H-Brücke, ULN2003/2803,
+  MAX232, Schmitt-NAND, Tri-State; dazu nand8/nor4-Labels — beide fielen
+  still in default=AND). Modelle dürfen jetzt echte Analogspannungen treiben
+  (DAC-Sonderfall ersetzt, 4051/4066 echt analog, H-Brücken an VS-Schiene);
+  Pinzahl-Register `DIGITAL_MODEL_PINS` für die S5.33-Konsistenzprüfung.
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (icmodeltest, 83 Wächter).
 
 ## Nicht-Ziele (bewusst)
 

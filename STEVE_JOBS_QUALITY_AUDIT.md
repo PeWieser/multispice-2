@@ -3966,3 +3966,23 @@ im Band und DC-Ruhelage; Vollkette mit echter Simulation (rc-lowpass,
 (stehend); fallende Flanke und 50-Hz-Netz-Raster treffen. Seitenbefund:
 alles andere der Trigger-Kette (Modi, Quelle, Flanke, Menü, Pegel-Knopf,
 Darstellung, Clock, Sampler) war korrekt — nur die Hysterese fehlte.
+
+## §71 · S5.32 Ergebnis (IC-Programm: Inventur + Modell-Fundament, 2026-10-07)
+
+Inventur auf Wunsch: 265 ICs von 418 Katalogteilen (215 digital, 24 analog,
+15 Regler, 9 MCU, 2 Wandler). Die Simulationslogik ist komplett
+handgeschrieben im Repo (digital.ts-Verhaltensmodelle, Boyle-OPV/Timer/
+Regler in der Engine, Arduino-C-Interpreter für MCUs) — keine
+Hersteller-Modelle. Ehrlicher Befund dabei: Viele Multi-Unit-ICs sind nur
+dem Namen nach der Typ (Quad-NAND als 1 Gatter mit 11 Eingängen,
+Transceiver als 1 Buffer, Komparator als ALU, Dekoder mit falscher Breite,
+„Quad"-OPVs mit einer Einheit, Duplikate, wirkungslose Parameter); kein
+Test prüfte Modell↔Name je. Scope per Vierfach-Votum: volles Programm,
+Funktionsboxen, Analog-Ausgänge ja, Typen einmalig + Familien-Parameter.
+S5.32 legt das Fundament: 23 neue Modelle (u. a. 74595, 74245, 7485/83,
+7447/4511/4543, 74148, 4052/53, L293, ULN2003/2803, MAX232; Polaritäten an
+Datenblättern verifiziert: 4511-LE, 245-DIR, L293-Tabelle, 4543-LD/BI),
+nand8/nor4-Labels ergänzt (fielen still in AND!), `volts`-Analog-Ausgänge
+für Verhaltensmodelle (DAC-Sonderfall in der Engine ersetzt, 4051/4066
+jetzt echt analog), Pinzahl-Register als Basis der S5.33-Konsistenzprüfung.
+83 neue Modell-Wächter, alle grün.

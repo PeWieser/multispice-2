@@ -576,7 +576,7 @@ export class Simulator {
         // Sum of output currents
         const outs = st.outputs ?? [];
         let sum = 0;
-        for (let i = 0; i < outs.length; i += 2) {
+        for (let i = 0; i < outs.length; i += 3) { // S5.32: Triples
           const lvl = outs[i + 1];
           if (lvl < 0) continue;
           // rough estimate: output current proportional to load, not tracked; use 0
@@ -1458,26 +1458,17 @@ export class Simulator {
       case "GATE":
       case "DIGITAL":
       case "MCU": {
-        // Special handling for DAC: analog output from mem.vout
-        const model = (d.model ?? "").toLowerCase();
-        if (model === "dac8") {
-          const vout = (st.digital as any)?.vout ?? 0;
-          // Assume last node is analog output
-          const outNode = this.idx(d.nodes[d.nodes.length - 1] ?? d.nodes[0]);
-          if (outNode >= 0) this.stampVoltageSoft(m, outNode, -1, vout, rout);
-          break;
-        }
-        const outPins: number[] = (st.extra!.outPins as unknown as number[]) ?? [];
-        void outPins;
-        const pinList = (st.digital?.outCount ?? 0) | 0;
-        void pinList;
-        for (let i = 0; i < outs.length; i += 2) {
+        // S5.32: [pin, level, volts?]-Triples; volts (echte Analogspannung)
+        // schlägt level*vdd (DAC-Sonderfall dadurch überflüssig, entfernt).
+        for (let i = 0; i < outs.length; i += 3) {
           const pinIdx = outs[i];
           const level = outs[i + 1];
+          const raw = outs[i + 2];
+          const hasVolts = typeof raw === "number" && !Number.isNaN(raw);
           if (pinIdx < 0) continue;
           const node = this.idx(d.nodes[pinIdx]);
-          if (level < 0) continue; // hi-Z
-          this.stampVoltageSoft(m, node, -1, level * vdd, rout);
+          if (level < 0 && !hasVolts) continue; // hi-Z
+          this.stampVoltageSoft(m, node, -1, hasVolts ? raw : level * vdd, rout);
         }
         break;
       }
@@ -1741,7 +1732,8 @@ export class Simulator {
             mem: st.digital,
           });
           const outs: number[] = [];
-          for (const port of ports) outs.push(port.pin, port.level);
+          // S5.32: [pin, level, volts?]-Triples (volts = NaN ohne Analog-Ausgang).
+          for (const port of ports) outs.push(port.pin, port.level, port.volts ?? NaN);
           if (!st.outputs || st.outputs.join() !== outs.join()) changed = true;
           st.outputs = outs;
           break;
@@ -1773,7 +1765,7 @@ export class Simulator {
           const outs: number[] = [];
           for (const [pin, level] of Object.entries(mcu.pinOut)) {
             const idx = Number(pin);
-            if (idx >= 0 && idx < d.nodes.length) outs.push(idx, Number(level));
+            if (idx >= 0 && idx < d.nodes.length) outs.push(idx, Number(level), NaN);
           }
           if (!st.outputs || st.outputs.join() !== outs.join()) changed = true;
           st.outputs = outs;
