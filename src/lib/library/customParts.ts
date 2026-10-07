@@ -1,6 +1,6 @@
 import { PARTS, PART_MAP, PartDef, PinDef, SymbolPrim, ParamDef, partPins } from "./catalog";
 import { Device } from "@/lib/sim/engine";
-import { Instance, SchematicDoc, buildNets } from "@/lib/schematic/model";
+import { Instance, SchematicDoc, buildNets, pinPosition } from "@/lib/schematic/model";
 
 export type PinSide = "left" | "right" | "top" | "bottom";
 export type PinRole = "signal" | "input" | "output" | "vcc" | "gnd";
@@ -67,13 +67,20 @@ export interface CustomPartSpec {
   pins: CustomPinSpec[];
   /** Frei gezeichnete Symbol-Primitive (Linien, Rechtecke, Kreise, Bögen, Texte) */
   customSymbol?: SymbolPrim[];
-  /** Transistor-/Bauteil-Innenschaltung (Subcircuit) */
+  /** Transistor-/Bauteil-Innenschaltung (Subcircuit, Legacy-Tabelle) */
   subcircuit?: SubcircuitElement[];
+  /** S6.1: Innenschaltung als echtes Schaltplan-Dokument (Editor 2.0).
+   * Hat Vorrang vor `subcircuit`; Ports (port_in/port_out/port_io) darin
+   * definieren die Außenpins (Reihenfolge = Instanz-ID-Sortierung). */
+  schematic?: SchematicDoc;
   /** Benutzerdefinierte Parameter für Inspector & Doppelklick-Bearbeitung */
   customParams?: CustomParamSpec[];
 }
 
 const STORAGE_KEY = "multispice.customParts.v1";
+
+/** S6.1: Laufzeit-Register aller Specs (für Zyklenerkennung über Schachtelung). */
+export const CUSTOM_SPECS = new Map<string, CustomPartSpec>();
 
 export const SUBCIRCUIT_ELEMENT_META: Record<
   SubcircuitElementKind,
@@ -1306,6 +1313,252 @@ export function compileSubcircuitToDevices(
   return devices;
 }
 
+/* ================= S6.1: Schaltplan-Innenschaltung (Editor 2.0) ================= */
+
+export const PORT_PART_IDS = ["port_in", "port_out", "port_io"] as const;
+
+export interface CollectedPort {
+  instanceId: string;
+  partId: string;
+  role: PinRole;
+  name: string;
+}
+
+export function portInstanceName(inst: Instance): string {
+  const p = inst.params?.pname;
+  if (typeof p === "string" && p.trim()) return p.trim();
+  if (inst.label) return inst.label;
+  return inst.id;
+}
+
+/** Alle Ports eines Innen-Dokuments, stabil nach Instanz-ID sortiert.
+ * Die Reihenfolge definiert die Außenpin-Reihenfolge (Netz-Array). */
+export function collectPorts(doc: SchematicDoc): CollectedPort[] {
+  return doc.instances
+    .filter((i) => (PORT_PART_IDS as readonly string[]).includes(i.partId))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((i) => ({
+      instanceId: i.id,
+      partId: i.partId,
+      role: i.partId === "port_in" ? "input" : i.partId === "port_out" ? "output" : "signal",
+      name: portInstanceName(i),
+    }));
+}
+
+const MAX_SCHEMATIC_DEPTH = 8;
+let schematicCompileDepth = 0;
+
+/**
+ * S6.1: Macro-Expansion einer Schaltplan-Innenschaltung. Das Innen-Doc wird
+ * geklont (IDs präfixiert → Instanz-Isolation), per buildNets kompiliert und
+ * danach umbenannt: Port-Netze → Außennetze, "0" bleibt global, alles andere
+ * bekommt den Instanz-Präfix. Schachtelung läuft automatisch über PART_MAP;
+ * der Tiefenzähler fängt Zyklen zur Laufzeit ab (statisch: findSpecCycle).
+ * Fehler werfen (buildNets fängt je Instanz und meldet sie).
+ */
+export function compileSchematicToDevices(
+  spec: CustomPartSpec,
+  inst: { id: string; params?: Record<string, number | string | boolean> },
+  externalPinNets: string[],
+): Device[] {
+  const doc = spec.schematic;
+  if (!doc || doc.instances.length === 0) return [];
+  if (schematicCompileDepth >= MAX_SCHEMATIC_DEPTH)
+    throw new Error(`${spec.id}: Verschachtelungstiefe überschritten (zyklischer Einbau?)`);
+  const ports = collectPorts(doc);
+  if (ports.length !== spec.pins.length)
+    throw new Error(`${spec.id}: ${ports.length} Ports im Schaltplan, aber ${spec.pins.length} Außenpins definiert`);
+  const pre = `${inst.id}__`;
+  const clone = JSON.parse(JSON.stringify(doc)) as SchematicDoc;
+  clone.id = pre + doc.id;
+  for (const i of clone.instances) {
+    i.id = pre + i.id;
+    i.label = "";
+  }
+  for (const w of clone.wires) w.id = pre + w.id;
+  for (const l of clone.labels) l.id = pre + l.id;
+  for (const j of clone.junctions ?? []) j.id = pre + j.id;
+  schematicCompileDepth++;
+  try {
+    const built = buildNets(clone);
+    if (built.errors.length > 0) throw new Error(`${spec.id} (innen): ${built.errors.join("; ")}`);
+    const portNetOf = new Map<string, string>();
+    ports.forEach((p, idx) => {
+      const innerNet = built.pinNets[`${pre}${p.instanceId}:0`];
+      if (innerNet === undefined) throw new Error(`${spec.id}: Port ${p.name} hat kein Netz`);
+      portNetOf.set(innerNet, externalPinNets[idx] ?? "0");
+    });
+    return built.netlist.devices.map((d) => ({
+      ...d,
+      nodes: d.nodes.map((n) => portNetOf.get(n) ?? (n === "0" ? "0" : `${inst.id}__${n}`)),
+    }));
+  } finally {
+    schematicCompileDepth--;
+  }
+}
+
+export interface PartIssue {
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  instanceId?: string;
+}
+
+/** Tiefensuche über das Spec-Register: Enthält `spec` (transitiv) sich selbst? */
+export function findSpecCycle(spec: CustomPartSpec): string[] | null {
+  const get = (id: string): CustomPartSpec | undefined => (id === spec.id ? spec : CUSTOM_SPECS.get(id));
+  const path: string[] = [spec.id];
+  const visit = (id: string): string[] | null => {
+    for (const i of get(id)?.schematic?.instances ?? []) {
+      if (i.partId !== spec.id && !CUSTOM_SPECS.has(i.partId)) continue;
+      if (get(i.partId) === undefined) continue;
+      if (path.includes(i.partId)) return [...path, i.partId];
+      path.push(i.partId);
+      const hit = visit(i.partId);
+      if (hit) return hit;
+      path.pop();
+    }
+    return null;
+  };
+  return visit(spec.id);
+}
+
+/** S6.1: Rein prüfbare Spec-Validierung (Editor zeigt Issues rot auf der Leinwand). */
+export function validatePartSchematic(spec: CustomPartSpec): PartIssue[] {
+  const issues: PartIssue[] = [];
+  const doc = spec.schematic;
+  if (!doc) {
+    issues.push({ severity: "error", code: "no-doc", message: "Keine Innenschaltung vorhanden." });
+    return issues;
+  }
+  const ports = collectPorts(doc);
+  if (ports.length === 0)
+    issues.push({
+      severity: "error",
+      code: "no-ports",
+      message: "Keine Ports platziert – das Bauteil hätte keine Außenpins.",
+    });
+  const seen = new Map<string, string>();
+  for (const p of ports) {
+    const k = p.name.toUpperCase();
+    if (seen.has(k))
+      issues.push({ severity: "error", code: "dup-port", message: `Port-Name doppelt: „${p.name}"`, instanceId: p.instanceId });
+    else seen.set(k, p.instanceId);
+  }
+  if (spec.pins.length > 0 && ports.length !== spec.pins.length)
+    issues.push({
+      severity: "error",
+      code: "port-count",
+      message: `${ports.length} Ports, aber ${spec.pins.length} Außenpins – erneut speichern.`,
+    });
+  for (const i of doc.instances) {
+    if (!PART_MAP[i.partId])
+      issues.push({ severity: "error", code: "unknown-part", message: `Unbekanntes Bauteil „${i.partId}"`, instanceId: i.id });
+    if (i.partId === spec.id)
+      issues.push({ severity: "error", code: "self-nesting", message: "Das Bauteil enthält sich selbst.", instanceId: i.id });
+  }
+  const cycle = findSpecCycle(spec);
+  if (cycle) issues.push({ severity: "error", code: "nest-cycle", message: `Verschachtelungs-Zyklus: ${cycle.join(" → ")}` });
+  try {
+    const built = buildNets(doc);
+    for (const e of built.errors) {
+      if (e.startsWith("Unbekanntes Bauteil")) continue; // oben schon präziser gemeldet
+      issues.push({ severity: "error", code: "inner-net", message: e });
+    }
+    for (const p of ports) {
+      const net = built.pinNets[`${p.instanceId}:0`];
+      const info = built.nets.find((n) => n.name === net);
+      if (info && info.pins.length <= 1)
+        issues.push({ severity: "warning", code: "port-open", message: `Port „${p.name}" ist unverdrahtet.`, instanceId: p.instanceId });
+    }
+  } catch (e) {
+    issues.push({ severity: "error", code: "inner-fail", message: `Innenschaltung fehlerhaft: ${(e as Error).message}` });
+  }
+  return issues;
+}
+
+const MIGRATE_PART: Record<SubcircuitElementKind, { part: string; param: string | null }> = {
+  npn: { part: "npn_bc547", param: "bf" },
+  pnp: { part: "pnp_bc557", param: "bf" },
+  nmos: { part: "nmos_2n7000", param: "vto" },
+  pmos: { part: "pmos_bs250", param: "vto" },
+  diode: { part: "diode_1n4148", param: "n" },
+  zener: { part: "diode_zener", param: "bv" },
+  resistor: { part: "resistor", param: "r" },
+  capacitor: { part: "capacitor", param: "c" },
+  inductor: { part: "inductor", param: "l" },
+  opamp: { part: "opamp_ideal", param: "gain" },
+  comparator: { part: "comparator_lm393", param: "gain" },
+  vdc: { part: "vdc", param: "dc" },
+  idc: { part: "idc", param: "dc" },
+  timer555_core: { part: "ne555", param: "vdd" },
+};
+
+/**
+ * S6.1: Einmalige Überführung Legacy-Tabelle → Schaltplan-Dokument.
+ * Elemente werden gestapelt, Innenknoten als Netzlabels angeheftet
+ * (gleichnamige Labels verbinden virtuell — kein Routing nötig).
+ * Ports entstehen in spec.pins-Reihenfolge (IDs erzwingen die Sortierung).
+ */
+export function migrateSubcircuitToDoc(spec: CustomPartSpec): SchematicDoc {
+  const doc: SchematicDoc = {
+    id: `mig_${spec.id}`,
+    name: spec.name,
+    instances: [],
+    wires: [],
+    labels: [],
+    notes: [],
+    probes: [],
+  };
+  (spec.subcircuit ?? []).forEach((el, ei) => {
+    const m = MIGRATE_PART[el.kind];
+    const part = PART_MAP[m.part];
+    const inst: Instance = {
+      id: `mig_${el.id}`,
+      partId: m.part,
+      x: 0,
+      y: ei * 90,
+      rot: 0,
+      label: `${SUBCIRCUIT_ELEMENT_META[el.kind].refPrefix}${ei + 1}`,
+      params: m.param && Number.isFinite(el.value) ? { [m.param]: el.value } : {},
+    };
+    if (el.paramKey) inst.params.__paramKey = el.paramKey; // Phase 2: Params-Bindung
+    doc.instances.push(inst);
+    const npins = part ? partPins(part, inst.params).length : el.nodes.length;
+    el.nodes.forEach((node, pi) => {
+      if (pi >= npins) return;
+      let pos = { x: inst.x + 40, y: inst.y };
+      try {
+        pos = pinPosition(inst, pi);
+      } catch {
+        /* Pin-Geometrie fehlt: Label ans Bauteil */
+      }
+      doc.labels.push({ id: `migl_${el.id}_${pi}`, x: pos.x, y: pos.y, name: (node || "0").trim() || "0" });
+    });
+  });
+  spec.pins.forEach((pin, idx) => {
+    const dir = pin.role === "output" ? "port_out" : pin.role === "input" || pin.role === "vcc" ? "port_in" : "port_io";
+    const id = `port_${String(idx).padStart(2, "0")}`;
+    const inst: Instance = {
+      id,
+      partId: dir,
+      x: dir === "port_out" ? 320 : -320,
+      y: idx * 70 - (spec.pins.length - 1) * 35,
+      rot: 0,
+      label: pin.name,
+      params: { pname: pin.name },
+    };
+    doc.instances.push(inst);
+    try {
+      const pos = pinPosition(inst, 0);
+      doc.labels.push({ id: `migl_${id}`, x: pos.x, y: pos.y, name: (pin.internalNode || pin.name || "0").trim() || "0" });
+    } catch {
+      /* Port-Pin fehlt: kein Label */
+    }
+  });
+  return doc;
+}
+
 export function specToPartDef(spec: CustomPartSpec): PartDef {
   const { pins, symbol } = buildCustomGeometry(spec);
   const valDef = spec.defaultValue ?? (spec.modelKind === "resistor" ? 1000 : spec.modelKind === "vreg" ? 5 : 5);
@@ -1336,12 +1589,20 @@ export function specToPartDef(spec: CustomPartSpec): PartDef {
     description:
       spec.description ||
       `Benutzerdefiniertes Bauteil (${spec.footprint}, ${spec.pins.length} Pins${
-        spec.subcircuit?.length ? `, ${spec.subcircuit.length} interne Elemente` : ""
+        spec.schematic?.instances.length
+          ? `, Innenschaltung (${spec.schematic.instances.length} Teile)`
+          : spec.subcircuit?.length
+            ? `, ${spec.subcircuit.length} interne Elemente`
+            : ""
       })`,
     pins,
     symbol,
     params: paramDefs,
     toDevices: (inst, nets): Device[] => {
+      // S6.1: Schaltplan-Innenschaltung hat Vorrang (Macro-Expansion).
+      if (spec.schematic && spec.schematic.instances.length > 0) {
+        return compileSchematicToDevices(spec, inst, nets);
+      }
       // W120: Falls eine Transistor-/Subcircuit-Innenschaltung definiert ist,
       // wird diese direkt in echte MNA-Simulator-Devices übersetzt!
       if (spec.subcircuit && spec.subcircuit.length > 0) {
@@ -1387,6 +1648,7 @@ export function specToPartDef(spec: CustomPartSpec): PartDef {
 }
 
 export function registerCustomPart(spec: CustomPartSpec): PartDef {
+  CUSTOM_SPECS.set(spec.id, spec);
   const def = specToPartDef(spec);
   PART_MAP[def.id] = def;
   const existingIdx = PARTS.findIndex((p) => p.id === def.id);
@@ -1447,6 +1709,7 @@ export function deleteCustomPart(id: string): CustomPartSpec[] {
     window.multispiceDesktop?.saveAppData?.(STORAGE_KEY, list);
   } catch {}
   delete PART_MAP[id];
+  CUSTOM_SPECS.delete(id);
   const pIdx = PARTS.findIndex((p) => p.id === id);
   if (pIdx >= 0) PARTS.splice(pIdx, 1);
   if (typeof window !== "undefined") {

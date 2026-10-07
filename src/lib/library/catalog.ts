@@ -553,6 +553,61 @@ add({
   toDevices: () => [],
 });
 
+// S6.1: Hierarchie-Ports für den Bauteile-Editor 2.0. Wer sie auf die
+// Editor-Leinwand setzt und verdrahtet, definiert einen Außenpin des
+// Bauteils (Name = Param "pname"). Elektrisch tragen sie nichts bei:
+// Beim Kompilieren wird ihr Netz auf das Außennetz gelegt.
+add({
+  id: "port_in",
+  name: "Port: Eingang",
+  ref: "P",
+  category: "Verbinder",
+  tags: ["port", "eingang", "eingangspin", "hierarchie", "editor"],
+  mount: "virtual",
+  pins: [{ name: "P", x: -30, y: 0, electrical: "input" }],
+  symbol: [
+    L(-30, 0, -14, 0),
+    { t: "line", pts: [-14, -10, -14, 10, 12, 0, -14, -10] },
+    TXT(-4, 4, "IN", 8),
+  ],
+  params: [{ key: "pname", label: "Port-Name", type: "text", def: "IN1" }],
+  toDevices: () => [],
+});
+
+add({
+  id: "port_out",
+  name: "Port: Ausgang",
+  ref: "P",
+  category: "Verbinder",
+  tags: ["port", "ausgang", "ausgangspin", "hierarchie", "editor"],
+  mount: "virtual",
+  pins: [{ name: "P", x: -30, y: 0, electrical: "output" }],
+  symbol: [
+    L(-30, 0, -14, 0),
+    { t: "line", pts: [12, -10, 12, 10, -14, 0, 12, -10] },
+    TXT(2, 4, "OUT", 8),
+  ],
+  params: [{ key: "pname", label: "Port-Name", type: "text", def: "OUT1" }],
+  toDevices: () => [],
+});
+
+add({
+  id: "port_io",
+  name: "Port: Bidirektional",
+  ref: "P",
+  category: "Verbinder",
+  tags: ["port", "bidirektional", "signal", "hierarchie", "editor"],
+  mount: "virtual",
+  pins: [{ name: "P", x: -30, y: 0, electrical: "passive" }],
+  symbol: [
+    L(-30, 0, -14, 0),
+    { t: "line", pts: [-14, 0, 0, -10, 14, 0, 0, 10, -14, 0] },
+    TXT(-2, 4, "IO", 8),
+  ],
+  params: [{ key: "pname", label: "Port-Name", type: "text", def: "IO1" }],
+  toDevices: () => [],
+});
+
 add({
   id: "vcc",
   name: "Versorgungsschiene VCC",

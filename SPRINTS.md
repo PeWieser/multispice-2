@@ -381,6 +381,15 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   Bewusste Abweichungen: Open-Collector→Push-Pull, 74160–63 ohne
   Sync-Load, 4060 ohne Oszillator-Pins. `tsc` ✅, `eslint` ✅,
   `npm test` ✅ (icmodeltest 144 Wächter, +61 neu).
+- S6.1: Bauteile-Editor 2.0 – Phase 1 (Fundament): Innenschaltung als echtes
+  `SchematicDoc` (`CustomPartSpec.schematic`, hat Vorrang vor der
+  Legacy-Tabelle), 3 Port-Bauteile (Ein-/Ausgang/bidirektional, Name per
+  Text-Param), Macro-Compiler mit Instanz-Isolation (IDs präfixiert, „0“
+  bleibt global, Port-Netze→Außennetze), Schachtelung mit Tiefenwächter (8)
+  + statischer Zyklenerkennung über Spec-Register, rein prüfbare Validierung
+  (Doppelnamen, offene Ports, Selbst-Einbau, Fremdteile), Legacy-Migration
+  Tabelle→Dokument (Teile + Netzlabels, Ports in Pin-Reihenfolge).
+  `tsc` ✅, `eslint` ✅, `npm test` ✅ (subcircuittest, 30 Wächter).
 
 ## Nicht-Ziele (bewusst)
 
