@@ -26,6 +26,7 @@ const WizardsDialog = dynamic(() => import("./WizardsDialog"), { ssr: false });
 const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false });
 const PartEditorShell = dynamic(() => import("./partEditor/PartEditorShell"), { ssr: false });
 const ExtractPartDialog = dynamic(() => import("./ExtractPartDialog"), { ssr: false });
+const SpecConflictDialog = dynamic(() => import("./SpecConflictDialog"), { ssr: false });
 const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
 const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
 const StandaloneInstrumentView = dynamic(() => import("./Instruments").then((m) => m.StandaloneInstrumentView), { ssr: false });
@@ -400,6 +401,7 @@ export default function Workbench() {
           <LibraryPalette standalone />
         </div>
         <ExtractPartDialog />
+        <SpecConflictDialog />
       </div>
     );
   }
@@ -452,6 +454,7 @@ export default function Workbench() {
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         {editorOpen && <PartEditorShell />}
         <ExtractPartDialog />
+        <SpecConflictDialog />
         <UndoToast />
       <PrintSheet />
       </div>
@@ -483,6 +486,7 @@ export default function Workbench() {
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
         {editorOpen && <PartEditorShell />}
         <ExtractPartDialog />
+        <SpecConflictDialog />
         <UndoToast />
       <PrintSheet />
       </div>
@@ -526,6 +530,7 @@ export default function Workbench() {
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
       {editorOpen && <PartEditorShell />}
       <ExtractPartDialog />
+      <SpecConflictDialog />
       <UndoToast />
       <PrintSheet />
     </div>

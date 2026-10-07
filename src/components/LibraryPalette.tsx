@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus } from "lucide-react";
+import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus, Upload, Pencil, Copy, Download, Trash2, Cpu } from "lucide-react";
 import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol, partPins } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
@@ -15,6 +15,8 @@ import { previewFit } from "@/lib/library/preview";
 import { switchPreviewPrims } from "@/lib/interactive/switches";
 import { formatValue } from "@/lib/format";
 import { useIsApple } from "@/lib/platform";
+import { CUSTOM_SPECS, SPEC_FILE_EXT } from "@/lib/library/customParts";
+import { downloadText } from "@/lib/download";
 
 // --- Symbol Preview (mini canvas) – ISO/ANSI aware, memoized ---
 function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
@@ -134,11 +136,13 @@ const PartRow = React.memo(function PartRow({
   part,
   onSelect,
   onStartDrag,
+  onContextMenu,
   selected,
 }: {
   part: PartDef;
   onSelect: (id: string) => void;
   onStartDrag: (id: string) => void;
+  onContextMenu?: (e: React.MouseEvent, id: string) => void;
   selected?: boolean;
 }) {
   const placing = useEditor((s) => s.placingPartId);
@@ -156,6 +160,7 @@ const PartRow = React.memo(function PartRow({
           : { border: "1px solid transparent" }
       }
       onClick={() => onSelect(part.id)}
+      onContextMenu={onContextMenu ? (e) => onContextMenu(e, part.id) : undefined}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         if ((e.target as HTMLElement)?.closest("button,a")) return;
@@ -303,6 +308,12 @@ export default function LibraryPalette({
   const [selected, setSelected] = useState<PartDef | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [selCat, setSelCat] = useState<string | null>(null);
+  const teacherLocked = useEditor((s) => s.teacher.locked);
+  // S6.4: Verwalten eigener Bauteile (Kontextmenü, Umbenennen, Import).
+  const [ctx, setCtx] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const [armDelete, setArmDelete] = useState<string | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   const [customRev, setCustomRev] = useState(0);
   const activeTab = tab === "fav" ? "favorites" : tab === "recent" ? "recent" : "all";
   // Prevent re-render of list during drag – memoize results
@@ -490,6 +501,61 @@ export default function LibraryPalette({
     if (part) setSelected(part);
   };
 
+  // S6.4: Kontextmenü nur für eigene Bauteile (Katalog bleibt unantastbar).
+  const onRowContextMenu = useCallback((e: React.MouseEvent, id: string) => {
+    const part = PART_MAP[id];
+    if (!part?.tags?.includes("custom")) return;
+    if (useEditor.getState().teacher.locked) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setArmDelete(null);
+    setRenaming(null);
+    setCtx({ x: e.clientX, y: e.clientY, id });
+  }, []);
+
+  const doExportSpec = (id: string) => {
+    const spec = CUSTOM_SPECS.get(id);
+    if (!spec) return;
+    const base = (spec.name.trim() || "bauteil").replace(/[\\/:*?"<>|]/g, "-");
+    downloadText(`${base}${SPEC_FILE_EXT}`, JSON.stringify(spec, null, 2), "application/json");
+    useEditor.getState().log("ok", `„${spec.name}“ als ${SPEC_FILE_EXT}-Datei exportiert.`);
+    setCtx(null);
+  };
+
+  const doDeleteSpec = (id: string) => {
+    const st = useEditor.getState();
+    const res = st.deleteCustomPartGuarded(id);
+    if (!res.ok) {
+      st.setToast({ message: res.reason ?? "Löschen nicht möglich." });
+      return;
+    }
+    if (st.placingPartId === id) st.setPlacing(null);
+    if (selected?.id === id) setSelected(null);
+    setCtx(null);
+    setArmDelete(null);
+  };
+
+  const commitRename = () => {
+    if (!renaming) return;
+    const ok = useEditor.getState().renameCustomPart(renaming.id, renaming.value);
+    if (ok) {
+      setRenaming(null);
+      setCtx(null);
+      if (selected?.id === renaming.id) setSelected(PART_MAP[renaming.id] ?? null);
+    }
+  };
+
+  const onImportFile = async (f: File | undefined) => {
+    if (importRef.current) importRef.current.value = "";
+    if (!f) return;
+    try {
+      const text = await f.text();
+      useEditor.getState().importCustomSpecText(text, f.name);
+    } catch {
+      useEditor.getState().setToast({ message: "Datei nicht lesbar." });
+    }
+  };
+
   const apple = useIsApple();
   // S5.17: Such-Wert („r 10k") als Einmal-Vorbelegung fürs platzierte Teil.
   const presetFor = useCallback((id: string) => {
@@ -633,7 +699,8 @@ export default function LibraryPalette({
       )}
 
       <div className="p-2.5 space-y-2">
-        <div className="relative">
+        <div className="flex items-stretch gap-1.5">
+        <div className="relative min-w-0 flex-1">
           <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
             id="lib-search"
@@ -653,6 +720,25 @@ export default function LibraryPalette({
             </button>
           )}
         </div>
+        {!teacherLocked && !partFilter && (
+          <button
+            className="btn h-8 shrink-0 gap-1 px-2 text-2xs"
+            title="Bauteil-Datei (.mspart) importieren"
+            aria-label="Bauteil-Datei (.mspart) importieren"
+            onClick={() => importRef.current?.click()}
+          >
+            <Upload size={12} />
+          </button>
+        )}
+        </div>
+        <input
+          ref={importRef}
+          type="file"
+          accept=".mspart,.json,application/json"
+          className="hidden"
+          aria-hidden
+          onChange={(e) => void onImportFile(e.target.files?.[0])}
+        />
 
         {/* Quick Stats */}
         <div className="flex items-center gap-2 text-2xs text-ink-3">
@@ -747,20 +833,20 @@ export default function LibraryPalette({
                 <Search size={10} /> {results.length} Treffer für „{query}“{fill ? "" : " – Enter zum Platzieren"}
               </div>
               {results.map((p, idx) => (
-                <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id || idx === selectedIdx} />
+                <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} onContextMenu={onRowContextMenu} selected={selected?.id === p.id || idx === selectedIdx} />
               ))}
             </div>
           ) : activeTab === "favorites" ? (
             <div>
               {favorites.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} onContextMenu={onRowContextMenu} selected={selected?.id === p!.id} />
               ))}
               {!favorites.length && <div className="p-6 text-center text-xs text-ink-3">{fill ? "Noch keine Favoriten – Stern am Bauteil tippen" : "Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit"}</div>}
             </div>
           ) : activeTab === "recent" ? (
             <div>
               {recent.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} onContextMenu={onRowContextMenu} selected={selected?.id === p!.id} />
               ))}
               {!recent.length && <div className="p-6 text-center text-xs text-ink-3">Noch nichts verwendet – platziere Bauteile</div>}
             </div>
@@ -775,7 +861,7 @@ export default function LibraryPalette({
                     </div>
                   )}
                   {g.parts.map((p) => (
-                    <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id} />
+                    <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} onContextMenu={onRowContextMenu} selected={selected?.id === p.id} />
                   ))}
                 </div>
               ))}
@@ -916,6 +1002,104 @@ export default function LibraryPalette({
           </div>
         </div>
       )}
+
+      {/* S6.4: Verwalten eigener Bauteile */}
+      {ctx && (() => {
+        const vw = typeof window !== "undefined" ? window.innerWidth : 800;
+        const vh = typeof window !== "undefined" ? window.innerHeight : 600;
+        const w = 240;
+        const h = renaming ? 150 : 250;
+        const left = Math.min(Math.max(ctx.x, 12), vw - w - 12);
+        const top = Math.min(Math.max(ctx.y, 12), vh - h - 12);
+        const st = useEditor.getState();
+        const row = "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]";
+        const close = () => { setCtx(null); setRenaming(null); setArmDelete(null); };
+        return (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onPointerDown={close}
+              onContextMenu={(e) => { e.preventDefault(); close(); }}
+            />
+            <div
+              className="fixed z-50 min-w-[220px] max-w-[260px] rounded-xl p-1.5 text-xs backdrop-blur-xl"
+              style={{ left, top, background: "color-mix(in srgb, var(--surface) 94%, transparent)", border: "1px solid var(--hairline-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.45)" }}
+              role="menu"
+              onPointerDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              {renaming && renaming.id === ctx.id ? (
+                <div className="p-1">
+                  <div className="px-1.5 pb-1 text-2xs text-ink-3">Umbenennen</div>
+                  <input
+                    autoFocus
+                    className="input h-8 text-xs"
+                    value={renaming.value}
+                    onChange={(e) => setRenaming({ id: renaming.id, value: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename();
+                      else if (e.key === "Escape") { setRenaming(null); setCtx(null); }
+                    }}
+                  />
+                  <div className="flex justify-end gap-1.5 pt-2">
+                    <button className="btn h-7 px-2.5 text-2xs" onClick={() => { setRenaming(null); setCtx(null); }}>
+                      Abbrechen
+                    </button>
+                    <button className="btn btn-primary h-7 px-2.5 text-2xs" onClick={commitRename}>
+                      OK
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    className={row}
+                    onClick={() => {
+                      const id = ctx.id;
+                      close();
+                      if (!st.partEditor.open) st.openPartEditor(id);
+                    }}
+                  >
+                    <Cpu size={13} /> Im Editor bearbeiten
+                  </button>
+                  <button
+                    className={row}
+                    onClick={() => {
+                      st.duplicateCustomPart(ctx.id);
+                      close();
+                    }}
+                  >
+                    <Copy size={13} /> Duplizieren
+                  </button>
+                  <button
+                    className={row}
+                    onClick={() => {
+                      const spec = CUSTOM_SPECS.get(ctx.id);
+                      setRenaming({ id: ctx.id, value: spec?.name ?? "" });
+                      setArmDelete(null);
+                    }}
+                  >
+                    <Pencil size={13} /> Umbenennen
+                  </button>
+                  <button className={row} onClick={() => doExportSpec(ctx.id)}>
+                    <Download size={13} /> Exportieren (.mspart)
+                  </button>
+                  <div className="mx-2 my-1 h-px bg-hairline" role="separator" />
+                  <button
+                    className={`${row} ${armDelete === ctx.id ? "text-red-400" : ""}`}
+                    onClick={() => {
+                      if (armDelete === ctx.id) doDeleteSpec(ctx.id);
+                      else setArmDelete(ctx.id);
+                    }}
+                  >
+                    <Trash2 size={13} /> {armDelete === ctx.id ? "Wirklich löschen?" : "Löschen"}
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {!standalone && !fill && !docked && (
       <div

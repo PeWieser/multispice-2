@@ -3,10 +3,14 @@ import {
   CUSTOM_SPECS,
   CustomPartSpec,
   PORT_PART_IDS,
+  cloneCustomSpec,
+  deleteCustomPart,
   derivePinsFromPorts,
   extractSelectionAsDoc,
   loadCustomParts,
   migrateSubcircuitToDoc,
+  parseCustomSpecFile,
+  sameCustomSpec,
   saveCustomPart,
   validatePartSchematic,
 } from "@/lib/library/customParts";
@@ -15,7 +19,7 @@ import type { CustomPartParamLink, CustomPinSpec, ExtractBoundaryNet } from "@/l
 import type { EditorState, PartEditorMeta, PartEditorTestResult, PendingReplace } from "../types";
 import type { StoreApi } from "zustand";
 import { clone, cloneJson, engine, newId } from "../shared";
-import { nextLabel } from "../docUtils";
+import { nextLabel, sheets } from "../docUtils";
 
 const DEFAULT_META: PartEditorMeta = {
   name: "",
@@ -49,6 +53,12 @@ export function createPartEditorSlice(
   | "startPartEditorTest"
   | "stopPartEditorTest"
   | "extractSelectionToEditor"
+  | "resolveSpecConflict"
+  | "dismissSpecConflicts"
+  | "importCustomSpecText"
+  | "duplicateCustomPart"
+  | "renameCustomPart"
+  | "deleteCustomPartGuarded"
 > {
   return {
     openPartEditor: (partId) => {
@@ -426,6 +436,102 @@ export function createPartEditorSlice(
     markPartEditorDirty: () => {
       if (!get().partEditor.open) return;
       set((s) => (s.partEditor.dirty ? s : { partEditor: { ...s.partEditor, dirty: true } }));
+    },
+
+    /* S6.4 (Phase 4): Verwalten + Import eigener Bauteile. */
+    resolveSpecConflict: (id, choice) => {
+      const st = get();
+      const c = st.partEditor.specConflicts.find((x) => x.id === id);
+      if (!c) return;
+      if (choice === "incoming") {
+        saveCustomPart(cloneJson(c.embedded));
+        st.log("ok", `„${c.name}“: ${c.source === "project" ? "Projekt" : "Import"}-Fassung übernommen.`);
+      } else {
+        st.log("ok", `„${c.name}“: Bibliotheks-Fassung behalten.`);
+      }
+      set((s) => ({
+        partEditor: { ...s.partEditor, specConflicts: s.partEditor.specConflicts.filter((x) => x.id !== id) },
+      }));
+    },
+
+    dismissSpecConflicts: () => {
+      set((s) => (s.partEditor.specConflicts.length === 0 ? s : { partEditor: { ...s.partEditor, specConflicts: [] } }));
+    },
+
+    importCustomSpecText: (text, fileName) => {
+      const st = get();
+      const parsed = parseCustomSpecFile(text);
+      if (!parsed.ok || !parsed.spec) {
+        const msg = parsed.error ?? "Import fehlgeschlagen.";
+        st.setToast({ message: msg });
+        st.log("error", `Import ${fileName}: ${msg}`);
+        return;
+      }
+      const spec = parsed.spec;
+      const local = findSpec(spec.id);
+      if (!local) {
+        saveCustomPart(spec);
+        st.setToast({ message: `„${spec.name}“ importiert.` });
+        st.log("ok", `Bauteil „${spec.name}“ aus ${fileName} importiert.`);
+        return;
+      }
+      if (sameCustomSpec(local, spec)) {
+        st.setToast({ message: `„${spec.name}“ ist bereits aktuell.` });
+        return;
+      }
+      set((s) => ({
+        partEditor: {
+          ...s.partEditor,
+          specConflicts: s.partEditor.specConflicts.some((c) => c.id === spec.id)
+            ? s.partEditor.specConflicts
+            : [...s.partEditor.specConflicts, { id: spec.id, name: spec.name, source: "import", embedded: cloneJson(spec) }],
+        },
+      }));
+    },
+
+    duplicateCustomPart: (id) => {
+      const spec = findSpec(id);
+      if (!spec) return null;
+      const clean = spec.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 24) || "teil";
+      const copy = cloneCustomSpec(spec, `custom_${clean}_kopie_${Date.now().toString(36).slice(-4)}`, `${spec.name} (Kopie)`);
+      saveCustomPart(copy);
+      get().log("ok", `„${spec.name}“ dupliziert → „${copy.name}“.`);
+      return copy.id;
+    },
+
+    renameCustomPart: (id, name) => {
+      const spec = findSpec(id);
+      const clean = name.trim();
+      if (!spec || !clean) return false;
+      saveCustomPart({ ...cloneJson(spec), name: clean.slice(0, 80) });
+      get().log("ok", `Bauteil umbenannt → „${clean.slice(0, 80)}“.`);
+      return true;
+    },
+
+    deleteCustomPartGuarded: (id) => {
+      const st = get();
+      const spec = findSpec(id);
+      if (!spec) return { ok: false, reason: "Unbekanntes Bauteil." };
+      const usedIn = new Set<string>();
+      const seen = new Set<SchematicDoc>();
+      const checkDoc = (d: SchematicDoc, name: string) => {
+        if (seen.has(d)) return;
+        seen.add(d);
+        if (d.instances.some((i) => i.partId === id)) usedIn.add(name);
+      };
+      checkDoc(st.doc, st.partEditor.open ? "Bauteile-Editor" : st.doc.name || "Schaltplan");
+      for (const sh of sheets) checkDoc(sh.doc, `Entwurf „${sh.name}“`);
+      for (const other of CUSTOM_SPECS.values()) {
+        if (other.id !== id && other.schematic?.instances.some((i) => i.partId === id)) {
+          usedIn.add(`Bauteil „${other.name}“`);
+        }
+      }
+      if (usedIn.size > 0) {
+        return { ok: false, reason: `„${spec.name}“ ist noch verbaut (${[...usedIn].slice(0, 3).join(", ")}${usedIn.size > 3 ? " …" : ""}).` };
+      }
+      deleteCustomPart(id);
+      st.log("ok", `Bauteil „${spec.name}“ gelöscht.`);
+      return { ok: true };
     },
   };
 }

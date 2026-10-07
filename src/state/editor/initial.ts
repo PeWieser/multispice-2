@@ -71,6 +71,7 @@ export const initialState: EditorData = {
     testResult: null,
     testVoltColors: null,
     pendingReplace: null,
+    specConflicts: [],
   },
   leadArmed: null,
   configArchive: {},

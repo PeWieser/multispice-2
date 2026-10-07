@@ -6,6 +6,7 @@ import type { SchematicDoc } from "@/lib/schematic/model";
 import { initialState } from "./initial";
 import { engine } from "./shared";
 import { autoSaveToBoundFile, hasActiveSaveTarget, saveProjectLocal } from "@/lib/storage";
+import { collectUsedCustomSpecs } from "@/lib/library/customParts";
 import { createHistorySlice } from "./slices/history";
 import { createPlacementSlice } from "./slices/placement";
 import { createEditSlice } from "./slices/edit";
@@ -40,7 +41,8 @@ export function scheduleAutosave() {
       return;
     }
     const { doc, instruments, log } = useEditor.getState();
-    const { ok } = saveProjectLocal(doc, instruments);
+    const usedSpecs = collectUsedCustomSpecs(doc);
+    const { ok } = saveProjectLocal(doc, instruments, usedSpecs);
     const prevHealth = useEditor.getState().saveHealth;
     useEditor.setState({
       savePending: false,
@@ -57,7 +59,7 @@ export function scheduleAutosave() {
         if (cur.file !== "none") useEditor.setState({ saveHealth: { ...cur, file: "none" } });
         return;
       }
-      const fileOk = await autoSaveToBoundFile(doc, instruments);
+      const fileOk = await autoSaveToBoundFile(doc, instruments, usedSpecs);
       const cur = useEditor.getState().saveHealth;
       const next = fileOk ? "ok" : "stale";
       if (cur.file === next) return;

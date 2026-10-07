@@ -2,20 +2,28 @@
  * Schachtelung, GND-Passthrough, Legacy-Migration, Validierung.
  * S6.2 (Phase 2): paramLinks, Pin-Ableitung, Editor-Filter, Store-Roundtrip.
  * S6.3 (Phase 3): Extrakt als Dokument, Ersetzen, Live-Testlauf.
+ * S6.4 (Phase 4): Mitreisen im Projekt, Konflikte, Verwalten, Import.
  * Run: tsx scripts/subcircuittest.ts (Teil von npm test). */
 import { buildNets, pinPosition, Instance, SchematicDoc, Wire } from "../src/lib/schematic/model";
 import {
+  CUSTOM_SPECS,
   CustomPartSpec,
+  cloneCustomSpec,
   collectPorts,
+  collectUsedCustomSpecs,
+  deleteCustomPart,
   compileSchematicToDevices,
   derivePinsFromPorts,
   extractSelectionAsDoc,
   findSpecCycle,
   isEditorPlaceable,
   migrateSubcircuitToDoc,
+  parseCustomSpecFile,
   registerCustomPart,
+  sameCustomSpec,
   validatePartSchematic,
 } from "../src/lib/library/customParts";
+import { buildProjectEnvelopeJson, parseStoredProject } from "../src/lib/storage";
 import { useEditor } from "../src/state/editor";
 import { runOperatingPoint } from "../src/lib/sim/analyses";
 import { PART_MAP } from "../src/lib/library/catalog";
@@ -501,6 +509,131 @@ function extractOuter(): SchematicDoc {
   useEditor.getState().closePartEditor();
   const closed = useEditor.getState();
   check("Testlauf: Schließen stoppt Sim", !closed.sim.running && closed.showVoltageColors === voltBefore);
+}
+
+// 17. S6.4: Sammeln (transitiv), Vergleich, Klon, Datei-Prüfung
+function innerSpec(): CustomPartSpec {
+  return {
+    id: "custom_test_inner", name: "Test-Innen", ref: "U", category: "Eigene Bauteile/Test",
+    footprint: "DIP-8", mount: "both", modelKind: "subcircuit",
+    pins: [
+      { name: "A", side: "left", role: "signal" },
+      { name: "B", side: "right", role: "signal" },
+    ],
+    schematic: doc("inner", [
+      inst("port_00", "port_in", -160, 0, { pname: "A" }, "A"),
+      inst("port_01", "port_out", 160, 0, { pname: "B" }, "B"),
+      inst("r1", "resistor", 0, 0, { r: 1000 }, "R1"),
+    ], [
+      wire("w0", [[-130, 0], [-30, 0]]),
+      wire("w1", [[30, 0], [130, 0]]),
+    ], []),
+  };
+}
+function outerSpec(): CustomPartSpec {
+  return {
+    id: "custom_test_outer", name: "Test-Außen", ref: "U", category: "Eigene Bauteile/Test",
+    footprint: "DIP-8", mount: "both", modelKind: "subcircuit",
+    pins: [
+      { name: "A", side: "left", role: "signal" },
+      { name: "B", side: "right", role: "signal" },
+    ],
+    schematic: doc("outer", [
+      inst("port_00", "port_in", -160, 0, { pname: "A" }, "A"),
+      inst("port_01", "port_out", 160, 0, { pname: "B" }, "B"),
+      inst("u1", "custom_test_inner", 0, 0, {}, "U1"),
+    ], [], []),
+  };
+}
+{
+  registerCustomPart(innerSpec());
+  registerCustomPart(outerSpec());
+  const host = doc("host", [inst("u9", "custom_test_outer", 0, 0, {}, "U9")], [], []);
+  const used = collectUsedCustomSpecs(host);
+  check("Sammeln: transitiv beide", used.length === 2 && used.some((x) => x.id === "custom_test_inner"));
+  check("Sammeln: leer ohne Customs", collectUsedCustomSpecs(doc("leer", [inst("r", "resistor", 0, 0, { r: 1 }, "R")], [], [])).length === 0);
+  const a = innerSpec();
+  check("Vergleich: gleich", sameCustomSpec(a, JSON.parse(JSON.stringify(a)) as CustomPartSpec));
+  check("Vergleich: anders", !sameCustomSpec(a, { ...a, name: "X" }));
+  const clone = cloneCustomSpec(a, "custom_test_clone", "Klon");
+  check("Klon: IDs/Namen neu", clone.id === "custom_test_clone" && clone.name === "Klon");
+  (clone.schematic as SchematicDoc).instances.pop();
+  check("Klon: tief (Original intakt)", (a.schematic as SchematicDoc).instances.length === 3);
+  const valid = parseCustomSpecFile(JSON.stringify(innerSpec()));
+  check("Datei: gültig", valid.ok && valid.spec?.id === "custom_test_inner");
+  check("Datei: kein JSON", !parseCustomSpecFile("kein json").ok);
+  check("Datei: falsche ID", !parseCustomSpecFile('{"id":"x","name":"n","pins":[]}').ok);
+  check("Datei: ohne Pins", !parseCustomSpecFile('{"id":"custom_a","name":"n","pins":[]}').ok);
+  const dup = innerSpec();
+  ((dup.schematic as SchematicDoc).instances[1].params as Record<string, unknown>).pname = "A";
+  const dupRes = parseCustomSpecFile(JSON.stringify(dup));
+  check("Datei: Doppel-Port abgelehnt", !dupRes.ok, dupRes.error ?? "");
+}
+
+// 18. S6.4: Store — Einhängen, Konflikte, Import, Verwalten
+{
+  const st = useEditor.getState();
+  const fresh = innerSpec();
+  fresh.id = "custom_test_fresh";
+  fresh.name = "Frisch";
+  st.restoreProjectCustomParts([fresh]);
+  check("Einhängen: unbekannt registriert", CUSTOM_SPECS.has("custom_test_fresh"));
+  check("Einhängen: kein Konflikt", useEditor.getState().partEditor.specConflicts.length === 0);
+  const changed = { ...cloneCustomSpec(innerSpec(), "custom_test_inner", "Test-Innen"), description: "neu" };
+  st.restoreProjectCustomParts([changed]);
+  st.restoreProjectCustomParts([changed]);
+  const conflicts = useEditor.getState().partEditor.specConflicts;
+  check("Konflikt: erkannt, keine Dublette", conflicts.length === 1 && conflicts[0].source === "project");
+  useEditor.getState().resolveSpecConflict("custom_test_inner", "library");
+  check("Konflikt: Bibliothek behält", CUSTOM_SPECS.get("custom_test_inner")?.description === undefined);
+  check("Konflikt: Liste leer", useEditor.getState().partEditor.specConflicts.length === 0);
+  st.restoreProjectCustomParts([changed]);
+  useEditor.getState().resolveSpecConflict("custom_test_inner", "incoming");
+  check("Konflikt: Projekt übernimmt", CUSTOM_SPECS.get("custom_test_inner")?.description === "neu");
+  useEditor.getState().dismissSpecConflicts();
+  st.importCustomSpecText("kaputt", "x.mspart");
+  check("Import: Müll → Toast", (useEditor.getState().toast?.message ?? "").length > 0);
+  const imp = innerSpec();
+  imp.id = "custom_test_imp";
+  imp.name = "Imp";
+  st.importCustomSpecText(JSON.stringify(imp), "imp.mspart");
+  check("Import: neu landet", CUSTOM_SPECS.has("custom_test_imp"));
+  st.importCustomSpecText(JSON.stringify(imp), "imp.mspart");
+  check("Import: identisch → Hinweis", (useEditor.getState().toast?.message ?? "").includes("aktuell"));
+  const impChanged = { ...imp, name: "Imp2" };
+  st.importCustomSpecText(JSON.stringify(impChanged), "imp.mspart");
+  const iconf = useEditor.getState().partEditor.specConflicts;
+  check("Import: anders → Konflikt", iconf.length === 1 && iconf[0].source === "import");
+  useEditor.getState().dismissSpecConflicts();
+  const dupId = st.duplicateCustomPart("custom_test_inner");
+  check("Duplikat: neue ID", !!dupId && dupId !== "custom_test_inner" && CUSTOM_SPECS.has(dupId as string));
+  check("Duplikat: Kopie-Vermerk", (CUSTOM_SPECS.get(dupId as string)?.name ?? "").includes("(Kopie)"));
+  check("Umbenennen: geht", st.renameCustomPart(dupId as string, "  Neu-Name  ") && CUSTOM_SPECS.get(dupId as string)?.name === "Neu-Name");
+  check("Umbenennen: leer blockiert", !st.renameCustomPart(dupId as string, "   "));
+  st.setDoc(doc("used", [inst("u1", "custom_test_outer", 0, 0, {}, "U1")], [], []), false);
+  const blocked = st.deleteCustomPartGuarded("custom_test_outer");
+  check("Löschen: verbaut blockiert", !blocked.ok && (blocked.reason ?? "").includes("verbaut"));
+  const nested = st.deleteCustomPartGuarded("custom_test_inner");
+  check("Löschen: verschachtelt blockiert", !nested.ok);
+  st.setDoc(doc("leer2", [], [], []), false);
+  check("Löschen: frei geht", st.deleteCustomPartGuarded(dupId as string).ok && !CUSTOM_SPECS.has(dupId as string));
+  check("Löschen: unbekannt", !st.deleteCustomPartGuarded("custom_test_nix").ok);
+  for (const id of ["custom_test_inner", "custom_test_outer", "custom_test_fresh", "custom_test_imp"]) deleteCustomPart(id);
+  check("Aufräumen: Register leer", !CUSTOM_SPECS.has("custom_test_inner"));
+}
+
+// 19. S6.4: Hülle — Specs reisen mit, Alt-Dateien ohne bleiben gültig
+{
+  registerCustomPart(innerSpec());
+  const host = doc("host", [inst("u9", "custom_test_inner", 0, 0, {}, "U9")], [], []);
+  const json = buildProjectEnvelopeJson(host, [], collectUsedCustomSpecs(host));
+  check("Hülle: enthält Spec", json.includes("custom_test_inner"));
+  const parsed = parseStoredProject(json);
+  check("Hülle: rundherum", !!parsed && parsed.customParts?.length === 1 && parsed.customParts[0].id === "custom_test_inner");
+  const plain = buildProjectEnvelopeJson(host, []);
+  check("Hülle: ohne Specs kein Feld", !plain.includes("customParts"));
+  check("Hülle: Alt-Datei ok", parseStoredProject(plain)?.customParts === undefined);
+  deleteCustomPart("custom_test_inner");
 }
 
 if (failed > 0) {

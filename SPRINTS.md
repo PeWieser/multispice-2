@@ -414,6 +414,15 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   „Speichern & Ersetzen“ (Matching Port-Name-zuerst, L-Drähte+Label-Fallback,
   genau ein Undo-Schritt). `tsc` ✅, `eslint` ✅, `npm test` ✅
   (subcircuittest +32 Wächter, 97 gesamt).
+- S6.4: Bauteile-Editor 2.0 – Phase 4 (Mitreisen + Verwalten): Das Projekt
+  nimmt seine Bauteile mit (verwendete Specs transitiv in Datei/Auto-Save/
+  Slots eingebettet, beim Öffnen sitzungsweise eingehängt), Fassungs-
+  Konflikte per Dialog („jedes Mal nachfragen“: Projekt/Import vs.
+  Bibliothek, pro Konflikt entscheidbar), Bibliotheks-Verwaltung eigener
+  Bauteile (Kontextmenü: Bearbeiten, Duplizieren, Umbenennen, Exportieren,
+  Löschen mit Verwendungs-Schutz inkl. Verschachtelung), .mspart-Ex-/
+  Import (geprüft: JSON, Pflichtfelder, Innenschaltung). `tsc` ✅, `eslint`
+  ✅, `npm test` ✅ (subcircuittest +34 Wächter, 131 gesamt).
 
 ## Nicht-Ziele (bewusst)
 

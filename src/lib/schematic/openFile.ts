@@ -14,12 +14,14 @@ import {
   type BrowserFileHandle,
 } from "@/lib/storage";
 import { fromKicadSch, fromLtspiceAsc, fromSpiceNetlist, isKicadSch, isLtspiceAsc } from "./importers";
+import type { CustomPartSpec } from "@/lib/library/customParts";
 
 interface ProjectEnvelope {
   name?: string;
   doc?: unknown;
   instruments?: unknown[];
   savedAt?: string;
+  customParts?: CustomPartSpec[];
 }
 
 export function loadTextContentInEditor(
@@ -37,6 +39,7 @@ export function loadTextContentInEditor(
           throw new Error("Die Datei sieht nicht wie ein Multispice-Projekt aus (JSON-Struktur unbekannt).");
         }
         st.setDoc(normalizeProjectDoc(env.doc));
+        st.restoreProjectCustomParts(env.customParts);
         if (Array.isArray(env.instruments)) {
           useEditor.setState({ instruments: env.instruments as InstrumentWindow[] });
         }

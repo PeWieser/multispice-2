@@ -6,24 +6,33 @@ import { SchematicDoc, buildNets, straightenWirePoints } from "@/lib/schematic/m
 import { PRESETS } from "@/lib/schematic/tools";
 import { normalizeDocGeometry } from "@/lib/schematic/netdraw";
 import { getActiveSaveTargetLabel, hasActiveSaveTarget, loadLibraryLocal, loadProjectLocal, saveLibraryLocal, saveProjectLocal, saveProjectToFile } from "@/lib/storage";
+import {
+  CUSTOM_SPECS,
+  collectUsedCustomSpecs,
+  loadCustomParts,
+  notifyCustomPartsChanged,
+  registerCustomPart,
+  sameCustomSpec,
+  type CustomPartSpec,
+} from "@/lib/library/customParts";
 import type { EditorState } from "../types";
 import type { StoreApi } from "zustand";
-import { now } from "../shared";
+import { cloneJson, now } from "../shared";
 import { sheets } from "../docUtils";
 import { scopeDefaultSize } from "../windows";
-import type { InstrumentWindow } from "../types";export function createStorageSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "saveProject" | "restoreLocalProject" | "markFavorite"> {
+import type { InstrumentWindow } from "../types";export function createStorageSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "saveProject" | "restoreLocalProject" | "markFavorite" | "restoreProjectCustomParts"> {
   return {
       saveProject: async (name, opts) => {
         if (get().partEditor.open) { get().log("warn", "Im Bauteile-Editor speichert der Speichern-Knopf das Bauteil."); return; }
         const { doc } = get();
         const next = name && name !== doc.name ? { ...doc, name } : doc;
         if (next !== doc) get().setDoc(next, false);
-        const { ok, bytes } = saveProjectLocal(next, get().instruments);
+        const { ok, bytes } = saveProjectLocal(next, get().instruments, collectUsedCustomSpecs(next));
         if (ok) {
           set({ lastSavedAt: Date.now(), savePending: false });
         }
         const wasBound = hasActiveSaveTarget();
-        const fileRes = await saveProjectToFile(next, get().instruments, { saveAs: opts?.saveAs });
+        const fileRes = await saveProjectToFile(next, get().instruments, { saveAs: opts?.saveAs }, collectUsedCustomSpecs(next));
         // S5.11: Speicher-Status ehrlich nachführen (Abbruch behält den Stand).
         if (!fileRes.canceled) {
           const bound = hasActiveSaveTarget();
@@ -130,6 +139,7 @@ import type { InstrumentWindow } from "../types";export function createStorageSl
               : [],
             lastSavedAt: stored.savedAt ? new Date(stored.savedAt).getTime() : null,
           });
+          get().restoreProjectCustomParts(stored.customParts);
           get().refreshNets();
           const when = new Date(stored.savedAt);
           const stamp = Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString("de-DE")})`;
@@ -150,6 +160,35 @@ import type { InstrumentWindow } from "../types";export function createStorageSl
         const recent = [partId, ...get().recent.filter((p) => p !== partId)].slice(0, 12);
         set({ recent });
         saveLibraryLocal(get().favorites, recent);
+      },
+
+      /* S6.4 (Phase 4): Mitgereiste Bauteile einhängen. Unbekannte IDs werden
+       * sitzungsweise registriert (ohne Bibliotheks-Müll); abweichende
+       * Fassungen landen als Konflikt im Dialog („jedes Mal nachfragen“). */
+      restoreProjectCustomParts: (specs) => {
+        if (!specs || specs.length === 0) return;
+        const conflicts = [...get().partEditor.specConflicts];
+        let added = 0;
+        for (const raw of specs) {
+          if (!raw || typeof raw.id !== "string" || !raw.id.startsWith("custom_")) continue;
+          const local = CUSTOM_SPECS.get(raw.id) ?? loadCustomParts().find((x) => x.id === raw.id);
+          if (!local) {
+            registerCustomPart(cloneJson(raw));
+            added++;
+          } else if (!sameCustomSpec(local, raw) && !conflicts.some((c) => c.id === raw.id)) {
+            conflicts.push({
+              id: raw.id,
+              name: typeof raw.name === "string" && raw.name ? raw.name : raw.id,
+              source: "project",
+              embedded: cloneJson(raw),
+            });
+          }
+        }
+        if (added > 0) notifyCustomPartsChanged();
+        if (conflicts.length !== get().partEditor.specConflicts.length) {
+          set((s) => ({ partEditor: { ...s.partEditor, specConflicts: conflicts } }));
+        }
+        if (added > 0) get().log("ok", `${added} mitgereiste(s) Bauteil(e) eingebunden.`);
       },
   };
 }

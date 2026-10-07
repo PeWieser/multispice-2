@@ -11,6 +11,7 @@
  */
 
 import { SchematicDoc, Junction, pointOnSegment } from "./schematic/model";
+import type { CustomPartSpec } from "./library/customParts";
 
 const PROJECT_KEY = "multispice.project.v1";
 const PROJECT_PREV_KEY = "multispice.project.prev.v1";
@@ -26,6 +27,8 @@ export interface StoredProject {
   filePath?: string | null;
   /** S5.11: true, wenn diese Kopie aus der Vorgängergeneration stammt. */
   fromBackup?: boolean;
+  /** S6.4: Eigene Bauteile, die das Projekt verwendet (reist mit der Datei). */
+  customParts?: CustomPartSpec[];
 }
 
 export interface StoredLibrary {
@@ -89,15 +92,18 @@ function safeFileName(name: string): string {
   return (name || "schaltplan").trim().replace(/\s+/g, "_").replace(/[^\wäöüÄÖÜß.-]+/g, "-") || "schaltplan";
 }
 
-export function buildProjectEnvelopeJson(doc: SchematicDoc, instruments?: unknown[]): string {
-  const envelope = {
+export function buildProjectEnvelopeJson(doc: SchematicDoc, instruments?: unknown[], customParts?: CustomPartSpec[]): string {
+  const envelope: Record<string, unknown> = {
     format: "multispice-project",
     version: 2,
     name: doc.name,
     savedAt: new Date().toISOString(),
     doc,
     instruments: instruments ?? [],
+    customParts: undefined,
   };
+  if (customParts && customParts.length > 0) envelope.customParts = customParts;
+  else delete envelope.customParts;
   return JSON.stringify(envelope, null, 2);
 }
 
@@ -112,8 +118,9 @@ export async function saveProjectToFile(
   doc: SchematicDoc,
   instruments?: unknown[],
   opts: { saveAs?: boolean } = {},
+  customParts?: CustomPartSpec[],
 ): Promise<{ ok: boolean; canceled?: boolean; targetName?: string; error?: string; viaDownload?: boolean }> {
-  const json = buildProjectEnvelopeJson(doc, instruments);
+  const json = buildProjectEnvelopeJson(doc, instruments, customParts);
   const suggestedName = `${safeFileName(doc.name)}.msx.json`;
 
   // 1. Windows Desktop App (Electron IPC)
@@ -199,9 +206,9 @@ export async function saveProjectToFile(
  * das erste Mal gespeichert (oder geöffnet) hat, wird jede Änderung automatisch
  * im Hintergrund direkt in diese Datei geschrieben.
  */
-export async function autoSaveToBoundFile(doc: SchematicDoc, instruments?: unknown[]): Promise<boolean> {
+export async function autoSaveToBoundFile(doc: SchematicDoc, instruments?: unknown[], customParts?: CustomPartSpec[]): Promise<boolean> {
   if (!hasActiveSaveTarget()) return false;
-  const json = buildProjectEnvelopeJson(doc, instruments);
+  const json = buildProjectEnvelopeJson(doc, instruments, customParts);
 
   if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile && activeDesktopFilePath) {
     try {
@@ -342,7 +349,7 @@ export function rotateProjectBackup(store: KeyValueStore): void {
 }
 
 /** Speichert das aktuelle Projekt in localStorage UND unter Windows in AppData. */
-export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[]): { ok: boolean; bytes: number } {
+export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[], customParts?: CustomPartSpec[]): { ok: boolean; bytes: number } {
   if (!canStore()) return { ok: false, bytes: 0 };
   const stored: StoredProject = {
     name: doc.name,
@@ -351,6 +358,7 @@ export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[]): { 
     instruments: instruments ?? [],
     filePath: activeDesktopFilePath,
   };
+  if (customParts && customParts.length > 0) stored.customParts = customParts;
   try {
     const raw = JSON.stringify(stored);
     // S5.11: Erst rotieren, dann schreiben (Crash dazwischen → Vorgänger intakt).
@@ -495,7 +503,7 @@ export function listProjectSlots(): ProjectSlot[] {
   return readSlots().sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
 }
 
-export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string, instruments?: unknown[]): { ok: boolean; id: string } {
+export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string, instruments?: unknown[], customParts?: CustomPartSpec[]): { ok: boolean; id: string } {
   const slots = readSlots();
   const slotId = id ?? "p_" + Math.random().toString(36).slice(2, 9);
   const slot: ProjectSlot = {
@@ -505,6 +513,9 @@ export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string, in
     savedAt: new Date().toISOString(),
     instruments: JSON.parse(JSON.stringify(instruments ?? [])) as unknown[],
   };
+  if (customParts && customParts.length > 0) {
+    slot.customParts = JSON.parse(JSON.stringify(customParts)) as CustomPartSpec[];
+  }
   const i = slots.findIndex((s) => s.id === slotId);
   if (i >= 0) slots[i] = slot;
   else slots.push(slot);

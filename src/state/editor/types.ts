@@ -4,7 +4,7 @@ import { Instance, NetLabel, NetlistBuildResult, Rotation, SchematicDoc, TextNot
 import { AnalysisPayload } from "@/lib/sim/runner";
 import { IntegrationMethod } from "@/lib/sim/engine";
 import type { TeacherLockState } from "@/lib/teacher";
-import type { CustomPartParamLink, CustomPinSpec, ExtractBoundaryNet, SubcircuitElement } from "@/lib/library/customParts";
+import type { CustomPartParamLink, CustomPartSpec, CustomPinSpec, ExtractBoundaryNet, SubcircuitElement } from "@/lib/library/customParts";
 import type { SymbolPrim } from "@/lib/library/catalog";
 
 export type Tool = "select" | "wire" | "junction" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
@@ -134,6 +134,15 @@ export interface PendingReplace {
   center: { x: number; y: number };
 }
 
+/** S6.4: Dasselbe Bauteil (gleiche ID) existiert in zwei Fassungen —
+ * der Nutzer entscheidet pro Konflikt („jedes Mal nachfragen“). */
+export interface SpecConflict {
+  id: string;
+  name: string;
+  source: "project" | "import";
+  embedded: CustomPartSpec;
+}
+
 /** S6.2 (Phase 2): Zustand des Bauteile-Editors (Doc-Swap-Modus). */
 export interface PartEditorData {
   open: boolean;
@@ -154,6 +163,8 @@ export interface PartEditorData {
   testVoltColors: boolean | null;
   /** S6.3: Ersetzung nach Extrakt (oder null). */
   pendingReplace: PendingReplace | null;
+  /** S6.4: Offene Fassungs-Konflikte (Projekt/Import vs. Bibliothek). */
+  specConflicts: SpecConflict[];
 }
 
 export interface EditorState {
@@ -363,6 +374,17 @@ export interface EditorState {
   stopPartEditorTest: () => void;
   /** S6.3: Auswahl prüfen → Editor mit Extrakt öffnen (Ersetzen vorgemerkt). */
   extractSelectionToEditor: () => void;
+  /** S6.4: Mitgereiste Specs einhängen; Konflikte → specConflicts. */
+  restoreProjectCustomParts: (specs?: CustomPartSpec[]) => void;
+  /** S6.4: Konflikt entscheiden (project/import übernimmt oder Bibliothek bleibt). */
+  resolveSpecConflict: (id: string, choice: "incoming" | "library") => void;
+  dismissSpecConflicts: () => void;
+  /** S6.4: .mspart-Text importieren (neu → Bibliothek, anders → Konflikt). */
+  importCustomSpecText: (text: string, fileName: string) => void;
+  duplicateCustomPart: (id: string) => string | null;
+  renameCustomPart: (id: string, name: string) => boolean;
+  /** Löschen mit Verwendungs-Schutz: verbaut → { ok: false, reason }. */
+  deleteCustomPartGuarded: (id: string) => { ok: boolean; reason?: string };
   refreshNets: () => void;
 }
 

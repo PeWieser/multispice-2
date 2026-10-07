@@ -11,6 +11,7 @@ import {
   type ProjectSlot,
 } from "@/lib/storage";
 import { useEditor, type InstrumentWindow } from "@/state/editor";
+import { collectUsedCustomSpecs } from "@/lib/library/customParts";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 
 function stamp(iso: string): string {
@@ -42,7 +43,7 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
 
   const saveAs = () => {
     const name = newName.trim() || doc.name || "Unbenannt";
-    const { ok } = saveProjectSlot(name, doc, undefined, useEditor.getState().instruments);
+    const { ok } = saveProjectSlot(name, doc, undefined, useEditor.getState().instruments, collectUsedCustomSpecs(doc));
     st().log(ok ? "ok" : "error", ok ? `Projekt „${name}“ gespeichert (inkl. Gerätefenster)` : "Speichern fehlgeschlagen (Speicher voll?)");
     setNewName("");
     refresh();
@@ -50,6 +51,7 @@ export default function ProjectsDialog({ onClose }: { onClose: () => void }) {
 
   const open = (slot: ProjectSlot) => {
     st().setDoc(JSON.parse(JSON.stringify(slot.doc)) as typeof doc, false);
+    st().restoreProjectCustomParts(slot.customParts);
     useEditor.setState({ instruments: JSON.parse(JSON.stringify(slot.instruments ?? [])) as InstrumentWindow[] });
     st().log("ok", `Projekt „${slot.name}“ geöffnet (${stamp(slot.savedAt)}) – inkl. Gerätefenster`);
     onClose();

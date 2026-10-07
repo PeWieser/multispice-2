@@ -11,6 +11,7 @@ import { Menu, MenuItem, MenuSeparator, Tooltip } from "./ui";
 import PresetGallery from "./PresetGallery";
 import { copyTextToClipboard, downloadText, safeName } from "@/lib/download";
 import { buildProjectEnvelopeJson } from "@/lib/storage";
+import { collectUsedCustomSpecs } from "@/lib/library/customParts";
 import { SHARE_HASH_KEY, SHARE_URL_LIMIT, buildShareUrl, encodeSharePayload } from "@/lib/share";
 import { REQUEST_OPEN_FILE_EVENT, openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 
@@ -124,7 +125,7 @@ export default function MenuBar({
   // S5.5: Link-Teilen — komprimierte Schaltung in die Zwischenablage;
   // über ~100 kB ehrlich Datei statt Link.
   const shareLink = () => {
-    const json = buildProjectEnvelopeJson(st().doc, st().instruments);
+    const json = buildProjectEnvelopeJson(st().doc, st().instruments, collectUsedCustomSpecs(st().doc));
     const payload = encodeSharePayload(json);
     if (payload.length > SHARE_URL_LIMIT) {
       downloadText(`${base}.msx.json`, json, "application/json");

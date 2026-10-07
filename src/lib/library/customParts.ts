@@ -1858,3 +1858,89 @@ export function deleteCustomPart(id: string): CustomPartSpec[] {
   }
   return list;
 }
+
+/* ------------------------------------------------------------------ */
+/* S6.4 (Phase 4): Das Projekt nimmt seine Bauteile mit.                */
+/* ------------------------------------------------------------------ */
+
+/** Dateiendung für einzelne Bauteil-Dateien (JSON). */
+export const SPEC_FILE_EXT = ".mspart";
+
+/**
+ * Sammelt alle eigenen Bauteile, die `doc` (transitiv, d. h. inkl.
+ * verschachtelter Makros) verwendet — für die Projektdatei.
+ */
+export function collectUsedCustomSpecs(doc: SchematicDoc): CustomPartSpec[] {
+  const found = new Map<string, CustomPartSpec>();
+  const queue: string[] = [];
+  const enqueueDoc = (d: SchematicDoc | undefined) => {
+    for (const inst of d?.instances ?? []) {
+      if (typeof inst.partId === "string" && inst.partId.startsWith("custom_") && !found.has(inst.partId)) {
+        const spec = CUSTOM_SPECS.get(inst.partId);
+        if (spec) {
+          found.set(inst.partId, spec);
+          queue.push(inst.partId);
+        }
+      }
+    }
+  };
+  enqueueDoc(doc);
+  while (queue.length > 0) {
+    const spec = CUSTOM_SPECS.get(queue.pop() as string);
+    if (spec?.schematic) enqueueDoc(spec.schematic);
+  }
+  return [...found.values()];
+}
+
+/** Struktureller Vergleich zweier Specs (für Konflikt-Erkennung). */
+export function sameCustomSpec(a: CustomPartSpec, b: CustomPartSpec): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Tiefe Kopie mit neuer ID (Duplizieren). */
+export function cloneCustomSpec(spec: CustomPartSpec, newId: string, newName: string): CustomPartSpec {
+  const clone = JSON.parse(JSON.stringify(spec)) as CustomPartSpec;
+  clone.id = newId;
+  clone.name = newName;
+  return clone;
+}
+
+export interface SpecFileParse {
+  ok: boolean;
+  spec?: CustomPartSpec;
+  error?: string;
+}
+
+/**
+ * Prüft eine .mspart-Datei: JSON-Form, Pflichtfelder, Innenschaltung.
+ * Fehler verweigern den Import, Warnungen lässt der Aufrufer durch.
+ */
+export function parseCustomSpecFile(text: string): SpecFileParse {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { ok: false, error: "Keine gültige Bauteil-Datei (kein JSON)." };
+  }
+  const spec = raw as CustomPartSpec;
+  if (!spec || typeof spec !== "object" || typeof spec.id !== "string" || !spec.id.startsWith("custom_")) {
+    return { ok: false, error: "Keine gültige Bauteil-Datei (ID fehlt)." };
+  }
+  if (typeof spec.name !== "string" || !spec.name.trim() || !Array.isArray(spec.pins) || spec.pins.length === 0) {
+    return { ok: false, error: `„${spec.id}“ hat keinen Namen oder keine Pins.` };
+  }
+  if (spec.schematic) {
+    const errors = validatePartSchematic(spec).filter((i) => i.severity === "error");
+    if (errors.length > 0) {
+      return { ok: false, error: `„${spec.name}“: ${errors[0].message}` };
+    }
+  }
+  return { ok: true, spec };
+}
+
+/** Benachrichtigt die Bibliotheks-Ansicht (nach sitzungsweisem Einhängen). */
+export function notifyCustomPartsChanged(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("multispice-custom-parts"));
+  }
+}
