@@ -171,14 +171,17 @@ const bits = (val: number, n: number): number[] => Array.from({ length: n }, (_,
   r = ev("counter4ud", [...bits(12, 4), 5, 0, 0, 5, 0, 0, 0, 0], {}, mem);
   check("updn: abwärts → 12", lvl(r, 8) === 0 && lvl(r, 11) === 1);
   const mem2: Mem = {};
-  ev("counter8dec", [0, 5, ...Array(8).fill(0)], {}, mem2);
-  r = ev("counter8dec", [0, 0, ...Array(8).fill(0)], {}, mem2);
-  check("4022: RST → Q0", lvl(r, 2) === 1 && lvl(r, 3) === 0);
+  ev("counter8dec", [0, 5, 0, ...Array(9).fill(0)], {}, mem2);
+  r = ev("counter8dec", [0, 0, 0, ...Array(9).fill(0)], {}, mem2);
+  check("4022: RST → Q0, COUT=1", lvl(r, 3) === 1 && lvl(r, 4) === 0 && lvl(r, 11) === 1);
   for (let k = 0; k < 3; k++) {
-    ev("counter8dec", [0, 0, ...Array(8).fill(0)], {}, mem2);
-    r = ev("counter8dec", [5, 0, ...Array(8).fill(0)], {}, mem2);
+    ev("counter8dec", [0, 0, 0, ...Array(9).fill(0)], {}, mem2);
+    r = ev("counter8dec", [5, 0, 0, ...Array(9).fill(0)], {}, mem2);
   }
-  check("4022: 3 Takte → Q3 one-hot", lvl(r, 5) === 1 && lvl(r, 2) === 0 && lvl(r, 6) === 0);
+  check("4022: 3 Takte → Q3 one-hot", lvl(r, 6) === 1 && lvl(r, 3) === 0 && lvl(r, 7) === 0);
+  ev("counter8dec", [0, 0, 5, ...Array(9).fill(0)], {}, mem2);
+  r = ev("counter8dec", [5, 0, 5, ...Array(9).fill(0)], {}, mem2);
+  check("4022: INH sperrt", lvl(r, 6) === 1);
   const mem3: Mem = {};
   r = ev("bcd7segLcd", [...bits(4, 4), 0, 0, 0, ...Array(7).fill(0)], {}, mem3); // LD=L: folgen
   check("4543: folgt bei LD=L (4=0x66)", lvl(r, 7) === 0 && lvl(r, 8) === 1 && lvl(r, 9) === 1);
@@ -246,6 +249,244 @@ const bits = (val: number, n: number): number[] => Array.from({ length: n }, (_,
     }
   }
   check(`Register: ${okCount}/${Object.keys(DIGITAL_MODEL_PINS).length} Modelle sauber`, rangeFails.length === 0, rangeFails.join("; "));
+}
+
+/* A13 · S5.33 Reparatur-Modelle */
+{
+  const m1: Mem = {};
+  ev("dffn", [5, 0, 5, 5, 0, 0], {}, m1);
+  let r = ev("dffn", [5, 5, 5, 5, 0, 0], {}, m1);
+  check("7474: CLK übernimmt", lvl(r, 4) === 1 && lvl(r, 5) === 0);
+  r = ev("dffn", [5, 0, 0, 5, 0, 0], {}, m1);
+  check("7474: /RST löscht", lvl(r, 4) === 0);
+  r = ev("dffn", [0, 0, 5, 0, 0, 0], {}, m1);
+  check("7474: /SET setzt", lvl(r, 4) === 1);
+  const m2: Mem = {};
+  ev("jkffn", [5, 5, 0, 5, 5, 0, 0], {}, m2);
+  r = ev("jkffn", [5, 5, 5, 5, 5, 0, 0], {}, m2);
+  check("7476: J=K=1 toggelt", lvl(r, 5) === 1);
+  r = ev("jkffn", [0, 0, 0, 0, 5, 0, 0], {}, m2);
+  check("7476: /RST löscht", lvl(r, 5) === 0);
+}
+{
+  const m: Mem = {};
+  ev("shift8dual", [5, 5, 0, 5, ...Array(8).fill(0)], {}, m);
+  for (let k = 0; k < 8; k++) {
+    ev("shift8dual", [5, 5, 0, 5, ...Array(8).fill(0)], {}, m);
+    ev("shift8dual", [5, 5, 5, 5, ...Array(8).fill(0)], {}, m);
+  }
+  const r = ev("shift8dual", [5, 5, 0, 5, ...Array(8).fill(0)], {}, m);
+  check("74164: 8× (A·B)=1 → 0xFF", [4, 5, 6, 7, 8, 9, 10, 11].every((p) => lvl(r, p) === 1));
+  const r2 = ev("shift8dual", [5, 5, 0, 0, ...Array(8).fill(0)], {}, m);
+  check("74164: /CLR löscht", [4, 5, 6, 7, 8, 9, 10, 11].every((p) => lvl(r2, p) === 0));
+  const m4: Mem = {};
+  ev("shift8dual", [5, 5, 0, 5, ...Array(8).fill(0)], {}, m4);
+  ev("shift8dual", [5, 5, 5, 5, ...Array(8).fill(0)], {}, m4); // reg=1
+  ev("shift8dual", [5, 0, 0, 5, ...Array(8).fill(0)], {}, m4);
+  const r4 = ev("shift8dual", [5, 0, 5, 5, ...Array(8).fill(0)], {}, m4); // A·/B=0 → reg=2
+  check("74164: A·/B schiebt 0", lvl(r4, 4) === 0 && lvl(r4, 5) === 1);
+}
+{
+  const m: Mem = {};
+  for (let k = 0; k < 4; k++) {
+    ev("shift4", [0, 5, 0, 0, 0, 0, 0], {}, m);
+    ev("shift4", [5, 5, 0, 0, 0, 0, 0], {}, m);
+  }
+  const r = ev("shift4", [0, 5, 0, 0, 0, 0, 0], {}, m);
+  check("4015: 4 Takte → 0xF", [3, 4, 5, 6].every((p) => lvl(r, p) === 1));
+  const m18: Mem = {};
+  for (let k = 0; k < 17; k++) {
+    ev("shift18", [0, 5, 0], {}, m18);
+    ev("shift18", [5, 5, 0], {}, m18);
+  }
+  check("4006: nach 17 Takten noch 0", lvl(ev("shift18", [0, 5, 0], {}, m18), 2) === 0);
+  ev("shift18", [5, 5, 0], {}, m18);
+  check("4006: nach 18 Takten 1", lvl(ev("shift18", [0, 5, 0], {}, m18), 2) === 1);
+  const m64: Mem = {};
+  for (let k = 0; k < 64; k++) {
+    ev("shift64", [0, 5, 0], {}, m64);
+    ev("shift64", [5, 5, 0], {}, m64);
+  }
+  check("4031: nach 64 Takten 1", lvl(ev("shift64", [0, 5, 0], {}, m64), 2) === 1);
+}
+{
+  const m: Mem = {};
+  ev("counter7", [0, 5, ...Array(7).fill(0)], {}, m);
+  ev("counter7", [5, 0, ...Array(7).fill(0)], {}, m);
+  const r = ev("counter7", [0, 0, ...Array(7).fill(0)], {}, m); // fallend → zählt
+  check("4024: fallende Flanke zählt", lvl(r, 2) === 1);
+  const r2 = ev("counter7", [5, 0, ...Array(7).fill(0)], {}, m); // steigend → hält
+  check("4024: steigende hält", lvl(r2, 2) === 1 && lvl(r2, 3) === 0);
+}
+{
+  const m: Mem = {};
+  let r = ev("counter10dec", [0, 5, 0, ...Array(11).fill(0)], {}, m);
+  check("4017: RST → Q0, COUT=1", lvl(r, 3) === 1 && lvl(r, 13) === 1);
+  for (let k = 0; k < 5; k++) {
+    ev("counter10dec", [0, 0, 0, ...Array(11).fill(0)], {}, m);
+    r = ev("counter10dec", [5, 0, 0, ...Array(11).fill(0)], {}, m);
+  }
+  check("4017: nach 5 Takten Q5, COUT=0", lvl(r, 8) === 1 && lvl(r, 3) === 0 && lvl(r, 13) === 0);
+  ev("counter10dec", [0, 0, 5, ...Array(11).fill(0)], {}, m);
+  r = ev("counter10dec", [5, 0, 5, ...Array(11).fill(0)], {}, m);
+  check("4017: INH sperrt", lvl(r, 8) === 1);
+}
+{
+  const m: Mem = {};
+  ev("counter4020", [0, 5, ...Array(12).fill(0)], {}, m);
+  ev("counter4020", [5, 0, ...Array(12).fill(0)], {}, m);
+  let r = ev("counter4020", [0, 0, ...Array(12).fill(0)], {}, m);
+  check("4020: 1 Takt → Q0", lvl(r, 2) === 1);
+  for (let k = 0; k < 7; k++) { // total 8 Takte
+    ev("counter4020", [5, 0, ...Array(12).fill(0)], {}, m);
+    r = ev("counter4020", [0, 0, ...Array(12).fill(0)], {}, m);
+  }
+  check("4020: 8 Takte → Q3 (Pin 3), Q0 aus", lvl(r, 3) === 1 && lvl(r, 2) === 0);
+  const m60: Mem = {};
+  ev("counter4060", [0, 5, ...Array(10).fill(0)], {}, m60);
+  for (let k = 0; k < 8; k++) {
+    ev("counter4060", [5, 0, ...Array(10).fill(0)], {}, m60);
+    r = ev("counter4060", [0, 0, ...Array(10).fill(0)], {}, m60);
+  }
+  check("4060: 8 Takte → Q3 (Pin 2)", lvl(r, 2) === 1);
+  for (let k = 0; k < 8; k++) {
+    ev("counter4060", [5, 0, ...Array(10).fill(0)], {}, m60);
+    r = ev("counter4060", [0, 0, ...Array(10).fill(0)], {}, m60);
+  }
+  check("4060: 16 Takte → Q4 (Pin 3)", lvl(r, 3) === 1 && lvl(r, 2) === 0);
+}
+{
+  const m: Mem = {};
+  let r = ev("johnson4018", [0, 0, 0, 5, ...bits(0x15, 5), ...Array(5).fill(0)], {}, m);
+  check("4018: PE lädt JAM", [9, 10, 11, 12, 13].every((p, i) => lvl(r, p) === ((0x15 >> i) & 1)));
+  r = ev("johnson4018", [0, 0, 5, 0, ...bits(0, 5), ...Array(5).fill(0)], {}, m);
+  r = ev("johnson4018", [5, 0, 5, 0, ...bits(0, 5), ...Array(5).fill(0)], {}, m);
+  check("4018: CLK schiebt DATA→Q0", lvl(r, 9) === 1 && lvl(r, 10) === 1);
+  const m26: Mem = {};
+  r = ev("dec4026", [0, 5, 0, 5, 0, ...Array(7).fill(0)], {}, m26);
+  check("4026: RST → 0 (0x3f), COUT=1", lvl(r, 5) === 1 && lvl(r, 4) === 1);
+  for (let k = 0; k < 9; k++) {
+    ev("dec4026", [0, 0, 0, 5, 0, ...Array(7).fill(0)], {}, m26);
+    r = ev("dec4026", [5, 0, 0, 5, 0, ...Array(7).fill(0)], {}, m26);
+  }
+  check("4026: 9 Takte → 9 (0x6f), COUT=0", lvl(r, 5) === 1 && lvl(r, 9) === 0 && lvl(r, 4) === 0);
+  r = ev("dec4026", [0, 0, 0, 0, 0, ...Array(7).fill(0)], {}, m26);
+  check("4026: DEI=L blankt", [5, 6, 7, 8, 9, 10, 11].every((p) => lvl(r, p) === 0));
+}
+{
+  const m: Mem = {};
+  let r = ev("ud4029", [...bits(5, 4), 0, 0, 5, 5, 0, 0, 0, 0], {}, m);
+  check("4029: /PE lädt 5", lvl(r, 8) === 1 && lvl(r, 10) === 1);
+  ev("ud4029", [...bits(5, 4), 0, 5, 5, 5, 0, 0, 0, 0], {}, m);
+  r = ev("ud4029", [...bits(5, 4), 5, 5, 5, 5, 0, 0, 0, 0], {}, m);
+  check("4029: binär aufwärts → 6", lvl(r, 9) === 1 && lvl(r, 10) === 1 && lvl(r, 8) === 0);
+  const mb: Mem = {};
+  ev("ud4029", [...bits(9, 4), 0, 0, 5, 0, 0, 0, 0, 0], {}, mb);
+  ev("ud4029", [...bits(9, 4), 0, 5, 5, 0, 0, 0, 0, 0], {}, mb);
+  r = ev("ud4029", [...bits(9, 4), 5, 5, 5, 0, 0, 0, 0, 0], {}, mb);
+  check("4029: BCD 9+1 → 0", [8, 9, 10, 11].every((p) => lvl(r, p) === 0));
+  const m193: Mem = {};
+  ev("ud193", [...bits(3, 4), 5, 5, 0, 0, 0, 0, 0], {}, m193);
+  ev("ud193", [...bits(3, 4), 0, 5, 5, 0, 0, 0, 0], {}, m193);
+  r = ev("ud193", [...bits(3, 4), 5, 5, 5, 0, 0, 0, 0], {}, m193);
+  check("40193: CPU↑ → 4", lvl(r, 9) === 1 && lvl(r, 7) === 0);
+  ev("ud193", [...bits(3, 4), 5, 0, 5, 0, 0, 0, 0], {}, m193);
+  r = ev("ud193", [...bits(3, 4), 5, 5, 5, 0, 0, 0, 0], {}, m193);
+  check("40193: CPD↑ → 3", lvl(r, 7) === 1 && lvl(r, 8) === 1 && lvl(r, 9) === 0);
+}
+{
+  const m: Mem = {};
+  let r = ev("reg4034", [...bits(0xa5, 8), 0, 0, 5, ...Array(8).fill(0)], {}, m);
+  check("4034: PS lädt", [11, 12, 13, 14, 15, 16, 17, 18].every((p, i) => lvl(r, p) === ((0xa5 >> i) & 1)));
+  const m35: Mem = {};
+  ev("sr4035", [...bits(0xc, 4), 0, 5, 0, 0, 0, 0, 0, 0], {}, m35);
+  ev("sr4035", [...bits(0xc, 4), 0, 0, 5, 0, 0, 0, 0, 0], {}, m35);
+  r = ev("sr4035", [...bits(0xc, 4), 5, 0, 5, 0, 0, 0, 0, 0], {}, m35);
+  check("4035: J·/K schiebt 1", lvl(r, 8) === 1);
+  const m94: Mem = {};
+  ev("bidir194", [...bits(0, 4), 5, 5, 0, 0, 0, 0, 0, 0, 0, 0], {}, m94);
+  r = ev("bidir194", [...bits(0xc, 4), 5, 5, 0, 5, 0, 0, 0, 0, 0, 0], {}, m94);
+  r = ev("bidir194", [...bits(0xc, 4), 5, 5, 5, 5, 0, 0, 0, 0, 0, 0], {}, m94);
+  check("40194: S=11 lädt", lvl(r, 12) === 1 && lvl(r, 13) === 1 && lvl(r, 10) === 0);
+  const m95: Mem = {};
+  r = ev("sr40195", [...bits(0x5, 4), 0, 5, 0, 0, 0, 0, 0], {}, m95);
+  check("40195: PS lädt", lvl(r, 7) === 1 && lvl(r, 9) === 1 && lvl(r, 8) === 0);
+}
+{
+  const m: Mem = {};
+  let r = ev("latch4042", [5, 0, 0, 0, 5, 5, 0, 0, 0, 0], {}, m);
+  check("4042: CLK=POL folgt", lvl(r, 6) === 1);
+  r = ev("latch4042", [0, 0, 0, 0, 0, 5, 0, 0, 0, 0], {}, m);
+  check("4042: CLK≠POL hält", lvl(r, 6) === 1);
+  const m43: Mem = {};
+  r = ev("latch43", [5, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0], {}, m43);
+  check("4043: S setzt", lvl(r, 9) === 1);
+  r = ev("latch43", [0, 5, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0], {}, m43);
+  check("4043: R löscht", lvl(r, 9) === 0);
+  r = ev("latch43", [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], {}, m43);
+  check("4043: OE=L → hi-Z", lvl(r, 9) === -1);
+  const r44 = ev("latch43", [0, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0], { low: 1 }, {});
+  check("4044: /S setzt (low=1)", lvl(r44, 9) === 1);
+  const m76: Mem = {};
+  ev("reg4076", [5, 0, 5, 0, 0, 5, 0, 0, 0, 0], {}, m76);
+  r = ev("reg4076", [5, 0, 5, 0, 5, 5, 0, 0, 0, 0], {}, m76);
+  check("4076: CLK übernimmt", lvl(r, 6) === 1 && lvl(r, 8) === 1 && lvl(r, 7) === 0);
+  r = ev("reg4076", [5, 0, 5, 0, 0, 0, 0, 0, 0, 0], {}, m76);
+  check("4076: OE=L → hi-Z", lvl(r, 6) === -1);
+}
+{
+  const m: Mem = {};
+  for (let k = 0; k < 8; k++) {
+    ev("sr4094", [5, 0, 0, 5, ...Array(9).fill(0)], {}, m);
+    ev("sr4094", [5, 5, 0, 5, ...Array(9).fill(0)], {}, m);
+  }
+  ev("sr4094", [5, 0, 0, 5, ...Array(9).fill(0)], {}, m);
+  const r = ev("sr4094", [5, 0, 5, 5, ...Array(9).fill(0)], {}, m);
+  check("4094: STR übernimmt 0xFF", [4, 5, 6, 7, 8, 9, 10, 11].every((p) => lvl(r, p) === 1) && lvl(r, 12) === 1);
+  const r2 = ev("sr4094", [5, 0, 0, 0, ...Array(9).fill(0)], {}, m);
+  check("4094: OE=L → hi-Z", lvl(r2, 4) === -1);
+}
+{
+  const m: Mem = {};
+  let r = ev("mux4512", [0, 0, 0, 5, 0, 0, 0, 0, 5, 5, 0, 0, 0, 0], {}, m);
+  check("4512: sel=3 → I3", lvl(r, 13) === 1);
+  r = ev("mux4512", [0, 0, 0, 5, 0, 0, 0, 0, 5, 0, 0, 5, 0, 0], {}, m);
+  check("4512: STR hält", lvl(r, 13) === 1);
+  r = ev("mux4512", [0, 0, 0, 5, 0, 0, 0, 0, 5, 5, 0, 0, 5, 0], {}, m);
+  check("4512: INH → 0", lvl(r, 13) === 0);
+  const m14: Mem = {};
+  r = ev("dec4514", [...bits(5, 4), 0, 0, ...Array(16).fill(0)], {}, m14);
+  check("4514: A=5 → Y5", lvl(r, 11) === 1 && lvl(r, 10) === 0);
+  r = ev("dec4514", [...bits(9, 4), 5, 0, ...Array(16).fill(0)], {}, m14);
+  check("4514: STR hält", lvl(r, 11) === 1 && lvl(r, 15) === 0);
+  r = ev("dec4514", [...bits(5, 4), 0, 5, ...Array(16).fill(0)], {}, m14);
+  check("4514: INH löscht", [6, 7, 8, 9, 10, 11].every((p) => lvl(r, p) === 0));
+  const r15 = ev("dec4514", [...bits(5, 4), 0, 0, ...Array(16).fill(0)], { low: 1 }, {});
+  check("4515: aktiv-low", lvl(r15, 11) === 0 && lvl(r15, 10) === 1);
+}
+{
+  const m: Mem = {};
+  const r = ev("piso4014", [...bits(0xa5, 8), 0, 5, 0, 0, 0, 0], {}, m);
+  check("4014: PS lädt (Q8/Q7/Q6 = 1/0/1)", lvl(r, 13) === 1 && lvl(r, 12) === 0 && lvl(r, 11) === 1);
+}
+{
+  const r = ev("nor8", [5, 5, 5, 5, 5, 5, 5, 5, 0]);
+  check("nor8: alles 1 → 0", lvl(r, 8) === 0);
+  const r2 = ev("nor8", [0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  check("nor8: alles 0 → 1", lvl(r2, 8) === 1);
+  const m: Mem = {};
+  ev("pll4046", [0, 0, 0, 0, 2.5, 0, 0], { fmax: 1000 }, m, 5, 2.5, 0);
+  let p = ev("pll4046", [5, 0, 0, 0, 2.5, 0, 0], { fmax: 1000 }, m, 5, 2.5, 0.00025);
+  check("4046: VCO 500 Hz (Ph 0,125 → 1)", lvl(p, 5) === 1);
+  p = ev("pll4046", [5, 0, 0, 0, 2.5, 0, 0], { fmax: 1000 }, m, 5, 2.5, 0.00125);
+  check("4046: VCO-Ph 0,625 → 0", lvl(p, 5) === 0);
+  check("4046: PC1 = XOR", lvl(p, 2) === 1);
+  const m2: Mem = {};
+  ev("pll4046", [0, 0, 0, 0, 0, 0, 0], {}, m2, 5, 2.5, 0);
+  p = ev("pll4046", [5, 0, 0, 0, 0, 0, 0], {}, m2, 5, 2.5, 0);
+  check("4046: PC2 setzt bei SIG↑", lvl(p, 3) === 1);
+  p = ev("pll4046", [5, 5, 0, 0, 0, 0, 0], {}, m2, 5, 2.5, 0);
+  check("4046: PC2 löscht bei COMP↑", lvl(p, 3) === 0);
 }
 
 /* ---- Teil B: Engine-Integration (echte OP-Simulation) ---- */

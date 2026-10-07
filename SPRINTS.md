@@ -366,6 +366,21 @@ Ziel: Apple-Level im Detail, bei eigenem Look.
   (DAC-Sonderfall ersetzt, 4051/4066 echt analog, H-Brücken an VS-Schiene);
   Pinzahl-Register `DIGITAL_MODEL_PINS` für die S5.33-Konsistenzprüfung.
   `tsc` ✅, `eslint` ✅, `npm test` ✅ (icmodeltest, 83 Wächter).
+- S5.33: IC-Programm Teil 2 — alle falschen Katalog→Modell-Mappings behoben
+  (157 Blöcke per Skript + Loops/4007/Analog per Hand): 46× 74/74HC-MSI
+  (74165→PISO, 7485→magcomp4, 74245→Transceiver, 74273→Octal-FF,
+  Dual/Quad/Triple als Multi-Device mit geteilten Pins), 68× 74-Gatter
+  (8 Pinouts korrigiert, alle umbenannt „7400 NAND 2 Eingänge (74)“,
+  Familien-Defaults vth/rout), 42× CMOS-Stubs (volle Pinouts + 21 neue
+  Modelle: 4026/29/34/35/94, 4018/93/94/95, 4512/14, 4014/21, 4046-PLL,
+  4006/31-Schieber u. a.; 4007→6 echte MOSFETs), cmosGates/extra74→
+  Multi-Unit, Analog-Multis (LM324/339, TL074/084, NE5532, LM358, TL072,
+  LM393) mit allen Einheiten, ADC/DAC mit vref, Monostabile mit pw.
+  Zähler polaritätsgeprüft (4020/40/60 fallend, 4022 mit INH). Wächter
+  check-ic-models in `npm test` verdrahtet (216 Digital-Teile sauber).
+  Bewusste Abweichungen: Open-Collector→Push-Pull, 74160–63 ohne
+  Sync-Load, 4060 ohne Oszillator-Pins. `tsc` ✅, `eslint` ✅,
+  `npm test` ✅ (icmodeltest 144 Wächter, +61 neu).
 
 ## Nicht-Ziele (bewusst)
 

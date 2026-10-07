@@ -3986,3 +3986,17 @@ nand8/nor4-Labels ergänzt (fielen still in AND!), `volts`-Analog-Ausgänge
 für Verhaltensmodelle (DAC-Sonderfall in der Engine ersetzt, 4051/4066
 jetzt echt analog), Pinzahl-Register als Basis der S5.33-Konsistenzprüfung.
 83 neue Modell-Wächter, alle grün.
+S5.33 schließt das volle Programm ab: Alle Fehl-Mappings sind behoben —
+157 Katalog-Blöcke per Remap-Skript (46× 74/74HC-MSI mit korrekten Modellen
+und Multi-Device-Duals/Quads, 68× 74-Gatter mit korrigierten Pinouts,
+deutschen Namen und Familien-Defaults, 42× CMOS mit vollen Pinouts und
+21 neuen Modellen, ADC/DAC mit vref), dazu per Hand: cmosComplex-Zeilen
+(4017/20/40/60/11/28/51/52/53, 4013 als Dual-dffn), cmosGates/extra74 als
+Multi-Unit, 4007 als 6 echte MOSFETs mit internen Brücken, Analog-Multis
+(LM324/339, TL074/084, NE5532, LM358, TL072, LM393) mit allen Einheiten.
+Zählerflanken an Datenblättern verifiziert (4020/40/60 fallen, 4022 mit
+INH/COUT, 4060-Q-Auswahl). Der Konsistenzwächter check-ic-models läuft in
+`npm test` (216 Digital-Teile sauber) und fängt jedes künftige Fehl-Mapping
+für immer ab. 61 neue Modell-Wächter (144 gesamt), alle grün. Bewusste
+Abweichungen sind dokumentiert (Push-Pull statt Open-Collector, kein
+Sync-Load bei 74160–63, keine Oszillator-Pins bei 4060).

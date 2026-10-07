@@ -975,14 +975,29 @@ add({
 });
 
 /* ---------------- Analog ICs ---------------- */
-const opamps: Array<{ id: string; name: string; gain: number; gbw: number; slew: number }> = [
-  { id: "opamp_ideal", name: "Idealer OPV", gain: 1e6, gbw: 1e8, slew: 1e9 },
-  { id: "opamp_lm741", name: "LM741", gain: 2e5, gbw: 1e6, slew: 0.5e6 },
-  { id: "opamp_tl084", name: "TL084 (JFET)", gain: 2e5, gbw: 3e6, slew: 13e6 },
-  { id: "opamp_ne5532", name: "NE5532 (Audio)", gain: 5e4, gbw: 10e6, slew: 9e6 },
-  { id: "opamp_lm358", name: "LM358 (Single Supply)", gain: 1e5, gbw: 1e6, slew: 0.6e6 },
+const opamps: Array<{ id: string; name: string; gain: number; gbw: number; slew: number; units: number; desc: string }> = [
+  { id: "opamp_ideal", name: "Idealer OPV", gain: 1e6, gbw: 1e8, slew: 1e9, units: 1, desc: "OPV" },
+  { id: "opamp_lm741", name: "LM741", gain: 2e5, gbw: 1e6, slew: 0.5e6, units: 1, desc: "741" },
+  { id: "opamp_tl084", name: "TL084 (JFET)", gain: 2e5, gbw: 3e6, slew: 13e6, units: 4, desc: "TL084" },
+  { id: "opamp_ne5532", name: "NE5532 (Audio)", gain: 5e4, gbw: 10e6, slew: 9e6, units: 2, desc: "NE5532" },
+  { id: "opamp_lm358", name: "LM358 (Single Supply)", gain: 1e5, gbw: 1e6, slew: 0.6e6, units: 2, desc: "LM358" },
 ];
 for (const o of opamps) {
+  const multi = o.units > 1;
+  const names: string[] = [];
+  if (multi) {
+    for (let u = 1; u <= o.units; u++) names.push("IN" + u + "+", "IN" + u + "-", "OUT" + u);
+    names.push("V+", "V-");
+  }
+  const mh = Math.max(80, Math.max(o.units * 2 + 2, o.units) * 14 + 30);
+  const mpins: PinDef[] = [];
+  if (multi) {
+    let li = 0, ri = 0;
+    for (const nm of names) {
+      if (nm[0] === "O") { mpins.push({ name: nm, x: 60, y: -mh / 2 + 22 + ri * 14, electrical: "output" }); ri++; }
+      else { mpins.push({ name: nm, x: -60, y: -mh / 2 + 22 + li * 14, electrical: nm[0] === "V" ? "power_in" : "input" }); li++; }
+    }
+  }
   add({
     id: o.id,
     name: o.name,
@@ -990,12 +1005,12 @@ for (const o of opamps) {
     category: "Analoge ICs/Operationsverstärker",
     tags: ["opv", "opamp", "verstärker", o.id],
     mount: "both",
-    footprint: "DIP-8 / SOIC-8",
-    pins: [
+    footprint: multi ? "DIP-14 / SOIC-14" : "DIP-8 / SOIC-8",
+    pins: multi ? mpins : [
       { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
       { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
     ],
-    symbol: [
+    symbol: multi ? icSymbol(110, mh, o.desc, mpins) : [
       { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
       L(-40, -15, -30, -15), L(-40, 15, -30, 15), L(30, 0, 40, 0), L(0, -18, 0, -30), L(0, 18, 0, 30),
       TXT(-20, -11, "+", 11), TXT(-20, 19, "−", 11),
@@ -1010,10 +1025,15 @@ for (const o of opamps) {
       { key: "vcc", label: "V+ (falls unverbunden)", unit: "V", type: "number", def: 15 },
       { key: "vee", label: "V- (falls unverbunden)", unit: "V", type: "number", def: -15 },
     ],
-    toDevices: (i, n) => [{
-      id: i.id, type: "OPAMP", nodes: [n[0], n[1], n[2], conn(n[3]), conn(n[4])],
-      params: { gain: num(i, "gain", o.gain), gbw: num(i, "gbw", o.gbw), slew: num(i, "slew", o.slew), rin: num(i, "rin", 2e6), rout: num(i, "rout", 75), vdrop: num(i, "vdrop", 1.2), vcc: num(i, "vcc", 15), vee: num(i, "vee", -15) },
-    }],
+    toDevices: (i, n): Device[] => {
+      const prm = { gain: num(i, "gain", o.gain), gbw: num(i, "gbw", o.gbw), slew: num(i, "slew", o.slew), rin: num(i, "rin", 2e6), rout: num(i, "rout", 75), vdrop: num(i, "vdrop", 1.2), vcc: num(i, "vcc", 15), vee: num(i, "vee", -15) };
+      if (!multi) return [{ id: i.id, type: "OPAMP", nodes: [n[0], n[1], n[2], conn(n[3]), conn(n[4])], params: prm }];
+      const devs: Device[] = [];
+      const sufx = ["A", "B", "C", "D"];
+      for (let u = 0; u < o.units; u++)
+        devs.push({ id: i.id + ":" + sufx[u], type: "OPAMP", nodes: [n[3 * u], n[3 * u + 1], n[3 * u + 2], conn(n[3 * o.units]), conn(n[3 * o.units + 1])], params: prm });
+      return devs;
+    },
   });
 }
 
@@ -1546,38 +1566,43 @@ add({
 
 
 /* ---------------- 4000 CMOS series – expanded ---------------- */
-const cmosGates: Array<{ id: string; name: string; model: string; inputs: number; inv: boolean; desc: string }> = [
-  { id: "cmos_4001", name: "CD4001 Quad NOR (2 Eingänge)", model: "nor2", inputs: 2, inv: true, desc: "4001" },
-  { id: "cmos_4011", name: "CD4011 Quad NAND (2 Eingänge)", model: "nand2", inputs: 2, inv: true, desc: "4011" },
-  { id: "cmos_4012", name: "CD4012 Dual NAND (4 Eingänge)", model: "nand4", inputs: 4, inv: true, desc: "4012" },
-  { id: "cmos_4023", name: "CD4023 Triple NAND (3 Eingänge)", model: "nand3", inputs: 3, inv: true, desc: "4023" },
-  { id: "cmos_4002", name: "CD4002 Dual NOR (4 Eingänge)", model: "nor4", inputs: 4, inv: true, desc: "4002" },
-  { id: "cmos_4025", name: "CD4025 Triple NOR (3 Eingänge)", model: "nor3", inputs: 3, inv: true, desc: "4025" },
-  { id: "cmos_4071", name: "CD4071 Quad OR (2 Eingänge)", model: "or2", inputs: 2, inv: false, desc: "4071" },
-  { id: "cmos_4072", name: "CD4072 Dual OR (4 Eingänge)", model: "or4", inputs: 4, inv: false, desc: "4072" },
-  { id: "cmos_4075", name: "CD4075 Triple OR (3 Eingänge)", model: "or3", inputs: 3, inv: false, desc: "4075" },
-  { id: "cmos_4081", name: "CD4081 Quad AND (2 Eingänge)", model: "and2", inputs: 2, inv: false, desc: "4081" },
-  { id: "cmos_4082", name: "CD4082 Dual AND (4 Eingänge)", model: "and4", inputs: 4, inv: false, desc: "4082" },
-  { id: "cmos_4073", name: "CD4073 Triple AND (3 Eingänge)", model: "and3", inputs: 3, inv: false, desc: "4073" },
-  { id: "cmos_4069", name: "CD4069 Hex Inverter", model: "not", inputs: 1, inv: true, desc: "4069" },
-  { id: "cmos_4049", name: "CD4049 Hex Inverter Buffer", model: "not", inputs: 1, inv: true, desc: "4049" },
-  { id: "cmos_4050", name: "CD4050 Hex Buffer", model: "buffer", inputs: 1, inv: false, desc: "4050" },
-  { id: "cmos_4070", name: "CD4070 Quad XOR", model: "xor2", inputs: 2, inv: false, desc: "4070" },
-  { id: "cmos_4077", name: "CD4077 Quad XNOR", model: "xnor2", inputs: 2, inv: true, desc: "4077" },
-  { id: "cmos_4030", name: "CD4030 Quad XOR (alt)", model: "xor2", inputs: 2, inv: false, desc: "4030" },
+const cmosGates: Array<{ id: string; name: string; model: string; inputs: number; inv: boolean; units: number; desc: string }> = [
+  { id: "cmos_4001", name: "CD4001 Quad NOR (2 Eingänge)", model: "nor2", inputs: 2, inv: true, units: 4, desc: "4001" },
+  { id: "cmos_4011", name: "CD4011 Quad NAND (2 Eingänge)", model: "nand2", inputs: 2, inv: true, units: 4, desc: "4011" },
+  { id: "cmos_4012", name: "CD4012 Dual NAND (4 Eingänge)", model: "nand4", inputs: 4, inv: true, units: 2, desc: "4012" },
+  { id: "cmos_4023", name: "CD4023 Triple NAND (3 Eingänge)", model: "nand3", inputs: 3, inv: true, units: 3, desc: "4023" },
+  { id: "cmos_4002", name: "CD4002 Dual NOR (4 Eingänge)", model: "nor4", inputs: 4, inv: true, units: 2, desc: "4002" },
+  { id: "cmos_4025", name: "CD4025 Triple NOR (3 Eingänge)", model: "nor3", inputs: 3, inv: true, units: 3, desc: "4025" },
+  { id: "cmos_4071", name: "CD4071 Quad OR (2 Eingänge)", model: "or2", inputs: 2, inv: false, units: 4, desc: "4071" },
+  { id: "cmos_4072", name: "CD4072 Dual OR (4 Eingänge)", model: "or4", inputs: 4, inv: false, units: 2, desc: "4072" },
+  { id: "cmos_4075", name: "CD4075 Triple OR (3 Eingänge)", model: "or3", inputs: 3, inv: false, units: 3, desc: "4075" },
+  { id: "cmos_4081", name: "CD4081 Quad AND (2 Eingänge)", model: "and2", inputs: 2, inv: false, units: 4, desc: "4081" },
+  { id: "cmos_4082", name: "CD4082 Dual AND (4 Eingänge)", model: "and4", inputs: 4, inv: false, units: 2, desc: "4082" },
+  { id: "cmos_4073", name: "CD4073 Triple AND (3 Eingänge)", model: "and3", inputs: 3, inv: false, units: 3, desc: "4073" },
+  { id: "cmos_4069", name: "CD4069 Hex Inverter", model: "not", inputs: 1, inv: true, units: 6, desc: "4069" },
+  { id: "cmos_4049", name: "CD4049 Hex Inverter Buffer", model: "not", inputs: 1, inv: true, units: 6, desc: "4049" },
+  { id: "cmos_4050", name: "CD4050 Hex Buffer", model: "buffer", inputs: 1, inv: false, units: 6, desc: "4050" },
+  { id: "cmos_4070", name: "CD4070 Quad XOR", model: "xor2", inputs: 2, inv: false, units: 4, desc: "4070" },
+  { id: "cmos_4077", name: "CD4077 Quad XNOR", model: "xnor2", inputs: 2, inv: true, units: 4, desc: "4077" },
+  { id: "cmos_4030", name: "CD4030 Quad XOR (alt)", model: "xor2", inputs: 2, inv: false, units: 4, desc: "4030" },
 ];
 
 for (const g of cmosGates) {
-  const h = Math.max(40, g.inputs * 20 + 20);
-  const pins: PinDef[] = [];
-  for (let k = 0; k < g.inputs; k++) pins.push({ name: String.fromCharCode(65 + k), x: -40, y: -((g.inputs - 1) * 10) + k * 20, electrical: "input" });
-  pins.push({ name: "Y", x: 40, y: 0, electrical: "output" });
-  const sym: SymbolPrim[] = [RECT(-26, -h / 2, 52, h, 3), TXT(0, 5, g.desc, 10)];
-  for (const pin of pins) {
-    if (pin.x < 0) sym.push(L(-40, pin.y, -26, pin.y));
-    else sym.push(L(g.inv ? 32 : 26, 0, 40, 0));
+  const size = g.inputs + 1;
+  const names: string[] = [];
+  for (let u = 1; u <= g.units; u++) {
+    for (let k = 0; k < g.inputs; k++) names.push(String.fromCharCode(65 + k) + u);
+    names.push("Y" + u);
   }
-  if (g.inv) sym.push(CIR(29, 0, 4));
+  const rows = Math.max(g.units * g.inputs, g.units);
+  const h = Math.max(80, rows * 14 + 30);
+  const w = 110;
+  const pins: PinDef[] = [];
+  let yi = 0, yo = 0;
+  for (const nm of names) {
+    if (nm[0] === "Y") { pins.push({ name: nm, x: w / 2 + 5, y: -h / 2 + 22 + yo * 14 }); yo++; }
+    else { pins.push({ name: nm, x: -w / 2 - 5, y: -h / 2 + 22 + yi * 14 }); yi++; }
+  }
   add({
     id: g.id,
     name: g.name,
@@ -1587,28 +1612,32 @@ for (const g of cmosGates) {
     mount: "both",
     footprint: "DIP-14 / SOIC-14",
     pins,
-    symbol: sym,
+    symbol: icSymbol(w, h, g.desc, pins),
     params: [
-      { key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 10 },
-      { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 5 },
+      { key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 },
+      { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 },
       { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 },
     ],
-    toDevices: (i, n) => [{ id: i.id, type: "GATE", nodes: n, model: g.model, params: { vdd: num(i, "vdd", 10), vth: num(i, "vth", 5), rout: num(i, "rout", 400) } }],
+    toDevices: (i, n) => {
+      const devs: Device[] = [];
+      for (let u = 0; u < g.units; u++)
+        devs.push({ id: i.id, type: "GATE", nodes: n.slice(u * size, (u + 1) * size), model: g.model, params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } });
+      return devs;
+    },
   });
 }
 
 // 4000 series complex
-const cmosComplex: Array<{ id: string; name: string; model: string; pins: string[]; desc: string; tags: string[] }> = [
-  { id: "cmos_4013", name: "CD4013 Dual D-Flip-Flop", model: "dff", pins: ["D1", "CLK1", "RST1", "SET1", "Q1", "/Q1", "D2", "CLK2", "RST2", "SET2", "Q2", "/Q2"], desc: "4013", tags: ["flipflop", "4013"] },
-  { id: "cmos_4017", name: "CD4017 Dekadenzähler", model: "counter10", pins: ["CLK", "RST", "EN", "Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "COUT"], desc: "4017", tags: ["zähler", "4017", "dekade"] },
-  { id: "cmos_4020", name: "CD4020 14-Bit Binärzähler", model: "counter14", pins: ["CLK", "RST", "Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10", "Q11", "Q12", "Q13"], desc: "4020", tags: ["zähler", "4020"] },
+const cmosComplex: Array<{ id: string; name: string; model: string; pins: string[]; desc: string; tags: string[]; analog?: number }> = [
+  { id: "cmos_4017", name: "CD4017 Dekadenzähler", model: "counter10dec", pins: ["CLK", "RST", "INH", "Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "COUT"], desc: "4017", tags: ["zähler", "4017", "dekade"] },
+  { id: "cmos_4020", name: "CD4020 14-Bit Binärzähler", model: "counter4020", pins: ["CLK", "RST", "Q0", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10", "Q11", "Q12", "Q13"], desc: "4020", tags: ["zähler", "4020"] },
   { id: "cmos_4040", name: "CD4040 12-Bit Binärzähler", model: "counter12", pins: ["CLK", "RST", "Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10", "Q11"], desc: "4040", tags: ["zähler", "4040"] },
-  { id: "cmos_4060", name: "CD4060 14-Bit Zähler + Oszillator", model: "counter14", pins: ["CLK", "RST", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10", "Q11", "Q12", "Q13"], desc: "4060", tags: ["zähler", "4060", "oszillator"] },
-  { id: "cmos_4511", name: "CD4511 BCD → 7-Segment", model: "bcd7seg", pins: ["A", "B", "C", "D", "LE", "/BI", "/LT", "a", "b", "c", "d", "e", "f", "g"], desc: "4511", tags: ["4511", "bcd", "7seg"] },
-  { id: "cmos_4028", name: "CD4028 BCD → Dezimal Decoder", model: "decoder38", pins: ["A", "B", "C", "D", "Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9"], desc: "4028", tags: ["4028", "decoder"] },
-  { id: "cmos_4051", name: "CD4051 8-Kanal Analog-MUX", model: "mux8", pins: ["I0", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "S0", "S1", "S2", "COM", "/EN"], desc: "4051", tags: ["mux", "4051", "analog"] },
-  { id: "cmos_4052", name: "CD4052 Dual 4-Kanal MUX", model: "mux4", pins: ["I0A", "I1A", "I2A", "I3A", "I0B", "I1B", "I2B", "I3B", "S0", "S1", "COMA", "COMB", "/EN"], desc: "4052", tags: ["mux", "4052"] },
-  { id: "cmos_4053", name: "CD4053 Triple 2-Kanal MUX", model: "mux2", pins: ["I0A", "I1A", "I0B", "I1B", "I0C", "I1C", "S0", "S1", "S2", "COMA", "COMB", "COMC", "/EN"], desc: "4053", tags: ["mux", "4053"] },
+  { id: "cmos_4060", name: "CD4060 14-Bit Zähler + Oszillator", model: "counter4060", pins: ["CLK", "RST", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q11", "Q12", "Q13"], desc: "4060", tags: ["zähler", "4060", "oszillator"] },
+  { id: "cmos_4511", name: "CD4511 BCD → 7-Segment", model: "bcd7seglatch", pins: ["A", "B", "C", "D", "LE", "/BI", "/LT", "a", "b", "c", "d", "e", "f", "g"], desc: "4511", tags: ["4511", "bcd", "7seg"] },
+  { id: "cmos_4028", name: "CD4028 BCD → Dezimal Decoder", model: "bcddec", pins: ["A", "B", "C", "D", "Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9"], desc: "4028", tags: ["4028", "decoder"] },
+  { id: "cmos_4051", name: "CD4051 8-Kanal Analog-MUX", model: "mux8", pins: ["I0", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "S0", "S1", "S2", "COM"], desc: "4051", tags: ["mux", "4051", "analog"], analog: 1 },
+  { id: "cmos_4052", name: "CD4052 Dual 4-Kanal MUX", model: "mux4dual", pins: ["I0A", "I1A", "I2A", "I3A", "I0B", "I1B", "I2B", "I3B", "S0", "S1", "COMA", "COMB", "/EN"], desc: "4052", tags: ["mux", "4052"] },
+  { id: "cmos_4053", name: "CD4053 Triple 2-Kanal MUX", model: "mux2triple", pins: ["I0A", "I1A", "I0B", "I1B", "I0C", "I1C", "S0", "S1", "S2", "COMA", "COMB", "COMC", "/EN"], desc: "4053", tags: ["mux", "4053"] },
   { id: "cmos_4066", name: "CD4066 Quad Analog-Schalter", model: "switch4", pins: ["I0", "O0", "C0", "I1", "O1", "C1", "I2", "O2", "C2", "I3", "O3", "C3"], desc: "4066", tags: ["4066", "schalter", "analog"] },
   { id: "cmos_4016", name: "CD4016 Quad Analog-Schalter", model: "switch4", pins: ["I0", "O0", "C0", "I1", "O1", "C1", "I2", "O2", "C2", "I3", "O3", "C3"], desc: "4016", tags: ["4016", "schalter"] },
 ];
@@ -1635,38 +1664,68 @@ for (const s of cmosComplex) {
     pins,
     symbol: icSymbol(w, h, s.desc, pins),
     params: [
-      { key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 10 },
-      { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 5 },
+      { key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 },
+      { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 },
       { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 },
     ],
-    toDevices: (i, n) => [{ id: i.id, type: "DIGITAL", nodes: n, model: s.model, params: { vdd: num(i, "vdd", 10), vth: num(i, "vth", 5), rout: num(i, "rout", 400) } }],
+    toDevices: (i, n) => [{ id: i.id, type: "DIGITAL", nodes: n, model: s.model, params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), ...(s.analog ? { analog: 1 } : {}) } }],
   });
 }
 
+const pins_cmos_4013: PinDef[] = [{ name: "D1", x: -60, y: -35 }, { name: "CLK1", x: -60, y: -21 }, { name: "/RST1", x: -60, y: -7 }, { name: "/SET1", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "/Q1", x: -60, y: 35 }, { name: "D2", x: 60, y: -35 }, { name: "CLK2", x: 60, y: -21 }, { name: "/RST2", x: 60, y: -7 }, { name: "/SET2", x: 60, y: 7 }, { name: "Q2", x: 60, y: 21 }, { name: "/Q2", x: 60, y: 35 }];
+add({
+  id: "cmos_4013",
+  name: "CD4013 Dual D-Flip-Flop",
+  ref: "U",
+  category: "Digitale Logik/4000 CMOS",
+  tags: ["cmos", "4000", "flipflop", "4013"],
+  mount: "both",
+  pins: pins_cmos_4013,
+  symbol: icSymbol(110, 114, "4013", pins_cmos_4013),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5]], model: "dffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[9], n[10], n[11]], model: "dffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
+});
+
 // Additional opamps / comparators
-const extraOpamps: Array<{ id: string; name: string; gain: number; gbw: number; slew: number }> = [
-  { id: "opamp_lm324", name: "LM324 Quad OPV", gain: 1e5, gbw: 1e6, slew: 0.5e6 },
-  { id: "opamp_tl072", name: "TL072 Dual JFET OPV", gain: 2e5, gbw: 3e6, slew: 13e6 },
-  { id: "opamp_op07", name: "OP07 Präzisions-OPV", gain: 5e5, gbw: 0.6e6, slew: 0.3e6 },
+const extraOpamps: Array<{ id: string; name: string; gain: number; gbw: number; slew: number; units: number; desc: string }> = [
+  { id: "opamp_lm324", name: "LM324 Quad OPV", gain: 1e5, gbw: 1e6, slew: 0.5e6, units: 4, desc: "LM324" },
+  { id: "opamp_tl072", name: "TL072 Dual JFET OPV", gain: 2e5, gbw: 3e6, slew: 13e6, units: 2, desc: "TL072" },
+  { id: "opamp_op07", name: "OP07 Präzisions-OPV", gain: 5e5, gbw: 0.6e6, slew: 0.3e6, units: 1, desc: "OP07" },
   // S4.1: Komparatoren bleiben statisch (slew = 0 → kein Slew-Param in der UI).
-  { id: "opamp_lm393_dual", name: "LM393 Dual Komparator", gain: 2e5, gbw: 1e6, slew: 0 },
-  { id: "opamp_lm339", name: "LM339 Quad Komparator", gain: 2e5, gbw: 1e6, slew: 0 },
+  { id: "opamp_lm393_dual", name: "LM393 Dual Komparator", gain: 2e5, gbw: 1e6, slew: 0, units: 2, desc: "LM393" },
+  { id: "opamp_lm339", name: "LM339 Quad Komparator", gain: 2e5, gbw: 1e6, slew: 0, units: 4, desc: "LM339" },
 ];
 
 for (const o of extraOpamps) {
+  const multi = o.units > 1;
+  const isComp = o.id.includes("393") || o.id.includes("339");
+  const names: string[] = [];
+  if (multi) {
+    for (let u = 1; u <= o.units; u++) names.push("IN" + u + "+", "IN" + u + "-", "OUT" + u);
+    names.push("V+", "V-");
+  }
+  const mh = Math.max(80, Math.max(o.units * 2 + 2, o.units) * 14 + 30);
+  const mpins: PinDef[] = [];
+  if (multi) {
+    let li = 0, ri = 0;
+    for (const nm of names) {
+      if (nm[0] === "O") { mpins.push({ name: nm, x: 60, y: -mh / 2 + 22 + ri * 14, electrical: "output" }); ri++; }
+      else { mpins.push({ name: nm, x: -60, y: -mh / 2 + 22 + li * 14, electrical: nm[0] === "V" ? "power_in" : "input" }); li++; }
+    }
+  }
   add({
     id: o.id,
     name: o.name,
     ref: "U",
-    category: o.id.includes("393") || o.id.includes("339") ? "Analoge ICs/Komparatoren" : "Analoge ICs/Operationsverstärker",
+    category: isComp ? "Analoge ICs/Komparatoren" : "Analoge ICs/Operationsverstärker",
     tags: ["opv", "opamp", o.id],
     mount: "both",
     footprint: "DIP-14 / SOIC-14",
-    pins: [
+    pins: multi ? mpins : [
       { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
       { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
     ],
-    symbol: [
+    symbol: multi ? icSymbol(110, mh, o.desc, mpins) : [
       { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] } as SymbolPrim,
       L(-40, -15, -30, -15), L(-40, 15, -30, 15), L(30, 0, 40, 0), L(0, -18, 0, -30), L(0, 18, 0, 30),
       TXT(-20, -11, "+", 11), TXT(-20, 19, "−", 11),
@@ -1681,10 +1740,16 @@ for (const o of extraOpamps) {
       { key: "vcc", label: "V+", unit: "V", type: "number", def: 15 },
       { key: "vee", label: "V-", unit: "V", type: "number", def: -15 },
     ],
-    toDevices: (i, n) => [{
-      id: i.id, type: o.id.includes("393") || o.id.includes("339") ? "COMPARATOR" : "OPAMP", nodes: [n[0], n[1], n[2], conn(n[3]), conn(n[4])],
-      params: { gain: num(i, "gain", o.gain), gbw: num(i, "gbw", o.gbw), slew: num(i, "slew", o.slew), rin: num(i, "rin", 2e6), rout: num(i, "rout", 75), vdrop: num(i, "vdrop", 1.2), vcc: num(i, "vcc", 15), vee: num(i, "vee", -15) },
-    }],
+    toDevices: (i, n): Device[] => {
+      const prm = { gain: num(i, "gain", o.gain), gbw: num(i, "gbw", o.gbw), slew: num(i, "slew", o.slew), rin: num(i, "rin", 2e6), rout: num(i, "rout", 75), vdrop: num(i, "vdrop", 1.2), vcc: num(i, "vcc", 15), vee: num(i, "vee", -15) };
+      const typ: "COMPARATOR" | "OPAMP" = isComp ? "COMPARATOR" : "OPAMP";
+      if (!multi) return [{ id: i.id, type: typ, nodes: [n[0], n[1], n[2], conn(n[3]), conn(n[4])], params: prm }];
+      const devs: Device[] = [];
+      const sufx = ["A", "B", "C", "D"];
+      for (let u = 0; u < o.units; u++)
+        devs.push({ id: i.id + ":" + sufx[u], type: typ, nodes: [n[3 * u], n[3 * u + 1], n[3 * u + 2], conn(n[3 * o.units]), conn(n[3 * o.units + 1])], params: prm });
+      return devs;
+    },
   });
 }
 
@@ -1723,12 +1788,12 @@ for (const m of extraMos) {
 }
 
 // Additional 74xx – expand with 74HC series
-const extra74: Array<{ id: string; name: string; model: string; pins: string[] }> = [
-  { id: "ic_74hc00", name: "74HC00 Quad NAND", model: "nand2", pins: ["A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"] },
-  { id: "ic_74hc04", name: "74HC04 Hex Inverter", model: "not", pins: ["A1", "Y1", "A2", "Y2", "A3", "Y3", "A4", "Y4", "A5", "Y5", "A6", "Y6"] },
-  { id: "ic_74hc08", name: "74HC08 Quad AND", model: "and2", pins: ["A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"] },
-  { id: "ic_74hc32", name: "74HC32 Quad OR", model: "or2", pins: ["A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"] },
-  { id: "ic_74hc86", name: "74HC86 Quad XOR", model: "xor2", pins: ["A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"] },
+const extra74: Array<{ id: string; name: string; model: string; inputs: number; pins: string[] }> = [
+  { id: "ic_74hc00", name: "74HC00 Quad NAND", model: "nand2", inputs: 2, pins: ["A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"] },
+  { id: "ic_74hc04", name: "74HC04 Hex Inverter", model: "not", inputs: 1, pins: ["A1", "Y1", "A2", "Y2", "A3", "Y3", "A4", "Y4", "A5", "Y5", "A6", "Y6"] },
+  { id: "ic_74hc08", name: "74HC08 Quad AND", model: "and2", inputs: 2, pins: ["A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"] },
+  { id: "ic_74hc32", name: "74HC32 Quad OR", model: "or2", inputs: 2, pins: ["A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"] },
+  { id: "ic_74hc86", name: "74HC86 Quad XOR", model: "xor2", inputs: 2, pins: ["A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"] },
 ];
 
 for (const ic of extra74) {
@@ -1755,7 +1820,13 @@ for (const ic of extra74) {
       { key: "vth", label: "VTH", unit: "V", type: "number", def: 2.5 },
       { key: "rout", label: "ROUT", unit: "Ω", type: "number", def: 50 },
     ],
-    toDevices: (i, n) => [{ id: i.id, type: "DIGITAL", nodes: n, model: ic.model, params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
+    toDevices: (i, n) => {
+      const devs: Device[] = [];
+      const size = ic.inputs + 1;
+      for (let u = 0; u < ic.pins.length / size; u++)
+        devs.push({ id: i.id, type: "DIGITAL", nodes: n.slice(u * size, (u + 1) * size), model: ic.model, params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } });
+      return devs;
+    },
   });
 }
 
@@ -3059,6 +3130,7 @@ add({
 });
 
 
+const pins_opamp_tl074: PinDef[] = [{ name: "IN1+", x: -60, y: -63 }, { name: "IN1-", x: -60, y: -49 }, { name: "OUT1", x: 60, y: -63 }, { name: "IN2+", x: -60, y: -35 }, { name: "IN2-", x: -60, y: -21 }, { name: "OUT2", x: 60, y: -49 }, { name: "IN3+", x: -60, y: -7 }, { name: "IN3-", x: -60, y: 7 }, { name: "OUT3", x: 60, y: -35 }, { name: "IN4+", x: -60, y: 21 }, { name: "IN4-", x: -60, y: 35 }, { name: "OUT4", x: 60, y: -21 }, { name: "V+", x: -60, y: 49 }, { name: "V-", x: -60, y: 63 }];
 add({
   id: "opamp_tl074",
   name: "TL074 Quad Low Noise",
@@ -3066,21 +3138,14 @@ add({
   category: "Analoge ICs/Operationsverstärker",
   tags: ["opamp","opamp_tl074"],
   mount: "both",
-  pins: [
-    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
-    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
-  ],
-  symbol: [
-    { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
-    L(-40, -15, -30, -15), L(-40, 15, -30, 15), L(30, 0, 40, 0), L(0, -18, 0, -30), L(0, 18, 0, 30),
-    TXT(-20, -11, "+", 11), TXT(-20, 19, "−", 11),
-  ],
+  pins: pins_opamp_tl074,
+  symbol: icSymbol(110, 170, "TL074", pins_opamp_tl074),
   params: [
     { key: "gain", label: "Gain", type: "number", def: 200000.0 },
     { key: "gbw", label: "GBW", unit: "Hz", type: "number", def: 3000000.0 },
     { key: "slew", label: "Slew-Rate", unit: "V/s", type: "number", def: 13000000.0 },
   ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id + ":A", type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[12]),conn(n[13])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }, { id: i.id + ":B", type: "OPAMP", nodes: [n[3],n[4],n[5],conn(n[12]),conn(n[13])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }, { id: i.id + ":C", type: "OPAMP", nodes: [n[6],n[7],n[8],conn(n[12]),conn(n[13])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }, { id: i.id + ":D", type: "OPAMP", nodes: [n[9],n[10],n[11],conn(n[12]),conn(n[13])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
 });
 
 
@@ -3220,6 +3285,7 @@ add({
 });
 
 
+const pins_comp_lm339: PinDef[] = [{ name: "IN1+", x: -60, y: -63 }, { name: "IN1-", x: -60, y: -49 }, { name: "OUT1", x: 60, y: -63 }, { name: "IN2+", x: -60, y: -35 }, { name: "IN2-", x: -60, y: -21 }, { name: "OUT2", x: 60, y: -49 }, { name: "IN3+", x: -60, y: -7 }, { name: "IN3-", x: -60, y: 7 }, { name: "OUT3", x: 60, y: -35 }, { name: "IN4+", x: -60, y: 21 }, { name: "IN4-", x: -60, y: 35 }, { name: "OUT4", x: 60, y: -21 }, { name: "V+", x: -60, y: 49 }, { name: "GND", x: -60, y: 63 }];
 add({
   id: "comp_lm339",
   name: "LM339 Quad Komparator",
@@ -3227,16 +3293,10 @@ add({
   category: "Analoge ICs/Komparatoren",
   tags: ["komparator","comp_lm339"],
   mount: "both",
-  pins: [
-    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
-    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "GND", x: 0, y: 30, electrical: "power_in" },
-  ],
-  symbol: [
-    { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
-    L(-40, -15, -30, -15), L(-40, 15, -30, 15), L(30, 0, 40, 0), L(0, -18, 0, -30), L(0, 18, 0, 30), TXT(-14, 4, "CMP", 8),
-  ],
+  pins: pins_comp_lm339,
+  symbol: icSymbol(110, 170, "LM339", pins_comp_lm339),
   params: [{ key: "gain", label: "Gain", type: "number", def: 200000.0 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "COMPARATOR", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), rout: 100, vcc: 5, vee: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id + ":A", type: "COMPARATOR", nodes: [n[0],n[1],n[2],conn(n[12]),conn(n[13])], params: { gain: num(i,"gain",200000.0), rout: 100, vcc: 5, vee: 0 } }, { id: i.id + ":B", type: "COMPARATOR", nodes: [n[3],n[4],n[5],conn(n[12]),conn(n[13])], params: { gain: num(i,"gain",200000.0), rout: 100, vcc: 5, vee: 0 } }, { id: i.id + ":C", type: "COMPARATOR", nodes: [n[6],n[7],n[8],conn(n[12]),conn(n[13])], params: { gain: num(i,"gain",200000.0), rout: 100, vcc: 5, vee: 0 } }, { id: i.id + ":D", type: "COMPARATOR", nodes: [n[9],n[10],n[11],conn(n[12]),conn(n[13])], params: { gain: num(i,"gain",200000.0), rout: 100, vcc: 5, vee: 0 } }],
 });
 
 
@@ -3416,1251 +3476,1079 @@ add({
 
 add({
   id: "ic_747400",
-  name: "747400 Quad NAND 2-In",
+  name: "7400 NAND 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7400", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7400",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls7400",
-  name: "74LS7400 Quad NAND 2-In",
+  name: "7400 NAND 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7400", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7400",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc7400",
-  name: "74HC7400 Quad NAND 2-In",
+  name: "7400 NAND 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7400", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7400",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct7400",
-  name: "74HCT7400 Quad NAND 2-In",
+  name: "7400 NAND 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7400", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7400",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_747401",
-  name: "747401 Quad NAND 2-In OC",
+  name: "7401 NAND 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7401", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7401",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls7401",
-  name: "74LS7401 Quad NAND 2-In OC",
+  name: "7401 NAND 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7401", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7401",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc7401",
-  name: "74HC7401 Quad NAND 2-In OC",
+  name: "7401 NAND 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7401", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7401",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct7401",
-  name: "74HCT7401 Quad NAND 2-In OC",
+  name: "7401 NAND 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7401", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7401",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_747402",
-  name: "747402 Quad NOR 2-In",
+  name: "7402 NOR 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7402", "nor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7402",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls7402",
-  name: "74LS7402 Quad NOR 2-In",
+  name: "7402 NOR 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7402", "nor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7402",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc7402",
-  name: "74HC7402 Quad NOR 2-In",
+  name: "7402 NOR 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7402", "nor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7402",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct7402",
-  name: "74HCT7402 Quad NOR 2-In",
+  name: "7402 NOR 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7402", "nor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7402",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_747403",
-  name: "747403 Quad NAND 2-In OC",
+  name: "7403 NAND 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7403", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7403",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls7403",
-  name: "74LS7403 Quad NAND 2-In OC",
+  name: "7403 NAND 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7403", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7403",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc7403",
-  name: "74HC7403 Quad NAND 2-In OC",
+  name: "7403 NAND 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7403", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7403",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct7403",
-  name: "74HCT7403 Quad NAND 2-In OC",
+  name: "7403 NAND 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7403", "nand2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7403",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_747404: PinDef[] = [{ name: "A", x: -40, y: -7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_747404",
-  name: "747404 Hex Inverter",
+  name: "7404 Inverter (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7404", "not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7404",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "not", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_747404,
+  symbol: [RECT(-32,-24,64,48,3), TXT(0,5,"7404",10), L(-40,-7,-32,-7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74ls7404: PinDef[] = [{ name: "A", x: -40, y: -7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74ls7404",
-  name: "74LS7404 Hex Inverter",
+  name: "7404 Inverter (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7404", "not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7404",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "not", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74ls7404,
+  symbol: [RECT(-32,-24,64,48,3), TXT(0,5,"7404",10), L(-40,-7,-32,-7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74hc7404: PinDef[] = [{ name: "A", x: -40, y: -7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hc7404",
-  name: "74HC7404 Hex Inverter",
+  name: "7404 Inverter (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7404", "not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7404",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "not", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hc7404,
+  symbol: [RECT(-32,-24,64,48,3), TXT(0,5,"7404",10), L(-40,-7,-32,-7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_74hct7404: PinDef[] = [{ name: "A", x: -40, y: -7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hct7404",
-  name: "74HCT7404 Hex Inverter",
+  name: "7404 Inverter (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7404", "not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7404",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "not", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hct7404,
+  symbol: [RECT(-32,-24,64,48,3), TXT(0,5,"7404",10), L(-40,-7,-32,-7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_747405: PinDef[] = [{ name: "A", x: -40, y: -7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_747405",
-  name: "747405 Hex Inverter OC",
+  name: "7405 Inverter (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7405", "not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7405",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "not", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_747405,
+  symbol: [RECT(-32,-24,64,48,3), TXT(0,5,"7405",10), L(-40,-7,-32,-7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74ls7405: PinDef[] = [{ name: "A", x: -40, y: -7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74ls7405",
-  name: "74LS7405 Hex Inverter OC",
+  name: "7405 Inverter (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7405", "not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7405",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "not", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74ls7405,
+  symbol: [RECT(-32,-24,64,48,3), TXT(0,5,"7405",10), L(-40,-7,-32,-7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74hc7405: PinDef[] = [{ name: "A", x: -40, y: -7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hc7405",
-  name: "74HC7405 Hex Inverter OC",
+  name: "7405 Inverter (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7405", "not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7405",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "not", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hc7405,
+  symbol: [RECT(-32,-24,64,48,3), TXT(0,5,"7405",10), L(-40,-7,-32,-7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_74hct7405: PinDef[] = [{ name: "A", x: -40, y: -7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hct7405",
-  name: "74HCT7405 Hex Inverter OC",
+  name: "7405 Inverter (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7405", "not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7405",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "not", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hct7405,
+  symbol: [RECT(-32,-24,64,48,3), TXT(0,5,"7405",10), L(-40,-7,-32,-7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_747408",
-  name: "747408 Quad AND 2-In",
+  name: "7408 AND 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7408", "and2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7408",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls7408",
-  name: "74LS7408 Quad AND 2-In",
+  name: "7408 AND 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7408", "and2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7408",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc7408",
-  name: "74HC7408 Quad AND 2-In",
+  name: "7408 AND 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7408", "and2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7408",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct7408",
-  name: "74HCT7408 Quad AND 2-In",
+  name: "7408 AND 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7408", "and2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7408",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_747409",
-  name: "747409 Quad AND 2-In OC",
+  name: "7409 AND 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7409", "and2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7409",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls7409",
-  name: "74LS7409 Quad AND 2-In OC",
+  name: "7409 AND 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7409", "and2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7409",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc7409",
-  name: "74HC7409 Quad AND 2-In OC",
+  name: "7409 AND 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7409", "and2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7409",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct7409",
-  name: "74HCT7409 Quad AND 2-In OC",
+  name: "7409 AND 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7409", "and2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7409",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_747410: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_747410",
-  name: "747410 Triple NAND 3-In",
+  name: "7410 NAND 3 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7410", "nand3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7410",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_747410,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7410",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74ls7410: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74ls7410",
-  name: "74LS7410 Triple NAND 3-In",
+  name: "7410 NAND 3 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7410", "nand3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7410",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74ls7410,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7410",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74hc7410: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hc7410",
-  name: "74HC7410 Triple NAND 3-In",
+  name: "7410 NAND 3 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7410", "nand3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7410",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hc7410,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7410",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_74hct7410: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hct7410",
-  name: "74HCT7410 Triple NAND 3-In",
+  name: "7410 NAND 3 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7410", "nand3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7410",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hct7410,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7410",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_747411: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_747411",
-  name: "747411 Triple AND 3-In",
+  name: "7411 AND 3 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7411", "and3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7411",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_747411,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7411",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74ls7411: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74ls7411",
-  name: "74LS7411 Triple AND 3-In",
+  name: "7411 AND 3 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7411", "and3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7411",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74ls7411,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7411",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74hc7411: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hc7411",
-  name: "74HC7411 Triple AND 3-In",
+  name: "7411 AND 3 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7411", "and3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7411",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hc7411,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7411",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_74hct7411: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hct7411",
-  name: "74HCT7411 Triple AND 3-In",
+  name: "7411 AND 3 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7411", "and3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7411",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hct7411,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7411",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_747420: PinDef[] = [{ name: "A", x: -40, y: -28 }, { name: "B", x: -40, y: -14 }, { name: "C", x: -40, y: 0 }, { name: "D", x: -40, y: 14 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_747420",
-  name: "747420 Dual NAND 4-In",
+  name: "7420 NAND 4 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7420", "nand4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7420",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand4", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_747420,
+  symbol: [RECT(-32,-45,64,90,3), TXT(0,5,"7420",10), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74ls7420: PinDef[] = [{ name: "A", x: -40, y: -28 }, { name: "B", x: -40, y: -14 }, { name: "C", x: -40, y: 0 }, { name: "D", x: -40, y: 14 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74ls7420",
-  name: "74LS7420 Dual NAND 4-In",
+  name: "7420 NAND 4 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7420", "nand4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7420",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand4", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74ls7420,
+  symbol: [RECT(-32,-45,64,90,3), TXT(0,5,"7420",10), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74hc7420: PinDef[] = [{ name: "A", x: -40, y: -28 }, { name: "B", x: -40, y: -14 }, { name: "C", x: -40, y: 0 }, { name: "D", x: -40, y: 14 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hc7420",
-  name: "74HC7420 Dual NAND 4-In",
+  name: "7420 NAND 4 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7420", "nand4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7420",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand4", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hc7420,
+  symbol: [RECT(-32,-45,64,90,3), TXT(0,5,"7420",10), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_74hct7420: PinDef[] = [{ name: "A", x: -40, y: -28 }, { name: "B", x: -40, y: -14 }, { name: "C", x: -40, y: 0 }, { name: "D", x: -40, y: 14 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hct7420",
-  name: "74HCT7420 Dual NAND 4-In",
+  name: "7420 NAND 4 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7420", "nand4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7420",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand4", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hct7420,
+  symbol: [RECT(-32,-45,64,90,3), TXT(0,5,"7420",10), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_747421: PinDef[] = [{ name: "A", x: -40, y: -28 }, { name: "B", x: -40, y: -14 }, { name: "C", x: -40, y: 0 }, { name: "D", x: -40, y: 14 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_747421",
-  name: "747421 Dual AND 4-In",
+  name: "7421 AND 4 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7421", "and4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7421",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and4", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_747421,
+  symbol: [RECT(-32,-45,64,90,3), TXT(0,5,"7421",10), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(32,-7,40,-7)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74ls7421: PinDef[] = [{ name: "A", x: -40, y: -28 }, { name: "B", x: -40, y: -14 }, { name: "C", x: -40, y: 0 }, { name: "D", x: -40, y: 14 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74ls7421",
-  name: "74LS7421 Dual AND 4-In",
+  name: "7421 AND 4 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7421", "and4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7421",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and4", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74ls7421,
+  symbol: [RECT(-32,-45,64,90,3), TXT(0,5,"7421",10), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(32,-7,40,-7)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74hc7421: PinDef[] = [{ name: "A", x: -40, y: -28 }, { name: "B", x: -40, y: -14 }, { name: "C", x: -40, y: 0 }, { name: "D", x: -40, y: 14 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hc7421",
-  name: "74HC7421 Dual AND 4-In",
+  name: "7421 AND 4 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7421", "and4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7421",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and4", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hc7421,
+  symbol: [RECT(-32,-45,64,90,3), TXT(0,5,"7421",10), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(32,-7,40,-7)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_74hct7421: PinDef[] = [{ name: "A", x: -40, y: -28 }, { name: "B", x: -40, y: -14 }, { name: "C", x: -40, y: 0 }, { name: "D", x: -40, y: 14 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hct7421",
-  name: "74HCT7421 Dual AND 4-In",
+  name: "7421 AND 4 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7421", "and4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7421",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "and4", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hct7421,
+  symbol: [RECT(-32,-45,64,90,3), TXT(0,5,"7421",10), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(32,-7,40,-7)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "and4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_747427: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_747427",
-  name: "747427 Triple NOR 3-In",
+  name: "7427 NOR 3 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7427", "nor3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7427",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nor3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_747427,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7427",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74ls7427: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74ls7427",
-  name: "74LS7427 Triple NOR 3-In",
+  name: "7427 NOR 3 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7427", "nor3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7427",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nor3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74ls7427,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7427",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74hc7427: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hc7427",
-  name: "74HC7427 Triple NOR 3-In",
+  name: "7427 NOR 3 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7427", "nor3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7427",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nor3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hc7427,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7427",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_74hct7427: PinDef[] = [{ name: "A", x: -40, y: -21 }, { name: "B", x: -40, y: -7 }, { name: "C", x: -40, y: 7 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hct7427",
-  name: "74HCT7427 Triple NOR 3-In",
+  name: "7427 NOR 3 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7427", "nor3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7427",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nor3", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hct7427,
+  symbol: [RECT(-32,-38,64,76,3), TXT(0,5,"7427",10), L(-40,-21,-32,-21), L(-40,-7,-32,-7), L(-40,7,-32,7), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_747430: PinDef[] = [{ name: "A", x: -40, y: -56 }, { name: "B", x: -40, y: -42 }, { name: "C", x: -40, y: -28 }, { name: "D", x: -40, y: -14 }, { name: "E", x: -40, y: 0 }, { name: "F", x: -40, y: 14 }, { name: "G", x: -40, y: 28 }, { name: "H", x: -40, y: 42 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_747430",
-  name: "747430 8-Input NAND",
+  name: "7430 NAND 8 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7430", "nand8"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7430",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand8", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_747430,
+  symbol: [RECT(-32,-73,64,146,3), TXT(0,5,"7430",10), L(-40,-56,-32,-56), L(-40,-42,-32,-42), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(-40,28,-32,28), L(-40,42,-32,42), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74ls7430: PinDef[] = [{ name: "A", x: -40, y: -56 }, { name: "B", x: -40, y: -42 }, { name: "C", x: -40, y: -28 }, { name: "D", x: -40, y: -14 }, { name: "E", x: -40, y: 0 }, { name: "F", x: -40, y: 14 }, { name: "G", x: -40, y: 28 }, { name: "H", x: -40, y: 42 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74ls7430",
-  name: "74LS7430 8-Input NAND",
+  name: "7430 NAND 8 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7430", "nand8"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7430",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand8", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74ls7430,
+  symbol: [RECT(-32,-73,64,146,3), TXT(0,5,"7430",10), L(-40,-56,-32,-56), L(-40,-42,-32,-42), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(-40,28,-32,28), L(-40,42,-32,42), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
+const pins_ic_74hc7430: PinDef[] = [{ name: "A", x: -40, y: -56 }, { name: "B", x: -40, y: -42 }, { name: "C", x: -40, y: -28 }, { name: "D", x: -40, y: -14 }, { name: "E", x: -40, y: 0 }, { name: "F", x: -40, y: 14 }, { name: "G", x: -40, y: 28 }, { name: "H", x: -40, y: 42 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hc7430",
-  name: "74HC7430 8-Input NAND",
+  name: "7430 NAND 8 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7430", "nand8"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7430",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand8", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hc7430,
+  symbol: [RECT(-32,-73,64,146,3), TXT(0,5,"7430",10), L(-40,-56,-32,-56), L(-40,-42,-32,-42), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(-40,28,-32,28), L(-40,42,-32,42), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_ic_74hct7430: PinDef[] = [{ name: "A", x: -40, y: -56 }, { name: "B", x: -40, y: -42 }, { name: "C", x: -40, y: -28 }, { name: "D", x: -40, y: -14 }, { name: "E", x: -40, y: 0 }, { name: "F", x: -40, y: 14 }, { name: "G", x: -40, y: 28 }, { name: "H", x: -40, y: 42 }, { name: "Y", x: 40, y: -7 }];
 add({
   id: "ic_74hct7430",
-  name: "74HCT7430 8-Input NAND",
+  name: "7430 NAND 8 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7430", "nand8"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7430",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "nand8", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  pins: pins_ic_74hct7430,
+  symbol: [RECT(-32,-73,64,146,3), TXT(0,5,"7430",10), L(-40,-56,-32,-56), L(-40,-42,-32,-42), L(-40,-28,-32,-28), L(-40,-14,-32,-14), L(-40,0,-32,0), L(-40,14,-32,14), L(-40,28,-32,28), L(-40,42,-32,42), L(32,-7,40,-7), CIR(35,-7,3)],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_747432",
-  name: "747432 Quad OR 2-In",
+  name: "7432 OR 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7432", "or2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7432",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "or2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "or2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls7432",
-  name: "74LS7432 Quad OR 2-In",
+  name: "7432 OR 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7432", "or2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7432",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "or2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "or2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc7432",
-  name: "74HC7432 Quad OR 2-In",
+  name: "7432 OR 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7432", "or2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7432",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "or2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "or2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct7432",
-  name: "74HCT7432 Quad OR 2-In",
+  name: "7432 OR 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7432", "or2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7432",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "or2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "or2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_747486",
-  name: "747486 Quad XOR 2-In",
+  name: "7486 XOR 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "7486", "xor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7486",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "xor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "xor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls7486",
-  name: "74LS7486 Quad XOR 2-In",
+  name: "7486 XOR 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "7486", "xor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7486",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "xor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "xor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc7486",
-  name: "74HC7486 Quad XOR 2-In",
+  name: "7486 XOR 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "7486", "xor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7486",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "xor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "xor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct7486",
-  name: "74HCT7486 Quad XOR 2-In",
+  name: "7486 XOR 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "7486", "xor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"7486",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "xor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "xor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_7474266",
-  name: "7474266 Quad XNOR 2-In OC",
+  name: "74266 XNOR 2 Eingänge (74)",
   ref: "U",
   category: "Digitale Logik/74/Gatter",
   tags: ["74", "74266", "xnor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"74266",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "xnor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "xnor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74ls74266",
-  name: "74LS74266 Quad XNOR 2-In OC",
+  name: "74266 XNOR 2 Eingänge (74LS)",
   ref: "U",
   category: "Digitale Logik/74LS/Gatter",
   tags: ["74ls", "74266", "xnor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"74266",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74LS", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "xnor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "xnor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
 add({
   id: "ic_74hc74266",
-  name: "74HC74266 Quad XNOR 2-In OC",
+  name: "74266 XNOR 2 Eingänge (74HC)",
   ref: "U",
   category: "Digitale Logik/74HC/Gatter",
   tags: ["74hc", "74266", "xnor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"74266",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HC", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "xnor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "xnor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
 add({
   id: "ic_74hct74266",
-  name: "74HCT74266 Quad XNOR 2-In OC",
+  name: "74266 XNOR 2 Eingänge (74HCT)",
   ref: "U",
   category: "Digitale Logik/74HCT/Gatter",
   tags: ["74hct", "74266", "xnor2"],
   mount: "both",
   pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
   symbol: [RECT(-26, -20, 52, 40, 3), TXT(0,5,"74266",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0) ,CIR(29,0,4)],
-  params: [
-    { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
-    { key: "family", label: "Familie", type: "select", def: "74HCT", options: [{ value: "74HC", label: "74HC" }, { value: "74LS", label: "74LS" }] },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "GATE", nodes: n, model: "xnor2", params: { vdd: 5, vth: 2.5, rout: 50 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "xnor2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_747442: PinDef[] = [{ name: "A", x: -60, y: -49 }, { name: "B", x: -60, y: -35 }, { name: "C", x: -60, y: -21 }, { name: "D", x: -60, y: -7 }, { name: "Q0", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "Q2", x: -60, y: 35 }, { name: "Q3", x: 60, y: -49 }, { name: "Q4", x: 60, y: -35 }, { name: "Q5", x: 60, y: -21 }, { name: "Q6", x: 60, y: -7 }, { name: "Q7", x: 60, y: 7 }, { name: "Q8", x: 60, y: 21 }, { name: "Q9", x: 60, y: 35 }];
+const pins_ic_747442: PinDef[] = [{ name: "A", x: -60, y: -42 }, { name: "B", x: -60, y: -28 }, { name: "C", x: -60, y: -14 }, { name: "D", x: -60, y: 0 }, { name: "Y0", x: -60, y: 14 }, { name: "Y1", x: -60, y: 28 }, { name: "Y2", x: -60, y: 42 }, { name: "Y3", x: 60, y: -42 }, { name: "Y4", x: 60, y: -28 }, { name: "Y5", x: 60, y: -14 }, { name: "Y6", x: 60, y: 0 }, { name: "Y7", x: 60, y: 14 }, { name: "Y8", x: 60, y: 28 }, { name: "Y9", x: 60, y: 42 }];
 add({
   id: "ic_747442",
   name: "7442 BCD zu Dezimal Decoder",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","7442","decoder38"],
+  tags: ["74","7442","bcddec"],
   mount: "both",
   pins: pins_ic_747442,
-  symbol: icSymbol(110, 142, "7442", pins_ic_747442),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7442", pins_ic_747442),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcddec", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100), low: 1 } }],
 });
 
 
-const pins_ic_74hc7442: PinDef[] = [{ name: "A", x: -60, y: -49 }, { name: "B", x: -60, y: -35 }, { name: "C", x: -60, y: -21 }, { name: "D", x: -60, y: -7 }, { name: "Q0", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "Q2", x: -60, y: 35 }, { name: "Q3", x: 60, y: -49 }, { name: "Q4", x: 60, y: -35 }, { name: "Q5", x: 60, y: -21 }, { name: "Q6", x: 60, y: -7 }, { name: "Q7", x: 60, y: 7 }, { name: "Q8", x: 60, y: 21 }, { name: "Q9", x: 60, y: 35 }];
+const pins_ic_74hc7442: PinDef[] = [{ name: "A", x: -60, y: -42 }, { name: "B", x: -60, y: -28 }, { name: "C", x: -60, y: -14 }, { name: "D", x: -60, y: 0 }, { name: "Y0", x: -60, y: 14 }, { name: "Y1", x: -60, y: 28 }, { name: "Y2", x: -60, y: 42 }, { name: "Y3", x: 60, y: -42 }, { name: "Y4", x: 60, y: -28 }, { name: "Y5", x: 60, y: -14 }, { name: "Y6", x: 60, y: 0 }, { name: "Y7", x: 60, y: 14 }, { name: "Y8", x: 60, y: 28 }, { name: "Y9", x: 60, y: 42 }];
 add({
   id: "ic_74hc7442",
   name: "7442 BCD zu Dezimal Decoder",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","7442","decoder38"],
+  tags: ["74hc","7442","bcddec"],
   mount: "both",
   pins: pins_ic_74hc7442,
-  symbol: icSymbol(110, 142, "7442", pins_ic_74hc7442),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7442", pins_ic_74hc7442),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcddec", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50), low: 1 } }],
 });
 
 
-const pins_ic_747447: PinDef[] = [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }];
+const pins_ic_747447: PinDef[] = [{ name: "A", x: -60, y: -42 }, { name: "B", x: -60, y: -28 }, { name: "C", x: -60, y: -14 }, { name: "D", x: -60, y: 0 }, { name: "LT", x: -60, y: 14 }, { name: "RBI", x: -60, y: 28 }, { name: "BI", x: -60, y: 42 }, { name: "a", x: 60, y: -42 }, { name: "b", x: 60, y: -28 }, { name: "c", x: 60, y: -14 }, { name: "d", x: 60, y: 0 }, { name: "e", x: 60, y: 14 }, { name: "f", x: 60, y: 28 }, { name: "g", x: 60, y: 42 }];
 add({
   id: "ic_747447",
   name: "7447 BCD zu 7-Segment",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","7447","bcd7seg"],
+  tags: ["74","7447","bcd7seglow"],
   mount: "both",
   pins: pins_ic_747447,
-  symbol: icSymbol(110, 118, "7447", pins_ic_747447),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7447", pins_ic_747447),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seglow", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc7447: PinDef[] = [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }];
+const pins_ic_74hc7447: PinDef[] = [{ name: "A", x: -60, y: -42 }, { name: "B", x: -60, y: -28 }, { name: "C", x: -60, y: -14 }, { name: "D", x: -60, y: 0 }, { name: "LT", x: -60, y: 14 }, { name: "RBI", x: -60, y: 28 }, { name: "BI", x: -60, y: 42 }, { name: "a", x: 60, y: -42 }, { name: "b", x: 60, y: -28 }, { name: "c", x: 60, y: -14 }, { name: "d", x: 60, y: 0 }, { name: "e", x: 60, y: 14 }, { name: "f", x: 60, y: 28 }, { name: "g", x: 60, y: 42 }];
 add({
   id: "ic_74hc7447",
   name: "7447 BCD zu 7-Segment",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","7447","bcd7seg"],
+  tags: ["74hc","7447","bcd7seglow"],
   mount: "both",
   pins: pins_ic_74hc7447,
-  symbol: icSymbol(110, 118, "7447", pins_ic_74hc7447),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7447", pins_ic_74hc7447),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seglow", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_747448: PinDef[] = [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }];
+const pins_ic_747448: PinDef[] = [{ name: "A", x: -60, y: -42 }, { name: "B", x: -60, y: -28 }, { name: "C", x: -60, y: -14 }, { name: "D", x: -60, y: 0 }, { name: "LT", x: -60, y: 14 }, { name: "RBI", x: -60, y: 28 }, { name: "BI", x: -60, y: 42 }, { name: "a", x: 60, y: -42 }, { name: "b", x: 60, y: -28 }, { name: "c", x: 60, y: -14 }, { name: "d", x: 60, y: 0 }, { name: "e", x: 60, y: 14 }, { name: "f", x: 60, y: 28 }, { name: "g", x: 60, y: 42 }];
 add({
   id: "ic_747448",
   name: "7448 BCD zu 7-Segment",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","7448","bcd7seg"],
+  tags: ["74","7448","bcd7seglow"],
   mount: "both",
   pins: pins_ic_747448,
-  symbol: icSymbol(110, 118, "7448", pins_ic_747448),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7448", pins_ic_747448),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seglow", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc7448: PinDef[] = [{ name: "A", x: -60, y: -37 }, { name: "B", x: -60, y: -23 }, { name: "C", x: -60, y: -9 }, { name: "D", x: -60, y: 5 }, { name: "a", x: -60, y: 19 }, { name: "b", x: 60, y: -37 }, { name: "c", x: 60, y: -23 }, { name: "d", x: 60, y: -9 }, { name: "e", x: 60, y: 5 }, { name: "f", x: 60, y: 19 }, { name: "g", x: 60, y: 33 }];
+const pins_ic_74hc7448: PinDef[] = [{ name: "A", x: -60, y: -42 }, { name: "B", x: -60, y: -28 }, { name: "C", x: -60, y: -14 }, { name: "D", x: -60, y: 0 }, { name: "LT", x: -60, y: 14 }, { name: "RBI", x: -60, y: 28 }, { name: "BI", x: -60, y: 42 }, { name: "a", x: 60, y: -42 }, { name: "b", x: 60, y: -28 }, { name: "c", x: 60, y: -14 }, { name: "d", x: 60, y: 0 }, { name: "e", x: 60, y: 14 }, { name: "f", x: 60, y: 28 }, { name: "g", x: 60, y: 42 }];
 add({
   id: "ic_74hc7448",
   name: "7448 BCD zu 7-Segment",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","7448","bcd7seg"],
+  tags: ["74hc","7448","bcd7seglow"],
   mount: "both",
   pins: pins_ic_74hc7448,
-  symbol: icSymbol(110, 118, "7448", pins_ic_74hc7448),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7448", pins_ic_74hc7448),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seglow", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474138: PinDef[] = [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "Y0", x: -60, y: 5 }, { name: "Y1", x: -60, y: 19 }, { name: "Y2", x: 60, y: -37 }, { name: "Y3", x: 60, y: -23 }, { name: "Y4", x: 60, y: -9 }, { name: "Y5", x: 60, y: 5 }, { name: "Y6", x: 60, y: 19 }, { name: "Y7", x: 60, y: 33 }];
+const pins_ic_7474138: PinDef[] = [{ name: "A0", x: -60, y: -35 }, { name: "A1", x: -60, y: -21 }, { name: "A2", x: -60, y: -7 }, { name: "Y0", x: -60, y: 7 }, { name: "Y1", x: -60, y: 21 }, { name: "Y2", x: 60, y: -35 }, { name: "Y3", x: 60, y: -21 }, { name: "Y4", x: 60, y: -7 }, { name: "Y5", x: 60, y: 7 }, { name: "Y6", x: 60, y: 21 }, { name: "Y7", x: 60, y: 35 }];
 add({
   id: "ic_7474138",
   name: "74138 3-zu-8 Decoder",
@@ -4669,13 +4557,13 @@ add({
   tags: ["74","74138","decoder38"],
   mount: "both",
   pins: pins_ic_7474138,
-  symbol: icSymbol(110, 118, "74138", pins_ic_7474138),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74138", pins_ic_7474138),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74138: PinDef[] = [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "Y0", x: -60, y: 5 }, { name: "Y1", x: -60, y: 19 }, { name: "Y2", x: 60, y: -37 }, { name: "Y3", x: 60, y: -23 }, { name: "Y4", x: 60, y: -9 }, { name: "Y5", x: 60, y: 5 }, { name: "Y6", x: 60, y: 19 }, { name: "Y7", x: 60, y: 33 }];
+const pins_ic_74hc74138: PinDef[] = [{ name: "A0", x: -60, y: -35 }, { name: "A1", x: -60, y: -21 }, { name: "A2", x: -60, y: -7 }, { name: "Y0", x: -60, y: 7 }, { name: "Y1", x: -60, y: 21 }, { name: "Y2", x: 60, y: -35 }, { name: "Y3", x: 60, y: -21 }, { name: "Y4", x: 60, y: -7 }, { name: "Y5", x: 60, y: 7 }, { name: "Y6", x: 60, y: 21 }, { name: "Y7", x: 60, y: 35 }];
 add({
   id: "ic_74hc74138",
   name: "74138 3-zu-8 Decoder",
@@ -4684,13 +4572,13 @@ add({
   tags: ["74hc","74138","decoder38"],
   mount: "both",
   pins: pins_ic_74hc74138,
-  symbol: icSymbol(110, 118, "74138", pins_ic_74hc74138),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74138", pins_ic_74hc74138),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder38", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474139: PinDef[] = [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "Y0", x: -60, y: 10 }, { name: "Y1", x: 60, y: -18 }, { name: "Y2", x: 60, y: -4 }, { name: "Y3", x: 60, y: 10 }];
+const pins_ic_7474139: PinDef[] = [{ name: "A0A", x: -60, y: -35 }, { name: "A1A", x: -60, y: -21 }, { name: "Y0A", x: -60, y: -7 }, { name: "Y1A", x: -60, y: 7 }, { name: "Y2A", x: -60, y: 21 }, { name: "Y3A", x: -60, y: 35 }, { name: "A0B", x: 60, y: -35 }, { name: "A1B", x: 60, y: -21 }, { name: "Y0B", x: 60, y: -7 }, { name: "Y1B", x: 60, y: 7 }, { name: "Y2B", x: 60, y: 21 }, { name: "Y3B", x: 60, y: 35 }];
 add({
   id: "ic_7474139",
   name: "74139 Dual 2-zu-4 Decoder",
@@ -4699,13 +4587,13 @@ add({
   tags: ["74","74139","decoder24"],
   mount: "both",
   pins: pins_ic_7474139,
-  symbol: icSymbol(110, 80, "74139", pins_ic_7474139),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder24", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74139", pins_ic_7474139),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5]], model: "decoder24", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[9], n[10], n[11]], model: "decoder24", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74139: PinDef[] = [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "Y0", x: -60, y: 10 }, { name: "Y1", x: 60, y: -18 }, { name: "Y2", x: 60, y: -4 }, { name: "Y3", x: 60, y: 10 }];
+const pins_ic_74hc74139: PinDef[] = [{ name: "A0A", x: -60, y: -35 }, { name: "A1A", x: -60, y: -21 }, { name: "Y0A", x: -60, y: -7 }, { name: "Y1A", x: -60, y: 7 }, { name: "Y2A", x: -60, y: 21 }, { name: "Y3A", x: -60, y: 35 }, { name: "A0B", x: 60, y: -35 }, { name: "A1B", x: 60, y: -21 }, { name: "Y0B", x: 60, y: -7 }, { name: "Y1B", x: 60, y: 7 }, { name: "Y2B", x: 60, y: 21 }, { name: "Y3B", x: 60, y: 35 }];
 add({
   id: "ic_74hc74139",
   name: "74139 Dual 2-zu-4 Decoder",
@@ -4714,13 +4602,13 @@ add({
   tags: ["74hc","74139","decoder24"],
   mount: "both",
   pins: pins_ic_74hc74139,
-  symbol: icSymbol(110, 80, "74139", pins_ic_74hc74139),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder24", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74139", pins_ic_74hc74139),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5]], model: "decoder24", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[9], n[10], n[11]], model: "decoder24", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474154: PinDef[] = [{ name: "A0", x: -60, y: -73 }, { name: "A1", x: -60, y: -59 }, { name: "A2", x: -60, y: -45 }, { name: "A3", x: -60, y: -31 }, { name: "Y0", x: -60, y: -17 }, { name: "Y1", x: -60, y: -3 }, { name: "Y2", x: -60, y: 11 }, { name: "Y3", x: -60, y: 25 }, { name: "Y4", x: -60, y: 39 }, { name: "Y5", x: -60, y: 53 }, { name: "Y6", x: 60, y: -73 }, { name: "Y7", x: 60, y: -59 }, { name: "Y8", x: 60, y: -45 }, { name: "Y9", x: 60, y: -31 }, { name: "Y10", x: 60, y: -17 }, { name: "Y11", x: 60, y: -3 }, { name: "Y12", x: 60, y: 11 }, { name: "Y13", x: 60, y: 25 }, { name: "Y14", x: 60, y: 39 }, { name: "Y15", x: 60, y: 53 }];
+const pins_ic_7474154: PinDef[] = [{ name: "A0", x: -60, y: -63 }, { name: "A1", x: -60, y: -49 }, { name: "A2", x: -60, y: -35 }, { name: "A3", x: -60, y: -21 }, { name: "Y0", x: -60, y: -7 }, { name: "Y1", x: -60, y: 7 }, { name: "Y2", x: -60, y: 21 }, { name: "Y3", x: -60, y: 35 }, { name: "Y4", x: -60, y: 49 }, { name: "Y5", x: -60, y: 63 }, { name: "Y6", x: 60, y: -63 }, { name: "Y7", x: 60, y: -49 }, { name: "Y8", x: 60, y: -35 }, { name: "Y9", x: 60, y: -21 }, { name: "Y10", x: 60, y: -7 }, { name: "Y11", x: 60, y: 7 }, { name: "Y12", x: 60, y: 21 }, { name: "Y13", x: 60, y: 35 }, { name: "Y14", x: 60, y: 49 }, { name: "Y15", x: 60, y: 63 }];
 add({
   id: "ic_7474154",
   name: "74154 4-zu-16 Decoder",
@@ -4729,13 +4617,13 @@ add({
   tags: ["74","74154","decoder416"],
   mount: "both",
   pins: pins_ic_7474154,
-  symbol: icSymbol(110, 190, "74154", pins_ic_7474154),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder416", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 170, "74154", pins_ic_7474154),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder416", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74154: PinDef[] = [{ name: "A0", x: -60, y: -73 }, { name: "A1", x: -60, y: -59 }, { name: "A2", x: -60, y: -45 }, { name: "A3", x: -60, y: -31 }, { name: "Y0", x: -60, y: -17 }, { name: "Y1", x: -60, y: -3 }, { name: "Y2", x: -60, y: 11 }, { name: "Y3", x: -60, y: 25 }, { name: "Y4", x: -60, y: 39 }, { name: "Y5", x: -60, y: 53 }, { name: "Y6", x: 60, y: -73 }, { name: "Y7", x: 60, y: -59 }, { name: "Y8", x: 60, y: -45 }, { name: "Y9", x: 60, y: -31 }, { name: "Y10", x: 60, y: -17 }, { name: "Y11", x: 60, y: -3 }, { name: "Y12", x: 60, y: 11 }, { name: "Y13", x: 60, y: 25 }, { name: "Y14", x: 60, y: 39 }, { name: "Y15", x: 60, y: 53 }];
+const pins_ic_74hc74154: PinDef[] = [{ name: "A0", x: -60, y: -63 }, { name: "A1", x: -60, y: -49 }, { name: "A2", x: -60, y: -35 }, { name: "A3", x: -60, y: -21 }, { name: "Y0", x: -60, y: -7 }, { name: "Y1", x: -60, y: 7 }, { name: "Y2", x: -60, y: 21 }, { name: "Y3", x: -60, y: 35 }, { name: "Y4", x: -60, y: 49 }, { name: "Y5", x: -60, y: 63 }, { name: "Y6", x: 60, y: -63 }, { name: "Y7", x: 60, y: -49 }, { name: "Y8", x: 60, y: -35 }, { name: "Y9", x: 60, y: -21 }, { name: "Y10", x: 60, y: -7 }, { name: "Y11", x: 60, y: 7 }, { name: "Y12", x: 60, y: 21 }, { name: "Y13", x: 60, y: 35 }, { name: "Y14", x: 60, y: 49 }, { name: "Y15", x: 60, y: 63 }];
 add({
   id: "ic_74hc74154",
   name: "74154 4-zu-16 Decoder",
@@ -4744,13 +4632,13 @@ add({
   tags: ["74hc","74154","decoder416"],
   mount: "both",
   pins: pins_ic_74hc74154,
-  symbol: icSymbol(110, 190, "74154", pins_ic_74hc74154),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder416", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 170, "74154", pins_ic_74hc74154),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder416", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474151: PinDef[] = [{ name: "I0", x: -60, y: -41 }, { name: "I1", x: -60, y: -27 }, { name: "I2", x: -60, y: -13 }, { name: "I3", x: -60, y: 1 }, { name: "I4", x: -60, y: 15 }, { name: "I5", x: -60, y: 29 }, { name: "I6", x: 60, y: -41 }, { name: "I7", x: 60, y: -27 }, { name: "S0", x: 60, y: -13 }, { name: "S1", x: 60, y: 1 }, { name: "S2", x: 60, y: 15 }, { name: "Y", x: 60, y: 29 }];
+const pins_ic_7474151: PinDef[] = [{ name: "I0", x: -60, y: -35 }, { name: "I1", x: -60, y: -21 }, { name: "I2", x: -60, y: -7 }, { name: "I3", x: -60, y: 7 }, { name: "I4", x: -60, y: 21 }, { name: "I5", x: -60, y: 35 }, { name: "I6", x: 60, y: -35 }, { name: "I7", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "S2", x: 60, y: 21 }, { name: "Y", x: 60, y: 35 }];
 add({
   id: "ic_7474151",
   name: "74151 8-zu-1 MUX",
@@ -4759,13 +4647,13 @@ add({
   tags: ["74","74151","mux8"],
   mount: "both",
   pins: pins_ic_7474151,
-  symbol: icSymbol(110, 126, "74151", pins_ic_7474151),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux8", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74151", pins_ic_7474151),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74151: PinDef[] = [{ name: "I0", x: -60, y: -41 }, { name: "I1", x: -60, y: -27 }, { name: "I2", x: -60, y: -13 }, { name: "I3", x: -60, y: 1 }, { name: "I4", x: -60, y: 15 }, { name: "I5", x: -60, y: 29 }, { name: "I6", x: 60, y: -41 }, { name: "I7", x: 60, y: -27 }, { name: "S0", x: 60, y: -13 }, { name: "S1", x: 60, y: 1 }, { name: "S2", x: 60, y: 15 }, { name: "Y", x: 60, y: 29 }];
+const pins_ic_74hc74151: PinDef[] = [{ name: "I0", x: -60, y: -35 }, { name: "I1", x: -60, y: -21 }, { name: "I2", x: -60, y: -7 }, { name: "I3", x: -60, y: 7 }, { name: "I4", x: -60, y: 21 }, { name: "I5", x: -60, y: 35 }, { name: "I6", x: 60, y: -35 }, { name: "I7", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "S2", x: 60, y: 21 }, { name: "Y", x: 60, y: 35 }];
 add({
   id: "ic_74hc74151",
   name: "74151 8-zu-1 MUX",
@@ -4774,13 +4662,13 @@ add({
   tags: ["74hc","74151","mux8"],
   mount: "both",
   pins: pins_ic_74hc74151,
-  symbol: icSymbol(110, 126, "74151", pins_ic_74hc74151),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux8", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74151", pins_ic_74hc74151),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474153: PinDef[] = [{ name: "I0", x: -60, y: -21 }, { name: "I1", x: -60, y: -7 }, { name: "I2", x: -60, y: 7 }, { name: "I3", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "Y", x: 60, y: 21 }];
+const pins_ic_7474153: PinDef[] = [{ name: "I0A", x: -60, y: -35 }, { name: "I1A", x: -60, y: -21 }, { name: "I2A", x: -60, y: -7 }, { name: "I3A", x: -60, y: 7 }, { name: "I0B", x: -60, y: 21 }, { name: "I1B", x: -60, y: 35 }, { name: "I2B", x: 60, y: -35 }, { name: "I3B", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "YA", x: 60, y: 21 }, { name: "YB", x: 60, y: 35 }];
 add({
   id: "ic_7474153",
   name: "74153 Dual 4-zu-1 MUX",
@@ -4789,13 +4677,13 @@ add({
   tags: ["74","74153","mux4"],
   mount: "both",
   pins: pins_ic_7474153,
-  symbol: icSymbol(110, 86, "74153", pins_ic_7474153),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux4", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74153", pins_ic_7474153),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[8], n[9], n[10]], model: "mux4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5], n[6], n[7], n[8], n[9], n[11]], model: "mux4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74153: PinDef[] = [{ name: "I0", x: -60, y: -21 }, { name: "I1", x: -60, y: -7 }, { name: "I2", x: -60, y: 7 }, { name: "I3", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "Y", x: 60, y: 21 }];
+const pins_ic_74hc74153: PinDef[] = [{ name: "I0A", x: -60, y: -35 }, { name: "I1A", x: -60, y: -21 }, { name: "I2A", x: -60, y: -7 }, { name: "I3A", x: -60, y: 7 }, { name: "I0B", x: -60, y: 21 }, { name: "I1B", x: -60, y: 35 }, { name: "I2B", x: 60, y: -35 }, { name: "I3B", x: 60, y: -21 }, { name: "S0", x: 60, y: -7 }, { name: "S1", x: 60, y: 7 }, { name: "YA", x: 60, y: 21 }, { name: "YB", x: 60, y: 35 }];
 add({
   id: "ic_74hc74153",
   name: "74153 Dual 4-zu-1 MUX",
@@ -4804,13 +4692,13 @@ add({
   tags: ["74hc","74153","mux4"],
   mount: "both",
   pins: pins_ic_74hc74153,
-  symbol: icSymbol(110, 86, "74153", pins_ic_74hc74153),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux4", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74153", pins_ic_74hc74153),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[8], n[9], n[10]], model: "mux4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5], n[6], n[7], n[8], n[9], n[11]], model: "mux4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474157: PinDef[] = [{ name: "I0", x: -60, y: -18 }, { name: "I1", x: -60, y: -4 }, { name: "S", x: 60, y: -18 }, { name: "Y", x: 60, y: -4 }];
+const pins_ic_7474157: PinDef[] = [{ name: "I0A", x: -60, y: -42 }, { name: "I1A", x: -60, y: -28 }, { name: "I0B", x: -60, y: -14 }, { name: "I1B", x: -60, y: 0 }, { name: "I0C", x: -60, y: 14 }, { name: "I1C", x: -60, y: 28 }, { name: "I0D", x: 60, y: -42 }, { name: "I1D", x: 60, y: -28 }, { name: "S", x: 60, y: -14 }, { name: "YA", x: 60, y: 0 }, { name: "YB", x: 60, y: 14 }, { name: "YC", x: 60, y: 28 }, { name: "YD", x: 60, y: 42 }];
 add({
   id: "ic_7474157",
   name: "74157 Quad 2-zu-1 MUX",
@@ -4819,13 +4707,13 @@ add({
   tags: ["74","74157","mux2"],
   mount: "both",
   pins: pins_ic_7474157,
-  symbol: icSymbol(110, 80, "74157", pins_ic_7474157),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux2", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "74157", pins_ic_7474157),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[8], n[9]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }, { id: i.id, type: "DIGITAL", nodes: [n[2], n[3], n[8], n[10]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5], n[8], n[11]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[12]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74157: PinDef[] = [{ name: "I0", x: -60, y: -18 }, { name: "I1", x: -60, y: -4 }, { name: "S", x: 60, y: -18 }, { name: "Y", x: 60, y: -4 }];
+const pins_ic_74hc74157: PinDef[] = [{ name: "I0A", x: -60, y: -42 }, { name: "I1A", x: -60, y: -28 }, { name: "I0B", x: -60, y: -14 }, { name: "I1B", x: -60, y: 0 }, { name: "I0C", x: -60, y: 14 }, { name: "I1C", x: -60, y: 28 }, { name: "I0D", x: 60, y: -42 }, { name: "I1D", x: 60, y: -28 }, { name: "S", x: 60, y: -14 }, { name: "YA", x: 60, y: 0 }, { name: "YB", x: 60, y: 14 }, { name: "YC", x: 60, y: 28 }, { name: "YD", x: 60, y: 42 }];
 add({
   id: "ic_74hc74157",
   name: "74157 Quad 2-zu-1 MUX",
@@ -4834,9 +4722,9 @@ add({
   tags: ["74hc","74157","mux2"],
   mount: "both",
   pins: pins_ic_74hc74157,
-  symbol: icSymbol(110, 80, "74157", pins_ic_74hc74157),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux2", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "74157", pins_ic_74hc74157),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[8], n[9]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }, { id: i.id, type: "DIGITAL", nodes: [n[2], n[3], n[8], n[10]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5], n[8], n[11]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[12]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
@@ -4850,8 +4738,8 @@ add({
   mount: "both",
   pins: pins_ic_7474160,
   symbol: icSymbol(110, 86, "74160", pins_ic_7474160),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: 5, vth: 2.5 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
@@ -4865,8 +4753,8 @@ add({
   mount: "both",
   pins: pins_ic_74hc74160,
   symbol: icSymbol(110, 86, "74160", pins_ic_74hc74160),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: 5, vth: 2.5 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
@@ -4880,8 +4768,8 @@ add({
   mount: "both",
   pins: pins_ic_7474161,
   symbol: icSymbol(110, 86, "74161", pins_ic_7474161),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 5, vth: 2.5 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
@@ -4895,8 +4783,8 @@ add({
   mount: "both",
   pins: pins_ic_74hc74161,
   symbol: icSymbol(110, 86, "74161", pins_ic_74hc74161),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 5, vth: 2.5 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
@@ -4910,8 +4798,8 @@ add({
   mount: "both",
   pins: pins_ic_7474162,
   symbol: icSymbol(110, 86, "74162", pins_ic_7474162),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: 5, vth: 2.5 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
@@ -4925,8 +4813,8 @@ add({
   mount: "both",
   pins: pins_ic_74hc74162,
   symbol: icSymbol(110, 86, "74162", pins_ic_74hc74162),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: 5, vth: 2.5 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter10", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
@@ -4940,8 +4828,8 @@ add({
   mount: "both",
   pins: pins_ic_7474163,
   symbol: icSymbol(110, 86, "74163", pins_ic_7474163),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 5, vth: 2.5 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
@@ -4955,311 +4843,312 @@ add({
   mount: "both",
   pins: pins_ic_74hc74163,
   symbol: icSymbol(110, 86, "74163", pins_ic_74hc74163),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 5, vth: 2.5 } }],
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474164: PinDef[] = [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }];
+const pins_ic_7474164: PinDef[] = [{ name: "A", x: -60, y: -35 }, { name: "B", x: -60, y: -21 }, { name: "CLK", x: -60, y: -7 }, { name: "/CLR", x: -60, y: 7 }, { name: "Q0", x: -60, y: 21 }, { name: "Q1", x: -60, y: 35 }, { name: "Q2", x: 60, y: -35 }, { name: "Q3", x: 60, y: -21 }, { name: "Q4", x: 60, y: -7 }, { name: "Q5", x: 60, y: 7 }, { name: "Q6", x: 60, y: 21 }, { name: "Q7", x: 60, y: 35 }];
 add({
   id: "ic_7474164",
   name: "74164 8-Bit Schieberegister",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","74164","shift8"],
+  tags: ["74","74164","shift8dual"],
   mount: "both",
   pins: pins_ic_7474164,
-  symbol: icSymbol(110, 118, "74164", pins_ic_7474164),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74164", pins_ic_7474164),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8dual", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74164: PinDef[] = [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }];
+const pins_ic_74hc74164: PinDef[] = [{ name: "A", x: -60, y: -35 }, { name: "B", x: -60, y: -21 }, { name: "CLK", x: -60, y: -7 }, { name: "/CLR", x: -60, y: 7 }, { name: "Q0", x: -60, y: 21 }, { name: "Q1", x: -60, y: 35 }, { name: "Q2", x: 60, y: -35 }, { name: "Q3", x: 60, y: -21 }, { name: "Q4", x: 60, y: -7 }, { name: "Q5", x: 60, y: 7 }, { name: "Q6", x: 60, y: 21 }, { name: "Q7", x: 60, y: 35 }];
 add({
   id: "ic_74hc74164",
   name: "74164 8-Bit Schieberegister",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","74164","shift8"],
+  tags: ["74hc","74164","shift8dual"],
   mount: "both",
   pins: pins_ic_74hc74164,
-  symbol: icSymbol(110, 118, "74164", pins_ic_74hc74164),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "74164", pins_ic_74hc74164),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8dual", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474165: PinDef[] = [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }];
+const pins_ic_7474165: PinDef[] = [{ name: "P0", x: -60, y: -42 }, { name: "P1", x: -60, y: -28 }, { name: "P2", x: -60, y: -14 }, { name: "P3", x: -60, y: 0 }, { name: "P4", x: -60, y: 14 }, { name: "P5", x: -60, y: 28 }, { name: "P6", x: 60, y: -42 }, { name: "P7", x: 60, y: -28 }, { name: "CLK", x: 60, y: -14 }, { name: "SHLD", x: 60, y: 0 }, { name: "SER", x: 60, y: 14 }, { name: "Q", x: 60, y: 28 }, { name: "/Q", x: 60, y: 42 }];
 add({
   id: "ic_7474165",
   name: "74165 8-Bit PISO Shift",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","74165","shift8"],
+  tags: ["74","74165","piso8"],
   mount: "both",
   pins: pins_ic_7474165,
-  symbol: icSymbol(110, 118, "74165", pins_ic_7474165),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "74165", pins_ic_7474165),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "piso8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74165: PinDef[] = [{ name: "CLK", x: -60, y: -37 }, { name: "DATA", x: -60, y: -23 }, { name: "RST", x: -60, y: -9 }, { name: "Q0", x: -60, y: 5 }, { name: "Q1", x: -60, y: 19 }, { name: "Q2", x: 60, y: -37 }, { name: "Q3", x: 60, y: -23 }, { name: "Q4", x: 60, y: -9 }, { name: "Q5", x: 60, y: 5 }, { name: "Q6", x: 60, y: 19 }, { name: "Q7", x: 60, y: 33 }];
+const pins_ic_74hc74165: PinDef[] = [{ name: "P0", x: -60, y: -42 }, { name: "P1", x: -60, y: -28 }, { name: "P2", x: -60, y: -14 }, { name: "P3", x: -60, y: 0 }, { name: "P4", x: -60, y: 14 }, { name: "P5", x: -60, y: 28 }, { name: "P6", x: 60, y: -42 }, { name: "P7", x: 60, y: -28 }, { name: "CLK", x: 60, y: -14 }, { name: "SHLD", x: 60, y: 0 }, { name: "SER", x: 60, y: 14 }, { name: "Q", x: 60, y: 28 }, { name: "/Q", x: 60, y: 42 }];
 add({
   id: "ic_74hc74165",
   name: "74165 8-Bit PISO Shift",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","74165","shift8"],
+  tags: ["74hc","74165","piso8"],
   mount: "both",
   pins: pins_ic_74hc74165,
-  symbol: icSymbol(110, 118, "74165", pins_ic_74hc74165),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "74165", pins_ic_74hc74165),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "piso8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_747474: PinDef[] = [{ name: "D1", x: -60, y: -41 }, { name: "CLK1", x: -60, y: -27 }, { name: "RST1", x: -60, y: -13 }, { name: "SET1", x: -60, y: 1 }, { name: "Q1", x: -60, y: 15 }, { name: "/Q1", x: -60, y: 29 }, { name: "D2", x: 60, y: -41 }, { name: "CLK2", x: 60, y: -27 }, { name: "RST2", x: 60, y: -13 }, { name: "SET2", x: 60, y: 1 }, { name: "Q2", x: 60, y: 15 }, { name: "/Q2", x: 60, y: 29 }];
+const pins_ic_747474: PinDef[] = [{ name: "D1", x: -60, y: -35 }, { name: "CLK1", x: -60, y: -21 }, { name: "/RST1", x: -60, y: -7 }, { name: "/SET1", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "/Q1", x: -60, y: 35 }, { name: "D2", x: 60, y: -35 }, { name: "CLK2", x: 60, y: -21 }, { name: "/RST2", x: 60, y: -7 }, { name: "/SET2", x: 60, y: 7 }, { name: "Q2", x: 60, y: 21 }, { name: "/Q2", x: 60, y: 35 }];
 add({
   id: "ic_747474",
   name: "7474 Dual D-FF",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","7474","dff"],
+  tags: ["74","7474","dffn"],
   mount: "both",
   pins: pins_ic_747474,
-  symbol: icSymbol(110, 126, "7474", pins_ic_747474),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dff", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "7474", pins_ic_747474),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5]], model: "dffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[9], n[10], n[11]], model: "dffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc7474: PinDef[] = [{ name: "D1", x: -60, y: -41 }, { name: "CLK1", x: -60, y: -27 }, { name: "RST1", x: -60, y: -13 }, { name: "SET1", x: -60, y: 1 }, { name: "Q1", x: -60, y: 15 }, { name: "/Q1", x: -60, y: 29 }, { name: "D2", x: 60, y: -41 }, { name: "CLK2", x: 60, y: -27 }, { name: "RST2", x: 60, y: -13 }, { name: "SET2", x: 60, y: 1 }, { name: "Q2", x: 60, y: 15 }, { name: "/Q2", x: 60, y: 29 }];
+const pins_ic_74hc7474: PinDef[] = [{ name: "D1", x: -60, y: -35 }, { name: "CLK1", x: -60, y: -21 }, { name: "/RST1", x: -60, y: -7 }, { name: "/SET1", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "/Q1", x: -60, y: 35 }, { name: "D2", x: 60, y: -35 }, { name: "CLK2", x: 60, y: -21 }, { name: "/RST2", x: 60, y: -7 }, { name: "/SET2", x: 60, y: 7 }, { name: "Q2", x: 60, y: 21 }, { name: "/Q2", x: 60, y: 35 }];
 add({
   id: "ic_74hc7474",
   name: "7474 Dual D-FF",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","7474","dff"],
+  tags: ["74hc","7474","dffn"],
   mount: "both",
   pins: pins_ic_74hc7474,
-  symbol: icSymbol(110, 126, "7474", pins_ic_74hc7474),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dff", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 114, "7474", pins_ic_74hc7474),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5]], model: "dffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[9], n[10], n[11]], model: "dffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_747476: PinDef[] = [{ name: "J1", x: -60, y: -18 }, { name: "K1", x: -60, y: -4 }, { name: "CLK1", x: -60, y: 10 }, { name: "RST1", x: 60, y: -18 }, { name: "Q1", x: 60, y: -4 }, { name: "/Q1", x: 60, y: 10 }];
+const pins_ic_747476: PinDef[] = [{ name: "J1", x: -60, y: -42 }, { name: "K1", x: -60, y: -28 }, { name: "CLK1", x: -60, y: -14 }, { name: "/RST1", x: -60, y: 0 }, { name: "/SET1", x: -60, y: 14 }, { name: "Q1", x: -60, y: 28 }, { name: "/Q1", x: -60, y: 42 }, { name: "J2", x: 60, y: -42 }, { name: "K2", x: 60, y: -28 }, { name: "CLK2", x: 60, y: -14 }, { name: "/RST2", x: 60, y: 0 }, { name: "/SET2", x: 60, y: 14 }, { name: "Q2", x: 60, y: 28 }, { name: "/Q2", x: 60, y: 42 }];
 add({
   id: "ic_747476",
   name: "7476 Dual JK-FF",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","7476","jkff"],
+  tags: ["74","7476","jkffn"],
   mount: "both",
   pins: pins_ic_747476,
-  symbol: icSymbol(110, 80, "7476", pins_ic_747476),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "jkff", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7476", pins_ic_747476),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5], n[6]], model: "jkffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }, { id: i.id, type: "DIGITAL", nodes: [n[7], n[8], n[9], n[10], n[11], n[12], n[13]], model: "jkffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc7476: PinDef[] = [{ name: "J1", x: -60, y: -18 }, { name: "K1", x: -60, y: -4 }, { name: "CLK1", x: -60, y: 10 }, { name: "RST1", x: 60, y: -18 }, { name: "Q1", x: 60, y: -4 }, { name: "/Q1", x: 60, y: 10 }];
+const pins_ic_74hc7476: PinDef[] = [{ name: "J1", x: -60, y: -42 }, { name: "K1", x: -60, y: -28 }, { name: "CLK1", x: -60, y: -14 }, { name: "/RST1", x: -60, y: 0 }, { name: "/SET1", x: -60, y: 14 }, { name: "Q1", x: -60, y: 28 }, { name: "/Q1", x: -60, y: 42 }, { name: "J2", x: 60, y: -42 }, { name: "K2", x: 60, y: -28 }, { name: "CLK2", x: 60, y: -14 }, { name: "/RST2", x: 60, y: 0 }, { name: "/SET2", x: 60, y: 14 }, { name: "Q2", x: 60, y: 28 }, { name: "/Q2", x: 60, y: 42 }];
 add({
   id: "ic_74hc7476",
   name: "7476 Dual JK-FF",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","7476","jkff"],
+  tags: ["74hc","7476","jkffn"],
   mount: "both",
   pins: pins_ic_74hc7476,
-  symbol: icSymbol(110, 80, "7476", pins_ic_74hc7476),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "jkff", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7476", pins_ic_74hc7476),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5], n[6]], model: "jkffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }, { id: i.id, type: "DIGITAL", nodes: [n[7], n[8], n[9], n[10], n[11], n[12], n[13]], model: "jkffn", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_747483: PinDef[] = [{ name: "A0", x: -60, y: -45 }, { name: "A1", x: -60, y: -31 }, { name: "A2", x: -60, y: -17 }, { name: "A3", x: -60, y: -3 }, { name: "B0", x: -60, y: 11 }, { name: "B1", x: -60, y: 25 }, { name: "B2", x: 60, y: -45 }, { name: "B3", x: 60, y: -31 }, { name: "F0", x: 60, y: -17 }, { name: "F1", x: 60, y: -3 }, { name: "F2", x: 60, y: 11 }, { name: "F3", x: 60, y: 25 }, { name: "COUT", x: 60, y: 39 }];
+const pins_ic_747483: PinDef[] = [{ name: "A0", x: -60, y: -42 }, { name: "A1", x: -60, y: -28 }, { name: "A2", x: -60, y: -14 }, { name: "A3", x: -60, y: 0 }, { name: "B0", x: -60, y: 14 }, { name: "B1", x: -60, y: 28 }, { name: "B2", x: -60, y: 42 }, { name: "B3", x: 60, y: -42 }, { name: "CIN", x: 60, y: -28 }, { name: "S0", x: 60, y: -14 }, { name: "S1", x: 60, y: 0 }, { name: "S2", x: 60, y: 14 }, { name: "S3", x: 60, y: 28 }, { name: "COUT", x: 60, y: 42 }];
 add({
   id: "ic_747483",
   name: "7483 4-Bit Addierer",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","7483","alu4"],
+  tags: ["74","7483","add4"],
   mount: "both",
   pins: pins_ic_747483,
-  symbol: icSymbol(110, 134, "7483", pins_ic_747483),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7483", pins_ic_747483),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "add4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc7483: PinDef[] = [{ name: "A0", x: -60, y: -45 }, { name: "A1", x: -60, y: -31 }, { name: "A2", x: -60, y: -17 }, { name: "A3", x: -60, y: -3 }, { name: "B0", x: -60, y: 11 }, { name: "B1", x: -60, y: 25 }, { name: "B2", x: 60, y: -45 }, { name: "B3", x: 60, y: -31 }, { name: "F0", x: 60, y: -17 }, { name: "F1", x: 60, y: -3 }, { name: "F2", x: 60, y: 11 }, { name: "F3", x: 60, y: 25 }, { name: "COUT", x: 60, y: 39 }];
+const pins_ic_74hc7483: PinDef[] = [{ name: "A0", x: -60, y: -42 }, { name: "A1", x: -60, y: -28 }, { name: "A2", x: -60, y: -14 }, { name: "A3", x: -60, y: 0 }, { name: "B0", x: -60, y: 14 }, { name: "B1", x: -60, y: 28 }, { name: "B2", x: -60, y: 42 }, { name: "B3", x: 60, y: -42 }, { name: "CIN", x: 60, y: -28 }, { name: "S0", x: 60, y: -14 }, { name: "S1", x: 60, y: 0 }, { name: "S2", x: 60, y: 14 }, { name: "S3", x: 60, y: 28 }, { name: "COUT", x: 60, y: 42 }];
 add({
   id: "ic_74hc7483",
   name: "7483 4-Bit Addierer",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","7483","alu4"],
+  tags: ["74hc","7483","add4"],
   mount: "both",
   pins: pins_ic_74hc7483,
-  symbol: icSymbol(110, 134, "7483", pins_ic_74hc7483),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7483", pins_ic_74hc7483),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "add4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_747485: PinDef[] = [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "A3", x: -60, y: 5 }, { name: "B0", x: -60, y: 19 }, { name: "B1", x: 60, y: -37 }, { name: "B2", x: 60, y: -23 }, { name: "B3", x: 60, y: -9 }, { name: "F0", x: 60, y: 5 }, { name: "F1", x: 60, y: 19 }, { name: "F2", x: 60, y: 33 }];
+const pins_ic_747485: PinDef[] = [{ name: "A0", x: -60, y: -42 }, { name: "A1", x: -60, y: -28 }, { name: "A2", x: -60, y: -14 }, { name: "A3", x: -60, y: 0 }, { name: "B0", x: -60, y: 14 }, { name: "B1", x: -60, y: 28 }, { name: "B2", x: -60, y: 42 }, { name: "B3", x: 60, y: -42 }, { name: "IAGTB", x: 60, y: -28 }, { name: "IAEQB", x: 60, y: -14 }, { name: "IALTB", x: 60, y: 0 }, { name: "OAGTB", x: 60, y: 14 }, { name: "OAEQB", x: 60, y: 28 }, { name: "OALTB", x: 60, y: 42 }];
 add({
   id: "ic_747485",
   name: "7485 4-Bit Komparator",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","7485","alu4"],
+  tags: ["74","7485","magcomp4"],
   mount: "both",
   pins: pins_ic_747485,
-  symbol: icSymbol(110, 118, "7485", pins_ic_747485),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7485", pins_ic_747485),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "magcomp4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc7485: PinDef[] = [{ name: "A0", x: -60, y: -37 }, { name: "A1", x: -60, y: -23 }, { name: "A2", x: -60, y: -9 }, { name: "A3", x: -60, y: 5 }, { name: "B0", x: -60, y: 19 }, { name: "B1", x: 60, y: -37 }, { name: "B2", x: 60, y: -23 }, { name: "B3", x: 60, y: -9 }, { name: "F0", x: 60, y: 5 }, { name: "F1", x: 60, y: 19 }, { name: "F2", x: 60, y: 33 }];
+const pins_ic_74hc7485: PinDef[] = [{ name: "A0", x: -60, y: -42 }, { name: "A1", x: -60, y: -28 }, { name: "A2", x: -60, y: -14 }, { name: "A3", x: -60, y: 0 }, { name: "B0", x: -60, y: 14 }, { name: "B1", x: -60, y: 28 }, { name: "B2", x: -60, y: 42 }, { name: "B3", x: 60, y: -42 }, { name: "IAGTB", x: 60, y: -28 }, { name: "IAEQB", x: 60, y: -14 }, { name: "IALTB", x: 60, y: 0 }, { name: "OAGTB", x: 60, y: 14 }, { name: "OAEQB", x: 60, y: 28 }, { name: "OALTB", x: 60, y: 42 }];
 add({
   id: "ic_74hc7485",
   name: "7485 4-Bit Komparator",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","7485","alu4"],
+  tags: ["74hc","7485","magcomp4"],
   mount: "both",
   pins: pins_ic_74hc7485,
-  symbol: icSymbol(110, 118, "7485", pins_ic_74hc7485),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 128, "7485", pins_ic_74hc7485),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "magcomp4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474273: PinDef[] = [{ name: "D0", x: -60, y: -65 }, { name: "D1", x: -60, y: -51 }, { name: "D2", x: -60, y: -37 }, { name: "D3", x: -60, y: -23 }, { name: "D4", x: -60, y: -9 }, { name: "D5", x: -60, y: 5 }, { name: "D6", x: -60, y: 19 }, { name: "D7", x: -60, y: 33 }, { name: "CLK", x: -60, y: 47 }, { name: "RST", x: 60, y: -65 }, { name: "Q0", x: 60, y: -51 }, { name: "Q1", x: 60, y: -37 }, { name: "Q2", x: 60, y: -23 }, { name: "Q3", x: 60, y: -9 }, { name: "Q4", x: 60, y: 5 }, { name: "Q5", x: 60, y: 19 }, { name: "Q6", x: 60, y: 33 }, { name: "Q7", x: 60, y: 47 }];
+const pins_ic_7474273: PinDef[] = [{ name: "D0", x: -60, y: -56 }, { name: "D1", x: -60, y: -42 }, { name: "D2", x: -60, y: -28 }, { name: "D3", x: -60, y: -14 }, { name: "D4", x: -60, y: 0 }, { name: "D5", x: -60, y: 14 }, { name: "D6", x: -60, y: 28 }, { name: "D7", x: -60, y: 42 }, { name: "CLK", x: -60, y: 56 }, { name: "/CLR", x: 60, y: -56 }, { name: "Q0", x: 60, y: -42 }, { name: "Q1", x: 60, y: -28 }, { name: "Q2", x: 60, y: -14 }, { name: "Q3", x: 60, y: 0 }, { name: "Q4", x: 60, y: 14 }, { name: "Q5", x: 60, y: 28 }, { name: "Q6", x: 60, y: 42 }, { name: "Q7", x: 60, y: 56 }];
 add({
   id: "ic_7474273",
   name: "74273 Octal D-FF",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","74273","dff"],
+  tags: ["74","74273","ff8"],
   mount: "both",
   pins: pins_ic_7474273,
-  symbol: icSymbol(110, 174, "74273", pins_ic_7474273),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dff", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 156, "74273", pins_ic_7474273),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "ff8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74273: PinDef[] = [{ name: "D0", x: -60, y: -65 }, { name: "D1", x: -60, y: -51 }, { name: "D2", x: -60, y: -37 }, { name: "D3", x: -60, y: -23 }, { name: "D4", x: -60, y: -9 }, { name: "D5", x: -60, y: 5 }, { name: "D6", x: -60, y: 19 }, { name: "D7", x: -60, y: 33 }, { name: "CLK", x: -60, y: 47 }, { name: "RST", x: 60, y: -65 }, { name: "Q0", x: 60, y: -51 }, { name: "Q1", x: 60, y: -37 }, { name: "Q2", x: 60, y: -23 }, { name: "Q3", x: 60, y: -9 }, { name: "Q4", x: 60, y: 5 }, { name: "Q5", x: 60, y: 19 }, { name: "Q6", x: 60, y: 33 }, { name: "Q7", x: 60, y: 47 }];
+const pins_ic_74hc74273: PinDef[] = [{ name: "D0", x: -60, y: -56 }, { name: "D1", x: -60, y: -42 }, { name: "D2", x: -60, y: -28 }, { name: "D3", x: -60, y: -14 }, { name: "D4", x: -60, y: 0 }, { name: "D5", x: -60, y: 14 }, { name: "D6", x: -60, y: 28 }, { name: "D7", x: -60, y: 42 }, { name: "CLK", x: -60, y: 56 }, { name: "/CLR", x: 60, y: -56 }, { name: "Q0", x: 60, y: -42 }, { name: "Q1", x: 60, y: -28 }, { name: "Q2", x: 60, y: -14 }, { name: "Q3", x: 60, y: 0 }, { name: "Q4", x: 60, y: 14 }, { name: "Q5", x: 60, y: 28 }, { name: "Q6", x: 60, y: 42 }, { name: "Q7", x: 60, y: 56 }];
 add({
   id: "ic_74hc74273",
   name: "74273 Octal D-FF",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","74273","dff"],
+  tags: ["74hc","74273","ff8"],
   mount: "both",
   pins: pins_ic_74hc74273,
-  symbol: icSymbol(110, 174, "74273", pins_ic_74hc74273),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dff", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 156, "74273", pins_ic_74hc74273),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "ff8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474373: PinDef[] = [{ name: "D0", x: -60, y: -61 }, { name: "D1", x: -60, y: -47 }, { name: "D2", x: -60, y: -33 }, { name: "D3", x: -60, y: -19 }, { name: "D4", x: -60, y: -5 }, { name: "D5", x: -60, y: 9 }, { name: "D6", x: -60, y: 23 }, { name: "D7", x: -60, y: 37 }, { name: "LE", x: 60, y: -61 }, { name: "Q0", x: 60, y: -47 }, { name: "Q1", x: 60, y: -33 }, { name: "Q2", x: 60, y: -19 }, { name: "Q3", x: 60, y: -5 }, { name: "Q4", x: 60, y: 9 }, { name: "Q5", x: 60, y: 23 }, { name: "Q6", x: 60, y: 37 }, { name: "Q7", x: 60, y: 51 }];
+const pins_ic_7474373: PinDef[] = [{ name: "D0", x: -60, y: -56 }, { name: "D1", x: -60, y: -42 }, { name: "D2", x: -60, y: -28 }, { name: "D3", x: -60, y: -14 }, { name: "D4", x: -60, y: 0 }, { name: "D5", x: -60, y: 14 }, { name: "D6", x: -60, y: 28 }, { name: "D7", x: -60, y: 42 }, { name: "LE", x: -60, y: 56 }, { name: "/OE", x: 60, y: -56 }, { name: "Q0", x: 60, y: -42 }, { name: "Q1", x: 60, y: -28 }, { name: "Q2", x: 60, y: -14 }, { name: "Q3", x: 60, y: 0 }, { name: "Q4", x: 60, y: 14 }, { name: "Q5", x: 60, y: 28 }, { name: "Q6", x: 60, y: 42 }, { name: "Q7", x: 60, y: 56 }];
 add({
   id: "ic_7474373",
   name: "74373 Octal Latch",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","74373","latch4"],
+  tags: ["74","74373","latch8"],
   mount: "both",
   pins: pins_ic_7474373,
-  symbol: icSymbol(110, 166, "74373", pins_ic_7474373),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch4", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 156, "74373", pins_ic_7474373),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74373: PinDef[] = [{ name: "D0", x: -60, y: -61 }, { name: "D1", x: -60, y: -47 }, { name: "D2", x: -60, y: -33 }, { name: "D3", x: -60, y: -19 }, { name: "D4", x: -60, y: -5 }, { name: "D5", x: -60, y: 9 }, { name: "D6", x: -60, y: 23 }, { name: "D7", x: -60, y: 37 }, { name: "LE", x: 60, y: -61 }, { name: "Q0", x: 60, y: -47 }, { name: "Q1", x: 60, y: -33 }, { name: "Q2", x: 60, y: -19 }, { name: "Q3", x: 60, y: -5 }, { name: "Q4", x: 60, y: 9 }, { name: "Q5", x: 60, y: 23 }, { name: "Q6", x: 60, y: 37 }, { name: "Q7", x: 60, y: 51 }];
+const pins_ic_74hc74373: PinDef[] = [{ name: "D0", x: -60, y: -56 }, { name: "D1", x: -60, y: -42 }, { name: "D2", x: -60, y: -28 }, { name: "D3", x: -60, y: -14 }, { name: "D4", x: -60, y: 0 }, { name: "D5", x: -60, y: 14 }, { name: "D6", x: -60, y: 28 }, { name: "D7", x: -60, y: 42 }, { name: "LE", x: -60, y: 56 }, { name: "/OE", x: 60, y: -56 }, { name: "Q0", x: 60, y: -42 }, { name: "Q1", x: 60, y: -28 }, { name: "Q2", x: 60, y: -14 }, { name: "Q3", x: 60, y: 0 }, { name: "Q4", x: 60, y: 14 }, { name: "Q5", x: 60, y: 28 }, { name: "Q6", x: 60, y: 42 }, { name: "Q7", x: 60, y: 56 }];
 add({
   id: "ic_74hc74373",
   name: "74373 Octal Latch",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","74373","latch4"],
+  tags: ["74hc","74373","latch8"],
   mount: "both",
   pins: pins_ic_74hc74373,
-  symbol: icSymbol(110, 166, "74373", pins_ic_74hc74373),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch4", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 156, "74373", pins_ic_74hc74373),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474244: PinDef[] = [{ name: "A0", x: -60, y: -25 }, { name: "A1", x: -60, y: -11 }, { name: "A2", x: -60, y: 3 }, { name: "A3", x: -60, y: 17 }, { name: "Y0", x: 60, y: -25 }, { name: "Y1", x: 60, y: -11 }, { name: "Y2", x: 60, y: 3 }, { name: "Y3", x: 60, y: 17 }];
+const pins_ic_7474244: PinDef[] = [{ name: "I0", x: -60, y: -56 }, { name: "I1", x: -60, y: -42 }, { name: "I2", x: -60, y: -28 }, { name: "I3", x: -60, y: -14 }, { name: "I4", x: -60, y: 0 }, { name: "I5", x: -60, y: 14 }, { name: "I6", x: -60, y: 28 }, { name: "I7", x: -60, y: 42 }, { name: "/OE1", x: -60, y: 56 }, { name: "/OE2", x: 60, y: -56 }, { name: "Y0", x: 60, y: -42 }, { name: "Y1", x: 60, y: -28 }, { name: "Y2", x: 60, y: -14 }, { name: "Y3", x: 60, y: 0 }, { name: "Y4", x: 60, y: 14 }, { name: "Y5", x: 60, y: 28 }, { name: "Y6", x: 60, y: 42 }, { name: "Y7", x: 60, y: 56 }];
 add({
   id: "ic_7474244",
   name: "74244 Octal Buffer",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","74244","buffer"],
+  tags: ["74","74244","buf8"],
   mount: "both",
   pins: pins_ic_7474244,
-  symbol: icSymbol(110, 94, "74244", pins_ic_7474244),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 156, "74244", pins_ic_7474244),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buf8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74244: PinDef[] = [{ name: "A0", x: -60, y: -25 }, { name: "A1", x: -60, y: -11 }, { name: "A2", x: -60, y: 3 }, { name: "A3", x: -60, y: 17 }, { name: "Y0", x: 60, y: -25 }, { name: "Y1", x: 60, y: -11 }, { name: "Y2", x: 60, y: 3 }, { name: "Y3", x: 60, y: 17 }];
+const pins_ic_74hc74244: PinDef[] = [{ name: "I0", x: -60, y: -56 }, { name: "I1", x: -60, y: -42 }, { name: "I2", x: -60, y: -28 }, { name: "I3", x: -60, y: -14 }, { name: "I4", x: -60, y: 0 }, { name: "I5", x: -60, y: 14 }, { name: "I6", x: -60, y: 28 }, { name: "I7", x: -60, y: 42 }, { name: "/OE1", x: -60, y: 56 }, { name: "/OE2", x: 60, y: -56 }, { name: "Y0", x: 60, y: -42 }, { name: "Y1", x: 60, y: -28 }, { name: "Y2", x: 60, y: -14 }, { name: "Y3", x: 60, y: 0 }, { name: "Y4", x: 60, y: 14 }, { name: "Y5", x: 60, y: 28 }, { name: "Y6", x: 60, y: 42 }, { name: "Y7", x: 60, y: 56 }];
 add({
   id: "ic_74hc74244",
   name: "74244 Octal Buffer",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","74244","buffer"],
+  tags: ["74hc","74244","buf8"],
   mount: "both",
   pins: pins_ic_74hc74244,
-  symbol: icSymbol(110, 94, "74244", pins_ic_74hc74244),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 156, "74244", pins_ic_74hc74244),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buf8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
-const pins_ic_7474245: PinDef[] = [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "B0", x: -60, y: 10 }, { name: "B1", x: 60, y: -18 }, { name: "DIR", x: 60, y: -4 }, { name: "/EN", x: 60, y: 10 }];
+const pins_ic_7474245: PinDef[] = [{ name: "A0", x: -60, y: -56 }, { name: "A1", x: -60, y: -42 }, { name: "A2", x: -60, y: -28 }, { name: "A3", x: -60, y: -14 }, { name: "A4", x: -60, y: 0 }, { name: "A5", x: -60, y: 14 }, { name: "A6", x: -60, y: 28 }, { name: "A7", x: -60, y: 42 }, { name: "B0", x: -60, y: 56 }, { name: "B1", x: 60, y: -56 }, { name: "B2", x: 60, y: -42 }, { name: "B3", x: 60, y: -28 }, { name: "B4", x: 60, y: -14 }, { name: "B5", x: 60, y: 0 }, { name: "B6", x: 60, y: 14 }, { name: "B7", x: 60, y: 28 }, { name: "DIR", x: 60, y: 42 }, { name: "/OE", x: 60, y: 56 }];
 add({
   id: "ic_7474245",
   name: "74245 Octal Bus Transceiver",
   ref: "U",
   category: "Digitale Logik/74",
-  tags: ["74","74245","buffer"],
+  tags: ["74","74245","transceiver8"],
   mount: "both",
   pins: pins_ic_7474245,
-  symbol: icSymbol(110, 80, "74245", pins_ic_7474245),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 156, "74245", pins_ic_7474245),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 1.4 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "transceiver8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 1.4), rout: num(i, "rout", 100) } }],
 });
 
 
-const pins_ic_74hc74245: PinDef[] = [{ name: "A0", x: -60, y: -18 }, { name: "A1", x: -60, y: -4 }, { name: "B0", x: -60, y: 10 }, { name: "B1", x: 60, y: -18 }, { name: "DIR", x: 60, y: -4 }, { name: "/EN", x: 60, y: 10 }];
+const pins_ic_74hc74245: PinDef[] = [{ name: "A0", x: -60, y: -56 }, { name: "A1", x: -60, y: -42 }, { name: "A2", x: -60, y: -28 }, { name: "A3", x: -60, y: -14 }, { name: "A4", x: -60, y: 0 }, { name: "A5", x: -60, y: 14 }, { name: "A6", x: -60, y: 28 }, { name: "A7", x: -60, y: 42 }, { name: "B0", x: -60, y: 56 }, { name: "B1", x: 60, y: -56 }, { name: "B2", x: 60, y: -42 }, { name: "B3", x: 60, y: -28 }, { name: "B4", x: 60, y: -14 }, { name: "B5", x: 60, y: 0 }, { name: "B6", x: 60, y: 14 }, { name: "B7", x: 60, y: 28 }, { name: "DIR", x: 60, y: 42 }, { name: "/OE", x: 60, y: 56 }];
 add({
   id: "ic_74hc74245",
   name: "74245 Octal Bus Transceiver",
   ref: "U",
   category: "Digitale Logik/74HC",
-  tags: ["74hc","74245","buffer"],
+  tags: ["74hc","74245","transceiver8"],
   mount: "both",
   pins: pins_ic_74hc74245,
-  symbol: icSymbol(110, 80, "74245", pins_ic_74hc74245),
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 5, vth: 2.5 } }],
+  symbol: icSymbol(110, 156, "74245", pins_ic_74hc74245),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 50 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "transceiver8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 50) } }],
 });
 
 
+const pins_cmos_4000: PinDef[] = [{ name: "A1", x: -60, y: -28 }, { name: "B1", x: -60, y: -14 }, { name: "C1", x: -60, y: 0 }, { name: "Y1", x: -60, y: 14 }, { name: "A2", x: -60, y: 28 }, { name: "B2", x: 60, y: -28 }, { name: "C2", x: 60, y: -14 }, { name: "Y2", x: 60, y: 0 }, { name: "AI", x: 60, y: 14 }, { name: "YO", x: 60, y: 28 }];
 add({
   id: "cmos_4000",
   name: "CD4000 Dual 3-In NOR + Inverter",
@@ -5267,55 +5156,59 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4000","nor3"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4000",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor3", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4000,
+  symbol: icSymbol(110, 100, "4000", pins_cmos_4000),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3]], model: "nor3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5], n[6], n[7]], model: "nor3", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[8], n[9]], model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4006: PinDef[] = [{ name: "CLK", x: -60, y: -18 }, { name: "DATA", x: 60, y: -18 }, { name: "Q", x: 60, y: -4 }];
 add({
   id: "cmos_4006",
   name: "CD4006 18-Bit Shift Register",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4006","shift8"],
+  tags: ["cmos","4006","shift18"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4006",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4006,
+  symbol: icSymbol(110, 80, "4006", pins_cmos_4006),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift18", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4007: PinDef[] = [{ name: "DP1", x: -60, y: -42 }, { name: "SP2", x: -60, y: -28 }, { name: "G2", x: -60, y: -14 }, { name: "SN2", x: -60, y: 0 }, { name: "DN5", x: -60, y: 14 }, { name: "G1", x: -60, y: 28 }, { name: "VSS", x: -60, y: 42 }, { name: "DN8", x: 60, y: -42 }, { name: "SN3", x: 60, y: -28 }, { name: "G3", x: 60, y: -14 }, { name: "SP3", x: 60, y: 0 }, { name: "D3", x: 60, y: 14 }, { name: "DP13", x: 60, y: 28 }, { name: "VDD", x: 60, y: 42 }];
 add({
   id: "cmos_4007",
-  name: "CD4007 Dual Complementary Pair",
+  name: "CD4007 3× Komplementärpaar",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4007","not"],
+  tags: ["cmos","4007","mosfet"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4007",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4007,
+  symbol: icSymbol(110, 128, "4007", pins_cmos_4007),
+  params: [],
+  toDevices: (i,n): Device[] => [{ id: i.id + ":N1", type: "M", nodes: [n[4], n[5], n[6]], params: { vto: 1.5, kp: 0.5e-3, w: 1e-4, l: 1e-5, lambda: 0.02, pmos: 0 } }, { id: i.id + ":N2", type: "M", nodes: [n[4], n[2], n[3]], params: { vto: 1.5, kp: 0.5e-3, w: 1e-4, l: 1e-5, lambda: 0.02, pmos: 0 } }, { id: i.id + ":N3", type: "M", nodes: [n[11], n[9], n[8]], params: { vto: 1.5, kp: 0.5e-3, w: 1e-4, l: 1e-5, lambda: 0.02, pmos: 0 } }, { id: i.id + ":P1", type: "M", nodes: [n[0], n[5], n[13]], params: { vto: 1.5, kp: 0.2e-3, w: 1e-4, l: 1e-5, lambda: 0.02, pmos: 1 } }, { id: i.id + ":P2", type: "M", nodes: [n[0], n[2], n[1]], params: { vto: 1.5, kp: 0.2e-3, w: 1e-4, l: 1e-5, lambda: 0.02, pmos: 1 } }, { id: i.id + ":P3", type: "M", nodes: [n[11], n[9], n[10]], params: { vto: 1.5, kp: 0.2e-3, w: 1e-4, l: 1e-5, lambda: 0.02, pmos: 1 } }, { id: i.id + ":bDN", type: "R", nodes: [n[4], n[7]], params: { r: 1e-3 } }, { id: i.id + ":bDP", type: "R", nodes: [n[0], n[12]], params: { r: 1e-3 } }],
 });
 
 
+const pins_cmos_4008: PinDef[] = [{ name: "A0", x: -60, y: -42 }, { name: "A1", x: -60, y: -28 }, { name: "A2", x: -60, y: -14 }, { name: "A3", x: -60, y: 0 }, { name: "B0", x: -60, y: 14 }, { name: "B1", x: -60, y: 28 }, { name: "B2", x: -60, y: 42 }, { name: "B3", x: 60, y: -42 }, { name: "CIN", x: 60, y: -28 }, { name: "S0", x: 60, y: -14 }, { name: "S1", x: 60, y: 0 }, { name: "S2", x: 60, y: 14 }, { name: "S3", x: 60, y: 28 }, { name: "COUT", x: 60, y: 42 }];
 add({
   id: "cmos_4008",
   name: "CD4008 4-Bit Volladdierer",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4008","alu4"],
+  tags: ["cmos","4008","add4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4008",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "alu4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4008,
+  symbol: icSymbol(110, 128, "4008", pins_cmos_4008),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "add4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4009: PinDef[] = [{ name: "A1", x: -60, y: -35 }, { name: "Y1", x: -60, y: -21 }, { name: "A2", x: -60, y: -7 }, { name: "Y2", x: -60, y: 7 }, { name: "A3", x: -60, y: 21 }, { name: "Y3", x: -60, y: 35 }, { name: "A4", x: 60, y: -35 }, { name: "Y4", x: 60, y: -21 }, { name: "A5", x: 60, y: -7 }, { name: "Y5", x: 60, y: 7 }, { name: "A6", x: 60, y: 21 }, { name: "Y6", x: 60, y: 35 }];
 add({
   id: "cmos_4009",
   name: "CD4009 Hex Buffer Inverting",
@@ -5323,13 +5216,14 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4009","not"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4009",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "not", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4009,
+  symbol: icSymbol(110, 114, "4009", pins_cmos_4009),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1]], model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[2], n[3]], model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5]], model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7]], model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[8], n[9]], model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[10], n[11]], model: "not", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4010: PinDef[] = [{ name: "A1", x: -60, y: -35 }, { name: "Y1", x: -60, y: -21 }, { name: "A2", x: -60, y: -7 }, { name: "Y2", x: -60, y: 7 }, { name: "A3", x: -60, y: 21 }, { name: "Y3", x: -60, y: 35 }, { name: "A4", x: 60, y: -35 }, { name: "Y4", x: 60, y: -21 }, { name: "A5", x: 60, y: -7 }, { name: "Y5", x: 60, y: 7 }, { name: "A6", x: 60, y: 21 }, { name: "Y6", x: 60, y: 35 }];
 add({
   id: "cmos_4010",
   name: "CD4010 Hex Buffer Non-Inv",
@@ -5337,55 +5231,59 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4010","buffer"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4010",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "buffer", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4010,
+  symbol: icSymbol(110, 114, "4010", pins_cmos_4010),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1]], model: "buffer", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[2], n[3]], model: "buffer", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5]], model: "buffer", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7]], model: "buffer", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[8], n[9]], model: "buffer", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[10], n[11]], model: "buffer", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4014: PinDef[] = [{ name: "P0", x: -60, y: -42 }, { name: "P1", x: -60, y: -28 }, { name: "P2", x: -60, y: -14 }, { name: "P3", x: -60, y: 0 }, { name: "P4", x: -60, y: 14 }, { name: "P5", x: -60, y: 28 }, { name: "P6", x: -60, y: 42 }, { name: "P7", x: 60, y: -42 }, { name: "CLK", x: 60, y: -28 }, { name: "PS", x: 60, y: -14 }, { name: "SER", x: 60, y: 0 }, { name: "Q6", x: 60, y: 14 }, { name: "Q7", x: 60, y: 28 }, { name: "Q8", x: 60, y: 42 }];
 add({
   id: "cmos_4014",
   name: "CD4014 8-Bit Shift Register",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4014","shift8"],
+  tags: ["cmos","4014","piso4014"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4014",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4014,
+  symbol: icSymbol(110, 128, "4014", pins_cmos_4014),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "piso4014", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4015: PinDef[] = [{ name: "CLKA", x: -60, y: -42 }, { name: "DATAA", x: -60, y: -28 }, { name: "RSTA", x: -60, y: -14 }, { name: "Q0A", x: -60, y: 0 }, { name: "Q1A", x: -60, y: 14 }, { name: "Q2A", x: -60, y: 28 }, { name: "Q3A", x: -60, y: 42 }, { name: "CLKB", x: 60, y: -42 }, { name: "DATAB", x: 60, y: -28 }, { name: "RSTB", x: 60, y: -14 }, { name: "Q0B", x: 60, y: 0 }, { name: "Q1B", x: 60, y: 14 }, { name: "Q2B", x: 60, y: 28 }, { name: "Q3B", x: 60, y: 42 }];
 add({
   id: "cmos_4015",
   name: "CD4015 Dual 4-Bit Shift",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4015","shift8"],
+  tags: ["cmos","4015","shift4"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4015",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4015,
+  symbol: icSymbol(110, 128, "4015", pins_cmos_4015),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5], n[6]], model: "shift4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[7], n[8], n[9], n[10], n[11], n[12], n[13]], model: "shift4", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4018: PinDef[] = [{ name: "CLK", x: -60, y: -42 }, { name: "RST", x: -60, y: -28 }, { name: "DATA", x: -60, y: -14 }, { name: "PE", x: -60, y: 0 }, { name: "J0", x: -60, y: 14 }, { name: "J1", x: -60, y: 28 }, { name: "J2", x: -60, y: 42 }, { name: "J3", x: 60, y: -42 }, { name: "J4", x: 60, y: -28 }, { name: "Q0", x: 60, y: -14 }, { name: "Q1", x: 60, y: 0 }, { name: "Q2", x: 60, y: 14 }, { name: "Q3", x: 60, y: 28 }, { name: "Q4", x: 60, y: 42 }];
 add({
   id: "cmos_4018",
   name: "CD4018 Presettable Divide-by-N",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4018","counter4"],
+  tags: ["cmos","4018","johnson4018"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4018",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4018,
+  symbol: icSymbol(110, 128, "4018", pins_cmos_4018),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "johnson4018", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4019: PinDef[] = [{ name: "A0", x: -60, y: -42 }, { name: "B0", x: -60, y: -28 }, { name: "A1", x: -60, y: -14 }, { name: "B1", x: -60, y: 0 }, { name: "A2", x: -60, y: 14 }, { name: "B2", x: -60, y: 28 }, { name: "A3", x: 60, y: -42 }, { name: "B3", x: 60, y: -28 }, { name: "S", x: 60, y: -14 }, { name: "Y0", x: 60, y: 0 }, { name: "Y1", x: 60, y: 14 }, { name: "Y2", x: 60, y: 28 }, { name: "Y3", x: 60, y: 42 }];
 add({
   id: "cmos_4019",
   name: "CD4019 Quad AND-OR Select",
@@ -5393,167 +5291,179 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4019","mux2"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4019",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux2", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4019,
+  symbol: icSymbol(110, 128, "4019", pins_cmos_4019),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[8], n[9]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[2], n[3], n[8], n[10]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5], n[8], n[11]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[12]], model: "mux2", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4021: PinDef[] = [{ name: "P0", x: -60, y: -42 }, { name: "P1", x: -60, y: -28 }, { name: "P2", x: -60, y: -14 }, { name: "P3", x: -60, y: 0 }, { name: "P4", x: -60, y: 14 }, { name: "P5", x: -60, y: 28 }, { name: "P6", x: -60, y: 42 }, { name: "P7", x: 60, y: -42 }, { name: "CLK", x: 60, y: -28 }, { name: "PS", x: 60, y: -14 }, { name: "SER", x: 60, y: 0 }, { name: "Q6", x: 60, y: 14 }, { name: "Q7", x: 60, y: 28 }, { name: "Q8", x: 60, y: 42 }];
 add({
   id: "cmos_4021",
   name: "CD4021 8-Bit Shift Register",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4021","shift8"],
+  tags: ["cmos","4021","piso4014"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4021",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4021,
+  symbol: icSymbol(110, 128, "4021", pins_cmos_4021),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "piso4014", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4022: PinDef[] = [{ name: "CLK", x: -60, y: -35 }, { name: "RST", x: -60, y: -21 }, { name: "INH", x: -60, y: -7 }, { name: "Q0", x: -60, y: 7 }, { name: "Q1", x: -60, y: 21 }, { name: "Q2", x: -60, y: 35 }, { name: "Q3", x: 60, y: -35 }, { name: "Q4", x: 60, y: -21 }, { name: "Q5", x: 60, y: -7 }, { name: "Q6", x: 60, y: 7 }, { name: "Q7", x: 60, y: 21 }, { name: "COUT", x: 60, y: 35 }];
 add({
   id: "cmos_4022",
   name: "CD4022 Octal Counter",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4022","counter8"],
+  tags: ["cmos","4022","counter8dec"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4022",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4022,
+  symbol: icSymbol(110, 114, "4022", pins_cmos_4022),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter8dec", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4024: PinDef[] = [{ name: "CLK", x: -60, y: -28 }, { name: "RST", x: -60, y: -14 }, { name: "Q0", x: -60, y: 0 }, { name: "Q1", x: -60, y: 14 }, { name: "Q2", x: 60, y: -28 }, { name: "Q3", x: 60, y: -14 }, { name: "Q4", x: 60, y: 0 }, { name: "Q5", x: 60, y: 14 }, { name: "Q6", x: 60, y: 28 }];
 add({
   id: "cmos_4024",
   name: "CD4024 7-Bit Binary Counter",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4024","counter8"],
+  tags: ["cmos","4024","counter7"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4024",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4024,
+  symbol: icSymbol(110, 100, "4024", pins_cmos_4024),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter7", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4026: PinDef[] = [{ name: "CLK", x: -60, y: -35 }, { name: "RST", x: -60, y: -21 }, { name: "INH", x: -60, y: -7 }, { name: "DEI", x: -60, y: 7 }, { name: "COUT", x: -60, y: 21 }, { name: "a", x: -60, y: 35 }, { name: "b", x: 60, y: -35 }, { name: "c", x: 60, y: -21 }, { name: "d", x: 60, y: -7 }, { name: "e", x: 60, y: 7 }, { name: "f", x: 60, y: 21 }, { name: "g", x: 60, y: 35 }];
 add({
   id: "cmos_4026",
   name: "CD4026 Decade Counter + 7Seg",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4026","bcd7seg"],
+  tags: ["cmos","4026","dec4026"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4026",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4026,
+  symbol: icSymbol(110, 114, "4026", pins_cmos_4026),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dec4026", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4029: PinDef[] = [{ name: "J0", x: -60, y: -35 }, { name: "J1", x: -60, y: -21 }, { name: "J2", x: -60, y: -7 }, { name: "J3", x: -60, y: 7 }, { name: "CLK", x: -60, y: 21 }, { name: "/PE", x: -60, y: 35 }, { name: "UD", x: 60, y: -35 }, { name: "BD", x: 60, y: -21 }, { name: "Q0", x: 60, y: -7 }, { name: "Q1", x: 60, y: 7 }, { name: "Q2", x: 60, y: 21 }, { name: "Q3", x: 60, y: 35 }];
 add({
   id: "cmos_4029",
   name: "CD4029 Up/Down Counter",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4029","counter4"],
+  tags: ["cmos","4029","ud4029"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4029",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4029,
+  symbol: icSymbol(110, 114, "4029", pins_cmos_4029),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "ud4029", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4031: PinDef[] = [{ name: "CLK", x: -60, y: -18 }, { name: "DATA", x: 60, y: -18 }, { name: "Q", x: 60, y: -4 }];
 add({
   id: "cmos_4031",
   name: "CD4031 64-Bit Shift",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4031","shift8"],
+  tags: ["cmos","4031","shift64"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4031",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4031,
+  symbol: icSymbol(110, 80, "4031", pins_cmos_4031),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift64", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4034: PinDef[] = [{ name: "P0", x: -60, y: -63 }, { name: "P1", x: -60, y: -49 }, { name: "P2", x: -60, y: -35 }, { name: "P3", x: -60, y: -21 }, { name: "P4", x: -60, y: -7 }, { name: "P5", x: -60, y: 7 }, { name: "P6", x: -60, y: 21 }, { name: "P7", x: -60, y: 35 }, { name: "SER", x: -60, y: 49 }, { name: "CLK", x: 60, y: -63 }, { name: "PS", x: 60, y: -49 }, { name: "Q0", x: 60, y: -35 }, { name: "Q1", x: 60, y: -21 }, { name: "Q2", x: 60, y: -7 }, { name: "Q3", x: 60, y: 7 }, { name: "Q4", x: 60, y: 21 }, { name: "Q5", x: 60, y: 35 }, { name: "Q6", x: 60, y: 49 }, { name: "Q7", x: 60, y: 63 }];
 add({
   id: "cmos_4034",
   name: "CD4034 8-Bit Bus Register",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4034","shift8"],
+  tags: ["cmos","4034","reg4034"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4034",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4034,
+  symbol: icSymbol(110, 170, "4034", pins_cmos_4034),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "reg4034", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4035: PinDef[] = [{ name: "P0", x: -60, y: -35 }, { name: "P1", x: -60, y: -21 }, { name: "P2", x: -60, y: -7 }, { name: "P3", x: -60, y: 7 }, { name: "CLK", x: -60, y: 21 }, { name: "PS", x: -60, y: 35 }, { name: "J", x: 60, y: -35 }, { name: "K", x: 60, y: -21 }, { name: "Q0", x: 60, y: -7 }, { name: "Q1", x: 60, y: 7 }, { name: "Q2", x: 60, y: 21 }, { name: "Q3", x: 60, y: 35 }];
 add({
   id: "cmos_4035",
   name: "CD4035 4-Bit Shift Register",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4035","shift8"],
+  tags: ["cmos","4035","sr4035"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4035",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4035,
+  symbol: icSymbol(110, 114, "4035", pins_cmos_4035),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "sr4035", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4042: PinDef[] = [{ name: "D0", x: -60, y: -28 }, { name: "D1", x: -60, y: -14 }, { name: "D2", x: -60, y: 0 }, { name: "D3", x: -60, y: 14 }, { name: "CLK", x: -60, y: 28 }, { name: "POL", x: 60, y: -28 }, { name: "Q0", x: 60, y: -14 }, { name: "Q1", x: 60, y: 0 }, { name: "Q2", x: 60, y: 14 }, { name: "Q3", x: 60, y: 28 }];
 add({
   id: "cmos_4042",
   name: "CD4042 Quad D Latch",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4042","latch4"],
+  tags: ["cmos","4042","latch4042"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4042",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4042,
+  symbol: icSymbol(110, 100, "4042", pins_cmos_4042),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch4042", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4043: PinDef[] = [{ name: "S0", x: -60, y: -42 }, { name: "R0", x: -60, y: -28 }, { name: "S1", x: -60, y: -14 }, { name: "R1", x: -60, y: 0 }, { name: "S2", x: -60, y: 14 }, { name: "R2", x: -60, y: 28 }, { name: "S3", x: 60, y: -42 }, { name: "R3", x: 60, y: -28 }, { name: "OE", x: 60, y: -14 }, { name: "Q0", x: 60, y: 0 }, { name: "Q1", x: 60, y: 14 }, { name: "Q2", x: 60, y: 28 }, { name: "Q3", x: 60, y: 42 }];
 add({
   id: "cmos_4043",
   name: "CD4043 Quad NOR RS Latch",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4043","srlatch"],
+  tags: ["cmos","4043","latch43"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4043",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "srlatch", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4043,
+  symbol: icSymbol(110, 128, "4043", pins_cmos_4043),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch43", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4044: PinDef[] = [{ name: "/S0", x: -60, y: -42 }, { name: "/R0", x: -60, y: -28 }, { name: "/S1", x: -60, y: -14 }, { name: "/R1", x: -60, y: 0 }, { name: "/S2", x: -60, y: 14 }, { name: "/R2", x: -60, y: 28 }, { name: "/S3", x: 60, y: -42 }, { name: "/R3", x: 60, y: -28 }, { name: "OE", x: 60, y: -14 }, { name: "Q0", x: 60, y: 0 }, { name: "Q1", x: 60, y: 14 }, { name: "Q2", x: 60, y: 28 }, { name: "Q3", x: 60, y: 42 }];
 add({
   id: "cmos_4044",
   name: "CD4044 Quad NAND RS Latch",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4044","srlatch"],
+  tags: ["cmos","4044","latch43"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4044",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "srlatch", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4044,
+  symbol: icSymbol(110, 128, "4044", pins_cmos_4044),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch43", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), low: 1 } }],
 });
 
 
+const pins_cmos_4046: PinDef[] = [{ name: "SIG", x: -60, y: -21 }, { name: "COMP", x: -60, y: -7 }, { name: "PC1", x: -60, y: 7 }, { name: "PC2", x: 60, y: -21 }, { name: "VCOIN", x: 60, y: -7 }, { name: "VCOUT", x: 60, y: 7 }, { name: "INH", x: 60, y: 21 }];
 add({
   id: "cmos_4046",
   name: "CD4046 Phase Locked Loop",
@@ -5561,13 +5471,14 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4046","pll4046"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4046",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "pll4046", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4046,
+  symbol: icSymbol(110, 86, "4046", pins_cmos_4046),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }, { key: "fmax", label: "VCO Maximalfrequenz", unit: "Hz", type: "number", def: 10000 }, { key: "fmin", label: "VCO Minimalfrequenz", unit: "Hz", type: "number", def: 0 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "pll4046", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), fmax: num(i, "fmax", 10000), fmin: num(i, "fmin", 0) } }],
 });
 
 
+const pins_cmos_4047: PinDef[] = [{ name: "TRIG", x: -60, y: -18 }, { name: "RST", x: -60, y: -4 }, { name: "Q", x: 60, y: -18 }, { name: "/Q", x: 60, y: -4 }];
 add({
   id: "cmos_4047",
   name: "CD4047 Monostable/Astable",
@@ -5575,83 +5486,89 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4047","monostable"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4047",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "monostable", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4047,
+  symbol: icSymbol(110, 80, "4047", pins_cmos_4047),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }, { key: "pw", label: "Impulsbreite", unit: "s", type: "number", def: 0.001 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "monostable", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), pw: num(i, "pw", 0.001) } }],
 });
 
 
+const pins_cmos_4068: PinDef[] = [{ name: "A", x: -60, y: -28 }, { name: "B", x: -60, y: -14 }, { name: "C", x: -60, y: 0 }, { name: "D", x: -60, y: 14 }, { name: "E", x: 60, y: -28 }, { name: "F", x: 60, y: -14 }, { name: "G", x: 60, y: 0 }, { name: "H", x: 60, y: 14 }, { name: "Y", x: 60, y: 28 }];
 add({
   id: "cmos_4068",
   name: "CD4068 8-Input NAND",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4068","nand4"],
+  tags: ["cmos","4068","nand8"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4068",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4068,
+  symbol: icSymbol(110, 100, "4068", pins_cmos_4068),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nand8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4076: PinDef[] = [{ name: "D0", x: -60, y: -28 }, { name: "D1", x: -60, y: -14 }, { name: "D2", x: -60, y: 0 }, { name: "D3", x: -60, y: 14 }, { name: "CLK", x: -60, y: 28 }, { name: "OE", x: 60, y: -28 }, { name: "Q0", x: 60, y: -14 }, { name: "Q1", x: 60, y: 0 }, { name: "Q2", x: 60, y: 14 }, { name: "Q3", x: 60, y: 28 }];
 add({
   id: "cmos_4076",
   name: "CD4076 Quad D Latch Tri-State",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4076","latch4"],
+  tags: ["cmos","4076","reg4076"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4076",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "latch4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4076,
+  symbol: icSymbol(110, 100, "4076", pins_cmos_4076),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "reg4076", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4078: PinDef[] = [{ name: "A", x: -60, y: -28 }, { name: "B", x: -60, y: -14 }, { name: "C", x: -60, y: 0 }, { name: "D", x: -60, y: 14 }, { name: "E", x: 60, y: -28 }, { name: "F", x: 60, y: -14 }, { name: "G", x: 60, y: 0 }, { name: "H", x: 60, y: 14 }, { name: "Y", x: 60, y: 28 }];
 add({
   id: "cmos_4078",
   name: "CD4078 8-Input NOR",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4078","nor4"],
+  tags: ["cmos","4078","nor8"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4078",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4078,
+  symbol: icSymbol(110, 100, "4078", pins_cmos_4078),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "nor8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4093: PinDef[] = [{ name: "A1", x: -60, y: -35 }, { name: "B1", x: -60, y: -21 }, { name: "Y1", x: -60, y: -7 }, { name: "A2", x: -60, y: 7 }, { name: "B2", x: -60, y: 21 }, { name: "Y2", x: -60, y: 35 }, { name: "A3", x: 60, y: -35 }, { name: "B3", x: 60, y: -21 }, { name: "Y3", x: 60, y: -7 }, { name: "A4", x: 60, y: 7 }, { name: "B4", x: 60, y: 21 }, { name: "Y4", x: 60, y: 35 }];
 add({
   id: "cmos_4093",
   name: "CD4093 Quad NAND Schmitt",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4093","schmitt"],
+  tags: ["cmos","4093","nand2s"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4093",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "schmitt", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4093,
+  symbol: icSymbol(110, 114, "4093", pins_cmos_4093),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2]], model: "nand2s", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[3], n[4], n[5]], model: "nand2s", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8]], model: "nand2s", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[9], n[10], n[11]], model: "nand2s", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4094: PinDef[] = [{ name: "SER", x: -60, y: -42 }, { name: "CLK", x: -60, y: -28 }, { name: "STR", x: -60, y: -14 }, { name: "OE", x: -60, y: 0 }, { name: "Q0", x: -60, y: 14 }, { name: "Q1", x: -60, y: 28 }, { name: "Q2", x: 60, y: -42 }, { name: "Q3", x: 60, y: -28 }, { name: "Q4", x: 60, y: -14 }, { name: "Q5", x: 60, y: 0 }, { name: "Q6", x: 60, y: 14 }, { name: "Q7", x: 60, y: 28 }, { name: "QS", x: 60, y: 42 }];
 add({
   id: "cmos_4094",
   name: "CD4094 8-Bit Shift+Latch",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4094","shift8"],
+  tags: ["cmos","4094","sr4094"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4094",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4094,
+  symbol: icSymbol(110, 128, "4094", pins_cmos_4094),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "sr4094", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_40106: PinDef[] = [{ name: "A1", x: -60, y: -35 }, { name: "Y1", x: -60, y: -21 }, { name: "A2", x: -60, y: -7 }, { name: "Y2", x: -60, y: 7 }, { name: "A3", x: -60, y: 21 }, { name: "Y3", x: -60, y: 35 }, { name: "A4", x: 60, y: -35 }, { name: "Y4", x: 60, y: -21 }, { name: "A5", x: 60, y: -7 }, { name: "Y5", x: 60, y: 7 }, { name: "A6", x: 60, y: 21 }, { name: "Y6", x: 60, y: 35 }];
 add({
   id: "cmos_40106",
   name: "CD40106 Hex Schmitt Inverter",
@@ -5659,111 +5576,119 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","40106","schmitt"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"40106",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "schmitt", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_40106,
+  symbol: icSymbol(110, 114, "40106", pins_cmos_40106),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[2], n[3]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[8], n[9]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[10], n[11]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_40193: PinDef[] = [{ name: "J0", x: -60, y: -35 }, { name: "J1", x: -60, y: -21 }, { name: "J2", x: -60, y: -7 }, { name: "J3", x: -60, y: 7 }, { name: "CPU", x: -60, y: 21 }, { name: "CPD", x: 60, y: -35 }, { name: "/PL", x: 60, y: -21 }, { name: "Q0", x: 60, y: -7 }, { name: "Q1", x: 60, y: 7 }, { name: "Q2", x: 60, y: 21 }, { name: "Q3", x: 60, y: 35 }];
 add({
   id: "cmos_40193",
   name: "CD40193 4-Bit Up/Down Counter",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","40193","counter4"],
+  tags: ["cmos","40193","ud193"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"40193",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_40193,
+  symbol: icSymbol(110, 114, "40193", pins_cmos_40193),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "ud193", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_40194: PinDef[] = [{ name: "P0", x: -60, y: -42 }, { name: "P1", x: -60, y: -28 }, { name: "P2", x: -60, y: -14 }, { name: "P3", x: -60, y: 0 }, { name: "S0", x: -60, y: 14 }, { name: "S1", x: -60, y: 28 }, { name: "CLK", x: -60, y: 42 }, { name: "/CLR", x: 60, y: -42 }, { name: "DSL", x: 60, y: -28 }, { name: "DSR", x: 60, y: -14 }, { name: "Q0", x: 60, y: 0 }, { name: "Q1", x: 60, y: 14 }, { name: "Q2", x: 60, y: 28 }, { name: "Q3", x: 60, y: 42 }];
 add({
   id: "cmos_40194",
   name: "CD40194 4-Bit Universal Shift",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","40194","shift8"],
+  tags: ["cmos","40194","bidir194"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"40194",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_40194,
+  symbol: icSymbol(110, 128, "40194", pins_cmos_40194),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bidir194", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_40195: PinDef[] = [{ name: "P0", x: -60, y: -35 }, { name: "P1", x: -60, y: -21 }, { name: "P2", x: -60, y: -7 }, { name: "P3", x: -60, y: 7 }, { name: "CLK", x: -60, y: 21 }, { name: "PS", x: 60, y: -35 }, { name: "SER", x: 60, y: -21 }, { name: "Q0", x: 60, y: -7 }, { name: "Q1", x: 60, y: 7 }, { name: "Q2", x: 60, y: 21 }, { name: "Q3", x: 60, y: 35 }];
 add({
   id: "cmos_40195",
   name: "CD40195 4-Bit Shift Register",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","40195","shift8"],
+  tags: ["cmos","40195","sr40195"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"40195",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "shift8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_40195,
+  symbol: icSymbol(110, 114, "40195", pins_cmos_40195),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "sr40195", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4512: PinDef[] = [{ name: "I0", x: -60, y: -42 }, { name: "I1", x: -60, y: -28 }, { name: "I2", x: -60, y: -14 }, { name: "I3", x: -60, y: 0 }, { name: "I4", x: -60, y: 14 }, { name: "I5", x: -60, y: 28 }, { name: "I6", x: -60, y: 42 }, { name: "I7", x: 60, y: -42 }, { name: "S0", x: 60, y: -28 }, { name: "S1", x: 60, y: -14 }, { name: "S2", x: 60, y: 0 }, { name: "STR", x: 60, y: 14 }, { name: "INH", x: 60, y: 28 }, { name: "Y", x: 60, y: 42 }];
 add({
   id: "cmos_4512",
   name: "CD4512 8-Channel MUX",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4512","mux8"],
+  tags: ["cmos","4512","mux4512"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4512",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux8", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4512,
+  symbol: icSymbol(110, 128, "4512", pins_cmos_4512),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "mux4512", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4514: PinDef[] = [{ name: "A0", x: -60, y: -70 }, { name: "A1", x: -60, y: -56 }, { name: "A2", x: -60, y: -42 }, { name: "A3", x: -60, y: -28 }, { name: "STR", x: -60, y: -14 }, { name: "INH", x: -60, y: 0 }, { name: "Y0", x: -60, y: 14 }, { name: "Y1", x: -60, y: 28 }, { name: "Y2", x: -60, y: 42 }, { name: "Y3", x: -60, y: 56 }, { name: "Y4", x: -60, y: 70 }, { name: "Y5", x: 60, y: -70 }, { name: "Y6", x: 60, y: -56 }, { name: "Y7", x: 60, y: -42 }, { name: "Y8", x: 60, y: -28 }, { name: "Y9", x: 60, y: -14 }, { name: "Y10", x: 60, y: 0 }, { name: "Y11", x: 60, y: 14 }, { name: "Y12", x: 60, y: 28 }, { name: "Y13", x: 60, y: 42 }, { name: "Y14", x: 60, y: 56 }, { name: "Y15", x: 60, y: 70 }];
 add({
   id: "cmos_4514",
   name: "CD4514 4-to-16 Decoder",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4514","decoder416"],
+  tags: ["cmos","4514","dec4514"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4514",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder416", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4514,
+  symbol: icSymbol(110, 184, "4514", pins_cmos_4514),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dec4514", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4515: PinDef[] = [{ name: "A0", x: -60, y: -70 }, { name: "A1", x: -60, y: -56 }, { name: "A2", x: -60, y: -42 }, { name: "A3", x: -60, y: -28 }, { name: "STR", x: -60, y: -14 }, { name: "INH", x: -60, y: 0 }, { name: "Y0", x: -60, y: 14 }, { name: "Y1", x: -60, y: 28 }, { name: "Y2", x: -60, y: 42 }, { name: "Y3", x: -60, y: 56 }, { name: "Y4", x: -60, y: 70 }, { name: "Y5", x: 60, y: -70 }, { name: "Y6", x: 60, y: -56 }, { name: "Y7", x: 60, y: -42 }, { name: "Y8", x: 60, y: -28 }, { name: "Y9", x: 60, y: -14 }, { name: "Y10", x: 60, y: 0 }, { name: "Y11", x: 60, y: 14 }, { name: "Y12", x: 60, y: 28 }, { name: "Y13", x: 60, y: 42 }, { name: "Y14", x: 60, y: 56 }, { name: "Y15", x: 60, y: 70 }];
 add({
   id: "cmos_4515",
   name: "CD4515 4-to-16 Decoder Inv",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4515","decoder416"],
+  tags: ["cmos","4515","dec4514"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4515",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder416", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4515,
+  symbol: icSymbol(110, 184, "4515", pins_cmos_4515),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dec4514", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), low: 1 } }],
 });
 
 
+const pins_cmos_4520: PinDef[] = [{ name: "CLKA", x: -60, y: -42 }, { name: "RSTA", x: -60, y: -28 }, { name: "ENA", x: -60, y: -14 }, { name: "Q0A", x: -60, y: 0 }, { name: "Q1A", x: -60, y: 14 }, { name: "Q2A", x: -60, y: 28 }, { name: "Q3A", x: -60, y: 42 }, { name: "CLKB", x: 60, y: -42 }, { name: "RSTB", x: 60, y: -28 }, { name: "ENB", x: 60, y: -14 }, { name: "Q0B", x: 60, y: 0 }, { name: "Q1B", x: 60, y: 14 }, { name: "Q2B", x: 60, y: 28 }, { name: "Q3B", x: 60, y: 42 }];
 add({
   id: "cmos_4520",
   name: "CD4520 Dual 4-Bit Counter",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4520","counter4"],
+  tags: ["cmos","4520","bcdcounter"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4520",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "counter4", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4520,
+  symbol: icSymbol(110, 128, "4520", pins_cmos_4520),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5], n[6]], model: "bcdcounter", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[7], n[8], n[9], n[10], n[11], n[12], n[13]], model: "bcdcounter", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4528: PinDef[] = [{ name: "TRIGA", x: -60, y: -21 }, { name: "RSTA", x: -60, y: -7 }, { name: "QA", x: -60, y: 7 }, { name: "/QA", x: -60, y: 21 }, { name: "TRIGB", x: 60, y: -21 }, { name: "RSTB", x: 60, y: -7 }, { name: "QB", x: 60, y: 7 }, { name: "/QB", x: 60, y: 21 }];
 add({
   id: "cmos_4528",
   name: "CD4528 Dual Monostable",
@@ -5771,13 +5696,14 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4528","monostable"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4528",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "monostable", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4528,
+  symbol: icSymbol(110, 86, "4528", pins_cmos_4528),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }, { key: "pwA", label: "Impulsbreite A", unit: "s", type: "number", def: 0.001 }, { key: "pwB", label: "Impulsbreite B", unit: "s", type: "number", def: 0.001 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3]], model: "monostable", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), pw: num(i, "pwA", 0.001) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5], n[6], n[7]], model: "monostable", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), pw: num(i, "pwB", 0.001) } }],
 });
 
 
+const pins_cmos_4538: PinDef[] = [{ name: "TRIGA", x: -60, y: -21 }, { name: "RSTA", x: -60, y: -7 }, { name: "QA", x: -60, y: 7 }, { name: "/QA", x: -60, y: 21 }, { name: "TRIGB", x: 60, y: -21 }, { name: "RSTB", x: 60, y: -7 }, { name: "QB", x: 60, y: 7 }, { name: "/QB", x: 60, y: 21 }];
 add({
   id: "cmos_4538",
   name: "CD4538 Dual Monostable Prec",
@@ -5785,27 +5711,29 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4538","monostable"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4538",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "monostable", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4538,
+  symbol: icSymbol(110, 86, "4538", pins_cmos_4538),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }, { key: "pwA", label: "Impulsbreite A", unit: "s", type: "number", def: 0.001 }, { key: "pwB", label: "Impulsbreite B", unit: "s", type: "number", def: 0.001 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3]], model: "monostable", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), pw: num(i, "pwA", 0.001) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5], n[6], n[7]], model: "monostable", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), pw: num(i, "pwB", 0.001) } }],
 });
 
 
+const pins_cmos_4543: PinDef[] = [{ name: "A", x: -60, y: -42 }, { name: "B", x: -60, y: -28 }, { name: "C", x: -60, y: -14 }, { name: "D", x: -60, y: 0 }, { name: "LD", x: -60, y: 14 }, { name: "PH", x: -60, y: 28 }, { name: "BI", x: -60, y: 42 }, { name: "a", x: 60, y: -42 }, { name: "b", x: 60, y: -28 }, { name: "c", x: 60, y: -14 }, { name: "d", x: 60, y: 0 }, { name: "e", x: 60, y: 14 }, { name: "f", x: 60, y: 28 }, { name: "g", x: 60, y: 42 }];
 add({
   id: "cmos_4543",
   name: "CD4543 BCD to 7-Seg Latch",
   ref: "U",
   category: "Digitale Logik/4000 CMOS",
-  tags: ["cmos","4543","bcd7seg"],
+  tags: ["cmos","4543","bcd7seglcd"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4543",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seg", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4543,
+  symbol: icSymbol(110, 128, "4543", pins_cmos_4543),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "bcd7seglcd", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4555: PinDef[] = [{ name: "A0A", x: -60, y: -35 }, { name: "A1A", x: -60, y: -21 }, { name: "Y0A", x: -60, y: -7 }, { name: "Y1A", x: -60, y: 7 }, { name: "Y2A", x: -60, y: 21 }, { name: "Y3A", x: -60, y: 35 }, { name: "A0B", x: 60, y: -35 }, { name: "A1B", x: 60, y: -21 }, { name: "Y0B", x: 60, y: -7 }, { name: "Y1B", x: 60, y: 7 }, { name: "Y2B", x: 60, y: 21 }, { name: "Y3B", x: 60, y: 35 }];
 add({
   id: "cmos_4555",
   name: "CD4555 Dual 1-to-4 Decoder",
@@ -5813,13 +5741,14 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4555","decoder24"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4555",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder24", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4555,
+  symbol: icSymbol(110, 114, "4555", pins_cmos_4555),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5]], model: "decoder24", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[9], n[10], n[11]], model: "decoder24", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
+const pins_cmos_4556: PinDef[] = [{ name: "A0A", x: -60, y: -35 }, { name: "A1A", x: -60, y: -21 }, { name: "Y0A", x: -60, y: -7 }, { name: "Y1A", x: -60, y: 7 }, { name: "Y2A", x: -60, y: 21 }, { name: "Y3A", x: -60, y: 35 }, { name: "A0B", x: 60, y: -35 }, { name: "A1B", x: 60, y: -21 }, { name: "Y0B", x: 60, y: -7 }, { name: "Y1B", x: 60, y: 7 }, { name: "Y2B", x: 60, y: 21 }, { name: "Y3B", x: 60, y: 35 }];
 add({
   id: "cmos_4556",
   name: "CD4556 Dual 1-to-4 Decoder Inv",
@@ -5827,13 +5756,14 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4556","decoder24"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4556",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "decoder24", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4556,
+  symbol: icSymbol(110, 114, "4556", pins_cmos_4556),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1], n[2], n[3], n[4], n[5]], model: "decoder24", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), low: 1 } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7], n[8], n[9], n[10], n[11]], model: "decoder24", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400), low: 1 } }],
 });
 
 
+const pins_cmos_4584: PinDef[] = [{ name: "A1", x: -60, y: -35 }, { name: "Y1", x: -60, y: -21 }, { name: "A2", x: -60, y: -7 }, { name: "Y2", x: -60, y: 7 }, { name: "A3", x: -60, y: 21 }, { name: "Y3", x: -60, y: 35 }, { name: "A4", x: 60, y: -35 }, { name: "Y4", x: 60, y: -21 }, { name: "A5", x: 60, y: -7 }, { name: "Y5", x: 60, y: 7 }, { name: "A6", x: 60, y: 21 }, { name: "Y6", x: 60, y: 35 }];
 add({
   id: "cmos_4584",
   name: "CD4584 Hex Schmitt Inverter",
@@ -5841,19 +5771,14 @@ add({
   category: "Digitale Logik/4000 CMOS",
   tags: ["cmos","4584","schmitt"],
   mount: "both",
-  pins: [{ name: "A", x: -40, y: -10 }, { name: "B", x: -40, y: 10 }, { name: "Y", x: 40, y: 0 }],
-  symbol: [RECT(-26,-20,52,40,3), TXT(0,5,"4584",10), L(-40,-10,-26,-10), L(-40,10,-26,10), L(26,0,40,0)],
-  params: [{ key: "vdd", label: "VDD", unit: "V", type: "number", def: 10 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "schmitt", params: { vdd: 10, vth: 5 } }],
+  pins: pins_cmos_4584,
+  symbol: icSymbol(110, 114, "4584", pins_cmos_4584),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 400 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: [n[0], n[1]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[2], n[3]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[4], n[5]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[6], n[7]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[8], n[9]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }, { id: i.id, type: "DIGITAL", nodes: [n[10], n[11]], model: "schmitt", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 400) } }],
 });
 
 
-const pins_adc_0804: PinDef[] = [
-    { name: "VIN+", x: -50, y: -30, electrical: "input" }, { name: "VIN-", x: -50, y: -10, electrical: "input" }, { name: "VREF", x: -50, y: 10, electrical: "input" },
-    { name: "D0", x: 50, y: -40, electrical: "output" }, { name: "D1", x: 50, y: -30, electrical: "output" }, { name: "D2", x: 50, y: -20, electrical: "output" }, { name: "D3", x: 50, y: -10, electrical: "output" },
-    { name: "D4", x: 50, y: 0, electrical: "output" }, { name: "D5", x: 50, y: 10, electrical: "output" }, { name: "D6", x: 50, y: 20, electrical: "output" }, { name: "D7", x: 50, y: 30, electrical: "output" },
-    { name: "CLK", x: -50, y: 30, electrical: "input" }, { name: "VCC", x: 0, y: -50, electrical: "power_in" }, { name: "GND", x: 0, y: 50, electrical: "power_in" },
-  ];
+const pins_adc_0804: PinDef[] = [{ name: "VIN", x: -60, y: -28 }, { name: "D0", x: -60, y: -14 }, { name: "D1", x: -60, y: 0 }, { name: "D2", x: -60, y: 14 }, { name: "D3", x: 60, y: -28 }, { name: "D4", x: 60, y: -14 }, { name: "D5", x: 60, y: 0 }, { name: "D6", x: 60, y: 14 }, { name: "D7", x: 60, y: 28 }];
 add({
   id: "adc_0804",
   name: "ADC0804 8-Bit ADC",
@@ -5862,17 +5787,13 @@ add({
   tags: ["adc","0804"],
   mount: "THT",
   pins: pins_adc_0804,
-  symbol: icSymbol(100, 120, "0804", pins_adc_0804),
-  params: [{ key: "vref", label: "VREF", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "adc8", params: { vref: num(i,"vref",5), vdd: 5 } }],
+  symbol: icSymbol(110, 100, "ADC0804", pins_adc_0804),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }, { key: "vref", label: "Referenzspannung", unit: "V", type: "number", def: 5 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "adc8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 100), vref: num(i, "vref", 5) } }],
 });
 
 
-const pins_dac_0808: PinDef[] = [
-    { name: "D0", x: -50, y: -40, electrical: "input" }, { name: "D1", x: -50, y: -30, electrical: "input" }, { name: "D2", x: -50, y: -20, electrical: "input" }, { name: "D3", x: -50, y: -10, electrical: "input" },
-    { name: "D4", x: -50, y: 0, electrical: "input" }, { name: "D5", x: -50, y: 10, electrical: "input" }, { name: "D6", x: -50, y: 20, electrical: "input" }, { name: "D7", x: -50, y: 30, electrical: "input" },
-    { name: "VREF", x: -50, y: 50, electrical: "input" }, { name: "IOUT", x: 50, y: 0, electrical: "output" }, { name: "VCC", x: 0, y: -50, electrical: "power_in" }, { name: "VEE", x: 0, y: 50, electrical: "power_in" },
-  ];
+const pins_dac_0808: PinDef[] = [{ name: "D0", x: -60, y: -28 }, { name: "D1", x: -60, y: -14 }, { name: "D2", x: -60, y: 0 }, { name: "D3", x: -60, y: 14 }, { name: "D4", x: 60, y: -28 }, { name: "D5", x: 60, y: -14 }, { name: "D6", x: 60, y: 0 }, { name: "D7", x: 60, y: 14 }, { name: "VOUT", x: 60, y: 28 }];
 add({
   id: "dac_0808",
   name: "DAC0808 8-Bit DAC",
@@ -5881,9 +5802,9 @@ add({
   tags: ["dac","0808"],
   mount: "THT",
   pins: pins_dac_0808,
-  symbol: icSymbol(100, 120, "0808", pins_dac_0808),
-  params: [{ key: "vref", label: "VREF", unit: "V", type: "number", def: 5 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dac8", params: { vref: num(i,"vref",5), vdd: 5 } }],
+  symbol: icSymbol(110, 100, "DAC0808", pins_dac_0808),
+  params: [{ key: "vdd", label: "Versorgung", unit: "V", type: "number", def: 5 }, { key: "vth", label: "Schaltschwelle", unit: "V", type: "number", def: 2.5 }, { key: "rout", label: "Ausgangswiderstand", unit: "Ω", type: "number", def: 100 }, { key: "vref", label: "Referenzspannung", unit: "V", type: "number", def: 5 }],
+  toDevices: (i,n): Device[] => [{ id: i.id, type: "DIGITAL", nodes: n, model: "dac8", params: { vdd: num(i, "vdd", 5), vth: num(i, "vth", 2.5), rout: num(i, "rout", 100), vref: num(i, "vref", 5) } }],
 });
 
 
