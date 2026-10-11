@@ -53,6 +53,8 @@ test("S5.2 Schalter toggelt im Run", async ({ page }) => {
   await clickWorld(page, 500, 400);
   await expect.poll(() => controlsOf(page, id)).toBe(1);
   await expectLog(page, /geschlossen/);
+  // Doppelklick-Fenster abwarten (e.detail>=2 wird nicht getoggelt).
+  await page.waitForTimeout(600);
   await clickWorld(page, 500, 400);
   await expect.poll(() => controlsOf(page, id)).toBe(0);
   await expectLog(page, /geöffnet/);
@@ -93,9 +95,9 @@ test("S5.4 Taster momentan", async ({ page }) => {
   await page.mouse.move(p.x, p.y);
   await page.mouse.down();
   await expect.poll(() => controlsOf(page, id)).toBe(1);
-  await expectLog(page, /gedrückt/);
   await page.mouse.up();
   await expect.poll(() => controlsOf(page, id)).toBe(0);
+  await expectLog(page, /gedrückt/);
   await stopSimUI(page);
   expectNoErrors(errors);
 });

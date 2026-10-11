@@ -7,6 +7,7 @@ test("S1.1 Boot ohne Begrüßungs-Hinweis", async ({ page }) => {
   const errors = await gotoApp(page);
   await expect(canvasApp(page)).toBeVisible();
   await expect(page.locator("#workspace")).toBeVisible();
-  await expect(page.getByRole("status")).toHaveCount(0);
+  // ScreenReaderStatus (role=status) ist permanent; Toast (UndoToast) darf nicht da sein.
+  await expect(page.locator("div.z-toast")).toHaveCount(0);
   expectNoErrors(errors);
 });
