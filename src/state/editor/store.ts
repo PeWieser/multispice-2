@@ -2,7 +2,8 @@
 
 import { create } from "zustand";
 import type { EditorState } from "./types";
-import type { SchematicDoc } from "@/lib/schematic/model";
+import { pinPosition as e2ePinPosition, type SchematicDoc } from "@/lib/schematic/model";
+import { PART_MAP as e2ePartMap } from "@/lib/library/catalog";
 import { initialState } from "./initial";
 import { engine } from "./shared";
 import { autoSaveToBoundFile, hasActiveSaveTarget, saveProjectLocal } from "@/lib/storage";
@@ -108,3 +109,15 @@ export const useEditor = create<EditorState>((set, get) => ({
   ...createMiscSlice(set, get),
   ...createPartEditorSlice(set, get),
 }));
+
+/* E2E-Testhaken (Playwright, siehe E2E_TESTMATRIX.md): lesender Zugriff auf
+ * Store, Geometrie und Katalog für Setup + Präzisions-Assertions. Die App ist
+ * eine reine Client-Anwendung ohne Geheimnisse — der Haken ist harmlos. */
+if (typeof window !== "undefined") {
+  (window as unknown as { __multispice?: unknown }).__multispice = {
+    useEditor,
+    pinPosition: e2ePinPosition,
+    partMap: e2ePartMap,
+    engine,
+  };
+}

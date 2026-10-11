@@ -361,12 +361,12 @@ export default function MenuBar({
 
       <div className="flex items-center gap-0.5">
         <Tooltip content="Rückgängig (⌘Z)" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().undo()} disabled={!canUndo}>
+          <button className="btn h-6 px-1.5" onClick={() => st().undo()} disabled={!canUndo} aria-label="Rückgängig">
             <Undo2 size={13} />
           </button>
         </Tooltip>
         <Tooltip content="Wiederholen (⇧⌘Z)" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().redo()} disabled={!canRedo}>
+          <button className="btn h-6 px-1.5" onClick={() => st().redo()} disabled={!canRedo} aria-label="Wiederholen">
             <Redo2 size={13} />
           </button>
         </Tooltip>
@@ -386,7 +386,7 @@ export default function MenuBar({
           </button>
         </Tooltip>
         <Tooltip content="Stoppen" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().stopSim()}>
+          <button className="btn h-6 px-1.5" onClick={() => st().stopSim()} aria-label="Stoppen">
             <Square size={11} />
           </button>
         </Tooltip>
