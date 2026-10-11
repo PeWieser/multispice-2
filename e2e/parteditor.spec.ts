@@ -31,8 +31,7 @@ test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
   const dbgTool = await msEval<string>(page, `(s) => s.tool`);
   const dbgFocus = await page.evaluate(() => {
     const ae = document.activeElement as HTMLElement | null;
-    const n = document.querySelectorAll("div.z-floating input").length;
-    return `${ae ? ae.tagName : "?"}|${n}`;
+    return ae ? ae.outerHTML.slice(0, 220) : "?";
   });
   expect(`${dbgTool}|${dbgFocus}`).toBe("wire|BODY|0");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("wire");
