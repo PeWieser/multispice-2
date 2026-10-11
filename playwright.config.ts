@@ -7,7 +7,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "e2e",
-  testMatch: "*.spec.ts",
+  testMatch: "**/*.spec.ts",
   fullyParallel: false, // ein Server, deterministische Reihenfolge
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
