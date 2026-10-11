@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   act,
-  canvasApp,
+  canvasEl,
   clickWorld,
   closeInlineEditor,
   expectNoErrors,
@@ -24,7 +24,7 @@ test("S4.1 Wire-Tool (W → Stift-Cursor)", async ({ page }) => {
   await act(page, "newDocument");
   await page.keyboard.press("w");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("wire");
-  const cursor = await canvasApp(page).evaluate((el) => (el as HTMLElement).style.cursor);
+  const cursor = await canvasEl(page).evaluate((el) => (el as HTMLElement).style.cursor);
   expect(cursor).toContain("url(");
   expectNoErrors(errors);
 });
@@ -60,7 +60,7 @@ test("S4.4 Wire-Hover (Handle-Cursor)", async ({ page }) => {
   const p = await worldToPage(page, 500, 300);
   await page.mouse.dblclick(p.x, p.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
-  const cursor = () => canvasApp(page).evaluate((el) => (el as HTMLElement).style.cursor);
+  const cursor = () => canvasEl(page).evaluate((el) => (el as HTMLElement).style.cursor);
   await page.mouse.move(p.x, p.y);
   await expect.poll(cursor).toBe("grab");
   const mid = await worldToPage(page, 450, 300);
@@ -106,27 +106,33 @@ test("S4.6 Wire-Punkt draggen (Rest bleibt)", async ({ page }) => {
   const after = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
   expect(after.length).toBe(before.length);
   expect(after[idx]).toEqual({ x: 540, y: 340 });
-  for (let i = 0; i < before.length; i++) {
-    if (i !== idx) expect(after[i]).toEqual(before[i]);
+  // Ortho-Drag: Nachbarn folgen, damit alle Segmente achsparallel bleiben.
+  for (let i = 1; i < after.length; i++) {
+    const ortho = after[i].x === after[i - 1].x || after[i].y === after[i - 1].y;
+    expect(ortho, `Segment ${i}`).toBe(true);
   }
   expectNoErrors(errors);
 });
 
-// S4.8: Auto-Route führt um Hindernis (Bauteil zwischen den Pins).
+// S4.8: Auto-Route weicht Hindernis aus (diagonaler Drag, Knick untenrum).
 test("S4.8 Auto-Route (Umweg um Hindernis)", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "newDocument");
-  await placeResistor(page, 400, 300);
-  await placeResistor(page, 600, 300);
   await placeResistor(page, 500, 300);
   await page.keyboard.press("w");
-  await clickWorld(page, 430, 300);
-  await clickWorld(page, 570, 300);
-  const p = await worldToPage(page, 570, 300);
-  await page.mouse.dblclick(p.x, p.y);
+  const a = await worldToPage(page, 400, 300);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  const b = await worldToPage(page, 600, 360);
+  await page.mouse.move(b.x, b.y, { steps: 12 });
+  await page.mouse.up();
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
   const pts = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
-  expect(pts.some((q) => q.y !== 300)).toBe(true);
+  expect(pts).toEqual([
+    { x: 400, y: 300 },
+    { x: 400, y: 360 },
+    { x: 600, y: 360 },
+  ]);
   expectNoErrors(errors);
 });
 
@@ -147,13 +153,16 @@ test("S4.9 Snap (Endpunkt rastet auf Grid)", async ({ page }) => {
   await dlg.getByRole("switch", { name: "Am Raster ausrichten" }).click();
   await expect.poll(() => msEval<boolean>(page, `(s) => s.snap`)).toBe(false);
   await page.keyboard.press("Escape");
-  await page.keyboard.press("w");
-  await clickWorld(page, 400, 300);
-  await page.mouse.dblclick(p.x, p.y);
-  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(2);
-  const pts2 = await msEval<Pt[]>(page, `(s) => s.doc.wires[1].points`);
-  const last = pts2[pts2.length - 1];
-  expect(Math.abs(last.x - 463)).toBeLessThan(0.6);
-  expect(Math.abs(last.y - 377)).toBeLessThan(0.6);
+  // Snap aus → Bauteil-Drag landet frei (nicht auf Grid).
+  await placeResistor(page, 400, 300);
+  const d = await worldToPage(page, 400, 300);
+  await page.mouse.move(d.x, d.y);
+  await page.mouse.down();
+  await page.mouse.move(p.x, p.y, { steps: 12 });
+  await page.mouse.up();
+  const pos = await msEval<Pt>(page, `(s) => ({ x: s.doc.instances[0].x, y: s.doc.instances[0].y })`);
+  expect(Math.abs(pos.x - 463)).toBeLessThan(0.6);
+  expect(Math.abs(pos.y - 377)).toBeLessThan(0.6);
+  expect(Math.abs(pos.x - 460)).toBeGreaterThan(2);
   expectNoErrors(errors);
 });
