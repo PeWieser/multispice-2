@@ -10,11 +10,11 @@ test("F01 Start, Pause, Stop, Log", async ({ page }) => {
   const errors = await gotoApp(page);
   await wizardDivider(page);
   await startSimUI(page);
-  // Hinweis: Die Bauteile-Zahl im Log variiert laufabhängig (3↔5, App-seitig ungeklärt) — hier zählt der Start.
   await expectLog(page, /Simulation gestartet/);
-  const t1 = await msEval<number>(page, `(s) => s.sim.time`);
+  // Sim-Takt läuft (tick steigt pro Frame; es gibt kein s.sim.time im Store).
+  const t1 = await msEval<number>(page, `(s) => s.sim.tick`);
   await page.waitForTimeout(800);
-  const t2 = await msEval<number>(page, `(s) => s.sim.time`);
+  const t2 = await msEval<number>(page, `(s) => s.sim.tick`);
   expect(t2).toBeGreaterThan(t1);
   // Pause per Leertaste.
   await page.keyboard.press(" ");

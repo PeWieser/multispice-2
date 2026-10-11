@@ -55,6 +55,8 @@ export async function buildResistorMacro(page: Page, name: string): Promise<stri
   const abortBtn = shell.getByRole("button", { name: "Abbrechen", exact: true });
   if ((await abortBtn.count()) > 0) await abortBtn.click();
   await shell.getByRole("button", { name: "Speichern", exact: true }).click();
+  // „Speichern“ führt fort (schließt nicht) → explizit schließen (dirty=false → ohne Rückfrage).
+  await shell.getByRole("button", { name: "Editor schließen", exact: true }).click();
   // Editor schließt, Teil ist in der Bibliothek.
   await expect(page.getByRole("button", { name: "Schaltung", exact: true })).toBeHidden();
   const specId = await msEval<string>(page, `(s, ms) => Object.values(ms.partMap).find((p) => p.name === ${JSON.stringify(name)})?.id ?? ""`);
