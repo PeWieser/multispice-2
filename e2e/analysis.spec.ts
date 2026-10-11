@@ -15,7 +15,7 @@ test("I03 DC-Arbeitspunkt am Teiler", async ({ page }) => {
   await wizardDivider(page);
   await menuClick(page, "Analysen", "DC-Arbeitspunkt");
   await waitAnalysisDone(page);
-  const out = await msEval<number>(page, `(s) => (s.analysis.data as { nodes: Record<string, number> }).nodes.OUT`);
+  const out = await msEval<number>(page, `(s) => s.analysis.data.nodes.OUT`);
   expectNear(out, 2.5, 1e-6);
   await expectLog(page, /Arbeitspunkt/i);
   expectNoErrors(errors);
@@ -31,7 +31,7 @@ test("I04 Transiente am RC-Tiefpass", async ({ page }) => {
   await dlg.getByRole("checkbox", { name: "OUT" }).check();
   await dlg.getByRole("button", { name: "Ausführen" }).click();
   await waitAnalysisDone(page);
-  const curves = await msEval<number>(page, `(s) => ((s.analysis.data as { curves: unknown[] }).curves ?? []).length`);
+  const curves = await msEval<number>(page, `(s) => (s.analysis.data?.curves ?? []).length`);
   expect(curves).toBeGreaterThanOrEqual(1);
   await openBottomTab(page, "Ergebnisse");
   const tab = page.getByRole("button", { name: "Ergebnisse", exact: true });
@@ -56,7 +56,7 @@ test("I05 AC-Analyse, f−3dB", async ({ page }) => {
   const panel = page.locator("div", { has: row.first() }).last();
   void panel;
   const f3 = await msEval<number>(page, `(s) => {
-    const d = s.analysis.data as { freq: number[]; magDb: Record<string, number[]> };
+    const d = s.analysis.data;
     const xs = d.freq; const ys = d.magDb.OUT ?? [];
     for (let i = 1; i < ys.length; i++) {
       if (ys[i - 1] > -3 && ys[i] <= -3) return Math.sqrt(xs[i - 1] * xs[i]);
@@ -73,6 +73,11 @@ test("I02 Analyse ohne Ausgang verweigert", async ({ page }) => {
   await act(page, "loadPreset", "rc-lowpass");
   await menuClick(page, "Analysen", "Transientenanalyse");
   const dlg = page.getByRole("dialog", { name: /Transientenanalyse/ });
+  // Alle vorausgewählten Ausgänge abwählen → erst dann greift die Validierung.
+  const boxes = dlg.getByRole("checkbox");
+  for (let i = (await boxes.count()) - 1; i >= 0; i--) {
+    if (await boxes.nth(i).isChecked()) await boxes.nth(i).uncheck();
+  }
   await dlg.getByRole("button", { name: "Ausführen" }).click();
   await expect(dlg.getByRole("status")).toBeVisible();
   await expect(dlg).toBeVisible();

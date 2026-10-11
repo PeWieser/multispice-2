@@ -9,9 +9,9 @@ test("C02 Bibliothek: suchen + platzieren", async ({ page }) => {
   const errors = await gotoApp(page);
   await openLibrary(page);
   const search = page.locator("#lib-search");
-  await search.fill("nmos");
-  await expect(page.getByText("NMOS-Transistor", { exact: true }).first()).toBeVisible();
-  const id = await placePartUI(page, "nmos", /NMOS-Transistor/, 400, 300);
+  await search.fill("mosfet");
+  await expect(page.getByText("N-Kanal MOSFET (allg.)", { exact: true }).first()).toBeVisible();
+  const id = await placePartUI(page, "mosfet", "N-Kanal MOSFET (allg.)", 400, 300);
   const part = await msEval<string>(page, `(s) => s.doc.instances.find((i) => i.id === ${JSON.stringify(id)})?.partId ?? ""`);
   expect(part).toMatch(/nmos/i);
   await expectSummary(page, /1× /);
