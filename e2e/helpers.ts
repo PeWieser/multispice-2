@@ -70,6 +70,17 @@ export async function menuClick(page: Page, menu: string, item: string | RegExp)
   }
 }
 
+/** Inline-Werteditor (öffnet nach R/C/L/VDC-Platzierung, autoFokussiert) sicher schließen:
+ *  auf das Eingabefeld warten, dann Escape *hinein* — die Editor-Shell ignoriert
+ *  Input-Escapes (keine Schließen-Rückfrage), ein blinder Escape träfe den Body.
+ */
+export async function closeInlineEditor(page: Page): Promise<void> {
+  const input = page.locator("div.z-floating input");
+  await input.waitFor({ state: "visible", timeout: 5000 });
+  await input.press("Escape");
+  await input.waitFor({ state: "hidden", timeout: 5000 });
+}
+
 /** Nativen Speicher-Picker deaktivieren → Export fällt deterministisch auf Download zurück
  *  (showSaveFilePicker hängt sonst vom transient-activation-Timing ab). */
 export async function forceDownloadFallback(page: Page): Promise<void> {
@@ -103,16 +114,10 @@ export async function stopSimUI(page: Page): Promise<void> {
 /** Bottom-Panel öffnen + Tab wählen („Konsole“, „Ergebnisse“, „SPICE-Netzliste“, „Prüfung“, „Sonden“, „Stückliste“). */
 export async function openBottomTab(page: Page, tab: string): Promise<void> {
   const tabBtn = page.getByRole("button", { name: tab, exact: true });
-  if (!(await tabBtn.isVisible())) {
-    await menuOpen(page, "Ansicht");
-    const plain = page.getByRole("menuitem", { name: "Auswertung & Konsole" });
-    if ((await plain.count()) > 0) {
-      await plain.click(); // Panel zu → öffnen.
-    } else {
-      // Panel ist bereits offen (Race mit Sim-Auto-Open): Menü schließen, nichts togglen.
-      await page.keyboard.press("Escape");
-      await expect(page.getByRole("menu", { name: "Ansicht" })).toBeHidden();
-    }
+  // Store-Wahrheit statt Sichtbarkeits-Race (Sim öffnet das Panel automatisch).
+  const isOpen = await msEval<boolean>(page, `(s) => s.bottomOpen`);
+  if (!isOpen) {
+    await menuClick(page, "Ansicht", "Auswertung & Konsole");
   }
   await tabBtn.click();
   await expect(tabBtn).toHaveAttribute("data-active", "true");

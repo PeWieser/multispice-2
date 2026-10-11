@@ -40,7 +40,12 @@ test("L05 Export/Import JSON Roundtrip", async ({ page }) => {
   const chooser = page.waitForEvent("filechooser");
   await menuClick(page, "Datei", "Öffnen / Importieren …");
   await (await chooser).setFiles(file);
-  await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(5);
+  // Diagnose-fähig: Instanzen + Log-Tail (Received landet in CI-Annotations).
+  await expect.poll(async () => {
+    const n = await msEval<number>(page, `(s) => s.doc.instances.length`);
+    const tail = await msEval<string>(page, `(s) => s.logs.slice(-2).map((l) => l.level + ":" + l.message).join(" // ")`);
+    return `instances=${n} logs=[${tail}]`;
+  }).toContain("instances=5");
   expectNoErrors(errors);
 });
 

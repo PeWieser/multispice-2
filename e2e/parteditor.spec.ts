@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import {
   gotoApp, expectNoErrors, expectSummary, msEval, act, menuClick,
-  clickWorld, centerViewOn, pinWorld, startSimUI, stopSimUI, expectLog,
+  clickWorld, centerViewOn, pinWorld, startSimUI, stopSimUI, expectLog, closeInlineEditor,
 } from "./helpers";
 import { wizardDivider, dragWire, buildResistorMacro, editorShell } from "./flows";
 
@@ -33,7 +33,7 @@ test("M03 Testlauf im Editor", async ({ page }) => {
   await clickWorld(page, 250, 300);
   await shell.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
-  await page.keyboard.press("Escape"); // Inline-Werteditor schließen (W91 hält ihn sonst offen → schluckt „w“)
+  await closeInlineEditor(page); // W91 hält ihn sonst offen → schluckt „w“
   await shell.getByRole("button", { name: "Port: Ausgang", exact: true }).click();
   await clickWorld(page, 550, 300);
   const ids = await msEval<Record<string, string>>(page, `(s) => Object.fromEntries(s.doc.instances.map((i) => [i.partId, i.id]))`);
@@ -61,6 +61,7 @@ test("M05 Custom-Teil speichern + simulieren", async ({ page }) => {
   // VDC + Custom + GND aufbauen.
   await page.getByRole("button", { name: "DC-Spannungsquelle", exact: true }).click();
   await clickWorld(page, 250, 300);
+  await closeInlineEditor(page); // VDC fragt nach dem Wert (W91-Race wie beim R)
   await page.keyboard.press("ControlOrMeta+k");
   await page.locator("#lib-search").fill("E2E-Nutz-R");
   await page.getByText("E2E-Nutz-R", { exact: true }).first().click();
