@@ -26,6 +26,7 @@ test("D Editieren: platzieren, drehen, löschen, undo/redo", async ({ page }) =>
   await page.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
+  await page.keyboard.press("Escape"); // Inline-Werteditor schließen
   const id = await msEval<string>(page, `(s) => s.doc.instances[0].id`);
   // Auswahl per Klick.
   await clickWorld(page, 400, 300);
@@ -55,8 +56,9 @@ test("E01 Leitung Pin-zu-Pin ziehen", async ({ page }) => {
   await centerViewOn(page, 500, 300);
   await page.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
+  await page.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 600, 300);
-  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape"); // Inline-Werteditor schließen
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(2);
   // R1 Pin 2 (430,300) → R2 Pin 1 (570,300): Loslassen auf Pin schließt an.
   const a = await worldToPage(page, 430, 300);

@@ -68,10 +68,11 @@ test("L03 Projekt-Slots", async ({ page }) => {
   await act(page, "newDocument");
   await dlg.getByRole("button", { name: /Projekt öffnen/ }).click();
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(5);
+  // Öffnen schließt den Dialog → erneut öffnen, dann löschen.
+  await menuClick(page, "Datei", "Projekte …");
+  await expect(dlg.getByText("E2E-Slot")).toBeVisible();
   await dlg.getByRole("button", { name: "Löschen", exact: true }).click();
-  // Bestätigungszustand → erneut klicken (falls nötig), dann ist der Slot weg.
-  const confirm = dlg.getByRole("button", { name: /Wirklich|Bestätigen|Ja/i });
-  if (await confirm.isVisible().catch(() => false)) await confirm.click();
+  await dlg.getByRole("button", { name: "Wirklich?", exact: true }).click();
   await expect(dlg.getByText("E2E-Slot")).toBeHidden();
   expectNoErrors(errors);
 });
