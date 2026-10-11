@@ -26,6 +26,15 @@ test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
   await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.confirmClose`)).toBe(false);
   // … Werkzeug-Reset (Leitungs-Escape!) ohne Schließen-Dialog …
   await page.keyboard.press("w");
+  // TEMP-DEBUG: Warum wird „w" geschluckt? Received zeigt tool|Fokus|FloatingInputs.
+  await page.waitForTimeout(500);
+  const dbgTool = await msEval<string>(page, `(s) => s.tool`);
+  const dbgFocus = await page.evaluate(() => {
+    const ae = document.activeElement as HTMLElement | null;
+    const n = document.querySelectorAll("div.z-floating input").length;
+    return `${ae ? ae.tagName : "?"}|${n}`;
+  });
+  expect(`${dbgTool}|${dbgFocus}`).toBe("wire|BODY|0");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("wire");
   await page.keyboard.press("Escape");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("select");
