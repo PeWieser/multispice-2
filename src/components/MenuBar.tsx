@@ -361,12 +361,12 @@ export default function MenuBar({
 
       <div className="flex items-center gap-0.5">
         <Tooltip content="Rückgängig (⌘Z)" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().undo()} disabled={!canUndo} aria-label="Rückgängig">
+          <button className="btn h-6 min-h-[24px] px-1.5" onClick={() => st().undo()} disabled={!canUndo} aria-label="Rückgängig">
             <Undo2 size={13} />
           </button>
         </Tooltip>
         <Tooltip content="Wiederholen (⇧⌘Z)" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().redo()} disabled={!canRedo} aria-label="Wiederholen">
+          <button className="btn h-6 min-h-[24px] px-1.5" onClick={() => st().redo()} disabled={!canRedo} aria-label="Wiederholen">
             <Redo2 size={13} />
           </button>
         </Tooltip>
@@ -377,7 +377,7 @@ export default function MenuBar({
       <div className="flex items-center gap-1">
         <Tooltip content={running ? "Pause (Leertaste)" : "Start (Leertaste)"} side="bottom">
           <button
-            className={running ? "btn h-6 px-2" : "btn btn-primary h-6 px-2.5"}
+            className={running ? "btn h-6 min-h-[24px] px-2" : "btn btn-primary h-6 min-h-[24px] px-2.5"}
             onClick={() => (running ? st().pauseSim() : st().startSim())}
             data-spot="start-sim"
           >
@@ -386,7 +386,7 @@ export default function MenuBar({
           </button>
         </Tooltip>
         <Tooltip content="Stoppen" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().stopSim()} aria-label="Stoppen">
+          <button className="btn h-6 min-h-[24px] px-1.5" onClick={() => st().stopSim()} aria-label="Stoppen">
             <Square size={11} />
           </button>
         </Tooltip>
@@ -395,7 +395,7 @@ export default function MenuBar({
       <div className="flex-1" />
 
       <Tooltip content="Einstellungen" side="bottom">
-        <button className="btn h-6 px-2" onClick={() => onSettings?.()} aria-label="Einstellungen">
+        <button className="btn h-6 min-h-[24px] px-2" onClick={() => onSettings?.()} aria-label="Einstellungen">
           <SettingsIcon size={13} />
         </button>
       </Tooltip>

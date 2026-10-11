@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { expectNoErrors, gotoApp, menuOpen, msEval, placePartUI } from "../helpers";
+import { act, expectNoErrors, gotoApp, menuOpen, msEval, placePartUI } from "../helpers";
 import { attachJson, tooltipText } from "./helpers";
 
 // S10.7a: Menüleisten-Knöpfe zeigen Tooltip mit Name (+ Kürzel).
 test("S10.7a Toolbar-Tooltips (Menüleiste)", async ({ page }) => {
   const errors = await gotoApp(page);
+  await act(page, "newDocument"); // Boot-Beispiel raus (F04-Muster)
   // Beide Undo-Richtungen enablen (Hover auf disabled ist unsicher).
   await placePartUI(page, "mosfet", "N-Kanal MOSFET (allg.)", 400, 300);
   await placePartUI(page, "mosfet", "N-Kanal MOSFET (allg.)", 520, 300);

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
+  act,
   expectNoErrors,
   gotoApp,
   menuOpen,
@@ -132,6 +133,7 @@ test("S12.4b Enter aktiviert, Esc schließt", async ({ page }) => {
 // S12.4c: Kürzel Wire, Löschen, Undo/Redo.
 test("S12.4c Kürzel: Wire, Löschen, Undo/Redo", async ({ page }) => {
   const errors = await gotoApp(page);
+  await act(page, "newDocument"); // Boot-Beispiel raus (F04-Muster)
   await page.keyboard.press("w");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("wire");
   await page.keyboard.press("Escape");
@@ -161,7 +163,8 @@ test("S12.5+S12.9 Log-Rolle + Sonden-Tabelle", async ({ page }) => {
   await openBottomTab(page, "Sonden");
   const table = page.locator("table.w-full");
   await expect(table).toBeVisible();
-  await expect(table.locator("caption")).toBeAttached();
+  await expect(page.locator("table.sr-only caption")).toBeAttached();
+  await expect(page.locator("table.sr-only caption")).toContainText("Messwerte");
   const scopes = await table.locator("thead th").evaluateAll((ths) => ths.map((th) => th.getAttribute("scope")));
   expect(scopes.length).toBeGreaterThan(0);
   expect(scopes.every((s) => s === "col")).toBe(true);
@@ -221,24 +224,31 @@ test("S12.8 Focus-Ring nur bei Tastatur", async ({ page }) => {
   });
   expect(kbOutline).toBe("2px");
   await startButton(page).click();
-  const mouseOutline = await page.evaluate(() => {
+  const mouseFocus = await page.evaluate(() => {
     const ae = document.activeElement as HTMLElement | null;
-    return ae ? getComputedStyle(ae).outlineWidth : "";
+    return ae ? `${ae.tagName}|${getComputedStyle(ae).outlineWidth}` : "?";
   });
-  expect(mouseOutline).toBe("0px");
+  expect(mouseFocus, "Fokus nach Mausklick: TAG|outline").toBe("BUTTON|0px");
   await stopSimUI(page);
   expectNoErrors(errors);
 });
 
-// S12.10: 200%-Zoom (CSS) bleibt bedienbar: Vorlage, Start, Stop.
+// S12.10: 200%-Zoom (CSS) bleibt bedienbar — Tastatur/Store statt Koordinaten-Klicks
+// (CSS-Zoom verzerrt Klick-Koordinaten), kein Über-Overflow über den Zoom hinaus.
 test("S12.10 200%-Zoom bedienbar (CSS-Zoom)", async ({ page }, testInfo) => {
   const errors = await gotoApp(page);
+  await act(page, "loadPreset", "rc-lowpass");
   await page.evaluate(() => {
     document.body.style.zoom = "200%";
   });
-  await wizardDivider(page);
-  await startSimUI(page);
-  await stopSimUI(page);
+  await startButton(page).focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => msEval<boolean>(page, `(s) => s.sim.running`)).toBe(true);
+  await page.getByRole("button", { name: "Stoppen", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => msEval<boolean>(page, `(s) => s.sim.running`)).toBe(false);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth / window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(2.1);
   await attachShot(page, testInfo, "zoom-200.png");
   expectNoErrors(errors);
 });
