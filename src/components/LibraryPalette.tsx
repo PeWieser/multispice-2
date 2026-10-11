@@ -478,7 +478,10 @@ export default function LibraryPalette({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") toggle();
+      // Gedockt (Bauteile-Editor) schließt Esc nichts — die Canvas-Esc-Kette läuft
+      // daneben; sonst flackert libraryOpen + der Fokus springt in die Suche.
+      // Gleiches gilt für die verdeckte Haupt-Palette bei offenem Editor.
+      if (e.key === "Escape" && !docked && !useEditor.getState().partEditor.open) toggle();
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         toggle();

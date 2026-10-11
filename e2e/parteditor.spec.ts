@@ -19,16 +19,7 @@ test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
   await closeInlineEditor(page);
   // Esc-Kette wie im Hauptfenster: Abwahl ohne Schließen-Dialog …
   // (kein Klick auf R danach — W91 öffnet den Inline-Editor neu und schluckt Tasten).
-  // TEMP-DEBUG-3: Fokus-Timeline.
-  await page.evaluate(() => {
-    const w = window as unknown as Record<string, unknown>;
-    w.__flog = [] as string[];
-    document.addEventListener("focusin", (e) => {
-      const el = e.target as HTMLElement;
-      (w.__flog as string[]).push(`${Math.round(performance.now())}:${el.tagName}#${el.id || "-"}`);
-    });
-  });
-  const aeBefore = await page.evaluate(() => { const ae = document.activeElement as HTMLElement | null; return ae ? `${ae.tagName}#${ae.id || "-"}` : "?"; });
+  const libOpenBefore = await msEval<boolean>(page, `(s) => s.libraryOpen`);
   await page.keyboard.press("ControlOrMeta+a");
   await expect.poll(() => msEval<number>(page, `(s) => s.selection.length`)).toBe(1);
   await page.keyboard.press("Escape");
@@ -36,16 +27,6 @@ test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
   await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.confirmClose`)).toBe(false);
   // … Werkzeug-Reset (Leitungs-Escape!) ohne Schließen-Dialog …
   await page.keyboard.press("w");
-  // TEMP-DEBUG: Warum wird „w" geschluckt? Received zeigt tool|Fokus|FloatingInputs.
-  await page.waitForTimeout(500);
-  const dbgTool = await msEval<string>(page, `(s) => s.tool`);
-  const dbgFocus = await page.evaluate(() => {
-    const w = window as unknown as Record<string, unknown>;
-    const ae = document.activeElement as HTMLElement | null;
-    return `ae=${ae ? `${ae.tagName}#${ae.id || "-"}` : "?"} before=${(window as unknown as { __aeBefore?: string }).__aeBefore ?? "?"} log=${((w.__flog as string[]) || []).join(">")}`;
-  });
-  await page.evaluate((v) => { (window as unknown as Record<string, unknown>).__aeBefore = v; }, aeBefore);
-  expect(`${dbgTool}|${dbgFocus}`).toBe("wire|BODY|0");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("wire");
   await page.keyboard.press("Escape");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("select");
@@ -54,6 +35,8 @@ test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.confirmClose`)).toBe(false);
   await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeHidden();
+  // Esc im Editor lässt die Haupt-Bibliothek in Ruhe (kein libraryOpen-Flackern).
+  await expect.poll(() => msEval<boolean>(page, `(s) => s.libraryOpen`)).toBe(libOpenBefore);
   // Schließen per Knopf fragt weiterhin (Abbrechen bleibt, Verwerfen geht).
   await shell.getByRole("button", { name: "Editor schließen", exact: true }).click();
   await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeVisible();
