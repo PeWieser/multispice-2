@@ -64,12 +64,22 @@ test("S12.2 Touch-Targets Desktop (≥24px)", async ({ page }, testInfo) => {
   for (const t of ["Konsole", "Ergebnisse", "SPICE-Netzliste", "Prüfung", "Sonden", "Stückliste"]) {
     samples.push([`Tab ${t}`, page.getByRole("button", { name: t, exact: true })]);
   }
-  const sizes: Record<string, { w: number; h: number }> = {};
+  const sizes: Record<string, { w: number; h: number; n: number }> = {};
   for (const [name, loc] of samples) {
-    const box = await loc.boundingBox();
-    if (!box) throw new Error(`kein Maß: ${name}`);
-    sizes[name] = { w: Math.round(box.width), h: Math.round(box.height) };
-    expect(Math.min(box.width, box.height), name).toBeGreaterThanOrEqual(24);
+    // Alle Treffer messen (Zwillinge wie Toast-Buttons nicht übersehen).
+    const hits = await loc.evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        const cs = getComputedStyle(e);
+        return { w: r.width, h: r.height, cls: ((e as HTMLElement).className || "").toString().slice(0, 70), hCss: cs.height, minh: cs.minHeight };
+      }),
+    );
+    const vis = hits.filter((b) => b.w > 0 && b.h > 0);
+    expect(vis.length, `${name}: sichtbare Treffer`).toBeGreaterThan(0);
+    for (const b of vis) {
+      expect(Math.min(b.w, b.h), `${name} [${b.cls}] css=${b.hCss}/${b.minh}`).toBeGreaterThanOrEqual(24);
+    }
+    sizes[name] = { w: Math.round(vis[0].w), h: Math.round(vis[0].h), n: vis.length };
   }
   const audit = await page.evaluate(() =>
     Array.from(document.querySelectorAll("button"))
@@ -170,7 +180,7 @@ test("S12.5+S12.9 Log-Rolle + Sonden-Tabelle", async ({ page }) => {
   expect(scopes.every((s) => s === "col")).toBe(true);
   const firstRow = table.locator("tbody tr").first();
   await expect(firstRow).toContainText("OUT");
-  await expect(firstRow.locator("td").nth(1)).toContainText("V");
+  await expect(firstRow.locator("td").nth(1)).toContainText("voltage");
   expectNoErrors(errors);
 });
 
@@ -218,17 +228,21 @@ test("S12.7 Tabellarische Zahlen", async ({ page }) => {
 test("S12.8 Focus-Ring nur bei Tastatur", async ({ page }) => {
   const errors = await gotoApp(page);
   await page.keyboard.press("Tab");
-  const kbOutline = await page.evaluate(() => {
+  const kb = await page.evaluate(() => {
     const ae = document.activeElement as HTMLElement | null;
-    return ae ? getComputedStyle(ae).outlineWidth : "";
+    if (!ae) return "?";
+    const cs = getComputedStyle(ae);
+    return `${cs.outlineWidth}|${cs.outlineStyle}`;
   });
-  expect(kbOutline).toBe("2px");
+  expect(kb).toBe("2px|solid");
   await startButton(page).click();
-  const mouseFocus = await page.evaluate(() => {
+  // Stil (nicht Breite) entscheidet: outline:none lässt width=medium („3px“) stehen.
+  const mouse = await page.evaluate(() => {
     const ae = document.activeElement as HTMLElement | null;
-    return ae ? `${ae.tagName}|${getComputedStyle(ae).outlineWidth}` : "?";
+    if (!ae) return "?";
+    return `${ae.tagName}|${getComputedStyle(ae).outlineStyle}`;
   });
-  expect(mouseFocus, "Fokus nach Mausklick: TAG|outline").toBe("BUTTON|0px");
+  expect(mouse).toBe("BUTTON|none");
   await stopSimUI(page);
   expectNoErrors(errors);
 });

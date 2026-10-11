@@ -12,10 +12,12 @@ test("S10.7a Toolbar-Tooltips (Menüleiste)", async ({ page }) => {
   await page.keyboard.press("Escape"); // Bibliothek zu
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
-  await expect(page.getByRole("button", { name: "Rückgängig", exact: true })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Wiederholen", exact: true })).toBeEnabled();
+  // Header-Scope: Undo/Redo-Toast rendert gleichnamige Aktions-Buttons (Zwillinge).
+  const bar = page.locator("header");
+  await expect(bar.getByRole("button", { name: "Rückgängig", exact: true })).toBeEnabled();
+  await expect(bar.getByRole("button", { name: "Wiederholen", exact: true })).toBeEnabled();
   for (const name of ["Rückgängig", "Wiederholen", "Start", "Stoppen", "Einstellungen"]) {
-    const text = await tooltipText(page, page.getByRole("button", { name, exact: true }));
+    const text = await tooltipText(page, bar.getByRole("button", { name, exact: true }));
     expect(text, `Tooltip ${name}`).toContain(name);
   }
   expectNoErrors(errors);
