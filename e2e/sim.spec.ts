@@ -16,7 +16,8 @@ test("F01 Start, Pause, Stop, Log", async ({ page }) => {
   await page.waitForTimeout(800);
   const t2 = await msEval<number>(page, `(s) => s.sim.tick`);
   expect(t2).toBeGreaterThan(t1);
-  // Pause per Leertaste.
+  // Pause per Leertaste (Fokus vorher vom Button nehmen — Space auf Buttons toggelt per Design nicht).
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press(" ");
   await expect.poll(() => msEval<boolean>(page, `(s) => s.sim.running`)).toBe(false);
   await expect(startButton(page)).toContainText("Start");
