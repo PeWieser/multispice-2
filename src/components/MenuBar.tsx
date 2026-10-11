@@ -386,7 +386,7 @@ export default function MenuBar({
           </button>
         </Tooltip>
         <Tooltip content="Stoppen" side="bottom">
-          <button className="btn h-6 min-h-[24px] px-1.5" onClick={() => st().stopSim()} aria-label="Stoppen">
+          <button className="btn h-6 min-h-[24px] min-w-[24px] px-2" onClick={() => st().stopSim()} aria-label="Stoppen">
             <Square size={11} />
           </button>
         </Tooltip>

@@ -242,6 +242,7 @@ export default function Inspector() {
                 <div className="rounded-lg p-2.5 bg-surface-2">
                   <div className="flex items-center justify-between">
                     <input
+                      aria-label="Bezeichner"
                       className="input mono w-24 py-0.5 text-xs font-semibold"
                       disabled={st.teacher.locked}
                       value={selected.label}

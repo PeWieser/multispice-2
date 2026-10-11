@@ -77,7 +77,7 @@ test("S12.2 Touch-Targets Desktop (≥24px)", async ({ page }, testInfo) => {
     const vis = hits.filter((b) => b.w > 0 && b.h > 0);
     expect(vis.length, `${name}: sichtbare Treffer`).toBeGreaterThan(0);
     for (const b of vis) {
-      expect(Math.min(b.w, b.h), `${name} [${b.cls}] css=${b.hCss}/${b.minh}`).toBeGreaterThanOrEqual(24);
+      expect(Math.min(b.w, b.h), `${name} [${b.cls}] ${Math.round(b.w)}x${Math.round(b.h)}`).toBeGreaterThanOrEqual(24);
     }
     sizes[name] = { w: Math.round(vis[0].w), h: Math.round(vis[0].h), n: vis.length };
   }
