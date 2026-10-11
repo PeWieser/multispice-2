@@ -47,6 +47,10 @@ test("S3.3 Mehrfach platzieren (Shift hält Modus)", async ({ page }) => {
   await page.keyboard.up("Shift");
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(3);
   await expect.poll(() => msEval<string | null>(page, `(s) => s.placingPartId`)).not.toBe(null);
+  // S5.3-Esc-Kette: 1× Auswahl weg (Modus bleibt), 2× Modus weg.
+  await page.keyboard.press("Escape");
+  await expect.poll(() => msEval<string[]>(page, `(s) => s.selection`)).toEqual([]);
+  expect(await msEval<string | null>(page, `(s) => s.placingPartId`)).not.toBe(null);
   await page.keyboard.press("Escape");
   await expect.poll(() => msEval<string | null>(page, `(s) => s.placingPartId`)).toBe(null);
   expectNoErrors(errors);
