@@ -8,7 +8,8 @@ test("S2.1 Bibliothek öffnen (Strg+K, floating, Esc)", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+k");
   const search = page.locator("#lib-search");
   await expect(search).toBeVisible();
-  await expect(page.getByText("Ziehen bewegt das Fenster")).toBeVisible();
+  await expect(page.getByTitle("Ziehen bewegt das Fenster")).toBeVisible();
+  await expect(page.getByText("Bibliothek", { exact: true }).first()).toBeVisible();
   const pos = await search.evaluate((el) => {
     let p: HTMLElement | null = el.parentElement;
     while (p && getComputedStyle(p).position !== "fixed") p = p.parentElement;
@@ -102,7 +103,7 @@ test("S2.8 Zuletzt (Recent nach Platzieren)", async ({ page }) => {
   await placePartUI(page, "mosfet", "N-Kanal MOSFET (allg.)", 400, 300);
   await page.keyboard.press("Escape");
   await openLibrary(page);
-  await page.getByRole("tab", { name: "Zuletzt" }).click();
+  await page.getByRole("button", { name: /Zuletzt/ }).click();
   await expect(page.getByText("N-Kanal MOSFET (allg.)", { exact: true }).first()).toBeVisible();
   expectNoErrors(errors);
 });
