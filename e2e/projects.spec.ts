@@ -23,15 +23,17 @@ test("L01 Reload stellt Arbeitskopie her", async ({ page }) => {
 });
 
 // L05+L06: Export JSON → Import stellt her.
-test("L05 Export/Import JSON Roundtrip", async ({ page }) => {
+test("L05 Export/Import JSON Roundtrip", async ({ page }, testInfo) => {
   const errors = await gotoApp(page);
   await wizardDivider(page);
   await forceDownloadFallback(page);
   const dl = page.waitForEvent("download");
   await menuClick(page, "Datei", "Export JSON");
   const download = await dl;
-  const file = await download.path();
-  if (!file) throw new Error("kein Download-Pfad");
+  // Unter festem Namen mit .msx.json-Endung sichern: Der Import routet per Dateiendung
+  // (der interne Download-Pfad trägt keine) — sonst landet JSON im SPICE-Pfad (0 Bauteile).
+  const file = testInfo.outputPath("e2e-export.msx.json");
+  await download.saveAs(file);
   const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { doc: { instances: unknown[] } };
   expect(raw.doc.instances.length).toBe(5);
   // Neues Blatt + Re-Import.
