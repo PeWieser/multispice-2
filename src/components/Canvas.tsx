@@ -2881,8 +2881,8 @@ export default function Canvas() {
           st.endGesture();
           st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null);
         }
-        // Im Bauteile-Editor schließt Esc im Leerlauf (wie Hauptfenster-Kette + Schließen als letzte Ebene).
-        else if (action === "none" && st.partEditor.open) st.requestPartEditorClose();
+        // „none" (Leerlauf) tut nichts — auch im Bauteile-Editor: Esc schließt nie
+        // (exakt wie Hauptfenster); Schließen nur per Knopf „Editor schließen".
       } else if (e.key.startsWith("Arrow") && st.tool === "place" && st.placingPartId) {
         // S5.3: Ghost per Pfeile bewegen (Raster, mit ⇧ 5-fach).
         e.preventDefault();

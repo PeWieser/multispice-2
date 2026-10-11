@@ -80,8 +80,8 @@ export default function PartEditorShell() {
   };
 
   // S6.2: Strg+S speichert das Bauteil (Capture: fängt Canvas-Handler ab).
-  // Esc auf der Schaltung gehört der Canvas-Esc-Kette (wie Hauptfenster, Schließen
-  // als letzte Ebene); nur ohne gemountete Canvas (andere Reiter) schließt Esc direkt.
+  // Esc auf der Schaltung gehört allein der Canvas-Esc-Kette (exakt wie Hauptfenster,
+  // schließt nie); nur ohne gemountete Canvas (andere Reiter) schließt Esc direkt.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {

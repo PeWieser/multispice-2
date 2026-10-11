@@ -17,20 +17,25 @@ test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
   await clickWorld(page, 400, 300);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
   await closeInlineEditor(page);
-  // Esc-Kette wie im Hauptfenster: erst Abwahl (kein Schließen-Dialog!) …
-  await clickWorld(page, 400, 300);
+  // Esc-Kette wie im Hauptfenster: Abwahl ohne Schließen-Dialog …
+  // (kein Klick auf R danach — W91 öffnet den Inline-Editor neu und schluckt Tasten).
+  await page.keyboard.press("ControlOrMeta+a");
   await expect.poll(() => msEval<number>(page, `(s) => s.selection.length`)).toBe(1);
   await page.keyboard.press("Escape");
   await expect.poll(() => msEval<number>(page, `(s) => s.selection.length`)).toBe(0);
-  await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeHidden();
-  // … dann Werkzeug-Reset (Leitungs-Escape!) …
+  await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.confirmClose`)).toBe(false);
+  // … Werkzeug-Reset (Leitungs-Escape!) ohne Schließen-Dialog …
   await page.keyboard.press("w");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("wire");
   await page.keyboard.press("Escape");
   await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("select");
-  await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeHidden();
-  // … erst im Leerlauf (dirty) kommt die Rückfrage, Abbrechen bleibt im Editor.
+  await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.confirmClose`)).toBe(false);
+  // … und im Leerlauf (dirty) fragt Esc NICHT — Schließen nur per Knopf.
   await page.keyboard.press("Escape");
+  await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.confirmClose`)).toBe(false);
+  await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeHidden();
+  // Schließen per Knopf fragt weiterhin (Abbrechen bleibt, Verwerfen geht).
+  await shell.getByRole("button", { name: "Editor schließen", exact: true }).click();
   await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeVisible();
   await shell.getByRole("button", { name: "Abbrechen", exact: true }).click();
   await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeHidden();
