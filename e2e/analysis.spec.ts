@@ -17,7 +17,7 @@ test("I03 DC-Arbeitspunkt am Teiler", async ({ page }) => {
   await waitAnalysisDone(page);
   const out = await msEval<number>(page, `(s) => s.analysis.data.nodes.OUT`);
   expectNear(out, 2.5, 1e-6);
-  await expectLog(page, /Arbeitspunkt/i);
+  await expectLog(page, /Analyse »op« beendet/);
   expectNoErrors(errors);
 });
 
@@ -31,8 +31,10 @@ test("I04 Transiente am RC-Tiefpass", async ({ page }) => {
   await dlg.getByRole("checkbox", { name: "OUT" }).check();
   await dlg.getByRole("button", { name: "Ausführen" }).click();
   await waitAnalysisDone(page);
-  const curves = await msEval<number>(page, `(s) => (s.analysis.data?.curves ?? []).length`);
-  expect(curves).toBeGreaterThanOrEqual(1);
+  const nPts = await msEval<number>(page, `(s) => s.analysis.data?.time?.length ?? 0`);
+  expect(nPts).toBeGreaterThan(10);
+  const sigLen = await msEval<number>(page, `(s) => (s.analysis.data?.signals?.OUT ?? []).length`);
+  expect(sigLen).toBe(nPts);
   await openBottomTab(page, "Ergebnisse");
   const tab = page.getByRole("button", { name: "Ergebnisse", exact: true });
   void tab;
@@ -78,6 +80,8 @@ test("I02 Analyse ohne Ausgang verweigert", async ({ page }) => {
   for (let i = (await boxes.count()) - 1; i >= 0; i--) {
     if (await boxes.nth(i).isChecked()) await boxes.nth(i).uncheck();
   }
+  // Auf React-Re-Render warten (sonst liest Ausführen stale State).
+  await expect(dlg.getByText("0 gewählt")).toBeVisible();
   await dlg.getByRole("button", { name: "Ausführen" }).click();
   await expect(dlg.getByRole("status")).toBeVisible();
   await expect(dlg).toBeVisible();

@@ -40,9 +40,9 @@ test("D Editieren: platzieren, drehen, löschen, undo/redo", async ({ page }) =>
   await act(page, "selectAll");
   await page.keyboard.press("Delete");
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(0);
-  await page.getByRole("button", { name: "Rückgängig", exact: true }).click();
+  await page.getByRole("button", { name: "Rückgängig", exact: true }).first().click();
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(2);
-  await page.getByRole("button", { name: "Wiederholen", exact: true }).click();
+  await page.getByRole("button", { name: "Wiederholen", exact: true }).first().click();
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(0);
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(2);
@@ -85,7 +85,7 @@ test("K01 Widerstandswert im Inspector ändern", async ({ page }) => {
   const r1 = await msEval<string>(page, `(s) => s.doc.instances.find((i) => i.label === "R1")?.id ?? ""`);
   expect(r1).not.toBe("");
   await act(page, "setSelection", [r1]);
-  const field = page.getByLabel(/Widerstand/);
+  const field = page.getByRole("textbox", { name: /Widerstand/ });
   await expect(field.first()).toBeVisible();
   await field.first().fill("2000");
   await field.first().press("Enter");
