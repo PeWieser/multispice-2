@@ -41,6 +41,8 @@ export function createPartEditorSlice(
   EditorState,
   | "openPartEditor"
   | "closePartEditor"
+  | "requestPartEditorClose"
+  | "setPartEditorConfirmClose"
   | "savePartEditor"
   | "setPartEditorTab"
   | "setPartEditorMeta"
