@@ -16,6 +16,24 @@ test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
   await shell.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
+  await closeInlineEditor(page);
+  // Esc-Kette wie im Hauptfenster: erst Abwahl (kein Schließen-Dialog!) …
+  await clickWorld(page, 400, 300);
+  await expect.poll(() => msEval<number>(page, `(s) => s.selection.length`)).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect.poll(() => msEval<number>(page, `(s) => s.selection.length`)).toBe(0);
+  await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeHidden();
+  // … dann Werkzeug-Reset (Leitungs-Escape!) …
+  await page.keyboard.press("w");
+  await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("wire");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("select");
+  await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeHidden();
+  // … erst im Leerlauf (dirty) kommt die Rückfrage, Abbrechen bleibt im Editor.
+  await page.keyboard.press("Escape");
+  await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeVisible();
+  await shell.getByRole("button", { name: "Abbrechen", exact: true }).click();
+  await expect(shell.getByRole("button", { name: "Abbrechen", exact: true })).toBeHidden();
   await shell.getByRole("button", { name: "Editor schließen", exact: true }).click();
   await shell.getByRole("button", { name: "Verwerfen", exact: true }).click();
   await expect(page.getByRole("button", { name: "Schaltung", exact: true })).toBeHidden();

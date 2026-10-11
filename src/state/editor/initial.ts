@@ -60,6 +60,7 @@ export const initialState: EditorData = {
     open: false,
     editingId: null,
     dirty: false,
+    confirmClose: false,
     tab: "circuit",
     meta: { name: "", ref: "U", category: "Eigene Bauteile/ICs", footprint: "DIP-8", mount: "both", description: "" },
     links: [],

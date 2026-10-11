@@ -39,7 +39,7 @@ export default function PartEditorShell() {
   const testRunning = useEditor((s) => s.partEditor.testRunning);
   const testResult = useEditor((s) => s.partEditor.testResult);
   const pendingReplace = useEditor((s) => s.partEditor.pendingReplace);
-  const [confirmClose, setConfirmClose] = useState(false);
+  const confirmClose = useEditor((s) => s.partEditor.confirmClose);
   const [issuesOpen, setIssuesOpen] = useState(false);
 
   // S6.2: stabiler Filter (Palette memoisiert darauf) — nur editingId-Wechsel baut um.
@@ -76,12 +76,12 @@ export default function PartEditorShell() {
   }, []);
 
   const attemptClose = () => {
-    if (useEditor.getState().partEditor.dirty) setConfirmClose(true);
-    else useEditor.getState().closePartEditor();
+    useEditor.getState().requestPartEditorClose();
   };
 
-  // S6.2: Strg+S speichert das Bauteil (Capture: fängt Canvas-Handler ab),
-  // Esc schließt — aber erst nach Abwahl (Canvas-Handler läuft daneben).
+  // S6.2: Strg+S speichert das Bauteil (Capture: fängt Canvas-Handler ab).
+  // Esc auf der Schaltung gehört der Canvas-Esc-Kette (wie Hauptfenster, Schließen
+  // als letzte Ebene); nur ohne gemountete Canvas (andere Reiter) schließt Esc direkt.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -91,16 +91,15 @@ export default function PartEditorShell() {
         return;
       }
       if (e.key === "Escape") {
+        if (tab === "circuit") return;
         const tag = (e.target as HTMLElement)?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-        if (useEditor.getState().selection.length > 0) return;
-        if (useEditor.getState().placingPartId) return;
         attemptClose();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  }, [tab]);
 
   const tabs = (
     [
@@ -212,7 +211,7 @@ export default function PartEditorShell() {
               size="sm"
               onClick={() => {
                 if (useEditor.getState().savePartEditor(false)) useEditor.getState().closePartEditor();
-                else setConfirmClose(false);
+                else useEditor.getState().setPartEditorConfirmClose(false);
               }}
             >
               Speichern
@@ -220,7 +219,7 @@ export default function PartEditorShell() {
             <Button size="sm" variant="danger" onClick={() => useEditor.getState().closePartEditor()}>
               Verwerfen
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmClose(false)}>
+            <Button size="sm" variant="ghost" onClick={() => useEditor.getState().setPartEditorConfirmClose(false)}>
               Abbrechen
             </Button>
           </span>

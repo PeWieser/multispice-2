@@ -110,6 +110,7 @@ export function createPartEditorSlice(
           open: true,
           editingId: spec?.id ?? null,
           dirty: false,
+          confirmClose: false,
           tab: "circuit",
           meta: spec
             ? {
@@ -180,7 +181,7 @@ export function createPartEditorSlice(
       engine.reset(p.doc);
       engine.running = false;
       set({
-        partEditor: { ...pe, open: false, dirty: false, parked: null, testRunning: false, testResult: null, testVoltColors: null, pendingReplace: null },
+        partEditor: { ...pe, open: false, dirty: false, confirmClose: false, parked: null, testRunning: false, testResult: null, testVoltColors: null, pendingReplace: null },
         sim: { ...st.sim, running: false },
         showVoltageColors: pe.testVoltColors ?? st.showVoltageColors,
         doc: p.doc,
@@ -203,6 +204,18 @@ export function createPartEditorSlice(
       });
       get().refreshNets();
       get().log("info", "Bauteile-Editor geschlossen.");
+    },
+
+    requestPartEditorClose: () => {
+      const st = get();
+      if (!st.partEditor.open) return;
+      if (st.partEditor.dirty) st.setPartEditorConfirmClose(true);
+      else st.closePartEditor();
+    },
+
+    setPartEditorConfirmClose: (v) => {
+      if (!get().partEditor.open) return;
+      set((s) => (s.partEditor.confirmClose === v ? s : { partEditor: { ...s.partEditor, confirmClose: v } }));
     },
 
     savePartEditor: (place = false) => {

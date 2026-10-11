@@ -51,9 +51,6 @@ export async function buildResistorMacro(page: Page, name: string): Promise<stri
   // Prüfung muss „Bereit“ melden (Defaults IN1/OUT1 sind eindeutig).
   await expect(shell.getByRole("button", { name: /Bereit/ })).toBeVisible();
   await shell.getByLabel("Name", { exact: true }).fill(name);
-  // Tool-Escapes können die Schließen-Rückfrage (mit eigenem „Speichern“) geöffnet haben → erst wegklicken.
-  const abortBtn = shell.getByRole("button", { name: "Abbrechen", exact: true });
-  if ((await abortBtn.count()) > 0) await abortBtn.click();
   await shell.getByRole("button", { name: "Speichern", exact: true }).click();
   // „Speichern“ führt fort (schließt nicht) → explizit schließen (dirty=false → ohne Rückfrage).
   await shell.getByRole("button", { name: "Editor schließen", exact: true }).click();

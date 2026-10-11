@@ -148,6 +148,8 @@ export interface PartEditorData {
   open: boolean;
   editingId: string | null;
   dirty: boolean;
+  /** Schließen-Rückfrage sichtbar (Esc im Leerlauf / Schließen-Button bei dirty). */
+  confirmClose: boolean;
   tab: PartEditorTab;
   meta: PartEditorMeta;
   links: CustomPartParamLink[];
@@ -361,6 +363,9 @@ export interface EditorState {
   /* S6.2 (Phase 2): Bauteile-Editor */
   openPartEditor: (partId?: string | null) => void;
   closePartEditor: () => void;
+  /** Schließen anstoßen (dirty → Rückfrage, sonst direkt) — letzte Esc-Ebene im Editor. */
+  requestPartEditorClose: () => void;
+  setPartEditorConfirmClose: (v: boolean) => void;
   savePartEditor: (place?: boolean) => boolean;
   setPartEditorTab: (t: PartEditorTab) => void;
   setPartEditorMeta: (patch: Partial<PartEditorMeta>) => void;
