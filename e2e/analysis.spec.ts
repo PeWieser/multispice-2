@@ -73,17 +73,30 @@ test("I05 AC-Analyse, f−3dB", async ({ page }) => {
 test("I02 Analyse ohne Ausgang verweigert", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "loadPreset", "rc-lowpass");
+  // Netze erst settlen lassen (der Dialog initialisiert aus netResult).
+  await expect.poll(() => msEval<string[]>(page, `(s) => s.netResult.nets.map((n) => n.name)`)).toContain("OUT");
   await menuClick(page, "Analysen", "Transientenanalyse");
   const dlg = page.getByRole("dialog", { name: /Transientenanalyse/ });
+  await expect(dlg).toBeVisible();
   // Alle vorausgewählten Ausgänge abwählen → erst dann greift die Validierung.
   const boxes = dlg.getByRole("checkbox");
   for (let i = (await boxes.count()) - 1; i >= 0; i--) {
     if (await boxes.nth(i).isChecked()) await boxes.nth(i).uncheck();
   }
-  // Auf React-Re-Render warten (sonst liest Ausführen stale State).
-  await expect(dlg.getByText("0 gewählt")).toBeVisible();
+  // Exakt „0 gewählt“ (Substring würde auch „10 gewählt“ matchen).
+  await expect(dlg.getByText("0 gewählt", { exact: true })).toBeVisible();
   await dlg.getByRole("button", { name: "Ausführen" }).click();
-  await expect(dlg.getByRole("status")).toBeVisible();
+  // Diagnose-fähig: DOM-Status als Text pollen (Received landet in CI-Annotations).
+  await expect.poll(async () => {
+    const dom = await page.evaluate(() => {
+      const ds = document.querySelectorAll('[role="dialog"]');
+      const st = ds[0]?.querySelector('[role="status"]');
+      const checked = ds[0]?.querySelectorAll('input[type="checkbox"]:checked').length ?? -1;
+      return `dialogs=${ds.length} checked=${checked} status=${st ? JSON.stringify(st.textContent) : "<kein>"}`;
+    });
+    const running = await msEval<boolean>(page, `(s) => s.analysis.running`);
+    return `${dom} running=${running}`;
+  }).toContain("Mindestens einen Ausgangsknoten");
   await expect(dlg).toBeVisible();
   await expect.poll(() => msEval<boolean>(page, `(s) => s.analysis.running`)).toBe(false);
   expectNoErrors(errors);

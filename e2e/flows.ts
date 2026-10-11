@@ -1,4 +1,10 @@
 import { expect, type Page } from "@playwright/test";
+
+/** Bauteile-Editor-Shell (Overlay) — Strip-Klicks immer hier hinein scopen,
+ *  da die Hauptleiste dahinter weiter gemountet ist (strikte Locator-Eindeutigkeit). */
+export function editorShell(page: Page) {
+  return page.getByRole("dialog", { name: "Bauteile-Editor" });
+}
 import {
   menuClick, msEval, openBottomTab, parseDe, expectNear,
   centerViewOn, clickWorld, pinWorld, worldToPage,
@@ -26,11 +32,12 @@ export async function buildResistorMacro(page: Page, name: string): Promise<stri
   await menuClick(page, "Datei", "Bauteile-Editor …");
   await expect(page.getByRole("button", { name: "Schaltung", exact: true })).toBeVisible();
   await centerViewOn(page, 400, 300);
-  await page.getByRole("button", { name: "Port: Eingang", exact: true }).click();
+  const shell = editorShell(page);
+  await shell.getByRole("button", { name: "Port: Eingang", exact: true }).click();
   await clickWorld(page, 250, 300);
-  await page.getByRole("button", { name: "Widerstand", exact: true }).click();
+  await shell.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
-  await page.getByRole("button", { name: "Port: Ausgang", exact: true }).click();
+  await shell.getByRole("button", { name: "Port: Ausgang", exact: true }).click();
   await clickWorld(page, 550, 300);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(3);
   const ids = await msEval<Record<string, string>>(page, `(s) => Object.fromEntries(s.doc.instances.map((i) => [i.partId, i.id]))`);
@@ -41,9 +48,9 @@ export async function buildResistorMacro(page: Page, name: string): Promise<stri
   await dragWire(page, pIn.x, pIn.y, rL.x, rL.y);
   await dragWire(page, rR.x, rR.y, pOut.x, pOut.y);
   // Prüfung muss „Bereit“ melden (Defaults IN1/OUT1 sind eindeutig).
-  await expect(page.getByRole("button", { name: /Bereit/ })).toBeVisible();
-  await page.getByLabel("Name", { exact: true }).fill(name);
-  await page.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(shell.getByRole("button", { name: /Bereit/ })).toBeVisible();
+  await shell.getByLabel("Name", { exact: true }).fill(name);
+  await shell.getByRole("button", { name: "Speichern", exact: true }).click();
   // Editor schließt, Teil ist in der Bibliothek.
   await expect(page.getByRole("button", { name: "Schaltung", exact: true })).toBeHidden();
   const specId = await msEval<string>(page, `(s, ms) => Object.values(ms.partMap).find((p) => p.name === ${JSON.stringify(name)})?.id ?? ""`);

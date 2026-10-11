@@ -3,7 +3,7 @@ import {
   gotoApp, expectNoErrors, expectSummary, msEval, act, menuClick,
   clickWorld, centerViewOn, pinWorld, startSimUI, stopSimUI, expectLog,
 } from "./helpers";
-import { wizardDivider, dragWire, buildResistorMacro } from "./flows";
+import { wizardDivider, dragWire, buildResistorMacro, editorShell } from "./flows";
 
 // M01: Öffnen, dirty-Rückfrage, Verwerfen.
 test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
@@ -12,11 +12,12 @@ test("M01 Editor öffnen + Verwerfen", async ({ page }) => {
   await menuClick(page, "Datei", "Bauteile-Editor …");
   await expect(page.getByRole("button", { name: "Schaltung", exact: true })).toBeVisible();
   await centerViewOn(page, 400, 300);
-  await page.getByRole("button", { name: "Widerstand", exact: true }).click();
+  const shell = editorShell(page);
+  await shell.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
-  await page.getByRole("button", { name: "Editor schließen", exact: true }).click();
-  await page.getByRole("button", { name: "Verwerfen", exact: true }).click();
+  await shell.getByRole("button", { name: "Editor schließen", exact: true }).click();
+  await shell.getByRole("button", { name: "Verwerfen", exact: true }).click();
   await expect(page.getByRole("button", { name: "Schaltung", exact: true })).toBeHidden();
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(mainCount);
   expectNoErrors(errors);
@@ -27,11 +28,12 @@ test("M03 Testlauf im Editor", async ({ page }) => {
   const errors = await gotoApp(page);
   await menuClick(page, "Datei", "Bauteile-Editor …");
   await centerViewOn(page, 400, 300);
-  await page.getByRole("button", { name: "Port: Eingang", exact: true }).click();
+  const shell = editorShell(page);
+  await shell.getByRole("button", { name: "Port: Eingang", exact: true }).click();
   await clickWorld(page, 250, 300);
-  await page.getByRole("button", { name: "Widerstand", exact: true }).click();
+  await shell.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
-  await page.getByRole("button", { name: "Port: Ausgang", exact: true }).click();
+  await shell.getByRole("button", { name: "Port: Ausgang", exact: true }).click();
   await clickWorld(page, 550, 300);
   const ids = await msEval<Record<string, string>>(page, `(s) => Object.fromEntries(s.doc.instances.map((i) => [i.partId, i.id]))`);
   const pIn = await pinWorld(page, ids["port_in"], 0);
@@ -40,13 +42,13 @@ test("M03 Testlauf im Editor", async ({ page }) => {
   const pOut = await pinWorld(page, ids["port_out"], 0);
   await dragWire(page, pIn.x, pIn.y, rL.x, rL.y);
   await dragWire(page, rR.x, rR.y, pOut.x, pOut.y);
-  await page.getByRole("button", { name: "Testlauf", exact: true }).click();
+  await shell.getByRole("button", { name: "Testlauf", exact: true }).click();
   await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.testRunning`)).toBe(true);
   await expect(page.getByText(/Teile · .* Knoten/).first()).toBeVisible();
-  await page.getByRole("button", { name: "Stopp", exact: true }).click();
+  await shell.getByRole("button", { name: "Stopp", exact: true }).click();
   await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.testRunning`)).toBe(false);
-  await page.getByRole("button", { name: "Editor schließen", exact: true }).click();
-  await page.getByRole("button", { name: "Verwerfen", exact: true }).click();
+  await shell.getByRole("button", { name: "Editor schließen", exact: true }).click();
+  await shell.getByRole("button", { name: "Verwerfen", exact: true }).click();
   expectNoErrors(errors);
 });
 
@@ -96,9 +98,14 @@ test("N Extrahieren → Ersetzen → Undo", async ({ page }) => {
   const dlg = page.getByRole("dialog", { name: /Auswahl als Bauteil übernehmen \(2 Elemente\)/ });
   await expect(dlg).toBeVisible();
   await dlg.getByRole("button", { name: "Im Editor öffnen" }).click();
-  await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(4);
-  await page.getByLabel("Name", { exact: true }).first().fill("E2E-Teiler");
-  await page.getByRole("button", { name: "Speichern & Ersetzen", exact: true }).click();
+  await expect.poll(() => msEval<boolean>(page, `(s) => s.partEditor.open`)).toBe(true);
+  // Extrahiertes Dok: R1, R2 + je 1 Port pro Außennetz (Masse bleibt global).
+  const snap = await msEval<string[]>(page, `(s) => s.doc.instances.map((i) => i.partId).sort()`);
+  expect(snap.filter((p) => p === "resistor").length).toBe(2);
+  expect(snap.filter((p) => p.startsWith("port_")).length).toBeGreaterThanOrEqual(1);
+  const shell = editorShell(page);
+  await shell.getByLabel("Name", { exact: true }).first().fill("E2E-Teiler");
+  await shell.getByRole("button", { name: "Speichern & Ersetzen", exact: true }).click();
   // Ersetzt: 1 Custom statt R1/R2.
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(4);
   const parts = await msEval<string[]>(page, `(s) => s.doc.instances.map((i) => i.partId)`);
