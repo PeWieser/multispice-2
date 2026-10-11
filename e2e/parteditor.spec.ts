@@ -33,6 +33,7 @@ test("M03 Testlauf im Editor", async ({ page }) => {
   await clickWorld(page, 250, 300);
   await shell.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
+  await page.keyboard.press("Escape"); // Inline-Werteditor schließen (W91 hält ihn sonst offen → schluckt „w“)
   await shell.getByRole("button", { name: "Port: Ausgang", exact: true }).click();
   await clickWorld(page, 550, 300);
   const ids = await msEval<Record<string, string>>(page, `(s) => Object.fromEntries(s.doc.instances.map((i) => [i.partId, i.id]))`);

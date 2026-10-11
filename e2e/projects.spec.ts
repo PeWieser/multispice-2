@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   gotoApp, expectNoErrors, expectSummary, msEval, act, menuClick,
-  clickWorld, expectLog,
+  clickWorld, expectLog, forceDownloadFallback,
 } from "./helpers";
 import { wizardDivider, buildResistorMacro } from "./flows";
 
@@ -26,6 +26,7 @@ test("L01 Reload stellt Arbeitskopie her", async ({ page }) => {
 test("L05 Export/Import JSON Roundtrip", async ({ page }) => {
   const errors = await gotoApp(page);
   await wizardDivider(page);
+  await forceDownloadFallback(page);
   const dl = page.waitForEvent("download");
   await menuClick(page, "Datei", "Export JSON");
   const download = await dl;
@@ -90,6 +91,7 @@ test("L14 Custom-Teil im Projekt", async ({ page }) => {
   await clickWorld(page, 400, 300);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
   // Export enthält die Spec.
+  await forceDownloadFallback(page);
   const dl = page.waitForEvent("download");
   await menuClick(page, "Datei", "Export JSON");
   const file = await (await dl).path();

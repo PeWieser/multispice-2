@@ -37,6 +37,7 @@ export async function buildResistorMacro(page: Page, name: string): Promise<stri
   await clickWorld(page, 250, 300);
   await shell.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
+  await page.keyboard.press("Escape"); // Inline-Werteditor schließen (W91 hält ihn sonst offen → schluckt „w“)
   await shell.getByRole("button", { name: "Port: Ausgang", exact: true }).click();
   await clickWorld(page, 550, 300);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(3);

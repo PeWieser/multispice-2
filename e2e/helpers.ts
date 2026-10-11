@@ -61,7 +61,21 @@ export async function menuOpen(page: Page, label: string): Promise<void> {
 
 export async function menuClick(page: Page, menu: string, item: string | RegExp): Promise<void> {
   await menuOpen(page, menu);
-  await page.getByRole("menuitem", { name: item }).click();
+  const plain = page.getByRole("menuitem", { name: item });
+  if ((await plain.count()) === 0) {
+    // Toggle-Einträge sind menuitemcheckbox statt menuitem.
+    await page.getByRole("menuitemcheckbox", { name: item }).click();
+  } else {
+    await plain.click();
+  }
+}
+
+/** Nativen Speicher-Picker deaktivieren → Export fällt deterministisch auf Download zurück
+ *  (showSaveFilePicker hängt sonst vom transient-activation-Timing ab). */
+export async function forceDownloadFallback(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as Record<string, unknown>).showSaveFilePicker = undefined;
+  });
 }
 
 export async function loadPresetUI(page: Page, presetName: string): Promise<void> {
@@ -90,7 +104,15 @@ export async function stopSimUI(page: Page): Promise<void> {
 export async function openBottomTab(page: Page, tab: string): Promise<void> {
   const tabBtn = page.getByRole("button", { name: tab, exact: true });
   if (!(await tabBtn.isVisible())) {
-    await menuClick(page, "Ansicht", "Auswertung & Konsole");
+    await menuOpen(page, "Ansicht");
+    const plain = page.getByRole("menuitem", { name: "Auswertung & Konsole" });
+    if ((await plain.count()) > 0) {
+      await plain.click(); // Panel zu → öffnen.
+    } else {
+      // Panel ist bereits offen (Race mit Sim-Auto-Open): Menü schließen, nichts togglen.
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menu", { name: "Ansicht" })).toBeHidden();
+    }
   }
   await tabBtn.click();
   await expect(tabBtn).toHaveAttribute("data-active", "true");
