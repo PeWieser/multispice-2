@@ -84,28 +84,39 @@ test("S4.5 Wire selektieren (Klick auf Segment)", async ({ page }) => {
   expectNoErrors(errors);
 });
 
-// S4.6: Punkt-Handle draggen bewegt nur diesen Punkt.
+// S4.6: Punkt-Handle draggen (Router-Knick als Griff, Ortho bleibt).
 test("S4.6 Wire-Punkt draggen (Rest bleibt)", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "newDocument");
+  // Start-Leitung, dann diagonaler Drag ab Leitungsmitte (Router-Knick).
   await page.keyboard.press("w");
   await clickWorld(page, 400, 300);
-  await clickWorld(page, 500, 300);
-  const p = await worldToPage(page, 500, 400);
+  const p = await worldToPage(page, 600, 300);
   await page.mouse.dblclick(p.x, p.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
-  const before = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
-  const idx = before.findIndex((q) => q.x === 500 && q.y === 300);
-  expect(idx).toBeGreaterThanOrEqual(0);
-  const h = await worldToPage(page, 500, 300);
+  await page.keyboard.press("w");
+  const a = await worldToPage(page, 500, 300);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  const b = await worldToPage(page, 600, 400);
+  await page.mouse.move(b.x, b.y, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(2);
+  const before = await msEval<Pt[]>(page, `(s) => s.doc.wires[1].points`);
+  expect(before).toEqual([
+    { x: 500, y: 300 },
+    { x: 600, y: 300 },
+    { x: 600, y: 400 },
+  ]);
+  const h = await worldToPage(page, 600, 300);
   await page.mouse.move(h.x, h.y);
   await page.mouse.down();
-  const q = await worldToPage(page, 540, 340);
+  const q = await worldToPage(page, 640, 340);
   await page.mouse.move(q.x, q.y, { steps: 10 });
   await page.mouse.up();
-  const after = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
+  const after = await msEval<Pt[]>(page, `(s) => s.doc.wires[1].points`);
   expect(after.length).toBe(before.length);
-  expect(after[idx]).toEqual({ x: 540, y: 340 });
+  expect(after[1]).toEqual({ x: 640, y: 340 });
   // Ortho-Drag: Nachbarn folgen, damit alle Segmente achsparallel bleiben.
   for (let i = 1; i < after.length; i++) {
     const ortho = after[i].x === after[i - 1].x || after[i].y === after[i - 1].y;
@@ -119,19 +130,25 @@ test("S4.8 Auto-Route (Umweg um Hindernis)", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "newDocument");
   await placeResistor(page, 500, 300);
+  // Start-Spanne (hindernisfrei), dann diagonaler Drag ab Leitungsmitte.
+  await page.keyboard.press("w");
+  await clickWorld(page, 350, 300);
+  const s = await worldToPage(page, 450, 300);
+  await page.mouse.dblclick(s.x, s.y);
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
   await page.keyboard.press("w");
   const a = await worldToPage(page, 400, 300);
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
-  const b = await worldToPage(page, 600, 360);
+  const b = await worldToPage(page, 620, 360);
   await page.mouse.move(b.x, b.y, { steps: 12 });
   await page.mouse.up();
-  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
-  const pts = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(2);
+  const pts = await msEval<Pt[]>(page, `(s) => s.doc.wires[1].points`);
   expect(pts).toEqual([
     { x: 400, y: 300 },
     { x: 400, y: 360 },
-    { x: 600, y: 360 },
+    { x: 620, y: 360 },
   ]);
   expectNoErrors(errors);
 });
@@ -155,6 +172,7 @@ test("S4.9 Snap (Endpunkt rastet auf Grid)", async ({ page }) => {
   await page.keyboard.press("Escape");
   // Snap aus → Bauteil-Drag landet frei (nicht auf Grid).
   await placeResistor(page, 400, 300);
+  await page.keyboard.press("Escape");
   const d = await worldToPage(page, 400, 300);
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
