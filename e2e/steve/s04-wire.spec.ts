@@ -34,9 +34,13 @@ test("S4.2 Polyline (Klicks + Doppelklick, Esc-Abbruch)", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "newDocument");
   await page.keyboard.press("w");
+  // Klick-Abstand > Doppelklick-Fenster (e.detail>=2 wird sonst gefressen).
   await clickWorld(page, 400, 300);
+  await page.waitForTimeout(600);
   await clickWorld(page, 500, 300);
+  await page.waitForTimeout(600);
   await clickWorld(page, 500, 400);
+  await page.waitForTimeout(600);
   const p = await worldToPage(page, 500, 400);
   await page.mouse.dblclick(p.x, p.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
@@ -88,33 +92,34 @@ test("S4.5 Wire selektieren (Klick auf Segment)", async ({ page }) => {
 test("S4.6 Wire-Punkt draggen (Rest bleibt)", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "newDocument");
-  // Start-Leitung, dann diagonaler Drag ab Leitungsmitte (Router-Knick).
+  // Klick-Dreieck (Drag ab Leitungsmitte startet keinen Draft — nur Pin-Starts).
   await page.keyboard.press("w");
+  // Klick-Abstand > Doppelklick-Fenster (e.detail>=2 wird sonst gefressen).
   await clickWorld(page, 400, 300);
-  const p = await worldToPage(page, 600, 300);
-  await page.mouse.dblclick(p.x, p.y);
+  await page.waitForTimeout(600);
+  await clickWorld(page, 600, 300);
+  await page.waitForTimeout(600);
+  await clickWorld(page, 600, 400);
+  await page.waitForTimeout(600);
+  const e = await worldToPage(page, 600, 400);
+  await page.mouse.dblclick(e.x, e.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
-  await page.keyboard.press("w");
-  const a = await worldToPage(page, 500, 300);
-  await page.mouse.move(a.x, a.y);
-  await page.mouse.down();
-  const b = await worldToPage(page, 600, 400);
-  await page.mouse.move(b.x, b.y, { steps: 12 });
-  await page.mouse.up();
-  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(2);
-  const before = await msEval<Pt[]>(page, `(s) => s.doc.wires[1].points`);
+  const before = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
   expect(before).toEqual([
-    { x: 500, y: 300 },
+    { x: 400, y: 300 },
     { x: 600, y: 300 },
     { x: 600, y: 400 },
   ]);
+  // Auswahl-Werkzeug sicherstellen (Doppelklick beendet den Draft bereits).
+  await page.keyboard.press("Escape");
+  await expect.poll(() => msEval<string>(page, `(s) => s.tool`)).toBe("select");
   const h = await worldToPage(page, 600, 300);
   await page.mouse.move(h.x, h.y);
   await page.mouse.down();
   const q = await worldToPage(page, 640, 340);
   await page.mouse.move(q.x, q.y, { steps: 10 });
   await page.mouse.up();
-  const after = await msEval<Pt[]>(page, `(s) => s.doc.wires[1].points`);
+  const after = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
   expect(after.length).toBe(before.length);
   expect(after[1]).toEqual({ x: 640, y: 340 });
   // Ortho-Drag: Nachbarn folgen, damit alle Segmente achsparallel bleiben.
@@ -129,27 +134,29 @@ test("S4.6 Wire-Punkt draggen (Rest bleibt)", async ({ page }) => {
 test("S4.8 Auto-Route (Umweg um Hindernis)", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "newDocument");
+  await placeResistor(page, 400, 300);
   await placeResistor(page, 500, 300);
-  // Start-Spanne (hindernisfrei), dann diagonaler Drag ab Leitungsmitte.
+  await page.keyboard.press("Escape");
+  // Pin-Start + diagonaler Drag über R3 hinweg ins Freie (beide Knicks
+  // blockiert → A*-Umweg; reine Leitungsmitte startet keinen Draft).
   await page.keyboard.press("w");
-  await clickWorld(page, 350, 300);
-  const s = await worldToPage(page, 450, 300);
-  await page.mouse.dblclick(s.x, s.y);
-  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
-  await page.keyboard.press("w");
-  const a = await worldToPage(page, 400, 300);
+  const a = await worldToPage(page, 430, 300);
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
   const b = await worldToPage(page, 620, 360);
   await page.mouse.move(b.x, b.y, { steps: 12 });
   await page.mouse.up();
-  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(2);
-  const pts = await msEval<Pt[]>(page, `(s) => s.doc.wires[1].points`);
-  expect(pts).toEqual([
-    { x: 400, y: 300 },
-    { x: 400, y: 360 },
-    { x: 620, y: 360 },
-  ]);
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
+  const pts = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
+  // Anker exakt am Pin, Ende exakt am Ziel, dazwischen ein echter Umweg
+  // (mehr als der 3-Punkt-Knick), alles streng achsparallel.
+  expect(pts[0]).toEqual({ x: 430, y: 300 });
+  expect(pts[pts.length - 1]).toEqual({ x: 620, y: 360 });
+  expect(pts.length).toBeGreaterThanOrEqual(4);
+  for (let i = 1; i < pts.length; i++) {
+    const ortho = pts[i].x === pts[i - 1].x || pts[i].y === pts[i - 1].y;
+    expect(ortho, `Segment ${i}`).toBe(true);
+  }
   expectNoErrors(errors);
 });
 
@@ -170,17 +177,19 @@ test("S4.9 Snap (Endpunkt rastet auf Grid)", async ({ page }) => {
   await dlg.getByRole("switch", { name: "Am Raster ausrichten" }).click();
   await expect.poll(() => msEval<boolean>(page, `(s) => s.snap`)).toBe(false);
   await page.keyboard.press("Escape");
-  // Snap aus → Bauteil-Drag landet frei (nicht auf Grid).
-  await placeResistor(page, 400, 300);
+  // Snap aus → Bauteil-Drag landet frei (nicht auf Grid). Freie Stelle:
+  // (400,300) ist der Drahtanfang aus Teil 1 und würde den Vertex treffen.
+  await placeResistor(page, 200, 200);
   await page.keyboard.press("Escape");
-  const d = await worldToPage(page, 400, 300);
+  const d = await worldToPage(page, 200, 200);
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
-  await page.mouse.move(p.x, p.y, { steps: 12 });
+  const g = await worldToPage(page, 247, 263);
+  await page.mouse.move(g.x, g.y, { steps: 12 });
   await page.mouse.up();
   const pos = await msEval<Pt>(page, `(s) => ({ x: s.doc.instances[0].x, y: s.doc.instances[0].y })`);
-  expect(Math.abs(pos.x - 463)).toBeLessThan(0.6);
-  expect(Math.abs(pos.y - 377)).toBeLessThan(0.6);
-  expect(Math.abs(pos.x - 460)).toBeGreaterThan(2);
+  expect(Math.abs(pos.x - 247)).toBeLessThan(0.6);
+  expect(Math.abs(pos.y - 263)).toBeLessThan(0.6);
+  expect(Math.abs(pos.x - 240)).toBeGreaterThan(2);
   expectNoErrors(errors);
 });

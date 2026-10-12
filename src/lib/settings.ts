@@ -10,12 +10,13 @@ export interface ProbeHoverConfig {
 
 export const DEFAULT_HOVER: ProbeHoverConfig = {
   // W4: Der Canvas ist still. Messwerte auf Abruf (Alt+Hover, Probes, Einstellungen),
-  // nicht als Dauerbeschuss.
-  showV: false,
+  // nicht als Dauerbeschuss. S6.5: Alt+Hover zeigt per Default Netz+V (sonst wäre
+  // die Geste ohne vorherigen Einstellungsbesuch wirkungslos).
+  showV: true,
   showI: false,
   showP: false,
   showFreq: false,
-  showNetName: false,
+  showNetName: true,
 };
 
 export function loadHoverConfig(): ProbeHoverConfig {

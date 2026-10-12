@@ -52,11 +52,13 @@ test("S5.2 Schalter toggelt im Run", async ({ page }) => {
   await startSimUI(page);
   await clickWorld(page, 500, 400);
   await expect.poll(() => controlsOf(page, id)).toBe(1);
-  await expectLog(page, /geschlossen/);
   // Doppelklick-Fenster abwarten (e.detail>=2 wird nicht getoggelt).
+  // Log-Asserts erst nach beiden Klicks: expectLog öffnet das Panel und
+  // würde das Canvas-Koordinatenmapping dazwischen verschieben.
   await page.waitForTimeout(600);
   await clickWorld(page, 500, 400);
   await expect.poll(() => controlsOf(page, id)).toBe(0);
+  await expectLog(page, /geschlossen/);
   await expectLog(page, /geöffnet/);
   await stopSimUI(page);
   expectNoErrors(errors);
