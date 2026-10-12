@@ -192,6 +192,14 @@ export async function placePartUI(page: Page, query: string, rowName: string | R
   // Zeile wählen (Klick) + Enter = Platzieren (W132), dann Canvas-Klick.
   await page.getByText(rowName, { exact: true }).first().click();
   await page.keyboard.press("Enter");
+  // Enter→Platzieren läuft über einen Fenster-Keydown (Race unter Last):
+  // auf den Modus warten, notfalls Enter wiederholen (S7-Flake).
+  try {
+    await expect.poll(() => msEval<string>(page, `(s) => s.tool`), { timeout: 3000 }).toBe("place");
+  } catch {
+    await page.keyboard.press("Enter");
+    await expect.poll(() => msEval<string>(page, `(s) => s.tool`), { timeout: 5000 }).toBe("place");
+  }
   await clickWorld(page, atX, atY);
   await expect
     .poll(() => msEval<number>(page, `(s) => s.doc.instances.length`))

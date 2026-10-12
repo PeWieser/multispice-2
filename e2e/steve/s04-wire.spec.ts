@@ -136,22 +136,24 @@ test("S4.8 Auto-Route (Umweg um Hindernis)", async ({ page }) => {
   await act(page, "newDocument");
   await placeResistor(page, 400, 300);
   await placeResistor(page, 500, 300);
+  await placeResistor(page, 600, 400);
   await page.keyboard.press("Escape");
-  // Pin-Start + diagonaler Drag über R3 hinweg ins Freie (beide Knicks
-  // blockiert → A*-Umweg; reine Leitungsmitte startet keinen Draft).
+  // Pin-zu-Pin-Drag diagonal über R3 hinweg (W133: Loslassen beendet nur auf
+  // Pin/Leitung; beide Knicks blockiert → A*-Umweg, nie ins Freie).
   await page.keyboard.press("w");
   const a = await worldToPage(page, 430, 300);
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
-  const b = await worldToPage(page, 620, 360);
+  const b = await worldToPage(page, 570, 400);
   await page.mouse.move(b.x, b.y, { steps: 12 });
   await page.mouse.up();
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
   const pts = await msEval<Pt[]>(page, `(s) => s.doc.wires[0].points`);
-  // Anker exakt am Pin, Ende exakt am Ziel, dazwischen ein echter Umweg
-  // (mehr als der 3-Punkt-Knick), alles streng achsparallel.
+  // Anker exakt am Start-Pin, Ende exakt am Ziel-Pin, dazwischen ein echter
+  // Umweg (mehr als der 3-Punkt-Knick — beide Knicks wären blockiert),
+  // alles streng achsparallel.
   expect(pts[0]).toEqual({ x: 430, y: 300 });
-  expect(pts[pts.length - 1]).toEqual({ x: 620, y: 360 });
+  expect(pts[pts.length - 1]).toEqual({ x: 570, y: 400 });
   expect(pts.length).toBeGreaterThanOrEqual(4);
   for (let i = 1; i < pts.length; i++) {
     const ortho = pts[i].x === pts[i - 1].x || pts[i].y === pts[i - 1].y;
@@ -177,19 +179,27 @@ test("S4.9 Snap (Endpunkt rastet auf Grid)", async ({ page }) => {
   await dlg.getByRole("switch", { name: "Am Raster ausrichten" }).click();
   await expect.poll(() => msEval<boolean>(page, `(s) => s.snap`)).toBe(false);
   await page.keyboard.press("Escape");
-  // Snap aus → Bauteil-Drag landet frei (nicht auf Grid). Freie Stelle:
-  // (400,300) ist der Drahtanfang aus Teil 1 und würde den Vertex treffen.
-  await placeResistor(page, 200, 200);
-  await page.keyboard.press("Escape");
-  const d = await worldToPage(page, 200, 200);
-  await page.mouse.move(d.x, d.y);
-  await page.mouse.down();
+  // Snap aus → Drahtpunkte landen FREI (nicht auf Grid). Bauteil-Drags rasten
+  // per W83 immer aufs Raster — darum testet Teil 2 einen Draht (Toleranz
+  // statt Gleichheit: ohne Snap sind Koordinaten Fließkomma).
+  await page.keyboard.press("w");
+  await clickWorld(page, 200, 200);
+  await page.waitForTimeout(600);
+  await clickWorld(page, 247, 200);
+  await page.waitForTimeout(600);
   const g = await worldToPage(page, 247, 263);
-  await page.mouse.move(g.x, g.y, { steps: 12 });
-  await page.mouse.up();
-  const pos = await msEval<Pt>(page, `(s) => ({ x: s.doc.instances[0].x, y: s.doc.instances[0].y })`);
-  expect(Math.abs(pos.x - 247)).toBeLessThan(0.6);
-  expect(Math.abs(pos.y - 263)).toBeLessThan(0.6);
-  expect(Math.abs(pos.x - 240)).toBeGreaterThan(2);
+  await page.mouse.dblclick(g.x, g.y);
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(2);
+  const pts2 = await msEval<Pt[]>(page, `(s) => s.doc.wires[1].points`);
+  expect(pts2.length).toBeGreaterThanOrEqual(3);
+  expect(Math.abs(pts2[0].x - 200)).toBeLessThan(0.6);
+  expect(Math.abs(pts2[0].y - 200)).toBeLessThan(0.6);
+  expect(Math.abs(pts2[1].x - 247)).toBeLessThan(0.6);
+  expect(Math.abs(pts2[1].x - 250)).toBeGreaterThan(2);
+  const end2 = pts2[pts2.length - 1];
+  expect(Math.abs(end2.x - 247)).toBeLessThan(0.6);
+  expect(Math.abs(end2.y - 263)).toBeLessThan(0.6);
+  expect(Math.abs(end2.x - 250)).toBeGreaterThan(2);
+  expect(Math.abs(end2.y - 260)).toBeGreaterThan(2);
   expectNoErrors(errors);
 });
