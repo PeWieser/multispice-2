@@ -61,11 +61,16 @@ test("S4.4 Wire-Hover (Handle-Cursor)", async ({ page }) => {
   await act(page, "newDocument");
   await page.keyboard.press("w");
   await clickWorld(page, 400, 300);
+  // Klick-Abstand > Doppelklick-Fenster (e.detail>=2 wird sonst gefressen).
+  await page.waitForTimeout(600);
   const p = await worldToPage(page, 500, 300);
   await page.mouse.dblclick(p.x, p.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
   const cursor = () => canvasEl(page).evaluate((el) => (el as HTMLElement).style.cursor);
-  await page.mouse.move(p.x, p.y);
+  // Frisch vermessen: der Doppelklick oben nutzt die alte Messung, Hover braucht
+  // die aktuelle (kein stale Mapping nach Abschluss/Selektion des Drahts).
+  const h = await worldToPage(page, 500, 300);
+  await page.mouse.move(h.x, h.y);
   await expect.poll(cursor).toBe("grab");
   const mid = await worldToPage(page, 450, 300);
   await page.mouse.move(mid.x, mid.y);
@@ -168,6 +173,8 @@ test("S4.9 Snap (Endpunkt rastet auf Grid)", async ({ page }) => {
   await act(page, "newDocument");
   await page.keyboard.press("w");
   await clickWorld(page, 400, 300);
+  // Klick-Abstand > Doppelklick-Fenster (e.detail>=2 wird sonst gefressen).
+  await page.waitForTimeout(600);
   const p = await worldToPage(page, 463, 377);
   await page.mouse.dblclick(p.x, p.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);

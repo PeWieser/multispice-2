@@ -24,6 +24,9 @@ export async function gotoApp(page: Page): Promise<string[]> {
   await page.goto("/");
   await expect(canvasApp(page)).toBeVisible();
   await expectHook(page);
+  // Frisch geladene Seite: Layout (Panels, Fonts, Hydration) setzt sich noch —
+  // ohne Settling wären alle folgenden Welt→Seite-Messungen potentiell stale.
+  await stableCanvas(page);
   return errors;
 }
 
@@ -31,6 +34,29 @@ export async function expectHook(page: Page): Promise<void> {
   await expect
     .poll(() => page.evaluate(() => typeof (window as unknown as { __multispice?: unknown }).__multispice))
     .toBe("object");
+}
+
+/**
+ * Canvas-Box stabil abwarten (Layout-Settling nach Seiten-Load, Panel- oder
+ * Overlay-Wechsel). Zwei identische Messungen im Abstand: gedockte Panels
+ * verschieben die Box, schwebende Overlays schlucken Klicks dazwischen.
+ */
+export async function stableCanvas(page: Page, timeout = 5000): Promise<void> {
+  const keyOf = async (): Promise<string> => {
+    const b = await canvasEl(page).boundingBox();
+    if (!b) return "null";
+    const r = (n: number) => Math.round(n);
+    return `${r(b.x)},${r(b.y)},${r(b.width)},${r(b.height)}`;
+  };
+  const t0 = Date.now();
+  let prev = await keyOf();
+  for (;;) {
+    await page.waitForTimeout(150);
+    const cur = await keyOf();
+    if (cur !== "null" && cur === prev) return;
+    prev = cur;
+    if (Date.now() - t0 > timeout) throw new Error("Canvas-Box wird nicht stabil");
+  }
 }
 
 export function expectNoErrors(errors: string[]): void {
@@ -191,15 +217,14 @@ export async function placePartUI(page: Page, query: string, rowName: string | R
   await search.fill(query);
   // Zeile wählen (Klick) + Enter = Platzieren (W132), dann Canvas-Klick.
   await page.getByText(rowName, { exact: true }).first().click();
+  // Genau EIN Enter: ein zweites Enter im Platzier-Modus würde per S5.3 an der
+  // Ghost-Position platzieren und den Modus abbrechen (kein Retry!).
   await page.keyboard.press("Enter");
-  // Enter→Platzieren läuft über einen Fenster-Keydown (Race unter Last):
-  // auf den Modus warten, notfalls Enter wiederholen (S7-Flake).
-  try {
-    await expect.poll(() => msEval<string>(page, `(s) => s.tool`), { timeout: 3000 }).toBe("place");
-  } catch {
-    await page.keyboard.press("Enter");
-    await expect.poll(() => msEval<string>(page, `(s) => s.tool`), { timeout: 5000 }).toBe("place");
-  }
+  await expect.poll(() => msEval<string>(page, `(s) => s.tool`), { timeout: 10_000 }).toBe("place");
+  // Die schwebende Bibliothek hängt sich asynchron aus (React) und würde den
+  // Canvas-Klick sonst schlucken (S7: Instanzen blieben 5). Erst danach messen.
+  await expect(page.locator("#lib-search")).toBeHidden({ timeout: 5000 });
+  await stableCanvas(page);
   await clickWorld(page, atX, atY);
   await expect
     .poll(() => msEval<number>(page, `(s) => s.doc.instances.length`))
