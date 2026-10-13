@@ -88,7 +88,7 @@ export default function Inspector() {
 
   return (
     <aside className="flex h-full w-full shrink-0 flex-col" style={{ background: "transparent" }}>
-      <div className="flex items-center gap-1 px-2 pt-2">
+      <div className="flex items-center gap-1 px-3 pt-2">
         <button className="tab" data-active={tab === "props"} onClick={() => setTab("props")}>
           <span className="flex items-center gap-1.5">
             <Settings2 size={12} /> Eigenschaften
@@ -129,7 +129,7 @@ export default function Inspector() {
                 </div>
 
                 <div>
-                  <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Typ & Darstellung</div>
+                  <div className="section-head">Typ & Darstellung</div>
                   <div className="space-y-2 rounded-lg p-2.5 bg-surface-2">
                     <SelectField label="Typ" value={selectedProbe.kind} onChange={(kind)=> st.updateMeasurementProbe(selectedProbe.id,{kind:kind as ProbeKind})} options={[
                       { value: "voltage", label: "Voltage – V gegen GND/REF" },
@@ -159,7 +159,7 @@ export default function Inspector() {
                 </div>
 
                 <div>
-                  <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Referenzpotential</div>
+                  <div className="section-head">Referenzpotential</div>
                   <div className="rounded-lg p-2.5 space-y-2 bg-surface-2">
                     <SelectField label="Bezugspunkt" value={selectedProbe.ref ?? "0"} onChange={(ref)=> st.updateMeasurementProbe(selectedProbe.id,{ref})} options={[
                       { value: "0", label: "GND (0)" },
@@ -173,7 +173,7 @@ export default function Inspector() {
                 </div>
 
                 <div>
-                  <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Messwerte Anzeige</div>
+                  <div className="section-head">Messwerte Anzeige</div>
                   <div className="rounded-lg p-2.5 space-y-2 bg-surface-2">
                     <Checkbox label="Periodic (RMS/Peak/Freq)" checked={!!selectedProbe.periodic} onChange={(periodic)=> st.updateMeasurementProbe(selectedProbe.id,{periodic})} />
 
@@ -210,7 +210,7 @@ export default function Inspector() {
 
                 {live && (
                   <div className="rounded-lg p-2.5 mono text-2xs bg-surface-2">
-                    <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Live Messwerte</div>
+                    <div className="section-head">Live Messwerte</div>
                     <div className="space-y-0.5">
                       <Row k="Net" v={selectedProbe.net ?? "—"} />
                       <Row k="V" v={formatValue(live.nets[selectedProbe.net ?? ""] ?? 0,"V")} />
@@ -283,7 +283,7 @@ export default function Inspector() {
 
                 {st.teacher.locked ? <LockNote /> : [...groups.entries()].map(([group, defs]) => (
                   <div key={group}>
-                    <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">{group}</div>
+                    <div className="section-head">{group}</div>
                     {defs.map((def) => {
                       const value = selected.params[def.key] ?? def.def;
                       // S5.14: Steuerwerte (Schalter-zu, Poti-Position) wirken bei
@@ -330,7 +330,7 @@ export default function Inspector() {
 
                 {!st.teacher.locked && part.interactive === "mcu" && (
                   <div>
-                    <div className="mb-1 flex items-center gap-1.5 text-2xs uppercase tracking-wide text-ink-3">
+                    <div className="section-head flex items-center gap-1.5">
                       <Cpu size={11} /> Firmware (Arduino-C Subset)
                     </div>
                     <textarea
@@ -347,7 +347,7 @@ export default function Inspector() {
 
                 {!st.teacher.locked && part.spice && (
                   <div>
-                    <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">SPICE-Modellkarte</div>
+                    <div className="section-head">SPICE-Modellkarte</div>
                     <pre className="mono overflow-x-auto rounded-lg p-2 text-2xs leading-relaxed bg-surface-2 text-ink-2">
                       {part.spice}
                     </pre>
@@ -391,7 +391,7 @@ export default function Inspector() {
 
         {tab === "net" && (
           <div className="space-y-1">
-            <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3">Knoten-Inspektor & Probes</div>
+            <div className="section-head">Knoten-Inspektor & Probes</div>
             <div className="mb-2 rounded-lg p-2 text-2xs bg-surface-2">
               <div className="flex items-center gap-1.5 mb-1 font-medium"><Radio size={12}/> Measurement Probes ({st.doc.probes.length})</div>
               {st.doc.probes.map(p=> (
@@ -464,7 +464,7 @@ export default function Inspector() {
             </div>
 
             <div className="rounded-lg p-2.5 bg-surface-2">
-              <div className="mb-1 text-2xs uppercase tracking-wide text-ink-3 flex items-center gap-1"><GitBranch size={11}/> Probe Settings (Global)</div>
+              <div className="section-head flex items-center gap-1"><GitBranch size={11}/> Probe Settings (Global)</div>
               <div className="text-2xs text-ink-3">Alle Probes werden automatisch zu Transient/AC Grapher Output hinzugefügt. Konfiguration pro Probe in Eigenschaften-Tab.</div>
               <div className="mt-2 grid grid-cols-2 gap-1.5">
                 <div className="rounded px-2 py-1 text-2xs mono bg-surface">V Probes: {st.doc.probes.filter(p=>p.kind==="voltage"||p.kind==="voltage_current").length}</div>

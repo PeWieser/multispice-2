@@ -3237,7 +3237,7 @@ export default function Canvas() {
           tool === "wire" ||
           selection.length > 0) && (
           <div
-            className="absolute bottom-3 left-1/2 z-30 flex max-w-[calc(100vw-110px)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto no-scrollbar rounded-xl border px-2 py-1.5 text-[11.5px] font-medium shadow-xl backdrop-blur-md"
+            className="absolute bottom-3 left-1/2 z-30 flex max-w-[calc(100vw-110px)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto no-scrollbar rounded-xl border border-hairline px-2 py-1.5 text-[11.5px] font-medium shadow-xl backdrop-blur-md"
             style={{
               background: "color-mix(in srgb, var(--surface) 94%, transparent)",
               borderColor: "var(--hairline-strong)",

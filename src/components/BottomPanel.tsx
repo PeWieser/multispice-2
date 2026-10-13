@@ -108,7 +108,7 @@ export default function BottomPanel() {
                 <span className="text-2xs text-ink-3">SPICE3/ngspice-kompatibel — Import überschreibt den Schaltplan</span>
                 <div className="flex-1" />
                 <button
-                  className="btn py-1 text-2xs"
+                  className="btn"
                   onClick={() => {
                     navigator.clipboard?.writeText(netlistText);
                     log("ok", "Netzliste in die Zwischenablage kopiert");
@@ -117,7 +117,7 @@ export default function BottomPanel() {
                   Kopieren
                 </button>
                 <button
-                  className="btn py-1 text-2xs"
+                  className="btn"
                   onClick={() => {
                     const text = (document.getElementById("netlist-editor") as HTMLTextAreaElement)?.value ?? "";
                     const imported = isLtspiceAsc(text) ? fromLtspiceAsc(text) : fromSpiceNetlist(text);
@@ -153,7 +153,7 @@ export default function BottomPanel() {
                             break;
                           }
                         }
-                      }}>Zoom to error</button>
+                      }}>Zum Fehler</button>
                     </li>
                   ))}
                   {netResult.warnings.map((w, i) => (
@@ -168,7 +168,7 @@ export default function BottomPanel() {
                             break;
                           }
                         }
-                      }}>Zoom</button>
+                      }}>Zeigen</button>
                     </li>
                   ))}
                 </ul>

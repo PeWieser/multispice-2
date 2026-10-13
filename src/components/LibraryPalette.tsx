@@ -153,7 +153,7 @@ const PartRow = React.memo(function PartRow({
 
   return (
     <div
-      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)] cursor-grab active:cursor-grabbing"
+      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors tree-row cursor-grab active:cursor-grabbing"
       style={
         active || selected
           ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }
@@ -199,7 +199,7 @@ const PartRow = React.memo(function PartRow({
       </span>
       <div className="flex flex-col items-center gap-1 shrink-0">
         <button
-          className="grid h-6 w-6 place-items-center rounded-md hover:bg-[color-mix(in_srgb,var(--ink)_10%,transparent)]"
+          className="grid h-6 w-6 place-items-center rounded-md tree-row"
           onClick={(e) => {
             e.stopPropagation();
             const st = useEditor.getState();
@@ -261,7 +261,7 @@ function CatNode({
           {node.children.length ? (open ? "▾" : "▸") : ""}
         </button>
         <button
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-2xs tree-row"
           style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
           onClick={() => onSel(node.path)}
           title={node.name}
@@ -796,21 +796,21 @@ export default function LibraryPalette({
         {/* Spalte 1 – Navigation (Ref-1 Component Browser) */}
         <div className="hidden w-[170px] shrink-0 flex-col overflow-y-auto border-r py-1 md:flex border-hairline bg-surface-2">
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs tree-row"
             style={!query && tab === "all" && !selCat ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("all"); setSelCat(null); }}
           >
             <LayoutGrid size={12} /> Alle <span className="mono ml-auto text-2xs text-ink-3">{PARTS.length}</span>
           </button>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs tree-row"
             style={!query && tab === "fav" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("fav"); setSelCat(null); }}
           >
             <Star size={12} /> Favoriten <span className="mono ml-auto text-2xs text-ink-3">{favorites.length}</span>
           </button>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs tree-row"
             style={!query && tab === "recent" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("recent"); setSelCat(null); }}
           >
@@ -906,8 +906,8 @@ export default function LibraryPalette({
 
               </div>
 
-              <div className="rounded-lg p-2.5 bg-surface border border-hairline">
-                <div className="text-2xs uppercase tracking-wide text-ink-3 mb-1.5">Parameter</div>
+              <div className="panel rounded-lg p-2.5">
+                <div className="section-head">Parameter</div>
                 <div className="space-y-1">
                   {detailPart.params.slice(0, 5).map((pr) => (
                     <div key={pr.key} className="flex justify-between text-2xs">
@@ -942,7 +942,7 @@ export default function LibraryPalette({
                     href={getDatasheetSearchUrl(detailPart.id, detailPart.name)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-2xs border hover:bg-surface border-hairline text-ink-2"
+                    className="btn border border-hairline"
                   >
                     <Search size={10} /> AllDatasheet
                   </a>
@@ -950,7 +950,7 @@ export default function LibraryPalette({
                     href={getOctopartUrl(detailPart.id)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-2xs border hover:bg-surface border-hairline text-ink-2"
+                    className="btn border border-hairline"
                   >
                     <ExternalLink size={10} /> Octopart
                   </a>
@@ -1015,7 +1015,7 @@ export default function LibraryPalette({
         const left = Math.min(Math.max(ctx.x, 12), vw - w - 12);
         const top = Math.min(Math.max(ctx.y, 12), vh - h - 12);
         const st = useEditor.getState();
-        const row = "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]";
+        const row = "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left tree-row";
         const close = () => { setCtx(null); setRenaming(null); setArmDelete(null); };
         return (
           <>

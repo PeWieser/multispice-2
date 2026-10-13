@@ -114,7 +114,7 @@ export default function PageNav() {
               return (
                 <div
                   key={p.id}
-                  className="rounded-md px-1.5 py-1 hover:bg-surface-2"
+                  className="rounded-md px-1.5 py-1 tree-row"
                   style={active ? { background: "var(--tool-active-bg)" } : undefined}
                 >
                   <div className="flex items-center gap-1">

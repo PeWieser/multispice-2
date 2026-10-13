@@ -45,7 +45,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
 
   return (
     <footer
-      className="flex h-[30px] shrink-0 items-center gap-2 px-2.5 text-2xs text-ink-3 bg-surface border-t border-hairline"
+      className="flex h-[30px] shrink-0 items-center gap-2 px-3 text-2xs text-ink-3 bg-surface border-t border-hairline"
     >
       {/* Links: Name des aktiven Entwurfs (die Reiterleiste sitzt über dem Canvas) */}
       <span className="shrink-0 truncate px-1 font-medium text-ink-2" title={`Aktiver Entwurf: ${docName || "Unbenannt"}${pageName ? ` · ${pageName}` : ""}`}>
@@ -95,7 +95,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
           return (
             <button
               type="button"
-              className="flex h-6 min-w-[92px] shrink-0 items-center justify-center gap-1 rounded-md px-2 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
+              className="flex h-6 min-w-[92px] shrink-0 items-center justify-center gap-1 rounded-md px-2 tabular-nums tree-row"
               onClick={() => void saveProject()}
               title={chip.tip}
               aria-label={`Speicher-Status: ${chip.text}`}
@@ -106,7 +106,7 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
         })()}
         <button
           type="button"
-          className="flex h-6 min-w-[100px] shrink-0 items-center justify-center gap-1 rounded-md px-2 tabular-nums transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
+          className="flex h-6 min-w-[100px] shrink-0 items-center justify-center gap-1 rounded-md px-2 tabular-nums tree-row"
           style={
             bottomOpen
               ? {

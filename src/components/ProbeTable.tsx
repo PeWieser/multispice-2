@@ -128,7 +128,7 @@ export default function ProbeTable() {
           {rows.map((r) => (
             <tr
               key={r.id}
-              className="cursor-pointer hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+              className="cursor-pointer tree-row"
               style={{
                 borderTop: "1px solid var(--hairline)",
                 background: selection.includes(r.id) ? "color-mix(in srgb, var(--accent) 12%, transparent)" : undefined,

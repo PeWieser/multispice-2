@@ -106,7 +106,7 @@ export function ComponentStrip({ tools, editorMode = false }: { tools?: ReactNod
 
   return (
     <div
-      className="flex h-11 shrink-0 items-center gap-3 overflow-x-auto no-scrollbar border-b px-3.5 border-hairline bg-surface"
+      className="flex h-11 shrink-0 items-center gap-3 overflow-x-auto no-scrollbar border-b border-hairline bg-surface px-3"
     >
       {!editorMode && (<>
       <button
@@ -285,7 +285,7 @@ export function ComponentStrip({ tools, editorMode = false }: { tools?: ReactNod
                     key={b.k}
                     type="button"
                     role="menuitem"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors tree-row"
                     style={
                       active
                         ? {

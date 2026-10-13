@@ -535,7 +535,7 @@ export function SymbolCanvasEditor({
 
         {selectedPrim && selectedPrimIdx !== null && (
           <div
-            className="mb-3 space-y-2 rounded-lg border p-2.5 text-2xs"
+            className="mb-3 space-y-2 rounded-lg border border-hairline p-2.5 text-2xs"
             style={{ borderColor: "var(--wire-sel)", background: "var(--surface)" }}
           >
             <div className="font-semibold text-selection">
@@ -623,7 +623,7 @@ export function SymbolCanvasEditor({
               <div
                 key={idx}
                 onClick={() => setSelectedPrimIdx(idx)}
-                className="flex cursor-pointer items-center justify-between rounded-lg border px-2.5 py-1.5 text-2xs transition-colors"
+                className="flex cursor-pointer items-center justify-between rounded-lg border border-hairline px-2.5 py-1.5 text-2xs transition-colors"
                 style={
                   active
                     ? {

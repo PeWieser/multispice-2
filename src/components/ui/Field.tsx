@@ -157,14 +157,14 @@ export function Checkbox({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 py-1 text-2xs">
+    <label className="flex cursor-pointer items-center gap-2 py-1">
       <input
         type="checkbox"
         className="size-3.5 shrink-0 accent-[var(--accent)]"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <span className="flex-1 text-ink-2">{label}</span>
+      <span className="flex-1 text-xs text-ink-2">{label}</span>
     </label>
   );
 }
@@ -189,9 +189,9 @@ export function SliderField({
 }) {
   return (
     <div className="py-1.5">
-      <div className="mb-1 flex justify-between text-2xs">
-        <span className="text-ink-2">{label}</span>
-        <span className="mono text-ink-3">{display}</span>
+      <div className="mb-1 flex justify-between">
+        <span className="text-xs text-ink-2">{label}</span>
+        <span className="mono text-2xs text-ink-3">{display}</span>
       </div>
       <input
         type="range"

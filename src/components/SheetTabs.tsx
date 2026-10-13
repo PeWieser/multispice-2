@@ -78,7 +78,7 @@ export default function SheetTabs() {
 
   return (
     <div
-      className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline bg-surface px-2 no-scrollbar"
+      className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline bg-surface px-3 no-scrollbar"
       role="tablist"
       aria-label="Entwürfe"
     >
@@ -214,7 +214,7 @@ export default function SheetTabs() {
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-ink-2 hover:bg-surface-2 hover:text-ink"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-ink-2 tree-row hover:text-ink"
               onClick={() => {
                 const s = list.find((l) => l.id === ctx.id);
                 if (s) startRename(s.id, benannt(s.id, s.name));
@@ -225,7 +225,7 @@ export default function SheetTabs() {
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-ink-2 hover:bg-surface-2 hover:text-ink"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-ink-2 tree-row hover:text-ink"
               onClick={() => {
                 setCtx(null);
                 duplicateSheet(ctx.id);
@@ -236,7 +236,7 @@ export default function SheetTabs() {
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-ink-2 hover:bg-surface-2 hover:text-ink"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-ink-2 tree-row hover:text-ink"
               onClick={() => {
                 setCtx(null);
                 closeSheet(ctx.id);
