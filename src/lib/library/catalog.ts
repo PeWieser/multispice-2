@@ -6335,6 +6335,20 @@ add({
   toDevices: () => [],
 });
 
+add({
+  id: "offpage_connector",
+  name: "Seitenverbinder (Off-Page)",
+  ref: "J",
+  category: "Verbinder",
+  tags: ["verbinder", "off-page", "offpage", "seite", "seitig", "netz", "netzname", "mehrseitig"],
+  description: "Verbindet Netze über Seitengrenzen: Alle Seitenverbinder mit gleichem Netznamen sind im ganzen Entwurf elektrisch verbunden (über alle Seiten). Keine Stücklisten-Position.",
+  mount: "virtual",
+  pins: [{ name: "1", x: -30, y: 0 }],
+  symbol: [L(-30, 0, -12, 0), RECT(-12, -10, 32, 20, 2)],
+  params: [{ key: "name", label: "Netzname", type: "text", def: "NET_A" }],
+  toDevices: () => [],
+});
+
 /* ---------------- S5.6c · Beschreibungsbox (Dokumentation, pinlos) ---------------- */
 add({
   id: "descbox",

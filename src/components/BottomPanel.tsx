@@ -229,7 +229,8 @@ function LiveStrip() {
   const probes = useEditor((s) => s.probes);
   const docProbes = useEditor((s) => s.doc.probes);
   const netResult = useEditor((s) => s.netResult);
-  const nets = useMemo(() => netResult.nets.map((n) => n.name).filter((n) => n !== "0"), [netResult.nets]);
+  // Blätter Stufe B: globale Netze stehen pro Seite drin — Namen eindeutig zeigen.
+  const nets = useMemo(() => [...new Set(netResult.nets.map((n) => n.name))].filter((n) => n !== "0"), [netResult.nets]);
   // Multisim-like: show measurement probes + legacy probes
   const shownNets = useMemo(()=>{
     const mpNets = docProbes.map(p=> ({ net: p.net ?? "", probe: p })).filter(x=> x.net && x.net!=="0");

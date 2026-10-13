@@ -217,7 +217,8 @@ export function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe
         hasRef = true;
       }
     } else if (probe.ref && probe.ref !== "0") {
-      const refNet = st.netResult.nets.find((n) => n.name === probe.ref);
+      // Blätter Stufe B: Referenzpunkt aus der aktiven Seite (Netze gibt es pro Seite).
+      const refNet = st.netResult.nets.find((n) => n.name === probe.ref && (n.page === undefined || n.page === st.doc.activePageId));
       if (refNet && refNet.points.length) {
         refX = refNet.points[0].x;
         refY = refNet.points[0].y;
@@ -835,10 +836,10 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
     }
     ctx.restore();
   }
-  if (zoom>0.42 && (part.id==="onpage_connector" || part.id==="bus_tap" || part.id==="bus_splitter")) {
+  if (zoom>0.42 && (part.id==="onpage_connector" || part.id==="offpage_connector" || part.id==="bus_tap" || part.id==="bus_splitter")) {
     // S1.6/S3.1: Virtuelle Bauteile bekommen sonst kein Schild — Verbinder
     // und Bus-Taps brauchen ihren Netznamen aber sichtbar (der Name IST die Verbindung).
-    const tag = part.id==="onpage_connector"
+    const tag = (part.id==="onpage_connector" || part.id==="offpage_connector")
       ? String(inst.params.name??"NET_A")
       : part.id==="bus_tap"
         ? `${String(inst.params.bus??"D").trim() || "D"}[${Math.max(0, Math.floor(Number(inst.params.bit ?? 0)))}]`
@@ -852,7 +853,7 @@ export function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, sele
   }
   if (selected){
     const b=instanceBounds(inst);
-    const hasValueLabel = zoom>0.42 && (part.mount!=="virtual" || part.id==="onpage_connector");
+    const hasValueLabel = zoom>0.42 && (part.mount!=="virtual" || part.id==="onpage_connector" || part.id==="offpage_connector");
     const main=part.params[0];
     const extraBottom = hasValueLabel ? (main && main.type==="number" ? 30 : 18) : 6;
     ctx.strokeStyle=canvasColor("--wire-sel");

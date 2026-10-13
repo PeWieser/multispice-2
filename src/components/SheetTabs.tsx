@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Copy, Pencil, Plus, X } from "lucide-react";
 import { sheets, useEditor } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
+import PageNav from "./PageNav";
 
 /**
  * Entwurfs-Reiterleiste über dem Canvas (Stufe A): sichtbare Tabs statt
@@ -194,6 +195,12 @@ export default function SheetTabs() {
           </div>
         );
       })}
+
+      {/* Blätter Stufe B: Seiten-Navigator (klebt rechts, auch beim Scrollen der Tabs). */}
+      <div className="sticky right-0 ml-auto flex shrink-0 items-center bg-surface pl-1">
+        <div className="mr-1 h-5 w-px bg-hairline" />
+        <PageNav />
+      </div>
 
       {ctx && (
         <>

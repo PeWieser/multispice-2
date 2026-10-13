@@ -14,7 +14,8 @@ export default function AnalysisDialog({ kind, onClose }: { kind: string; onClos
   const def = ANALYSIS_MAP[kind];
   const doc = useEditor((s) => s.doc);
   const netResult = useEditor((s) => s.netResult);
-  const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
+  // Blätter Stufe B: globale Netze stehen pro Seite drin — Namen eindeutig zeigen.
+  const nets = useMemo(() => [...new Set(netResult.nets.map((n) => n.name))], [netResult.nets]);
   const probes = useEditor((s) => s.probes);
   const running = useEditor((s) => s.analysis.running);
   const runAnalysis = useEditor((s) => s.runAnalysis);

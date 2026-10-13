@@ -21,6 +21,7 @@ import { createUiSlice } from "./slices/ui";
 import { createInstrumentsSlice } from "./slices/instruments";
 import { createSimSlice } from "./slices/sim";
 import { createSheetsSlice } from "./slices/sheets";
+import { createPagesSlice } from "./slices/pages";
 import { createAnalysisSlice } from "./slices/analysis";
 import { createStorageSlice } from "./slices/storage";
 import { createMiscSlice } from "./slices/misc";
@@ -104,6 +105,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   ...createInstrumentsSlice(set, get),
   ...createSimSlice(set, get),
   ...createSheetsSlice(set, get),
+  ...createPagesSlice(set, get),
   ...createAnalysisSlice(set, get),
   ...createStorageSlice(set, get),
   ...createMiscSlice(set, get),

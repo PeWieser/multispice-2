@@ -253,3 +253,31 @@ test("S3.22 Entwurf duplizieren + schließen (Kontextmenü)", async ({ page }) =
   await expect.poll(() => tabs.getByRole("tab").count()).toBe(1);
   expectNoErrors(errors);
 });
+
+// S3.23: Seiten-Navigator — anlegen, wechseln, umbenennen, löschen.
+test("S3.23 Seiten anlegen + wechseln + löschen", async ({ page }) => {
+  const errors = await gotoApp(page);
+  await act(page, "newDocument");
+  // Eine Seite: nur "+ Seite"-Knopf in der Tab-Leiste.
+  await page.getByRole("button", { name: "Neue Seite" }).click();
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.pages?.length ?? 0`)).toBe(2);
+  // Inhalt auf Seite 2 legen.
+  await page.getByRole("button", { name: "Widerstand", exact: true }).click();
+  await clickWorld(page, 400, 300);
+  await closeInlineEditor(page);
+  // Wechsel per Dropdown auf Seite 1 (leer), zurück auf Seite 2 (Inhalt da).
+  await page.getByRole("button", { name: "Seite wechseln" }).click();
+  await page.getByRole("menuitemradio", { name: /Seite 1 öffnen/ }).click();
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(0);
+  await page.getByRole("button", { name: "Seite wechseln" }).click();
+  await page.getByRole("menuitemradio", { name: /Seite 2 öffnen/ }).click();
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
+  // Umbenennen, dann löschen (Menü bleibt offen).
+  await page.getByRole("button", { name: "Seite wechseln" }).click();
+  await page.getByRole("button", { name: "Seite Seite 2 umbenennen" }).click();
+  await page.getByLabel("Seite umbenennen").fill("Endstufe");
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Seite Endstufe löschen" }).click();
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.pages?.length ?? 0`)).toBe(1);
+  expectNoErrors(errors);
+});

@@ -22,6 +22,37 @@ import { resolveNearestNetPoint } from "../docUtils";export function createMiscS
           if (hit && hit.net !== pr.net) { changed = true; return { ...pr, net: hit.net }; }
           return pr;
         }) };
+        // Blätter Stufe B: Proben inaktiver Seiten namenbasiert nachführen
+        // (Seitenwechsel ändert die Namensräume: S2:N003 ↔ N003).
+        const names = new Set(result.nets.map((n) => n.name));
+        const pages = nextDoc.pages;
+        if (pages && pages.length > 1) {
+          const ap = nextDoc.activePageId;
+          let slotChanged = false;
+          const nextPages = pages.map((pg, i) => {
+            if (pg.id === ap) return pg;
+            let touched = false;
+            const probes = (pg.probes ?? []).map((pr) => {
+              if (pr.net && names.has(pr.net)) return pr;
+              const base = (pr.net ?? "").replace(/^S\d+:/, "");
+              const hit = [`S${i + 1}:${base}`, base].find((c) => names.has(c));
+              if (hit && hit !== pr.net) {
+                touched = true;
+                return { ...pr, net: hit };
+              }
+              return pr;
+            });
+            if (touched) {
+              slotChanged = true;
+              return { ...pg, probes };
+            }
+            return pg;
+          });
+          if (slotChanged) {
+            changed = true;
+            nextDoc.pages = nextPages;
+          }
+        }
         if (changed) {
           // silent update without history push
           set({ doc: nextDoc });

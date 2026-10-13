@@ -107,6 +107,23 @@ export interface MeasurementProbe {
   leader?: "arrow" | "line" | "magnifier";
 }
 
+/* ---------------- Blätter Stufe B · Seiten ----------------
+ * Ein Entwurf kann mehrere Seiten haben. Die flachen Arrays von SchematicDoc
+ * sind IMMER der aktuelle Inhalt der aktiven Seite (der Editor arbeitet
+ * unverändert darauf); `pages` trägt alle Seiten (inkl. Ablage der aktiven),
+ * `activePageId` sagt, welche flach liegt. Altbestand ohne `pages` verhält
+ * sich exakt wie bisher (eine Seite). */
+export interface SchematicPage {
+  id: string;
+  name: string;
+  instances: Instance[];
+  wires: Wire[];
+  labels: NetLabel[];
+  notes: TextNote[];
+  probes: MeasurementProbe[];
+  junctions?: Junction[];
+}
+
 export interface SchematicDoc {
   id: string;
   name: string;
@@ -117,6 +134,10 @@ export interface SchematicDoc {
   probes: MeasurementProbe[];
   /** W61: ausdrücklich gesetzte Verbindungspunkte (Kreuzungen verbinden). */
   junctions?: Junction[];
+  /** Blätter Stufe B: Seitenfächer (Altbestand: leer — alles liegt flach). */
+  pages?: SchematicPage[];
+  /** Blätter Stufe B: aktive Seite (flache Arrays sind ihr aktueller Inhalt). */
+  activePageId?: string;
 }
 
 // Der allererste Entwurf bekommt eine feste ID, damit Server-HTML (statischer
@@ -127,6 +148,84 @@ export function emptyDoc(name = "Neue Schaltung"): SchematicDoc {
   const id = firstDoc ? "sch_initial" : "sch_" + Math.random().toString(36).slice(2, 9);
   firstDoc = false;
   return { id, name, instances: [], wires: [], labels: [], notes: [], probes: [], junctions: [] };
+}
+
+export function newPageId(): string {
+  return "pg_" + Math.random().toString(36).slice(2, 9);
+}
+
+export function activePageIndex(doc: SchematicDoc): number {
+  if (!doc.pages || !doc.pages.length) return -1;
+  const i = doc.pages.findIndex((pg) => pg.id === doc.activePageId);
+  return i < 0 ? 0 : i;
+}
+
+/** Blätter Stufe B: legt das Seitenfach an (Altbestand → „Seite 1" aus den
+ * flachen Arrays, per Referenz — kein Klon). Mutiert doc. */
+export function ensurePages(doc: SchematicDoc): SchematicPage[] {
+  if (!doc.pages || !doc.pages.length) {
+    const pg: SchematicPage = {
+      id: newPageId(),
+      name: "Seite 1",
+      instances: doc.instances,
+      wires: doc.wires,
+      labels: doc.labels,
+      notes: doc.notes,
+      probes: doc.probes,
+      junctions: doc.junctions,
+    };
+    doc.pages = [pg];
+    doc.activePageId = pg.id;
+  } else if (!doc.pages.some((pg) => pg.id === doc.activePageId)) {
+    doc.activePageId = doc.pages[0].id;
+  }
+  return doc.pages;
+}
+
+function orderedPageInstances(doc: SchematicDoc): Array<{ inst: Instance; order: number }> {
+  if (!doc.pages || !doc.pages.length) return doc.instances.map((inst) => ({ inst, order: 0 }));
+  const ap = activePageIndex(doc);
+  const out: Array<{ inst: Instance; order: number }> = [];
+  doc.pages.forEach((pg, i) => {
+    // Aktive Seite aus den flachen Arrays (Quelle der Wahrheit), Rest aus Fächern.
+    const arr = i === ap ? doc.instances : pg.instances;
+    for (const inst of arr) out.push({ inst, order: i });
+  });
+  return out;
+}
+
+/** Alle Bauteile des Entwurfs (alle Seiten). Für BOM/Nummerierung/Suche. */
+export function pageInstances(doc: SchematicDoc): Instance[] {
+  return orderedPageInstances(doc).map((e) => e.inst);
+}
+
+/** Off-Page-Netze des Entwurfs (Navigator): Name → Schreibweise + Trefferseiten. */
+export function offpageGroups(
+  doc: SchematicDoc,
+): Array<{ upper: string; display: string; hits: Array<{ pageId: string; pageName: string }> }> {
+  const groups = new Map<string, { display: string; hits: Array<{ pageId: string; pageName: string }> }>();
+  const visit = (arr: Instance[], pg: { id: string; name: string }) => {
+    for (const inst of arr) {
+      if (inst.partId !== "offpage_connector") continue;
+      const txt = String(inst.params.name ?? "NET_A").trim() || "NET_A";
+      const u = txt.toUpperCase();
+      let g = groups.get(u);
+      if (!g) {
+        g = { display: txt, hits: [] };
+        groups.set(u, g);
+      }
+      if (!g.hits.some((h) => h.pageId === pg.id)) g.hits.push({ pageId: pg.id, pageName: pg.name });
+    }
+  };
+  if (!doc.pages || !doc.pages.length) {
+    visit(doc.instances, { id: "", name: "Seite 1" });
+  } else {
+    const ap = activePageIndex(doc);
+    doc.pages.forEach((pg, i) => visit(i === ap ? doc.instances : pg.instances, pg));
+  }
+  return [...groups.entries()]
+    .map(([upper, g]) => ({ upper, ...g }))
+    .sort((a, b) => a.display.localeCompare(b.display));
 }
 
 /* ----------------------------- geometry ----------------------------- */
@@ -406,6 +505,8 @@ export interface NetInfo {
   name: string;
   points: Array<{ x: number; y: number }>;
   pins: Array<{ instanceId: string; pinIndex: number; pinName: string }>;
+  /** Blätter Stufe B: Herkunftsseite (nur im Mehrseiten-Aufbau belegt). */
+  page?: string;
 }
 
 export interface NetlistBuildResult {
@@ -431,21 +532,22 @@ export interface NetlistBuildResult {
 export function reannotateLabels(doc: SchematicDoc): { renumbered: number; kept: string[] } {
   const SCHEME = /^[A-Z]{1,3}\d+$/;
   const kept: string[] = [];
-  const groups = new Map<string, Instance[]>();
-  for (const inst of doc.instances) {
+  const groups = new Map<string, Array<{ inst: Instance; order: number }>>();
+  // Blätter Stufe B: seitenübergreifend (Seitenreihenfolge, dann Leserichtung).
+  for (const { inst, order } of orderedPageInstances(doc)) {
     const part = PART_MAP[inst.partId];
     if (!part || !SCHEME.test(inst.label || "")) {
       if (inst.label) kept.push(inst.label);
       continue;
     }
     const arr = groups.get(part.ref) ?? [];
-    arr.push(inst);
+    arr.push({ inst, order });
     groups.set(part.ref, arr);
   }
   let renumbered = 0;
   for (const [prefix, arr] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    arr.sort((a, b) => a.y - b.y || a.x - b.x);
-    arr.forEach((inst, k) => {
+    arr.sort((a, b) => a.order - b.order || a.inst.y - b.inst.y || a.inst.x - b.inst.x);
+    arr.forEach(({ inst }, k) => {
       const next = `${prefix}${k + 1}`;
       if (inst.label !== next) {
         inst.label = next;
@@ -456,7 +558,141 @@ export function reannotateLabels(doc: SchematicDoc): { renumbered: number; kept:
   return { renumbered, kept };
 }
 
+/* ---------------- Blätter Stufe B · seitenübergreifendes Netlisting ----------------
+ * pages.length > 1: jede Seite wird einzeln aufgebaut (On-Page-Verbinder und
+ * Labels bleiben seitenlokal), danach werden Off-Page-Verbinder gleichen
+ * Namens plus die Masse „0" seitenübergreifend vereint. Lokale Netze heißen
+ * `S<seite>:<name>` (kollisionsfrei), globale tragen ihren Off-Page-Namen.
+ * Geometrie (pointNets/openEnds/junctions) gehört IMMER nur der aktiven Seite
+ * (der Canvas zeigt nur sie); Fehler/Warnungen aller Seiten werden mit
+ * Seiten-Präfix gemeldet. NetInfo.page markiert die Herkunft (Hit-Tests). */
+function buildNetsMulti(doc: SchematicDoc): NetlistBuildResult {
+  const pages = doc.pages!;
+  let active = pages.findIndex((pg) => pg.id === doc.activePageId);
+  if (active < 0) active = 0;
+  // Die aktive Seite gilt aus den FLACHEN Arrays (Quelle der Wahrheit im Editor).
+  const flat: SchematicPage = {
+    id: pages[active].id,
+    name: pages[active].name,
+    instances: doc.instances,
+    wires: doc.wires,
+    labels: doc.labels,
+    notes: doc.notes,
+    probes: doc.probes,
+    junctions: doc.junctions,
+  };
+  const per = pages.map((pg, i) => {
+    const src = i === active ? flat : pg;
+    return buildNets({
+      id: pg.id,
+      name: pg.name,
+      instances: src.instances,
+      wires: src.wires,
+      labels: src.labels,
+      notes: src.notes,
+      probes: src.probes ?? [],
+      junctions: src.junctions,
+    });
+  });
+  // Off-Page-Namen einsammeln (erste Schreibweise gewinnt, Seitenreihenfolge).
+  const offDisplay = new Map<string, string>();
+  const pageOffLocal = pages.map((pg, i) => {
+    const src = i === active ? flat : pg;
+    const m = new Map<string, string>();
+    for (const inst of src.instances) {
+      if (inst.partId !== "offpage_connector") continue;
+      const txt = String(inst.params.name ?? "NET_A").trim() || "NET_A";
+      const u = txt.toUpperCase();
+      if (!offDisplay.has(u)) offDisplay.set(u, txt);
+      const local = per[i].pinNets[`${inst.id}:0`];
+      if (local) m.set(local, u);
+    }
+    return m;
+  });
+  const globalize = (pageIdx: number, local: string): string => {
+    if (local === "0") return "0";
+    const u = pageOffLocal[pageIdx].get(local);
+    if (u) return offDisplay.get(u) ?? u;
+    return `S${pageIdx + 1}:${local}`;
+  };
+  const devices: Device[] = [];
+  const nets: NetInfo[] = [];
+  const pinNets: Record<string, string> = {};
+  const seenDev = new Set<string>();
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  per.forEach((b, i) => {
+    const tag = `[${pages[i].name}] `;
+    for (const d of b.netlist.devices) {
+      const nodes = d.nodes.map((n) => globalize(i, n ?? "0"));
+      let id = d.id;
+      if (seenDev.has(id)) {
+        // Doppelte Kürzel über Seiten: ID + id-abgeleitete Knoten (_int, _seg0)
+        // folgen der Folgeseite (sonst Kurzschluss/Matrixkollision im Kernel).
+        let nid = `${id}~S${i + 1}`;
+        for (let k = 2; seenDev.has(nid); k++) nid = `${id}~S${i + 1}~${k}`;
+        for (let j = 0; j < nodes.length; j++) {
+          const n = nodes[j];
+          if (n === id) nodes[j] = nid;
+          else if (n.startsWith(id + "_")) nodes[j] = nid + n.slice(id.length);
+        }
+        id = nid;
+      }
+      seenDev.add(id);
+      devices.push({ ...d, id, nodes });
+    }
+    for (const n of b.nets) nets.push({ ...n, name: globalize(i, n.name), page: pages[i].id });
+    for (const [k, v] of Object.entries(b.pinNets)) pinNets[k] = globalize(i, v);
+    for (const e of b.errors) errors.push(tag + e);
+    for (const w of b.warnings) {
+      // Masse-/Bauteil-Warnungen gelten entwurfsweit (einmal, unten).
+      if (w.startsWith("Kein Massebezug") || w.startsWith("Keine simulierbaren Bauteile")) continue;
+      warnings.push(tag + w);
+    }
+    if (i !== active && b.openEnds.length) {
+      warnings.push(`${tag}${b.openEnds.length} offene Leitungsenden (Markierung nur auf der aktiven Seite)`);
+    }
+  });
+  // Doppelte Bauteil-Kürzel über Seiten melden (Referenzen wirken entwurfsweit).
+  const labelPage = new Map<string, { id: string; name: string }>();
+  pages.forEach((pg, i) => {
+    const src = i === active ? flat : pg;
+    for (const inst of src.instances) {
+      if (!inst.label) continue;
+      const first = labelPage.get(inst.label);
+      if (!first) labelPage.set(inst.label, { id: pg.id, name: pg.name });
+      else if (first.id !== pg.id) {
+        warnings.push(
+          `[${pg.name}] Doppeltes Kürzel „${inst.label}“ (auch auf ${first.name}) — bitte seitenübergreifend neu nummerieren`,
+        );
+        labelPage.set(inst.label, { id: pg.id, name: pg.name });
+      }
+    }
+  });
+  const hasGnd = pages.some((pg, i) =>
+    (i === active ? flat : pg).instances.some((x) => x.partId === "gnd"),
+  );
+  if (!hasGnd) {
+    warnings.push(`Kein Massebezug (GND) im Entwurf (alle ${pages.length} Seiten) — Simulation kann singulär werden.`);
+  }
+  if (!devices.length) warnings.push("Keine simulierbaren Bauteile platziert.");
+  const pointNets: Record<string, string> = {};
+  for (const [k, v] of Object.entries(per[active].pointNets)) pointNets[k] = globalize(active, v);
+  return {
+    netlist: { devices },
+    nets,
+    pinNets,
+    pointNets,
+    errors,
+    warnings,
+    openEnds: per[active].openEnds,
+    junctions: per[active].junctions,
+  };
+}
+
 export function buildNets(doc: SchematicDoc): NetlistBuildResult {
+  // Blätter Stufe B: mehrere Seiten → seitenübergreifend (Off-Page + GND global).
+  if (doc.pages && doc.pages.length > 1) return buildNetsMulti(doc);
   const uf = new UnionFind();
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -1149,7 +1385,8 @@ export interface BomRow {
 
 export function buildBom(doc: SchematicDoc): BomRow[] {
   const rows = new Map<string, BomRow>();
-  for (const inst of doc.instances) {
+  // Blätter Stufe B: Stückliste umfasst alle Seiten.
+  for (const inst of pageInstances(doc)) {
     const part: PartDef | undefined = PART_MAP[inst.partId];
     if (!part || part.mount === "virtual") continue;
     const main = part.params[0];

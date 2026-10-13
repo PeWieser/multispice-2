@@ -357,6 +357,14 @@ export interface EditorState {
   closeSheet: (id: string) => void;
   /** Entwurf duplizieren (tiefe Kopie mit neuer ID) und das Duplikat öffnen. */
   duplicateSheet: (id: string) => void;
+  /** Blätter Stufe B: neue (leere) Seite anlegen und öffnen. */
+  addPage: () => void;
+  /** Blätter Stufe B: Seite wechseln (reine Ansicht — Sim/Undo laufen weiter). */
+  openPage: (id: string) => void;
+  /** Blätter Stufe B: Seite umbenennen. */
+  renamePage: (id: string, name: string) => void;
+  /** Blätter Stufe B: Seite löschen (die letzte bleibt erhalten). */
+  deletePage: (id: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
   /** S2.1: bricht die laufende Analyse ab (Worker-Terminierung; Fallback: wirkungslos nach Start). */

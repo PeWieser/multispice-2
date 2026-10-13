@@ -1,6 +1,6 @@
 
 import { PART_MAP, PartDef } from "@/lib/library/catalog";
-import { Instance, NetlistBuildResult, Rotation, SchematicDoc, attachWireEnd, cleanWirePoints, instanceBounds, pinPosition } from "@/lib/schematic/model";
+import { Instance, NetlistBuildResult, Rotation, SchematicDoc, attachWireEnd, cleanWirePoints, instanceBounds, pageInstances, pinPosition } from "@/lib/schematic/model";
 import { nearestWireFoot } from "@/lib/schematic/netdraw";
 
 /**
@@ -16,7 +16,8 @@ export const sheets: SheetEntry[] = [];
 
 export function nextLabel(doc: SchematicDoc, part: PartDef): string {
   let n = 1;
-  const used = new Set(doc.instances.map((i) => i.label));
+  // Blätter Stufe B: Kürzel zählen entwurfsweit (alle Seiten), sonst kollidieren Referenzen.
+  const used = new Set(pageInstances(doc).map((i) => i.label));
   while (used.has(`${part.ref}${n}`)) n++;
   return `${part.ref}${n}`;
 }
@@ -34,6 +35,8 @@ export function resolveNearestNetPoint(
   let bestPt: { x: number; y: number } | null = null;
 
   for (const net of nr.nets) {
+    // Blätter Stufe B: nur Netze der aktiven Seite (Geometrie ist seitenlokal).
+    if (net.page !== undefined && net.page !== doc.activePageId) continue;
     for (const pt of net.points) {
       const d = Math.hypot(pt.x - x, pt.y - y);
       if (d < bestD) {

@@ -235,8 +235,13 @@ export function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelect
 }
 export function nearestNetName(p: Pt, radius=14): string | null {
   const st=useEditor.getState(); let best:string|null=null, bestD=radius*radius;
-  for (const net of st.netResult.nets) for (const pt of net.points) {
-    const d=(pt.x-p.x)**2+(pt.y-p.y)**2; if (d<bestD){ bestD=d; best=net.name; }
+  const activePage = st.doc.activePageId;
+  for (const net of st.netResult.nets) {
+    // Blätter Stufe B: nur Netze der aktiven Seite treffen (Geometrie ist seitenlokal).
+    if (net.page !== undefined && net.page !== activePage) continue;
+    for (const pt of net.points) {
+      const d=(pt.x-p.x)**2+(pt.y-p.y)**2; if (d<bestD){ bestD=d; best=net.name; }
+    }
   }
   const foot = nearestWireFoot(st.doc, p, radius);
   if (foot && foot.dist * foot.dist <= bestD) {

@@ -4,7 +4,7 @@
  * PDF & Drucken nutzen unter Windows den nativen Electron-PDF/Druck-Dienst und
  * im Browser das synchrone Vektor-Druckblatt (ohne Pop-up-Blocker!). */
 import { PART_MAP, type SymbolPrim } from "@/lib/library/catalog";
-import { instanceBounds, rotatePoint, type Instance, type SchematicDoc } from "@/lib/schematic/model";
+import { activePageIndex, instanceBounds, rotatePoint, type Instance, type SchematicDoc } from "@/lib/schematic/model";
 
 /* Feste Export-Farben (Papier-Thema – unabhängig vom UI-Theme) */
 const INK = "#1c1f22";
@@ -131,26 +131,54 @@ function download(name: string, content: string, mime: string) {
 
 const fileName = (doc: SchematicDoc) => (doc.name || "schaltplan").trim().replace(/\s+/g, "_").replace(/[^\wäöüÄÖÜß.-]+/g, "-");
 
+/** Blätter Stufe B: Entwurfsseiten als Einzeldokumente (aktive aus den flachen Arrays). */
+function pageDocs(doc: SchematicDoc): SchematicDoc[] {
+  const pages = doc.pages;
+  if (!pages || pages.length <= 1) return [doc];
+  const ap = activePageIndex(doc);
+  return pages.map((pg, i) => {
+    const src = i === ap ? doc : pg;
+    return {
+      id: pg.id,
+      name: `${doc.name} – ${pg.name}`,
+      instances: src.instances,
+      wires: src.wires,
+      labels: src.labels,
+      notes: src.notes,
+      probes: src.probes ?? [],
+      junctions: src.junctions,
+    };
+  });
+}
+
 export async function exportSvg(doc: SchematicDoc): Promise<boolean> {
-  const svg = docToSvg(doc);
-  const name = `${fileName(doc)}.svg`;
-  if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
-    const res = await window.multispiceDesktop.saveFile({
-      defaultName: name,
-      content: svg,
-      title: "Entwurf als SVG exportieren",
-      filters: [{ name: "SVG-Vektorgrafik (*.svg)", extensions: ["svg"] }],
-    });
-    return Boolean(res.ok);
+  // Blätter Stufe B: mehrere Seiten → je eine Datei (Entwurf_S1.svg, …).
+  const all = pageDocs(doc);
+  for (let i = 0; i < all.length; i++) {
+    const svg = docToSvg(all[i]);
+    const name = all.length > 1 ? `${fileName(doc)}_S${i + 1}.svg` : `${fileName(doc)}.svg`;
+    if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
+      const res = await window.multispiceDesktop.saveFile({
+        defaultName: name,
+        content: svg,
+        title: all.length > 1 ? `Seite ${i + 1} als SVG exportieren` : "Entwurf als SVG exportieren",
+        filters: [{ name: "SVG-Vektorgrafik (*.svg)", extensions: ["svg"] }],
+      });
+      if (!res.ok) return false;
+    } else {
+      download(name, svg, "image/svg+xml;charset=utf-8");
+    }
   }
-  download(name, svg, "image/svg+xml;charset=utf-8");
   return true;
 }
 
 export function exportPng(doc: SchematicDoc, scale = 2) {
-  const svg = docToSvg(doc);
+  // Blätter Stufe B: mehrere Seiten → je eine Datei (Entwurf_S1.png, …).
+  const all = pageDocs(doc);
+  all.forEach((pdoc, i) => {
+  const svg = docToSvg(pdoc);
   const img = new Image();
-  const { minX, minY, maxX, maxY } = docBounds(doc);
+  const { minX, minY, maxX, maxY } = docBounds(pdoc);
   img.onload = async () => {
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round((maxX - minX) * scale));
@@ -161,7 +189,7 @@ export function exportPng(doc: SchematicDoc, scale = 2) {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL("image/png");
-    const name = `${fileName(doc)}.png`;
+    const name = all.length > 1 ? `${fileName(doc)}_S${i + 1}.png` : `${fileName(doc)}.png`;
 
     if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
       const base64 = dataUrl.replace(/^data:image\/png;base64,/, "");
@@ -184,6 +212,7 @@ export function exportPng(doc: SchematicDoc, scale = 2) {
     document.body.removeChild(a);
   };
   img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  });
 }
 
 /**

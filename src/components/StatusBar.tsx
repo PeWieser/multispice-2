@@ -9,6 +9,12 @@ import { getActiveSaveTargetLabel } from "@/lib/storage";
 export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) {
   const apple = useIsApple();
   const docName = useEditor((s) => s.doc.name);
+  // Blätter Stufe B: bei mehreren Seiten zusätzlich die aktive Seite zeigen.
+  const pageName = useEditor((s) =>
+    s.doc.pages && s.doc.pages.length > 1
+      ? (s.doc.pages.find((p) => p.id === s.doc.activePageId)?.name ?? null)
+      : null,
+  );
 
   const running = useEditor((s) => s.sim.running);
   const timeScale = useEditor((s) => s.sim.timeScale);
@@ -42,8 +48,9 @@ export default function StatusBar({ isMobile = false }: { isMobile?: boolean }) 
       className="flex h-[30px] shrink-0 items-center gap-2 px-2.5 text-2xs text-ink-3 bg-surface border-t border-hairline"
     >
       {/* Links: Name des aktiven Entwurfs (die Reiterleiste sitzt über dem Canvas) */}
-      <span className="shrink-0 truncate px-1 font-medium text-ink-2" title={`Aktiver Entwurf: ${docName || "Unbenannt"}`}>
+      <span className="shrink-0 truncate px-1 font-medium text-ink-2" title={`Aktiver Entwurf: ${docName || "Unbenannt"}${pageName ? ` · ${pageName}` : ""}`}>
         {docName || "Unbenannt"}
+        {pageName ? ` · ${pageName}` : ""}
       </span>
 
       {/* Mitte: Nur sichtbar, wenn gerade eine Messleitung vom Oszi/FG in der Hand ist */}

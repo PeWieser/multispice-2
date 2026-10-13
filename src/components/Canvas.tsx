@@ -1210,7 +1210,8 @@ export default function Canvas() {
     const measuredNets = new Set(doc.probes.map((pr) => pr.net).filter(Boolean));
     for (const probeName of st.probes) {
       if (measuredNets.has(probeName)) continue;
-      const net = netResult.nets.find((n) => n.name === probeName);
+      // Blätter Stufe B: Marker zur aktiven Seite (gleichnamige Netze gibt es pro Seite).
+      const net = netResult.nets.find((n) => n.name === probeName && (n.page === undefined || n.page === doc.activePageId));
       if (!net || !net.points.length) continue;
       const p = net.points[0];
       ctx.strokeStyle = canvasColor("--violet"); ctx.lineWidth = 1.6 / view.zoom;
