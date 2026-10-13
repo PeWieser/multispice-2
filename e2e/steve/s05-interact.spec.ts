@@ -9,6 +9,7 @@ import {
   msEval,
   placePartUI,
   startSimUI,
+  stableCanvas,
   stopSimUI,
   worldToPage,
 } from "../helpers";
@@ -115,12 +116,30 @@ test("S5.5 Relais zieht an", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 480, 230);
   await closeInlineEditor(page);
+  // Layout-Settling nach QS-Platzierung + Inline-Editor, sonst stale Drag-Enden
+  // (Pin-Miss → T-Kontakt-Fehlverdrahtung → falscher Messwert statt Count-Rot).
+  await stableCanvas(page);
+  // Pro Drag Anzahl + Endpunkte prüfen (sofort laut statt später -3V-Rätsel).
+  const expectWire = async (n: number, x1: number, y1: number, x2: number, y2: number) => {
+    await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(n);
+    const pts = await msEval<Array<{ x: number; y: number }>>(page, `(s) => s.doc.wires[${n - 1}].points`);
+    const a = pts[0];
+    const b = pts[pts.length - 1];
+    expect(Math.abs(a.x - x1), `Draht ${n} Start-x`).toBeLessThan(0.6);
+    expect(Math.abs(a.y - y1), `Draht ${n} Start-y`).toBeLessThan(0.6);
+    expect(Math.abs(b.x - x2), `Draht ${n} End-x`).toBeLessThan(0.6);
+    expect(Math.abs(b.y - y2), `Draht ${n} End-y`).toBeLessThan(0.6);
+  };
   await dragWire(page, 400, 270, 450, 230);
+  await expectWire(1, 400, 270, 450, 230);
   await dragWire(page, 510, 230, 600, 280);
+  await expectWire(2, 510, 230, 600, 280);
   await dragWire(page, 600, 320, 400, 330);
+  await expectWire(3, 600, 320, 400, 330);
   await dragWire(page, 400, 270, 520, 280);
+  await expectWire(4, 400, 270, 520, 280);
   await dragWire(page, 400, 330, 520, 320);
-  await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(5);
+  await expectWire(5, 400, 330, 520, 320);
   await placeVoltageProbe(page, 555, 255);
   await startSimUI(page);
   await expectProbeVdc(page, 0, 0.5);

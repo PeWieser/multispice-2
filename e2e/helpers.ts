@@ -178,9 +178,10 @@ export async function worldToPage(page: Page, x: number, y: number): Promise<{ x
   return { x: box.x + (x - view.x) * view.zoom, y: box.y + (y - view.y) * view.zoom };
 }
 
-export async function clickWorld(page: Page, x: number, y: number): Promise<void> {
+export async function clickWorld(page: Page, x: number, y: number): Promise<{ x: number; y: number }> {
   const p = await worldToPage(page, x, y);
   await page.mouse.click(p.x, p.y);
+  return p;
 }
 
 /** Pin-Weltposition einer Instanz (Pin-Index laut Katalog-Reihenfolge). */
@@ -225,10 +226,33 @@ export async function placePartUI(page: Page, query: string, rowName: string | R
   // Canvas-Klick sonst schlucken (S7: Instanzen blieben 5). Erst danach messen.
   await expect(page.locator("#lib-search")).toBeHidden({ timeout: 5000 });
   await stableCanvas(page);
-  await clickWorld(page, atX, atY);
-  await expect
-    .poll(() => msEval<number>(page, `(s) => s.doc.instances.length`))
-    .toBe(before.length + 1);
+  const click = await clickWorld(page, atX, atY);
+  try {
+    await expect
+      .poll(() => msEval<number>(page, `(s) => s.doc.instances.length`))
+      .toBe(before.length + 1);
+  } catch (e) {
+    // Diagnose statt Raterei: Vollständiger Zustand + Treffer unter dem
+    // Klickpunkt einsammeln (S7: Klick verpufft trotz tool==place).
+    const diag = await page.evaluate(
+      `(() => {
+        const ms = (window).__multispice; const s = ms.useEditor.getState();
+        const el = document.elementFromPoint(${click.x}, ${click.y});
+        const cv = document.querySelector('canvas[aria-label^="Schaltplan:"]');
+        const box = cv ? cv.getBoundingClientRect() : null;
+        const cls = el ? (typeof el.className === "string" ? el.className : "") : "";
+        return {
+          tool: s.tool, placingPartId: s.placingPartId,
+          instances: s.doc.instances.length, selection: s.selection,
+          view: s.view, click: { x: ${click.x}, y: ${click.y} },
+          box: box ? { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.width), h: Math.round(box.height) } : null,
+          hit: el ? (el.tagName + "#" + (el.id || "-") + "." + cls).slice(0, 160) : "NONE",
+          bottomOpen: s.bottomOpen, libraryOpen: s.libraryOpen,
+        };
+      })()`,
+    );
+    throw new Error(`placePartUI-DIAG ${JSON.stringify(diag)} :: ${(e as Error).message?.split("\n")[0] ?? e}`);
+  }
   const after = await instanceIds(page);
   return after.find((id) => !before.includes(id)) as string;
 }
