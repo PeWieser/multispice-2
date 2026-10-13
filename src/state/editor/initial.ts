@@ -41,6 +41,8 @@ export const initialState: EditorData = {
   leftOpen: false,
   rightOpen: false,
   libraryOpen: false,
+  // Druckbögen: Standardauftrag (alles, A4 quer, mit Verzeichnis).
+  printTicket: { format: "a4l", scope: "all", toc: true, bom: true },
   libraryPos: { x: 24, y: 80 },
   librarySize: { w: 860, h: 560 },
   instruments: [],

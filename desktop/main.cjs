@@ -859,81 +859,29 @@ ipcMain.handle("multispice:file-open", async (event, opts) => {
   }
 });
 
-// IPC: Nativer Vektor-Druck & PDF-Export unter Windows (W131)
-ipcMain.handle("multispice:print-svg", async (event, opts) => {
-  let printWin = null;
+// IPC: Ticket-treuer PDF-Export (Druckbögen Phase ②) — ersetzt W131-print-svg.
+// Das aufrufende Fenster druckt sich selbst: Das Druck-CSS zeigt dort nur die
+// Portal-Bögen, @page liefert Papierformat aus dem Ticket (preferCSSPageSize).
+// Kein verstecktes Fenster, keine zweite Quelle mehr.
+ipcMain.handle("multispice:print-pdf", async (event, opts) => {
   try {
     const parentWin = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-    const svg = String(opts?.svg || "");
     const title = String(opts?.title || "Schaltplan");
-    const mode = opts?.mode === "pdf" ? "pdf" : "print";
-
-    let pdfTargetPath = null;
-    if (mode === "pdf") {
-      const saveRes = await dialog.showSaveDialog(parentWin, {
-        title: "Als PDF exportieren",
-        defaultPath: opts?.defaultName || `${title}.pdf`,
-        filters: [{ name: "PDF-Dokument (*.pdf)", extensions: ["pdf"] }],
-      });
-      if (saveRes.canceled || !saveRes.filePath) {
-        return { ok: false, canceled: true };
-      }
-      pdfTargetPath = saveRes.filePath;
-    }
-
-    printWin = new BrowserWindow({
-      width: 1123,
-      height: 794,
-      show: false,
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
+    const saveRes = await dialog.showSaveDialog(parentWin, {
+      title: "Als PDF exportieren",
+      defaultPath: opts?.defaultName || `${title}.pdf`,
+      filters: [{ name: "PDF-Dokument (*.pdf)", extensions: ["pdf"] }],
     });
-
-    const html = `<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="utf-8" />
-<title>${title}</title>
-<style>
-  @page { size: A4 landscape; margin: 10mm; }
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #ffffff; color: #111111; }
-  body { display: flex; align-items: center; justify-content: center; }
-  svg { width: 100%; height: 100%; max-width: 277mm; max-height: 190mm; display: block; }
-</style>
-</head>
-<body>${svg}</body>
-</html>`;
-
-    await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-
-    if (mode === "pdf" && pdfTargetPath) {
-      const pdfBuffer = await printWin.webContents.printToPDF({
-        landscape: true,
-        pageSize: "A4",
-        printBackground: true,
-      });
-      fs.writeFileSync(pdfTargetPath, pdfBuffer);
-      printWin.close();
-      return { ok: true, filePath: pdfTargetPath };
+    if (saveRes.canceled || !saveRes.filePath) {
+      return { ok: false, canceled: true };
     }
-
-    return await new Promise((resolve) => {
-      printWin.webContents.print(
-        { silent: false, printBackground: true, landscape: true },
-        (success, failureReason) => {
-          if (printWin && !printWin.isDestroyed()) {
-            printWin.close();
-          }
-          resolve({ ok: Boolean(success), error: failureReason || undefined });
-        },
-      );
+    const pdfBuffer = await event.sender.printToPDF({
+      preferCSSPageSize: true,
+      printBackground: true,
     });
+    fs.writeFileSync(saveRes.filePath, pdfBuffer);
+    return { ok: true, filePath: saveRes.filePath };
   } catch (err) {
-    if (printWin && !printWin.isDestroyed()) {
-      printWin.close();
-    }
     return { ok: false, error: String(err?.message || err) };
   }
 });

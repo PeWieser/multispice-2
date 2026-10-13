@@ -1,10 +1,13 @@
-/* Runde 11 (W19) & Runde 39 (W131): Echter Entwurf-Export & Vektor-Druck.
- * SVG wird aus dem Dokument-Modell erzeugt (Symbole = dieselben Primitive wie
- * der Canvas) – Export-Qualität ohne Runtime-Umbau. PNG rastert das SVG,
- * PDF & Drucken nutzen unter Windows den nativen Electron-PDF/Druck-Dienst und
- * im Browser das synchrone Vektor-Druckblatt (ohne Pop-up-Blocker!). */
+/* Runde 11 (W19): Echter Entwurf-Export & Vektor-Druck. Druckbögen Phase ②:
+ * SVG entsteht aus dem Dokument-Modell (Symbole = dieselben Primitive wie der
+ * Canvas), der Rahmen-Stempel trägt echte Schriftfeld-Daten + Blatt n/N. PNG
+ * rastert das SVG. PDF nutzt unter Windows den Selbst-Druck des Fensters
+ * (`printToPDF`, Portal-Bögen + @page aus dem Ticket) und im Browser das
+ * synchrone Vektor-Druckportal (ohne Pop-up-Blocker!). */
 import { PART_MAP, type SymbolPrim } from "@/lib/library/catalog";
-import { activePageIndex, instanceBounds, rotatePoint, type Instance, type SchematicDoc } from "@/lib/schematic/model";
+import { activePageIndex, instanceBounds, resolveTitleBlock, rotatePoint, type Instance, type PrintFormat, type SchematicDoc } from "@/lib/schematic/model";
+import { formatDeDate, formatValue } from "@/lib/format";
+import { loadTitleDefaults } from "@/lib/settings";
 
 /* Feste Export-Farben (Papier-Thema – unabhängig vom UI-Theme) */
 const INK = "#1c1f22";
@@ -67,7 +70,7 @@ function instanceSvg(inst: Instance): string {
   return out.join("");
 }
 
-function docBounds(doc: SchematicDoc) {
+export function docBounds(doc: SchematicDoc) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const inst of doc.instances) {
     const b = instanceBounds(inst);
@@ -85,19 +88,52 @@ function docBounds(doc: SchematicDoc) {
   return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
 }
 
-export function docToSvg(doc: SchematicDoc, opts: { frame?: boolean; paperColor?: string } = {}): string {
+export interface SvgFrameInfo {
+  title: string;
+  docNo: string;
+  date: string;
+  sheet: number;
+  of: number;
+}
+
+export function docToSvg(doc: SchematicDoc, opts: { frame?: boolean; paperColor?: string; frameInfo?: SvgFrameInfo; zones?: boolean } = {}): string {
   const { minX, minY, maxX, maxY } = docBounds(doc);
   const w = maxX - minX, h = maxY - minY;
   const bg = opts.paperColor ?? PAPER;
   const out: string[] = [];
   out.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="${bg}"/>`);
   if (opts.frame !== false) {
+    // Druckbögen Phase ②: Stempel mit echten Schriftfeld-Daten (Blatt n/N).
+    const fi = opts.frameInfo ?? {
+      title: doc.name || "Unbenannt",
+      docNo: "",
+      date: formatDeDate(new Date().toISOString().slice(0, 10)),
+      sheet: 1,
+      of: 1,
+    };
+    const stampTitle = fi.title.length > 30 ? fi.title.slice(0, 29) + "\u2026" : fi.title;
+    const stampSub = [fi.docNo, fi.date].filter(Boolean).join(" \u00b7 ");
     out.push(`<rect x="${n(minX)}" y="${n(minY)}" width="${n(w)}" height="${n(h)}" fill="none" stroke="${RULE}" stroke-width="1.5"/>`);
-    const tw = 150, th = 34, tx = maxX - tw - 8, ty = maxY - th - 8;
+    const tw = 190, th = 46, tx = maxX - tw - 8, ty = maxY - th - 8;
     out.push(`<rect x="${n(tx)}" y="${n(ty)}" width="${tw}" height="${th}" fill="#fbfaf8" stroke="${RULE}"/>`);
-    out.push(`<text x="${n(tx + 6)}" y="${n(ty + 13)}" font-size="10" font-weight="600" fill="${INK}">${esc(doc.name || "Unbenannt")}</text>`);
-    out.push(`<text x="${n(tx + 6)}" y="${n(ty + 25)}" font-size="8" font-family="'IBM Plex Mono', monospace" fill="${MUTE}">${esc(new Date().toLocaleDateString("de-DE"))}</text>`);
-    out.push(`<text x="${n(tx + 90)}" y="${n(ty + 25)}" font-size="8" font-family="'IBM Plex Mono', monospace" fill="${MUTE}">Blatt 1/1</text>`);
+    out.push(`<text x="${n(tx + 6)}" y="${n(ty + 14)}" font-size="10" font-weight="600" fill="${INK}">${esc(stampTitle)}</text>`);
+    out.push(`<text x="${n(tx + 6)}" y="${n(ty + 27)}" font-size="8" font-family="'IBM Plex Mono', monospace" fill="${MUTE}">${esc(stampSub)}</text>`);
+    out.push(`<text x="${n(tx + 6)}" y="${n(ty + 39)}" font-size="8" font-family="'IBM Plex Mono', monospace" fill="${MUTE}">Blatt ${fi.sheet}/${fi.of}</text>`);
+  }
+  if (opts.zones) {
+    // Druckbögen Phase ③: Zonenraster A–D/1–4 (Kantenmarken + feine Teilungslinien).
+    const gx = (i: number) => minX + ((maxX - minX) * i) / 4;
+    const gy = (i: number) => minY + ((maxY - minY) * i) / 4;
+    for (let i = 1; i < 4; i++) {
+      out.push(`<line x1="${n(gx(i))}" y1="${n(minY)}" x2="${n(gx(i))}" y2="${n(maxY)}" stroke="${RULE}" stroke-width="0.5" stroke-dasharray="4 3"/>`);
+      out.push(`<line x1="${n(minX)}" y1="${n(gy(i))}" x2="${n(maxX)}" y2="${n(gy(i))}" stroke="${RULE}" stroke-width="0.5" stroke-dasharray="4 3"/>`);
+    }
+    for (let c = 0; c < 4; c++) {
+      out.push(`<text x="${n((gx(c) + gx(c + 1)) / 2)}" y="${n(minY - 20)}" font-size="9" fill="${MUTE}" text-anchor="middle">${c + 1}</text>`);
+    }
+    for (let r = 0; r < 4; r++) {
+      out.push(`<text x="${n(minX - 20)}" y="${n((gy(r) + gy(r + 1)) / 2 + 3)}" font-size="9" fill="${MUTE}" text-anchor="middle">${ZONE_ROWS[r]}</text>`);
+    }
   }
   for (const wire of doc.wires) {
     const pts = wire.points.map((p) => `${n(p.x)},${n(p.y)}`).join(" ");
@@ -132,7 +168,7 @@ function download(name: string, content: string, mime: string) {
 const fileName = (doc: SchematicDoc) => (doc.name || "schaltplan").trim().replace(/\s+/g, "_").replace(/[^\wäöüÄÖÜß.-]+/g, "-");
 
 /** Blätter Stufe B: Entwurfsseiten als Einzeldokumente (aktive aus den flachen Arrays). */
-function pageDocs(doc: SchematicDoc): SchematicDoc[] {
+export function pageDocs(doc: SchematicDoc): SchematicDoc[] {
   const pages = doc.pages;
   if (!pages || pages.length <= 1) return [doc];
   const ap = activePageIndex(doc);
@@ -153,9 +189,18 @@ function pageDocs(doc: SchematicDoc): SchematicDoc[] {
 
 export async function exportSvg(doc: SchematicDoc): Promise<boolean> {
   // Blätter Stufe B: mehrere Seiten → je eine Datei (Entwurf_S1.svg, …).
+  // Druckbögen Phase ②: Stempel je Seite mit Schriftfeld-Daten + Blatt n/N.
   const all = pageDocs(doc);
+  const tb = resolveTitleBlock(doc, loadTitleDefaults());
+  const frameInfo = (i: number): SvgFrameInfo => ({
+    title: tb.title || doc.name,
+    docNo: tb.docNo,
+    date: formatDeDate(tb.drawnDate),
+    sheet: i + 1,
+    of: all.length,
+  });
   for (let i = 0; i < all.length; i++) {
-    const svg = docToSvg(all[i]);
+    const svg = docToSvg(all[i], { frameInfo: frameInfo(i), zones: true });
     const name = all.length > 1 ? `${fileName(doc)}_S${i + 1}.svg` : `${fileName(doc)}.svg`;
     if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile) {
       const res = await window.multispiceDesktop.saveFile({
@@ -175,8 +220,18 @@ export async function exportSvg(doc: SchematicDoc): Promise<boolean> {
 export function exportPng(doc: SchematicDoc, scale = 2) {
   // Blätter Stufe B: mehrere Seiten → je eine Datei (Entwurf_S1.png, …).
   const all = pageDocs(doc);
+  const tb = resolveTitleBlock(doc, loadTitleDefaults());
   all.forEach((pdoc, i) => {
-  const svg = docToSvg(pdoc);
+  const svg = docToSvg(pdoc, {
+    frameInfo: {
+      title: tb.title || doc.name,
+      docNo: tb.docNo,
+      date: formatDeDate(tb.drawnDate),
+      sheet: i + 1,
+      of: all.length,
+    },
+    zones: true,
+  });
   const img = new Image();
   const { minX, minY, maxX, maxY } = docBounds(pdoc);
   img.onload = async () => {
@@ -216,23 +271,22 @@ export function exportPng(doc: SchematicDoc, scale = 2) {
 }
 
 /**
- * W131: Exportiert den Entwurf als PDF oder öffnet den Druckdialog.
- * - Unter Windows (Electron): Erzeugt über `printToPDF` eine echte Vektor-PDF-Datei
- *   mit nativem Speicherdialog.
- * - Im Browser: Nutzt das synchrone Inline-Vektor-Druckblatt (`window.print()`),
- *   sodass kein Pop-up-Blocker mehr dazwischenfunken kann!
+ * Druckbögen Phase ②: Exportiert den Entwurf als PDF.
+ * - Unter Windows (Electron): Das Fenster druckt sich selbst als Vektor-PDF
+ *   (Portal-Bögen + @page aus dem aktuellen Ticket) mit nativem Speicherdialog.
+ * - Im Browser: `window.print()` (Browser-Dialog → „Als PDF sichern“).
  */
 export async function exportPdf(doc: SchematicDoc): Promise<boolean> {
-  const svg = docToSvg(doc);
-  const name = `${fileName(doc)}.pdf`;
-  if (typeof window !== "undefined" && window.multispiceDesktop?.printSvg) {
-    const res = await window.multispiceDesktop.printSvg({
-      svg,
-      title: doc.name || "Schaltplan",
-      mode: "pdf",
-      defaultName: name,
-    });
-    return Boolean(res.ok);
+  if (typeof window !== "undefined" && window.multispiceDesktop?.printPdf) {
+    try {
+      const res = await window.multispiceDesktop.printPdf({
+        title: doc.name || "Schaltplan",
+        defaultName: `${fileName(doc)}.pdf`,
+      });
+      return Boolean(res?.ok);
+    } catch {
+      return false;
+    }
   }
   if (typeof window !== "undefined") {
     window.print();
@@ -241,23 +295,114 @@ export async function exportPdf(doc: SchematicDoc): Promise<boolean> {
   return false;
 }
 
+/* ---------------- Druckbögen Phase ③: Zonen, Fundstellen, Druckplan -------- */
+
+const ZONE_ROWS = "ABCD";
+
+/** Zone einer Koordinate im Blattraster A1–D4 (Zeilen oben→unten, Spalten links→rechts). */
+export function zoneAt(
+  b: { minX: number; minY: number; maxX: number; maxY: number },
+  x: number,
+  y: number,
+): string {
+  const w = Math.max(1e-6, b.maxX - b.minX);
+  const h = Math.max(1e-6, b.maxY - b.minY);
+  const col = Math.min(3, Math.max(0, Math.floor(((x - b.minX) / w) * 4)));
+  const row = Math.min(3, Math.max(0, Math.floor(((y - b.minY) / h) * 4)));
+  return `${ZONE_ROWS[row]}${col + 1}`;
+}
+
+/** Tabellenzeilen je Stücklisten-Blatt (Inhaltshöhe ab Format — konservativ). */
+export const BOM_ROWS_PER_SHEET: Record<PrintFormat, number> = { a4p: 34, a4l: 24, a3l: 40 };
+
+export function chunkRows<T>(rows: T[], per: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < rows.length; i += per) out.push(rows.slice(i, i + per));
+  return out;
+}
+
+export interface PrintBomRow {
+  ref: string;
+  part: string;
+  value: string;
+  footprint: string;
+  qty: number;
+  locations: string;
+}
+
+export interface PrintPlanSheet {
+  pageId: string;
+  name: string;
+  blatt: number;
+  doc: SchematicDoc;
+}
+
+export interface PrintPlan {
+  sheets: PrintPlanSheet[];
+  showToc: boolean;
+  bom: PrintBomRow[][];
+  bomStart: number;
+  total: number;
+}
+
 /**
- * W131: Druckt den Entwurf.
- * - Unter Windows (Electron): Öffnet den nativen Windows-Druckdialog mit dem Entwurf als Vektor.
- * - Im Browser: Öffnet `window.print()` mit dem synchron gerenderten Vektor-`PrintSheet`.
+ * Druckbögen: Nummerierungs-Kern (eine Quelle für Dialog-Vorschau, Portal und
+ * Tests). Blätter in gedruckter Reihenfolge, Verzeichnis = Blatt 1, Stückliste
+ * (gruppiert wie am Bildschirm, plus Fundstellen „Blatt·Zone“) paginiert am
+ * Ende — entfällt lautlos, wenn die gedruckten Seiten keine Bauteile tragen.
  */
-export async function printSchematicSheet(doc: SchematicDoc): Promise<boolean> {
-  if (typeof window !== "undefined" && window.multispiceDesktop?.printSvg) {
-    const res = await window.multispiceDesktop.printSvg({
-      svg: docToSvg(doc),
-      title: doc.name || "Schaltplan",
-      mode: "print",
-    });
-    return Boolean(res.ok);
+export function buildPrintPlan(
+  doc: SchematicDoc,
+  opts: { scope: "all" | "active"; toc: boolean; bom: boolean; format: PrintFormat },
+): PrintPlan {
+  const allDocs = pageDocs(doc);
+  const pages: Array<{ id: string; name: string }> =
+    doc.pages?.length ? doc.pages : [{ id: doc.id, name: "Seite 1" }];
+  let idx = allDocs.map((_, i) => i);
+  if (opts.scope === "active") {
+    const ai = pages.findIndex((p) => p.id === doc.activePageId);
+    idx = [ai < 0 ? 0 : ai];
   }
-  if (typeof window !== "undefined") {
-    window.print();
-    return true;
+  const showToc = opts.toc && idx.length > 1;
+  const shift = showToc ? 1 : 0;
+  const sheets: PrintPlanSheet[] = idx.map((pi, k) => ({
+    pageId: pages[pi].id,
+    name: pages[pi].name,
+    blatt: k + 1 + shift,
+    doc: allDocs[pi],
+  }));
+  let bom: PrintBomRow[][] = [];
+  if (opts.bom) {
+    const groups = new Map<string, PrintBomRow>();
+    for (const sh of sheets) {
+      const b = docBounds(sh.doc);
+      for (const inst of sh.doc.instances) {
+        const part = PART_MAP[inst.partId];
+        if (!part || part.mount === "virtual") continue;
+        const main = part.params[0];
+        const value = main ? formatValue(Number(inst.params[main.key] ?? main.def), main.unit ?? "") : "";
+        const k = `${part.id}|${value}`;
+        const loc = `${sh.blatt}·${zoneAt(b, inst.x, inst.y)}`;
+        const g = groups.get(k);
+        if (!g) {
+          groups.set(k, {
+            ref: inst.label,
+            part: part.name,
+            value,
+            footprint: part.footprint ?? "—",
+            qty: 1,
+            locations: loc,
+          });
+        } else {
+          g.ref += `, ${inst.label}`;
+          g.qty++;
+          g.locations += `, ${loc}`;
+        }
+      }
+    }
+    const flat = [...groups.values()];
+    if (flat.length) bom = chunkRows(flat, BOM_ROWS_PER_SHEET[opts.format]);
   }
-  return false;
+  const bomStart = sheets.length + shift + 1;
+  return { sheets, showToc, bom, bomStart, total: bomStart - 1 + bom.length };
 }

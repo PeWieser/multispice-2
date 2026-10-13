@@ -83,6 +83,22 @@ export function grid(ctx: CanvasRenderingContext2D, w: number, h: number, cols =
   ctx.restore();
 }
 
+/** 6er-Batch, Punkt 6: Pin-Netze eines gebundenen Gerätefensters (Oszi-Muster:
+ *  `pinNets["<instanceId>:<pininx>"]`, Indizes stabil). null = ungebundener Dialog. */
+export function boundPinNets(
+  pinNets: Record<string, string>,
+  instanceId: string | undefined,
+  count: number,
+): string[] | null {
+  if (!instanceId) return null;
+  return Array.from({ length: count }, (_, i) => pinNets[`${instanceId}:${i}`] ?? "");
+}
+
+/** Verdrahtetes Netz als statische Anzeige (gebundene Fenster wählen nicht). */
+export function WiredNet({ value }: { value: string }) {
+  return <div className="input py-0.5 text-2xs mono truncate">{value || "–"}</div>;
+}
+
 export function NetSelect({ value, onChange, allowNone }: { value: string; onChange: (v: string) => void; allowNone?: boolean }) {
   const netResult = useEditor((s) => s.netResult);
   const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);

@@ -9,10 +9,28 @@ import type { InstrumentKind } from "../types";export function createInstruments
   return {
       openInstrument: (kind, opts) => {
         if (get().partEditor.open) { get().log("warn", "Im Bauteile-Editor gibt es keine Messgeräte."); return; }
+        const titles: Record<InstrumentKind, string> = {
+          dmm: "Digitalmultimeter",
+          scope: "4-Kanal Oszilloskop",
+          funcgen: "Funktionsgenerator",
+          bode: "Bode-Plotter",
+          logic: "Logikanalysator",
+          logicconv: "Logic Converter",
+          watt: "Wattmeter",
+          iv: "IV-Analyzer",
+          pattern: "Mustergenerator",
+          spectrum: "Spektrumanalysator",
+          counter: "Frequenzzähler",
+          distortion: "Distortion Analyzer",
+          network: "Network Analyzer",
+          inspector: "Inspector",
+        };
         // W29: Instrument-Fenster sind an ein Schaltsymbol auf dem Plan gebunden
         // (Doppelklick). Pro Instanz genau ein Fenster; entkoppelte Oszi-/FG-Fenster
         // gibt es nicht mehr. W18: gleiche Mechanik für den FG-2500.
-        if ((kind === "scope" || kind === "funcgen") && opts?.instanceId) {
+        // 6er-Batch, Punkt 6: gleiche Mechanik für ALLE Geräte – Oszi/FG behalten
+        // ihre Gerätegröße, die übrigen nehmen ihre WINDOW_SPECS-Panelgröße.
+        if (opts?.instanceId && kind !== "inspector") {
           const bound = get().instruments.find((i) => i.kind === kind && i.instanceId === opts.instanceId);
           if (bound) {
             get().focusInstrument(bound.id);
@@ -30,15 +48,20 @@ import type { InstrumentKind } from "../types";export function createInstruments
           const count = get().instruments.length;
           // W31a: Fenster klebt am Gerät (nie größer als der Viewport);
           // W18: FG-2500 hat eine feste Bühne (1160×545) + Chrome-Rest.
-          const { w: defW, h: defH } =
-            kind === "funcgen" ? fgDefaultSize() : scopeDefaultSize();
+          const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+          const vh = typeof window !== "undefined" ? window.innerHeight : 1000;
+          const spec = WINDOW_SPECS[kind];
+          const isBigDevice = kind === "scope" || kind === "funcgen";
+          const { w: defW, h: defH } = isBigDevice
+            ? kind === "funcgen" ? fgDefaultSize() : scopeDefaultSize()
+            : { w: Math.max(320, Math.min(spec.w + CHROME_W, vw - 8)), h: Math.max(220, Math.min(spec.h + CHROME_H, vh - 8)) };
           set((s) => ({
             instruments: [
               ...s.instruments,
               {
                 id: "w_" + opts.instanceId,
                 kind,
-                title: opts.title ?? (kind === "funcgen" ? "Funktionsgenerator" : "Oszilloskop"),
+                title: opts.title ?? titles[kind],
                 x: 180 + count * 34,
                 y: 110 + count * 28,
                 w: defW,
@@ -52,8 +75,8 @@ import type { InstrumentKind } from "../types";export function createInstruments
                 config: {
                   ...(s.configArchive["w_" + opts.instanceId] ?? {}),
                   deviceFit: 0,
-                  minW: DEVICE_MIN.w,
-                  minH: DEVICE_MIN.h,
+                  minW: isBigDevice ? DEVICE_MIN.w : PANEL_MIN.w,
+                  minH: isBigDevice ? DEVICE_MIN.h : PANEL_MIN.h,
                 },
                 instanceId: opts.instanceId,
               },
@@ -61,23 +84,10 @@ import type { InstrumentKind } from "../types";export function createInstruments
           }));
           return;
         }
-        const titles: Record<InstrumentKind, string> = {
-          dmm: "Digitalmultimeter",
-          scope: "4-Kanal Oszilloskop",
-          funcgen: "Funktionsgenerator",
-          bode: "Bode-Plotter",
-          logic: "Logikanalysator",
-          logicconv: "Logic Converter",
-          watt: "Wattmeter",
-          iv: "IV-Analyzer",
-          pattern: "Mustergenerator",
-          spectrum: "Spektrumanalysator",
-          counter: "Frequenzzähler",
-          distortion: "Distortion Analyzer",
-          network: "Network Analyzer",
-          inspector: "Inspector",
-        };
-        const existing = get().instruments.find((i) => i.kind === kind);
+        // Menü/Bar-Dialoge sind ungebunden: ein bereits offenes GEBUNDENES Fenster
+        // derselben Art fängt den Menü-Klick nicht ab (H01/H02-Dialoge bleiben
+        // erreichbar, auch wenn ein Symbol-Fenster offen ist).
+        const existing = get().instruments.find((i) => i.kind === kind && !i.instanceId);
         if (existing) {
           get().focusInstrument(existing.id);
           // Runde 17 (W32a): Rückholhilfe auch für die übrigen Geräte-Fenster.

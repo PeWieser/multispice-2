@@ -63,3 +63,14 @@ export function formatValue(v: number, unit = "", digits = 3): string {
   }
   return `${v.toExponential(2)} ${unit}`.trim();
 }
+
+/**
+ * Druckbögen: ISO-Datum → „TT.MM.JJJJ“ (ohne Zeitzonen-Verschiebung, rein
+ * lexikalisch). Freier Text bleibt, Leeres wird „—“. Eine Quelle für
+ * Schriftfeld (React) und Export-Stempel (SVG).
+ */
+export function formatDeDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!m) return iso.trim() || "—";
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}

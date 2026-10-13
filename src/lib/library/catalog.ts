@@ -7,6 +7,7 @@
 import { Device, SourceSpec } from "@/lib/sim/engine";
 import type { GenState } from "@/lib/fg/types";
 import { initialState } from "@/lib/fg/state";
+import type { InstrumentKind } from "@/state/editor/types";
 
 export type SymbolPrim =
   | { t: "line"; pts: number[]; w?: number }
@@ -695,21 +696,22 @@ add({
   tags: ["funktionsgenerator", "xfg", "instrument", "fg-2500", "awg", "signal"],
   mount: "virtual",
   pins: [
-    { name: "OUT1", x: -40, y: -20, electrical: "output" },
-    { name: "OUT2", x: -40, y: 20, electrical: "output" },
-    { name: "COM", x: 0, y: 40 },
-    { name: "SYNC", x: 40, y: 0, electrical: "output" },
+    // Buchsen unten wie am echten Gerät (v. l. n. r. = Pin-Index 0–3, stabil).
+    { name: "OUT1", x: -30, y: 40, electrical: "output" },
+    { name: "OUT2", x: -10, y: 40, electrical: "output" },
+    { name: "COM", x: 10, y: 40 },
+    { name: "SYNC", x: 30, y: 40, electrical: "output" },
   ],
   symbol: [
-    RECT(-30, -30, 60, 60, 3),
-    RECT(-20, -22, 40, 24, 2),
-    L(-16, -10, -12, -18, -8, -10, -4, -18, 0, -10, 4, -18, 8, -10, 12, -10),
+    RECT(-38, -28, 76, 56, 3),
+    RECT(-30, -21, 60, 24, 2),
+    L(-16, -9, -12, -17, -8, -9, -4, -17, 0, -9, 4, -17, 8, -9, 12, -9),
     TXT(0, 12, "XFG", 10),
-    TXT(0, 23, "2 CH", 7),
-    L(-40, -20, -30, -20),
-    L(-40, 20, -30, 20),
-    L(0, 30, 0, 40),
-    L(30, 0, 40, 0),
+    TXT(0, 21, "2 CH", 7),
+    L(-30, 28, -30, 40),
+    L(-10, 28, -10, 40),
+    L(10, 28, 10, 40),
+    L(30, 28, 30, 40),
   ],
   params: [],
   toDevices: (i, n) => {
@@ -733,24 +735,344 @@ add({
   tags: ["oszilloskop", "oszi", "scope", "xsc", "instrument", "messung"],
   mount: "virtual",
   pins: [
-    { name: "CH1", x: -40, y: -30 },
-    { name: "CH2", x: -40, y: -10 },
-    { name: "CH3", x: -40, y: 10 },
-    { name: "CH4", x: -40, y: 30 },
-    { name: "GND", x: 0, y: 40 },
+    // BNC-Reihe unten wie am echten Gerät (v. l. n. r. = Pin-Index 0–4, stabil).
+    { name: "CH1", x: -32, y: 40 },
+    { name: "CH2", x: -16, y: 40 },
+    { name: "CH3", x: 0, y: 40 },
+    { name: "CH4", x: 16, y: 40 },
+    { name: "GND", x: 32, y: 40 },
   ],
   symbol: [
-    RECT(-30, -36, 60, 72, 3),
+    RECT(-40, -28, 80, 56, 3),
     // Bildschirm mit Trace-Glyphe
-    RECT(-20, -28, 40, 36, 2),
-    L(-16, -6, -10, -6, -6, -18, -2, -6, 4, -14, 8, -6, 16, -6),
-    TXT(0, 20, "4 CH", 8),
+    RECT(-32, -21, 64, 30, 2),
+    L(-28, -2, -20, -2, -16, -12, -12, -2, -4, -2, 0, -12, 4, -2, 12, -2, 20, -2, 28, -2),
+    TXT(0, 18, "4 CH", 8),
     // Anschluss-Stutzen (enden exakt auf den Pins)
-    L(-40, -30, -30, -30),
-    L(-40, -10, -30, -10),
-    L(-40, 10, -30, 10),
-    L(-40, 30, -30, 30),
-    L(0, 36, 0, 40),
+    L(-32, 28, -32, 40),
+    L(-16, 28, -16, 40),
+    L(0, 28, 0, 40),
+    L(16, 28, 16, 40),
+    L(32, 28, 32, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+
+// 6er-Batch, Punkt 6: Jedes Gerätefenster bekommt ein verdrahtbares Schaltzeichen
+// auf dem Plan (Verkabelungsweise vom Oszi W29: Buchsen unten, Doppelklick öffnet
+// das gebundene Fenster). Alle rein virtuell (toDevices []) – sie messen über die
+// Netznamen – außer dem Mustergenerator (echte Pulsquellen wie vpulse).
+// Pin-Indizes sind stabil (Fenster lesen Netze positionsbasiert).
+add({
+  id: "dmm",
+  name: "Digitalmultimeter (XDM)",
+  ref: "XDM",
+  category: "Quellen/Instrumente",
+  tags: ["multimeter", "dmm", "xdm", "instrument", "messung", "voltmeter", "spannung"],
+  mount: "virtual",
+  pins: [
+    { name: "+", x: -8, y: 40 },
+    { name: "-", x: 8, y: 40 },
+  ],
+  symbol: [
+    RECT(-24, -28, 48, 56, 3),
+    RECT(-17, -21, 34, 22, 2),
+    TXT(0, 18, "XDM", 9),
+    L(-8, 28, -8, 40),
+    L(8, 28, 8, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "counter",
+  name: "Frequenzzähler (XFC)",
+  ref: "XFC",
+  category: "Quellen/Instrumente",
+  tags: ["frequenzzähler", "zähler", "counter", "xfc", "instrument", "messung", "frequenz"],
+  mount: "virtual",
+  pins: [
+    { name: "IN", x: -8, y: 40 },
+    { name: "GND", x: 8, y: 40 },
+  ],
+  symbol: [
+    RECT(-24, -28, 48, 56, 3),
+    RECT(-17, -21, 34, 22, 2),
+    TXT(0, 10, "XFC", 9),
+    TXT(0, 20, "Hz", 7),
+    L(-8, 28, -8, 40),
+    L(8, 28, 8, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "bode",
+  name: "Bode-Plotter (XBP)",
+  ref: "XBP",
+  category: "Quellen/Instrumente",
+  tags: ["bode", "plotter", "xbp", "instrument", "messung", "frequenzgang", "ac"],
+  mount: "virtual",
+  pins: [
+    { name: "OUT", x: -8, y: 40 },
+    { name: "GND", x: 8, y: 40 },
+  ],
+  symbol: [
+    RECT(-24, -28, 48, 56, 3),
+    L(-14, -16, -14, 6),
+    L(-14, 6, 14, 6),
+    L(-12, 4, -4, -2, 4, -6, 12, -10),
+    TXT(0, 18, "XBP", 8),
+    L(-8, 28, -8, 40),
+    L(8, 28, 8, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "logic",
+  name: "Logikanalysator (XLA)",
+  ref: "XLA",
+  category: "Quellen/Instrumente",
+  tags: ["logikanalysator", "logic", "xla", "instrument", "messung", "digital", "bus"],
+  mount: "virtual",
+  pins: [
+    { name: "D0", x: -64, y: 40 },
+    { name: "D1", x: -48, y: 40 },
+    { name: "D2", x: -32, y: 40 },
+    { name: "D3", x: -16, y: 40 },
+    { name: "D4", x: 0, y: 40 },
+    { name: "D5", x: 16, y: 40 },
+    { name: "D6", x: 32, y: 40 },
+    { name: "D7", x: 48, y: 40 },
+    { name: "GND", x: 64, y: 40 },
+  ],
+  symbol: [
+    RECT(-72, -28, 144, 56, 3),
+    RECT(-64, -21, 128, 22, 2),
+    L(-60, -4, -44, -4, -44, -14, -28, -14, -28, -4, -12, -4, -12, -14, 4, -14, 4, -4, 20, -4, 20, -14, 36, -14, 36, -4, 52, -4),
+    TXT(0, 18, "XLA", 8),
+    L(-64, 28, -64, 40),
+    L(-48, 28, -48, 40),
+    L(-32, 28, -32, 40),
+    L(-16, 28, -16, 40),
+    L(0, 28, 0, 40),
+    L(16, 28, 16, 40),
+    L(32, 28, 32, 40),
+    L(48, 28, 48, 40),
+    L(64, 28, 64, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "logicconv",
+  name: "Logic Converter (XLC)",
+  ref: "XLC",
+  category: "Quellen/Instrumente",
+  tags: ["logic", "converter", "xlc", "instrument", "wahrheitstabelle", "digital", "boolesch"],
+  mount: "virtual",
+  pins: [
+    { name: "IN0", x: -72, y: 40 },
+    { name: "IN1", x: -56, y: 40 },
+    { name: "IN2", x: -40, y: 40 },
+    { name: "IN3", x: -24, y: 40 },
+    { name: "IN4", x: -8, y: 40 },
+    { name: "IN5", x: 8, y: 40 },
+    { name: "IN6", x: 24, y: 40 },
+    { name: "IN7", x: 40, y: 40 },
+    { name: "OUT", x: 56, y: 40 },
+    { name: "GND", x: 72, y: 40 },
+  ],
+  symbol: [
+    RECT(-80, -28, 160, 56, 3),
+    // Wahrheitstafel-Glyphe
+    L(-24, -22, -24, 8),
+    L(-12, -22, -12, 8),
+    L(0, -22, 0, 8),
+    L(12, -22, 12, 8),
+    L(24, -22, 24, 8),
+    L(-24, -12, 24, -12),
+    L(-24, -2, 24, -2),
+    L(-24, -22, 24, -22),
+    L(-24, 8, 24, 8),
+    TXT(0, 18, "XLC", 8),
+    L(-72, 28, -72, 40),
+    L(-56, 28, -56, 40),
+    L(-40, 28, -40, 40),
+    L(-24, 28, -24, 40),
+    L(-8, 28, -8, 40),
+    L(8, 28, 8, 40),
+    L(24, 28, 24, 40),
+    L(40, 28, 40, 40),
+    L(56, 28, 56, 40),
+    L(72, 28, 72, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "watt",
+  name: "Wattmeter (XWM)",
+  ref: "XWM",
+  category: "Quellen/Instrumente",
+  tags: ["wattmeter", "watt", "xwm", "instrument", "messung", "leistung"],
+  mount: "virtual",
+  pins: [
+    { name: "V+", x: -8, y: 40 },
+    { name: "V-", x: 8, y: 40 },
+  ],
+  symbol: [
+    RECT(-24, -28, 48, 56, 3),
+    CIR(0, -4, 13),
+    TXT(0, 0, "W", 11),
+    TXT(0, 18, "XWM", 8),
+    L(-8, 28, -8, 40),
+    L(8, 28, 8, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "iv",
+  name: "IV-Analyzer (XIV)",
+  ref: "XIV",
+  category: "Quellen/Instrumente",
+  tags: ["iv", "kennlinie", "xiv", "instrument", "messung", "diode", "transistor"],
+  mount: "virtual",
+  pins: [
+    { name: "+", x: -8, y: 40 },
+    { name: "-", x: 8, y: 40 },
+  ],
+  symbol: [
+    RECT(-24, -28, 48, 56, 3),
+    L(-14, -14, -14, 8),
+    L(-14, 8, 14, 8),
+    L(-12, 6, -6, 4, 0, -2, 6, -10, 12, -13),
+    TXT(0, 18, "XIV", 8),
+    L(-8, 28, -8, 40),
+    L(8, 28, 8, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "spectrum",
+  name: "Spektrumanalysator (XSA)",
+  ref: "XSA",
+  category: "Quellen/Instrumente",
+  tags: ["spektrum", "fft", "xsa", "instrument", "messung", "frequenz"],
+  mount: "virtual",
+  pins: [
+    { name: "IN", x: -8, y: 40 },
+    { name: "GND", x: 8, y: 40 },
+  ],
+  symbol: [
+    RECT(-24, -28, 48, 56, 3),
+    L(-14, -14, -14, 8),
+    L(-14, 8, 14, 8),
+    L(-8, 8, -8, -4),
+    L(-2, 8, -2, -10),
+    L(4, 8, 4, -2),
+    L(10, 8, 10, -6),
+    TXT(0, 18, "XSA", 8),
+    L(-8, 28, -8, 40),
+    L(8, 28, 8, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "pattern",
+  name: "Mustergenerator (XPG)",
+  ref: "XPG",
+  category: "Quellen/Instrumente",
+  tags: ["mustergenerator", "pattern", "xpg", "instrument", "takt", "puls", "digital"],
+  mount: "virtual",
+  pins: [
+    { name: "OUT1", x: -16, y: 40, electrical: "output" },
+    { name: "OUT2", x: 0, y: 40, electrical: "output" },
+    { name: "COM", x: 16, y: 40 },
+  ],
+  symbol: [
+    RECT(-28, -28, 56, 56, 3),
+    L(-20, 4, -12, 4, -12, -8, -4, -8, -4, 4, 4, 4, 4, -8, 12, -8, 12, 4, 20, 4),
+    TXT(0, 18, "XPG", 8),
+    L(-16, 28, -16, 40),
+    L(0, 28, 0, 40),
+    L(16, 28, 16, 40),
+  ],
+  params: [
+    { key: "freq1", label: "Frequenz CH1", unit: "Hz", type: "number", def: 1000 },
+    { key: "duty1", label: "Tastgrad CH1", unit: "%", type: "number", def: 50 },
+    { key: "freq2", label: "Frequenz CH2", unit: "Hz", type: "number", def: 1000 },
+    { key: "duty2", label: "Tastgrad CH2", unit: "%", type: "number", def: 50 },
+  ],
+  // Zwei echte Puls-Spannungsquellen gegen COM (wie vpulse, 5-V-Logikpegel).
+  toDevices: (i, n) => {
+    const f1 = Math.max(num(i, "freq1", 1000), 1e-9);
+    const f2 = Math.max(num(i, "freq2", 1000), 1e-9);
+    return [
+      { id: i.id + "_o1", type: "V", nodes: [n[0], n[2]], params: { rser: 50 }, source: { kind: "pulse", offset: 0, amplitude: 5, period: 1 / f1, width: (num(i, "duty1", 50) / 100) / f1, rise: 1e-9, fall: 1e-9, delay: 0, acMag: 1 } },
+      { id: i.id + "_o2", type: "V", nodes: [n[1], n[2]], params: { rser: 50 }, source: { kind: "pulse", offset: 0, amplitude: 5, period: 1 / f2, width: (num(i, "duty2", 50) / 100) / f2, rise: 1e-9, fall: 1e-9, delay: 0, acMag: 1 } },
+    ];
+  },
+});
+
+add({
+  id: "distortion",
+  name: "Distortion Analyzer (XDA)",
+  ref: "XDA",
+  category: "Quellen/Instrumente",
+  tags: ["distortion", "klirr", "thd", "xda", "instrument", "messung"],
+  mount: "virtual",
+  pins: [
+    { name: "IN", x: -8, y: 40 },
+    { name: "GND", x: 8, y: 40 },
+  ],
+  symbol: [
+    RECT(-24, -28, 48, 56, 3),
+    L(-16, 0, -12, -6, -8, -8, -4, -6, 0, 0, 4, 6, 8, 8, 12, 6, 16, 0),
+    TXT(0, 18, "XDA", 8),
+    L(-8, 28, -8, 40),
+    L(8, 28, 8, 40),
+  ],
+  params: [],
+  toDevices: () => [],
+});
+
+add({
+  id: "network",
+  name: "Network Analyzer (XNA)",
+  ref: "XNA",
+  category: "Quellen/Instrumente",
+  tags: ["network", "s-parameter", "xna", "instrument", "messung", "hf", "sparams"],
+  mount: "virtual",
+  pins: [
+    { name: "P1", x: -16, y: 40 },
+    { name: "P2", x: 0, y: 40 },
+    { name: "GND", x: 16, y: 40 },
+  ],
+  symbol: [
+    RECT(-28, -28, 56, 56, 3),
+    RECT(-16, -16, 32, 24, 2),
+    TXT(0, -2, "S", 10),
+    L(-24, -8, -16, -8),
+    L(16, -8, 24, -8),
+    TXT(0, 18, "XNA", 8),
+    L(-16, 28, -16, 40),
+    L(0, 28, 0, 40),
+    L(16, 28, 16, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -6655,6 +6977,29 @@ add({
 
 export const PARTS: PartDef[] = parts;
 export const PART_MAP: Record<string, PartDef> = Object.fromEntries(parts.map((p2) => [p2.id, p2]));
+
+/** 6er-Batch, Punkt 6: Schaltzeichen ↔ Gerätefenster – eine Quelle der Wahrheit.
+ *  Canvas-Doppelklick, Geräte-Bar, Kontextmenü und Fenster-Bindung teilen diese
+ *  Abbildung (Pin-Indizes der Symbole sind stabil, Fenster lesen positionsbasiert). */
+export const INSTRUMENT_PART_KIND: Record<string, InstrumentKind> = {
+  oscilloscope: "scope",
+  dmm: "dmm",
+  funcgen: "funcgen",
+  counter: "counter",
+  bode: "bode",
+  logic: "logic",
+  logicconv: "logicconv",
+  watt: "watt",
+  iv: "iv",
+  spectrum: "spectrum",
+  pattern: "pattern",
+  distortion: "distortion",
+  network: "network",
+};
+/** Umkehrung für die Geräte-Bar (Fenster-Art → platzierbares Schaltzeichen). */
+export const INSTRUMENT_KIND_PART: Record<string, string> = Object.fromEntries(
+  Object.entries(INSTRUMENT_PART_KIND).map(([partId, kind]) => [kind, partId]),
+);
 
 export function defaultParams(part: PartDef): Record<string, number | string | boolean> {
   const out: Record<string, number | string | boolean> = {};

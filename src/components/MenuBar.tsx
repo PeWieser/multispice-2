@@ -6,7 +6,7 @@ import { PRESETS } from "@/lib/schematic/tools";
 import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
 import { toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, useEditor } from "@/state/editor";
-import { exportSvg, exportPng, exportPdf, printSchematicSheet } from "@/lib/export/sheet";
+import { exportSvg, exportPng, exportPdf } from "@/lib/export/sheet";
 import { Menu, MenuItem, MenuSeparator, Tooltip } from "./ui";
 import PresetGallery from "./PresetGallery";
 import { copyTextToClipboard, downloadText, safeName } from "@/lib/download";
@@ -40,6 +40,7 @@ export default function MenuBar({
   onProjects,
   onPartEditor,
   onReference,
+  onPrint,
   isMobile = false,
 }: {
   onAnalysis: (kind: string) => void;
@@ -48,6 +49,7 @@ export default function MenuBar({
   onProjects?: () => void;
   onPartEditor?: () => void;
   onReference?: () => void;
+  onPrint?: () => void;
   isMobile?: boolean;
 }) {
   const docName = useEditor((s) => s.doc.name);
@@ -99,10 +101,9 @@ export default function MenuBar({
     st().log("ok", "SPICE-Netzliste exportiert (.cir)");
   };
 
+  // Druckbögen: Menü öffnet den zentralen Druck-Dialog (Workbench).
   const printSheet = () => {
-    void printSchematicSheet(st().doc).then((ok) => {
-      if (ok) st().log("ok", "Druckansicht geöffnet");
-    });
+    onPrint?.();
   };
 
   const triggerOpenFile = () => {

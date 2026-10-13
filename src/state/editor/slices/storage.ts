@@ -124,7 +124,7 @@ import type { InstrumentWindow } from "../types";export function createStorageSl
                     // Runde 21 (W42): Geräte-Fenster nach dem Laden neu am Gerät
                     // ausrichten (deviceFit: 0) – die Fenstergröße hängt am
                     // sichtbaren Gerät inkl. Werkbank-Rahmen, alte Werte passen nicht.
-                    const device = w.kind === "scope" || w.kind === "funcgen";
+                    const device = Boolean(w.instanceId);
                     const stretched =
                       w.kind === "scope" && w.instanceId && w.w === 920 && w.h === 640
                         ? scopeDefaultSize()

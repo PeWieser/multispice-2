@@ -12,6 +12,7 @@ import { FrequencyCounter, Multimeter, Wattmeter } from "./Instruments/meters";
 import { BodePlotter, DistortionAnalyzer, IvAnalyzer, LogicAnalyzer, NetworkAnalyzer, SpectrumAnalyzer } from "./Instruments/analyzers";
 import { LogicConverter, PatternGenerator } from "./Instruments/sources";
 import { Window, iconFor } from "./Instruments/Window";
+import { INSTRUMENT_KIND_PART } from "@/lib/library/catalog";
 
 
 /** W10: Schmale Geräte-Bar am rechten Rand – ein Klick öffnet/fokussiert das
@@ -47,9 +48,9 @@ export function DeviceBar() {
       style={{ background: "var(--surface)", borderLeft: "1px solid var(--hairline)", scrollbarWidth: "none" }}
     >
       {items.map(([k, label]) => {
-        // W29/W18: Oszi und FG-2500 starten die Symbol-Platzierung statt ein
-        // freies Fenster zu öffnen; „aktiv“ = Platzierung läuft oder Fenster offen.
-        const partId = k === "scope" ? "oscilloscope" : k === "funcgen" ? "funcgen" : null;
+        // W29/W18 + 6er-Batch Punkt 6: Jedes Gerät startet die Symbol-Platzierung
+        // statt ein freies Fenster zu öffnen; „aktiv“ = Platzierung läuft oder Fenster offen.
+        const partId = INSTRUMENT_KIND_PART[k] ?? null;
         const active = partId ? placing === partId || isOpen(k) : isOpen(k);
         return (
           <button
@@ -182,9 +183,9 @@ export function StandaloneInstrumentView({
       {win.kind === "logic" && <LogicAnalyzer win={win} />}
       {win.kind === "logicconv" && <LogicConverter win={win} />}
       {win.kind === "watt" && <Wattmeter win={win} />}
-      {win.kind === "iv" && <IvAnalyzer />}
+      {win.kind === "iv" && <IvAnalyzer win={win} />}
       {win.kind === "spectrum" && <SpectrumAnalyzer win={win} />}
-      {win.kind === "pattern" && <PatternGenerator />}
+      {win.kind === "pattern" && <PatternGenerator win={win} />}
       {win.kind === "counter" && <FrequencyCounter win={win} />}
       {win.kind === "distortion" && <DistortionAnalyzer win={win} />}
       {win.kind === "network" && <NetworkAnalyzer win={win} />}

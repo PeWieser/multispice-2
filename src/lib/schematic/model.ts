@@ -138,6 +138,8 @@ export interface SchematicDoc {
   pages?: SchematicPage[];
   /** Blätter Stufe B: aktive Seite (flache Arrays sind ihr aktueller Inhalt). */
   activePageId?: string;
+  /** Druckbögen: Schriftfeld-Daten des Entwurfs (ISO 7200-Felder, projektweit). */
+  titleBlock?: TitleBlockData;
 }
 
 // Der allererste Entwurf bekommt eine feste ID, damit Server-HTML (statischer
@@ -226,6 +228,62 @@ export function offpageGroups(
   return [...groups.entries()]
     .map(([upper, g]) => ({ upper, ...g }))
     .sort((a, b) => a.display.localeCompare(b.display));
+}
+
+/* ---------------- Druckbögen · Schriftfeld (ISO 7200) ---------------- */
+export type PrintFormat = "a4p" | "a4l" | "a3l";
+
+/** Druckbögen: Anzeigenamen der Papierformate (Dialog, Deckblatt — eine Quelle). */
+export const PRINT_FORMAT_LABELS: Record<PrintFormat, string> = {
+  a4p: "A4 hoch",
+  a4l: "A4 quer",
+  a3l: "A3 quer",
+};
+
+/** Schriftfeld-Daten pro Entwurf (alle Felder optional — Leeres druckt „—"). */
+export interface TitleBlockData {
+  title: string; // Benennung
+  docNo: string; // Sachnummer
+  owner: string; // Firma (gesetzlicher Eigentümer)
+  drawnBy: string; // Erstellt: Name
+  drawnDate: string; // Erstellt: Datum (ISO, Anzeige lokalisiert)
+  approvedBy: string; // Genehmigt: Name
+  approvedDate: string; // Genehmigt: Datum (ISO)
+  docType: string; // Dokumentenart
+}
+
+/** Wiederverwendbare Vorgaben (Name/Firma/Dokumentenart, rechnerweit). */
+export interface TitleDefaults {
+  owner: string;
+  drawnBy: string;
+  docType: string;
+}
+
+/** Vollständiger Schriftfeld-Satz: Entwurf schlägt Vorgaben, Reste sinnvoll. */
+export function resolveTitleBlock(doc: SchematicDoc, defaults: TitleDefaults): Required<TitleBlockData> {
+  const tb = doc.titleBlock ?? ({} as Partial<TitleBlockData>);
+  const clean = (v: string | undefined, fb = "") => (v ?? "").trim() || fb;
+  return {
+    title: clean(tb.title, doc.name || ""),
+    docNo: clean(tb.docNo),
+    owner: clean(tb.owner, defaults.owner),
+    drawnBy: clean(tb.drawnBy, defaults.drawnBy),
+    drawnDate: clean(tb.drawnDate, new Date().toISOString().slice(0, 10)),
+    approvedBy: clean(tb.approvedBy),
+    approvedDate: clean(tb.approvedDate),
+    docType: clean(tb.docType, defaults.docType || "Stromlaufplan"),
+  };
+}
+
+/** Querverweise eines Blatts: Off-Page-Netz → Partnerseiten (ohne das Blatt selbst). */
+export function sheetCrossRefs(doc: SchematicDoc, pageId: string): Array<{ net: string; pages: string[] }> {
+  return offpageGroups(doc)
+    .filter((g) => g.hits.some((h) => h.pageId === pageId))
+    .map((g) => ({
+      net: g.display,
+      pages: g.hits.filter((h) => h.pageId !== pageId).map((h) => h.pageName),
+    }))
+    .filter((r) => r.pages.length > 0);
 }
 
 /* ----------------------------- geometry ----------------------------- */

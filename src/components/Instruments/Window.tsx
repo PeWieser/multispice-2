@@ -356,11 +356,11 @@ export function Window({ win }: { win: InstrumentWindow }) {
       case "watt":
         return <Wattmeter win={win} />;
       case "iv":
-        return <IvAnalyzer />;
+        return <IvAnalyzer win={win} />;
       case "spectrum":
         return <SpectrumAnalyzer win={win} />;
       case "pattern":
-        return <PatternGenerator />;
+        return <PatternGenerator win={win} />;
       case "counter":
         return <FrequencyCounter win={win} />;
       case "distortion":

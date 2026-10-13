@@ -1,6 +1,6 @@
 
 import { ESeriesPref, SymbolStylePref } from "@/lib/settings";
-import { Instance, NetLabel, NetlistBuildResult, Rotation, SchematicDoc, TextNote, Wire } from "@/lib/schematic/model";
+import { Instance, NetLabel, NetlistBuildResult, PrintFormat, Rotation, SchematicDoc, TextNote, Wire } from "@/lib/schematic/model";
 import { AnalysisPayload } from "@/lib/sim/runner";
 import { IntegrationMethod } from "@/lib/sim/engine";
 import type { TeacherLockState } from "@/lib/teacher";
@@ -167,6 +167,14 @@ export interface PartEditorData {
   pendingReplace: PendingReplace | null;
   /** S6.4: Offene Fassungs-Konflikte (Projekt/Import vs. Bibliothek). */
   specConflicts: SpecConflict[];
+}
+
+/** Druckbögen: Druckauftrag (Format, Umfang, Verzeichnis). */
+export interface PrintTicket {
+  format: PrintFormat;
+  scope: "all" | "active";
+  toc: boolean;
+  bom: boolean;
 }
 
 export interface EditorState {
@@ -365,6 +373,10 @@ export interface EditorState {
   renamePage: (id: string, name: string) => void;
   /** Blätter Stufe B: Seite löschen (die letzte bleibt erhalten). */
   deletePage: (id: string) => void;
+  /** Druckbögen: aktueller Druckauftrag (legt fest, was PrintSheet rendert). */
+  printTicket: PrintTicket;
+  /** Druckbögen: Druckauftrag setzen (Druckdialog → Drucken). */
+  setPrintTicket: (t: PrintTicket) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
   /** S2.1: bricht die laufende Analyse ab (Worker-Terminierung; Fallback: wirkungslos nach Start). */

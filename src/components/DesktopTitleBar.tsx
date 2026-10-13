@@ -48,10 +48,9 @@ export interface DesktopOpenFileResult {
   error?: string;
 }
 
-export interface DesktopPrintSvgOptions {
-  svg: string;
+// Druckbögen Phase ②: Fenster druckt sich selbst (Ticket aus @page/Portal).
+export interface DesktopPrintPdfOptions {
   title?: string;
-  mode: "print" | "pdf";
   defaultName?: string;
 }
 
@@ -68,7 +67,7 @@ export interface MultispiceDesktopBridge {
   onChildClosed: (cb: (id: string) => void) => () => void;
   saveFile?: (opts: DesktopSaveFileOptions) => Promise<DesktopSaveFileResult>;
   openFile?: (opts?: { title?: string; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<DesktopOpenFileResult>;
-  printSvg?: (opts: DesktopPrintSvgOptions) => Promise<DesktopSaveFileResult>;
+  printPdf?: (opts: DesktopPrintPdfOptions) => Promise<DesktopSaveFileResult>;
   saveAppData?: (key: string, value: unknown) => void;
   // WDA-1: schlüsselbezogen (Wert oder null); ohne Schlüssel der ganze Store.
   loadAppDataSync?: (key?: string) => unknown;

@@ -184,7 +184,6 @@ const PartRow = React.memo(function PartRow({
         e.preventDefault();
       }}
     >
-      <SymbolPreview part={part} size={36} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
           <span className="block truncate text-xs font-medium leading-[1.2]">{part.name}</span>

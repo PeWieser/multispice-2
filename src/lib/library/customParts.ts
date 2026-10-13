@@ -1352,6 +1352,17 @@ export const PORT_PART_IDS = ["port_in", "port_out", "port_io"] as const;
  * und wären in einem Makro toter Ballast oder irreführend. */
 export const EDITOR_DENY_PARTS: ReadonlySet<string> = new Set([
   "oscilloscope",
+  "dmm",
+  "counter",
+  "bode",
+  "logic",
+  "logicconv",
+  "watt",
+  "iv",
+  "spectrum",
+  "pattern",
+  "distortion",
+  "network",
   "probe",
   "voltmeter",
   "ammeter",

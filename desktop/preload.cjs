@@ -69,7 +69,8 @@ contextBridge.exposeInMainWorld("multispiceDesktop", {  isDesktop: true,
   },
   saveFile: (opts) => ipcRenderer.invoke("multispice:file-save", opts),
   openFile: (opts) => ipcRenderer.invoke("multispice:file-open", opts),
-  printSvg: (opts) => ipcRenderer.invoke("multispice:print-svg", opts),
+  // Druckbögen Phase ②: Das Fenster druckt sich selbst als PDF (Ticket aus @page/Portal).
+  printPdf: (opts) => ipcRenderer.invoke("multispice:print-pdf", opts),
 });
 } // contextBridge && ipcRenderer
 

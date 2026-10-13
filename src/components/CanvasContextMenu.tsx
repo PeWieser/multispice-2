@@ -1,11 +1,14 @@
 "use client";
 
-import { PART_MAP } from "@/lib/library/catalog";
+import { INSTRUMENT_PART_KIND, PART_MAP } from "@/lib/library/catalog";
 import type { MeasurementProbe, ProbeKind } from "@/lib/schematic/model";
 import { useEditor, wireJunctionCandidates } from "@/state/editor";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { PROBE_CSSVAR } from "@/lib/probe-style";
 import type { InlineEdit } from "./InlineEditor";
+
+// Geräte-Schaltzeichen (W29 + 6er-Batch Punkt 6): erste Menüzeile öffnet das
+// gebundene Fenster (wie Doppelklick) – für alle Geräte aus einer Map.
 
 export type CtxTarget =
   | { kind: "empty"; net: string | null }
@@ -76,7 +79,11 @@ export default function ContextMenu({
               <button className="ctx-row justify-center" onClick={() => { st.rotateSelection(-1); onClose(); }} title={adaptShortcut("Drehen -90° (⇧R)", apple)}>↺ -90°</button>
               <button className="ctx-row justify-center" onClick={() => { st.mirrorSelection(); onClose(); }} title="Spiegeln (M)">⇆ Spiegel</button>
             </div>
-            {!st.partEditor.open && (<button className="ctx-row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>)}
+            {!st.partEditor.open && (inst && INSTRUMENT_PART_KIND[inst.partId] ? (
+              <button className="ctx-row" onClick={() => { st.setSelection([target.id]); const part = PART_MAP[inst!.partId]; const short = part.name.split(" (")[0]; useEditor.getState().openInstrument(INSTRUMENT_PART_KIND[inst!.partId], { instanceId: target.id, title: `${short} ${inst?.label ?? ""}`.trim() }); onClose(); }}><span>{PART_MAP[inst!.partId].name.split(" (")[0]} öffnen…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>
+            ) : (
+              <button className="ctx-row" onClick={() => { st.setSelection([target.id]); useEditor.getState().openInstrument("inspector"); onClose(); }}><span>Eigenschaften…</span><span className="ml-auto text-2xs text-ink-3">Doppelklick</span></button>
+            ))}
             <button className="ctx-row" onClick={() => { st.duplicateSelection(); onClose(); }}><span>⎘ Duplizieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘D", apple)}</span></button>
             <button className="ctx-row" onClick={() => { st.copySelection(); onClose(); }}><span>⎙ Kopieren</span><span className="ml-auto text-2xs text-ink-3">{adaptShortcut("⌘C", apple)}</span></button>
             {(() => {
@@ -115,6 +122,7 @@ export default function ContextMenu({
                 </>
               );
             })()}
+            {part?.mount !== "virtual" && (<>
             <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Fehlersimulation (Faults)</div>
             <div className="grid grid-cols-2 gap-1">
               {[
@@ -136,6 +144,7 @@ export default function ContextMenu({
                 </button>
               ))}
             </div>
+            </>)}
             <div className="ctx-sep" />
             {!st.partEditor.open && (<>
             <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Messpunkt auf Netz{netLabel}</div>
@@ -144,6 +153,7 @@ export default function ContextMenu({
                 ["voltage","V","--warn"],
                 ["current","A","--teal"],
                 ["power","W","--violet"],
+                ["diff","ΔV","--err"],
                 ["digital","D","--ok"],
               ] as const).map(([k, sym, v]) => (
                 <button key={k} className="ctx-row" onClick={() => addProbe(k as any)}><span className="ctx-badge" style={{ background: `color-mix(in srgb, var(${v}) 15%, transparent)`, color: `var(${v})`, borderColor: `color-mix(in srgb, var(${v}) 30%, transparent)` }}>{sym}</span> {k}</button>
@@ -163,7 +173,6 @@ export default function ContextMenu({
               <div className="h-7 w-7 rounded-md grid place-items-center text-2xs font-semibold mono bg-accent-soft border border-hairline">NET</div>
               <div className="min-w-0">
                 <div className="text-xs font-semibold truncate">Netzlabel „{lbl?.name ?? ""}“</div>
-                <div className="text-2xs text-ink-3 truncate">Position ({lbl?.x ?? 0}, {lbl?.y ?? 0})</div>
               </div>
             </div>
             <button
@@ -221,7 +230,7 @@ export default function ContextMenu({
             <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1 bg-surface-2">
               <div className="h-7 w-7 rounded-md grid place-items-center" style={{ background: "color-mix(in srgb, var(--teal) 15%, transparent)", border: "1px solid color-mix(in srgb, var(--teal) 30%, transparent)" }}>∿</div>
               <div className="min-w-0">
-                <div className="text-xs font-semibold">Leitung {target.id.slice(0,6)}</div>
+                <div className="text-xs font-semibold">Leitung</div>
                 <div className="text-2xs text-ink-3">{pts} Punkte • Netz {target.net ?? "?"}</div>
               </div>
               <div className="ml-auto h-2 w-2 rounded-full" style={{ background: "var(--teal)", boxShadow: "0 0 6px var(--teal)" }} />
@@ -247,8 +256,6 @@ export default function ContextMenu({
               st.straightenSelection();
               onClose();
             }}><span>Leitung begradigen (Raster + rechte Winkel)</span></button>
-            <div className="ctx-sep" />
-            <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Leitungsfarbe</div>
             <button className="ctx-row" onClick={() => {
               const w = doc.wires.find(x=>x.id===target.id);
               if (!w) return;
@@ -305,6 +312,8 @@ export default function ContextMenu({
                 </div>
               );
             })()}
+            <div className="ctx-sep" />
+            <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3">Leitungsfarbe</div>
             <div className="flex gap-1 flex-wrap px-1">
               {[
                 [null, "Auto", "var(--wire)"],

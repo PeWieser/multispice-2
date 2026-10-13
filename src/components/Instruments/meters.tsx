@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { formatValue } from "@/lib/library/catalog";
 import { estimateFrequency, mean, rms } from "@/lib/sim/realtime";
 import { InstrumentWindow, engine, useEditor } from "@/state/editor";
-import { NetSelect, Stat, grid } from "./shared";
+import { NetSelect, Stat, WiredNet, boundPinNets, grid } from "./shared";
 
 export function Multimeter({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
@@ -20,11 +20,15 @@ export function Multimeter({ win }: { win: InstrumentWindow }) {
     range: "auto",
   };
   const set = (p: Partial<typeof cfg>) => update(win.id, { config: { ...win.config, dmm: { ...cfg, ...p } } });
+  // Gebunden: Messpunkte kommen aus der Verdrahtung (+/-), nicht aus der Auswahl.
+  const wired = boundPinNets(netResult.pinNets, win.instanceId, 2);
+  const a = wired ? wired[0] : cfg.a;
+  const b = wired ? wired[1] : cfg.b;
 
   let value = 0;
   let unit = "V";
-  const ca = engine.channel(cfg.a, 4000);
-  const cb = engine.channel(cfg.b, 4000);
+  const ca = engine.channel(a, 4000);
+  const cb = engine.channel(b, 4000);
   const diff = ca.v.map((v, i) => v - (cb.v[i] ?? 0));
   if (cfg.mode === "vdc") value = mean(diff);
   else if (cfg.mode === "vac") {
@@ -77,11 +81,11 @@ export function Multimeter({ win }: { win: InstrumentWindow }) {
       <div className="grid grid-cols-2 gap-1.5">
         <label className="text-2xs text-ink-3">
           Messpunkt +
-          <NetSelect value={cfg.a} onChange={(v) => set({ a: v })} />
+          {wired ? <WiredNet value={a} /> : <NetSelect value={cfg.a} onChange={(v) => set({ a: v })} />}
         </label>
         <label className="text-2xs text-ink-3">
           Messpunkt −
-          <NetSelect value={cfg.b} onChange={(v) => set({ b: v })} />
+          {wired ? <WiredNet value={b} /> : <NetSelect value={cfg.b} onChange={(v) => set({ b: v })} />}
         </label>
       </div>
       <div className="flex gap-1">
@@ -113,9 +117,14 @@ export function Wattmeter({ win }: { win: InstrumentWindow }) {
   };
   const set = (p: Partial<typeof cfg>) => update(win.id, { config: { ...win.config, watt: { ...cfg, ...p } } });
   void tick;
+  // Gebunden: Spannungspaar kommt aus der Verdrahtung (V+/V-); der Strompfad
+  // bleibt eine Bauteil-Auswahl (echte Stromzange misst auch nicht übers Netz).
+  const wired = boundPinNets(netResult.pinNets, win.instanceId, 2);
+  const vnet = wired ? wired[0] : cfg.vnet;
+  const gnd = wired ? wired[1] : cfg.gnd;
 
-  const vch = engine.channel(cfg.vnet, 4000);
-  const gch = engine.channel(cfg.gnd, 4000);
+  const vch = engine.channel(vnet, 4000);
+  const gch = engine.channel(gnd, 4000);
   const v = vch.v.map((x, i) => x - (gch.v[i] ?? 0));
   const i = engine.lastState.currents[cfg.device] ?? 0;
   const vrms = rms(v);
@@ -130,11 +139,11 @@ export function Wattmeter({ win }: { win: InstrumentWindow }) {
       <div className="grid grid-cols-2 gap-1.5">
         <label className="text-2xs text-ink-3">
           Spannung an
-          <NetSelect value={cfg.vnet} onChange={(x) => set({ vnet: x })} />
+          {wired ? <WiredNet value={vnet} /> : <NetSelect value={cfg.vnet} onChange={(x) => set({ vnet: x })} />}
         </label>
         <label className="text-2xs text-ink-3">
           Bezug
-          <NetSelect value={cfg.gnd} onChange={(x) => set({ gnd: x })} />
+          {wired ? <WiredNet value={gnd} /> : <NetSelect value={cfg.gnd} onChange={(x) => set({ gnd: x })} />}
         </label>
       </div>
       <label className="text-2xs text-ink-3">
@@ -167,8 +176,11 @@ export function FrequencyCounter({ win }: { win: InstrumentWindow }) {
   const tick = useEditor((s) => s.sim.tick);
   void tick;
   const cfg = (win.config.counter as { net: string }) ?? { net: nets.find((n) => n !== "0") ?? "" };
+  // Gebunden: Messknoten kommt aus der Verdrahtung (IN).
+  const wired = boundPinNets(netResult.pinNets, win.instanceId, 2);
+  const net = wired ? wired[0] : cfg.net;
 
-  const ch = engine.channel(cfg.net, 8192);
+  const ch = engine.channel(net, 8192);
   const f = ch.v.length > 32 ? estimateFrequency(ch.t, ch.v) : 0;
   const avg = ch.v.length ? mean(ch.v) : 0;
   const duty = ch.v.length ? (ch.v.filter((v) => v > avg).length / ch.v.length) * 100 : 0;
@@ -187,7 +199,11 @@ export function FrequencyCounter({ win }: { win: InstrumentWindow }) {
       </div>
       <label className="text-2xs text-ink-3">
         Messknoten
-        <NetSelect value={cfg.net} onChange={(v) => update(win.id, { config: { ...win.config, counter: { net: v } } })} />
+        {wired ? (
+          <WiredNet value={net} />
+        ) : (
+          <NetSelect value={cfg.net} onChange={(v) => update(win.id, { config: { ...win.config, counter: { net: v } } })} />
+        )}
       </label>
       {!running && <div className="text-2xs text-ink-3">Zählt, sobald die Simulation läuft.</div>}
     </div>

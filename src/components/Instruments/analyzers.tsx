@@ -2,10 +2,10 @@
 
 import { useCallback, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { formatValue } from "@/lib/library/catalog";
+import { PART_MAP, formatValue } from "@/lib/library/catalog";
 import { spectrum } from "@/lib/sim/fft";
 import { InstrumentWindow, engine, useEditor } from "@/state/editor";
-import { CH_COLORS, NetSelect, Plot, Stat, cssVar, grid } from "./shared";
+import { CH_COLORS, NetSelect, Plot, Stat, WiredNet, boundPinNets, cssVar, grid } from "./shared";
 
 export function BodePlotter({ win }: { win: InstrumentWindow }) {
   const update = useEditor((s) => s.updateInstrument);
@@ -15,6 +15,9 @@ export function BodePlotter({ win }: { win: InstrumentWindow }) {
   const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const cfg = (win.config.bode as { out: string; fmin: number; fmax: number }) ?? { out: nets.find((n) => n !== "0") ?? "", fmin: 1, fmax: 1e6 };
   const set = (p: Partial<typeof cfg>) => update(win.id, { config: { ...win.config, bode: { ...cfg, ...p } } });
+  // Gebunden: Ausgang kommt aus der Verdrahtung (OUT).
+  const wired = boundPinNets(netResult.pinNets, win.instanceId, 2);
+  const out = wired ? wired[0] : cfg.out;
   const data = analysis.kind === "ac" ? (analysis.data as { freq: number[]; magDb: Record<string, number[]>; phase: Record<string, number[]> } | undefined) : undefined;
 
   const render = useCallback(
@@ -26,8 +29,8 @@ export function BodePlotter({ win }: { win: InstrumentWindow }) {
         ctx.fillText("AC-Sweep starten …", 12, 20);
         return;
       }
-      const mags = data.magDb[cfg.out] ?? [];
-      const phases = data.phase[cfg.out] ?? [];
+      const mags = data.magDb[out] ?? [];
+      const phases = data.phase[out] ?? [];
       const f0 = Math.log10(data.freq[0]);
       const f1 = Math.log10(data.freq[data.freq.length - 1]);
       const maxDb = Math.max(...mags, 6);
@@ -61,21 +64,21 @@ export function BodePlotter({ win }: { win: InstrumentWindow }) {
       ctx.fillText(formatValue(data.freq[0], "Hz"), 4, h - 16);
       ctx.fillText(formatValue(data.freq[data.freq.length - 1], "Hz"), w - 56, h - 16);
     },
-    [data, cfg.out],
+    [data, out],
   );
 
   return (
     <div className="flex h-full flex-col gap-2 p-2">
       <div className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-3">
         <span>Ausgang</span>
-        <NetSelect value={cfg.out} onChange={(v) => set({ out: v })} />
+        {wired ? <WiredNet value={out} /> : <NetSelect value={cfg.out} onChange={(v) => set({ out: v })} />}
         <span>f</span>
         <input className="input w-20 py-0.5 text-2xs mono" value={cfg.fmin} onChange={(e) => set({ fmin: Number(e.target.value) })} />
         <span>…</span>
         <input className="input w-24 py-0.5 text-2xs mono" value={cfg.fmax} onChange={(e) => set({ fmax: Number(e.target.value) })} />
         <button
           className="btn btn-primary ml-auto"
-          onClick={() => runAnalysis("ac", { outputs: [cfg.out], sweep: { start: cfg.fmin, stop: cfg.fmax, points: 24, type: "dec" } })}
+          onClick={() => runAnalysis("ac", { outputs: [out], sweep: { start: cfg.fmin, stop: cfg.fmax, points: 24, type: "dec" } })}
           disabled={analysis.running}
         >
           {analysis.running ? "läuft …" : "Sweep starten"}
@@ -112,15 +115,19 @@ export function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
   );
   const cfg = (win.config.logic as { channels: string[]; span: number; threshold: number; radix: "hex" | "bin" }) ?? fallbackCfg;
   const set = (p: Partial<typeof cfg>) => update(win.id, { config: { ...win.config, logic: { ...cfg, ...p } } });
+  // Gebunden: Kanäle D0–D7 kommen aus der Verdrahtung (Pin 8 = GND).
+  const wired = boundPinNets(netResult.pinNets, win.instanceId, 9);
+  const wiredKey = wired ? wired.join("\n") : "";
+  const channels = useMemo(() => (wired ? wired.slice(0, 8) : cfg.channels), [wiredKey, cfg.channels]);
 
   const render = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number) => {
       ctx.fillStyle = cssVar("--canvas", "#0d1017");
       ctx.fillRect(0, 0, w, h);
-      const rows = Math.max(cfg.channels.length, 1);
+      const rows = Math.max(channels.length, 1);
       const rowH = h / rows;
       const samples = Math.max(64, Math.round(cfg.span * 40000));
-      cfg.channels.forEach((net, i) => {
+      channels.forEach((net, i) => {
         const ch = engine.channel(net, samples);
         const y0 = i * rowH + rowH * 0.78;
         const y1 = i * rowH + rowH * 0.22;
@@ -153,40 +160,46 @@ export function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
       });
       // bus value
       let word = 0;
-      cfg.channels.forEach((net, i) => {
+      channels.forEach((net, i) => {
         const v = engine.lastState.nets[net] ?? 0;
         if (v > cfg.threshold) word |= 1 << i;
       });
       ctx.fillStyle = cssVar("--teal", "#22d3ee");
       ctx.font = "600 12px ui-monospace, monospace";
-      const text = cfg.radix === "hex" ? `0x${word.toString(16).toUpperCase().padStart(2, "0")}` : `0b${word.toString(2).padStart(cfg.channels.length, "0")}`;
+      const text = cfg.radix === "hex" ? `0x${word.toString(16).toUpperCase().padStart(2, "0")}` : `0b${word.toString(2).padStart(channels.length, "0")}`;
       ctx.fillText(text, w - 90, 14);
     },
-    [cfg],
+    [cfg, channels],
   );
 
   return (
     <div className="flex h-full flex-col gap-2 p-2">
       <div className="flex items-center gap-1.5 text-2xs text-ink-3">
         <span>Kanäle</span>
-        <select
-          className="input w-auto py-0.5 text-2xs"
-          multiple={false}
-          value=""
-          onChange={(e) => {
-            if (e.target.value) set({ channels: [...cfg.channels, e.target.value].slice(0, 16) });
-          }}
-        >
-          <option value="">+ hinzufügen</option>
-          {nets.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        <button className="btn" onClick={() => set({ channels: [] })}>
-          leeren
-        </button>
+        {wired ? (
+          <span className="mono">{channels.filter((c) => c).length}/8 verdrahtet</span>
+        ) : (
+          <>
+            <select
+              className="input w-auto py-0.5 text-2xs"
+              multiple={false}
+              value=""
+              onChange={(e) => {
+                if (e.target.value) set({ channels: [...cfg.channels, e.target.value].slice(0, 16) });
+              }}
+            >
+              <option value="">+ hinzufügen</option>
+              {nets.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <button className="btn" onClick={() => set({ channels: [] })}>
+              leeren
+            </button>
+          </>
+        )}
         <span className="ml-2">Schwelle</span>
         <input className="input w-16 py-0.5 text-2xs mono" value={cfg.threshold} onChange={(e) => set({ threshold: Number(e.target.value) })} />
         <select className="input w-auto py-0.5 text-2xs" value={cfg.radix} onChange={(e) => set({ radix: e.target.value as "hex" | "bin" })}>
@@ -205,11 +218,26 @@ export function LogicAnalyzer({ win }: { win: InstrumentWindow }) {
 /* wattmeter                                                           */
 /* ------------------------------------------------------------------ */
 
-export function IvAnalyzer() {
+export function IvAnalyzer({ win }: { win: InstrumentWindow }) {
   const doc = useEditor((s) => s.doc);
+  const netResult = useEditor((s) => s.netResult);
   const runAnalysis = useEditor((s) => s.runAnalysis);
   const analysis = useEditor((s) => s.analysis);
-  const [device, setDevice] = useState(doc.instances.find((i) => ["D", "Q", "M", "J"].includes(i.label[0]))?.label ?? "");
+  // Gebunden: hängt genau ein Bauteil mit beiden Polen (+/-) an den verdrahteten
+  // Netzen, ist es vorausgewählt (nur Startwert – danach frei wählbar).
+  const bound = boundPinNets(netResult.pinNets, win.instanceId, 2);
+  const [device, setDevice] = useState(() => {
+    if (bound && bound[0] && bound[1] && bound[0] !== bound[1]) {
+      const hits = doc.instances.filter((i) => {
+        if (i.id === win.instanceId) return false;
+        const nPins = PART_MAP[i.partId]?.pins.length ?? 0;
+        const nets = new Set(Array.from({ length: nPins }, (_, k) => netResult.pinNets[`${i.id}:${k}`]));
+        return nets.has(bound[0]) && nets.has(bound[1]);
+      });
+      if (hits.length === 1) return hits[0].label;
+    }
+    return doc.instances.find((i) => ["D", "Q", "M", "J"].includes(i.label[0]))?.label ?? "";
+  });
   const [source, setSource] = useState(doc.instances.find((i) => i.partId.startsWith("v"))?.label ?? "");
   const data = analysis.kind === "iv" ? (analysis.data as { curves: Array<{ label: string; x: number[]; y: number[] }> } | undefined) : undefined;
 
@@ -297,10 +325,13 @@ export function SpectrumAnalyzer({ win }: { win: InstrumentWindow }) {
   const netResult = useEditor((s) => s.netResult);
   const nets = useMemo(() => netResult.nets.map((n) => n.name), [netResult.nets]);
   const cfg = (win.config.spec as { net: string }) ?? { net: nets.find((n) => n !== "0") ?? "" };
+  // Gebunden: Signal kommt aus der Verdrahtung (IN).
+  const wired = boundPinNets(netResult.pinNets, win.instanceId, 2);
+  const net = wired ? wired[0] : cfg.net;
   const render = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number) => {
       grid(ctx, w, h, 10, 6);
-      const ch = engine.channel(cfg.net, 8192);
+      const ch = engine.channel(net, 8192);
       if (ch.v.length < 64) return;
       const dt = (ch.t[ch.t.length - 1] - ch.t[0]) / Math.max(ch.t.length - 1, 1);
       const sp = spectrum(ch.v, 1 / Math.max(dt, 1e-12), "blackman");
@@ -316,13 +347,13 @@ export function SpectrumAnalyzer({ win }: { win: InstrumentWindow }) {
       ctx.font = "10px ui-monospace, monospace";
       ctx.fillText(`0 … ${formatValue(sp.freq[n - 1] ?? 0, "Hz")}`, 6, h - 5);
     },
-    [cfg.net],
+    [net],
   );
   return (
     <div className="flex h-full flex-col gap-2 p-2">
       <div className="flex items-center gap-2 text-2xs text-ink-3">
         <span>Signal</span>
-        <NetSelect value={cfg.net} onChange={(v) => update(win.id, { config: { ...win.config, spec: { net: v } } })} />
+        {wired ? <WiredNet value={net} /> : <NetSelect value={cfg.net} onChange={(v) => update(win.id, { config: { ...win.config, spec: { net: v } } })} />}
       </div>
       <div className="flex-1 overflow-hidden rounded-lg border border-hairline">
         <Plot render={render} />
@@ -340,7 +371,10 @@ export function DistortionAnalyzer({ win }: { win: InstrumentWindow }) {
   const netResult = useEditor((s) => s.netResult);
   const nets = netResult.nets.map(n=>n.name);
   const cfg = (win.config.distortion as { net: string; fund: number }) ?? { net: nets.find(n=>n!=="0") ?? "", fund: 1000 };
-  const ch = engine.channel(cfg.net, 8192);
+  // Gebunden: Signal kommt aus der Verdrahtung (IN).
+  const wired = boundPinNets(netResult.pinNets, win.instanceId, 2);
+  const net = wired ? wired[0] : cfg.net;
+  const ch = engine.channel(net, 8192);
   const f = cfg.fund;
   // Simple THD calc: estimate via FFT
   let thd = 0;
@@ -364,7 +398,7 @@ export function DistortionAnalyzer({ win }: { win: InstrumentWindow }) {
     <div className="flex h-full flex-col gap-2 p-2.5">
       <div className="flex items-center gap-2 text-2xs text-ink-3">
         <span>Signal</span>
-        <NetSelect value={cfg.net} onChange={v=> update(win.id, { config: { ...win.config, distortion: { ...cfg, net: v } } })} />
+        {wired ? <WiredNet value={net} /> : <NetSelect value={cfg.net} onChange={v=> update(win.id, { config: { ...win.config, distortion: { ...cfg, net: v } } })} />}
         <span>Grund</span>
         <input className="input w-20 py-0.5 mono" value={cfg.fund} onChange={e=> update(win.id, { config: { ...win.config, distortion: { ...cfg, fund: Number(e.target.value) } } })} />
         <span>Hz</span>
@@ -396,6 +430,10 @@ export function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
     fmax: 1e6,
   };
   const set = (p: Partial<typeof cfg>) => update(win.id, { config: { ...win.config, network: { ...cfg, ...p } } });
+  // Gebunden: Ports kommen aus der Verdrahtung (P1/P2).
+  const wired = boundPinNets(netResult.pinNets, win.instanceId, 3);
+  const inNet = wired ? wired[0] : cfg.inNet;
+  const outNet = wired ? wired[1] : cfg.outNet;
   const data =
     analysis.kind === "sparams"
       ? (analysis.data as { freq: number[]; s11db: number[]; s21db: number[]; z0: number } | undefined)
@@ -445,9 +483,9 @@ export function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
     <div className="flex h-full flex-col gap-2 p-2">
       <div className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-3">
         <span>Port 1</span>
-        <NetSelect value={cfg.inNet} onChange={(v) => set({ inNet: v })} />
+        {wired ? <WiredNet value={inNet} /> : <NetSelect value={cfg.inNet} onChange={(v) => set({ inNet: v })} />}
         <span>Port 2</span>
-        <NetSelect value={cfg.outNet} onChange={(v) => set({ outNet: v })} />
+        {wired ? <WiredNet value={outNet} /> : <NetSelect value={cfg.outNet} onChange={(v) => set({ outNet: v })} />}
         <span>Z₀</span>
         <input className="input w-16 py-0.5 text-2xs mono" value={cfg.z0} onChange={(e) => set({ z0: Number(e.target.value) })} />
         <span>Ω</span>
@@ -459,9 +497,9 @@ export function NetworkAnalyzer({ win }: { win: InstrumentWindow }) {
           className="btn btn-primary ml-auto"
           onClick={() =>
             runAnalysis("sparams", {
-              inNode: cfg.inNet,
-              outNode: cfg.outNet,
-              outputs: [cfg.outNet],
+              inNode: inNet,
+              outNode: outNet,
+              outputs: [outNet],
               z0: cfg.z0,
               sweep: { start: cfg.fmin, stop: cfg.fmax, points: 24, type: "dec" },
             })

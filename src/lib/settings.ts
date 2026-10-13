@@ -1,5 +1,7 @@
 "use client";
 
+import type { PrintFormat, TitleDefaults } from "@/lib/schematic/model";
+
 export interface ProbeHoverConfig {
   showV: boolean;
   showI: boolean;
@@ -97,5 +99,53 @@ export function loadESeries(): ESeriesPref {
 export function saveESeries(pref: ESeriesPref) {
   try {
     localStorage.setItem("multispice.eSeries", pref);
+  } catch {}
+}
+
+/* ------------------------------------------------------------------ */
+/* Druckbögen – Schriftfeld-Vorgaben + Druckeinstellung (rechnerweit)  */
+/* ------------------------------------------------------------------ */
+export const DEFAULT_TITLE_DEFAULTS: TitleDefaults = { owner: "", drawnBy: "", docType: "Stromlaufplan" };
+
+export function loadTitleDefaults(): TitleDefaults {
+  try {
+    const raw = localStorage.getItem("multispice.titleDefaults");
+    if (raw) return { ...DEFAULT_TITLE_DEFAULTS, ...JSON.parse(raw) };
+  } catch {}
+  return { ...DEFAULT_TITLE_DEFAULTS };
+}
+
+export function saveTitleDefaults(v: TitleDefaults) {
+  try {
+    localStorage.setItem("multispice.titleDefaults", JSON.stringify(v));
+  } catch {}
+}
+
+export interface PrintSetup {
+  format: PrintFormat;
+  scope: "all" | "active";
+  toc: boolean;
+  bom: boolean;
+}
+
+const DEFAULT_PRINT_SETUP: PrintSetup = { format: "a4l", scope: "all", toc: true, bom: true };
+
+export function loadPrintSetup(): PrintSetup {
+  try {
+    const raw = localStorage.getItem("multispice.printSetup");
+    if (raw) {
+      const p = { ...DEFAULT_PRINT_SETUP, ...JSON.parse(raw) } as PrintSetup;
+      if (p.format !== "a4p" && p.format !== "a4l" && p.format !== "a3l") p.format = "a4l";
+      if (p.scope !== "all" && p.scope !== "active") p.scope = "all";
+      if (typeof p.bom !== "boolean") p.bom = true;
+      return p;
+    }
+  } catch {}
+  return { ...DEFAULT_PRINT_SETUP };
+}
+
+export function savePrintSetup(v: PrintSetup) {
+  try {
+    localStorage.setItem("multispice.printSetup", JSON.stringify(v));
   } catch {}
 }

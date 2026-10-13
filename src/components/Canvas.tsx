@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PART_MAP, formatValue, partPins } from "@/lib/library/catalog";
+import { INSTRUMENT_PART_KIND, PART_MAP, formatValue, partPins } from "@/lib/library/catalog";
 import { GRID, Instance, MeasurementProbe, SchematicDoc, instanceBounds, pinPosition, rotatePoint } from "@/lib/schematic/model";
 import { findNetTarget, finishNetDraft, netClick, previewNetPath, type NetDraft, type NetPathOptions, type NetTarget } from "@/lib/schematic/netdraw";
 import { computeFlowLinks, type FlowLink } from "@/lib/schematic/flowviz";
@@ -2680,12 +2680,12 @@ export default function Canvas() {
     if (hit) {
       st.setSelection([hit.id]);
       const part = PART_MAP[hit.partId];
-      if (part?.id === "oscilloscope") {
-        useEditor.getState().openInstrument("scope", { instanceId: hit.id, title: `Oszilloskop ${hit.label}` });
-        return;
-      }
-      if (part?.id === "funcgen") {
-        useEditor.getState().openInstrument("funcgen", { instanceId: hit.id, title: `Funktionsgenerator ${hit.label}` });
+      // 6er-Batch, Punkt 6: Jedes Geräte-Schaltzeichen öffnet per Doppelklick sein
+      // gebundenes Fenster (eine Map statt je-Gerät-Sonderfällen).
+      const instKind = part ? INSTRUMENT_PART_KIND[part.id] : undefined;
+      if (part && instKind) {
+        const short = part.name.split(" (")[0];
+        useEditor.getState().openInstrument(instKind, { instanceId: hit.id, title: `${short} ${hit.label}` });
         return;
       }
       const main = part?.params[0];

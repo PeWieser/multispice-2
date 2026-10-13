@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import BottomPanel from "./BottomPanel";
 import Canvas from "./Canvas";
@@ -28,68 +27,16 @@ const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false })
 const PartEditorShell = dynamic(() => import("./partEditor/PartEditorShell"), { ssr: false });
 const ExtractPartDialog = dynamic(() => import("./ExtractPartDialog"), { ssr: false });
 const SpecConflictDialog = dynamic(() => import("./SpecConflictDialog"), { ssr: false });
+const PrintDialog = dynamic(() => import("./PrintDialog"), { ssr: false });
 const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
 const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
 const StandaloneInstrumentView = dynamic(() => import("./Instruments").then((m) => m.StandaloneInstrumentView), { ssr: false });
 import { loadCustomParts } from "@/lib/library/customParts";
-import { docToSvg, printSchematicSheet } from "@/lib/export/sheet";
+import PrintSheet from "./print/PrintSheet";
 import { loadTextContentInEditor, openProjectViaNativeDialogIfAvailable, requestOpenFileDialog } from "@/lib/schematic/openFile";
 import { decodeSharePayload, parseShareHash } from "@/lib/share";
 import DesktopTitleBar, { isDesktopApp, useDesktopMultiWindowSync } from "./DesktopTitleBar";
 import type { InstrumentKind } from "@/state/editor";
-
-/** R8 & W131: Echter Vektor-Entwurf für window.print() – Rahmen, Kopf, Stempel.
- *  Rendert das papierweiße Vektor-SVG aus docToSvg(doc, { frame: false }) direkt
- *  synchron im DOM, sodass sowohl „Drucken …" als auch Strg+P sofort ein
- *  gestochen scharfen Entwurf ohne dunklen Hintergrund drucken. */
-function PrintSheet() {
-  const doc = useEditor((s) => s.doc);
-  const nets = useEditor((s) => s.netResult.nets);
-  const mounted = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
-  if (!mounted) return null;
-  const svgMarkup = docToSvg(doc, { frame: false, paperColor: "#ffffff" });
-  return createPortal(
-    <div className="print-sheet">
-      <div className="sheet-frame">
-        <div className="sheet-head">
-          <span className="sheet-title">{doc.name || "Unbenanntes Projekt"}</span>
-          <span className="sheet-meta">MultiSpice – Schaltplan</span>
-        </div>
-        <div
-          className="sheet-img"
-          dangerouslySetInnerHTML={{ __html: svgMarkup }}
-        />
-        <div className="sheet-stamp">
-          <div>
-            <span className="stamp-label">Bauteile</span>
-            {doc.instances.length}
-          </div>
-          <div>
-            <span className="stamp-label">Leitungen</span>
-            {doc.wires.length}
-          </div>
-          <div>
-            <span className="stamp-label">Netze</span>
-            {nets.length}
-          </div>
-          <div>
-            <span className="stamp-label">Blatt</span>
-            1 / 1
-          </div>
-          <div>
-            <span className="stamp-label">Datum</span>
-            {new Date().toLocaleDateString("de-DE")}
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
 
 function resolveTheme(pref: ThemePref, systemDark: boolean): "dark" | "light" {
   if (pref === "system") return systemDark ? "dark" : "light";
@@ -218,6 +165,7 @@ export default function Workbench() {
   const [referenceOpen, setReferenceOpen] = useState(false);
   const [wizardsOpen, setWizardsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const editorOpen = useEditor((s) => s.partEditor.open);
   const docName = useEditor((s) => s.doc.name);
   const titleSavePending = useEditor((s) => s.savePending);
@@ -353,12 +301,10 @@ export default function Workbench() {
           if (!handled) requestOpenFileDialog();
         });
       }
-      // W131: Strg+P / ⌘P druckt den Entwurf
+      // Druckbögen: Strg+P / ⌘P öffnet den Druck-Dialog (statt Browser-Default).
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
-        if (window.multispiceDesktop?.printSvg) {
-          e.preventDefault();
-          void printSchematicSheet(useEditor.getState().doc);
-        }
+        e.preventDefault();
+        setPrintOpen(true);
       }
       // Neuer Entwurf: Strg+Alt+N (Tabs über dem Canvas)
       if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === "n") {
@@ -442,7 +388,7 @@ export default function Workbench() {
                       <X size={14} />
                     </button>
                   </div>
-                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} isMobile />
+                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} onPrint={() => setPrintOpen(true)} isMobile />
                 </div>
               </div>
             )}
@@ -456,6 +402,7 @@ export default function Workbench() {
         <StatusBar isMobile />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        {printOpen && <PrintDialog onClose={() => setPrintOpen(false)} />}
         {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
@@ -472,7 +419,7 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-app">
-          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} />
+          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} onPrint={() => setPrintOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
@@ -489,6 +436,7 @@ export default function Workbench() {
         <StatusBar />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        {printOpen && <PrintDialog onClose={() => setPrintOpen(false)} />}
         {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
@@ -515,7 +463,7 @@ export default function Workbench() {
         <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} showSaveState />
       )}
       <header className="contents">
-      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} />
+      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} onPrint={() => setPrintOpen(true)} />
       <ComponentStrip tools={<DrawingTools />} />
       </header>
       <main id="workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
@@ -534,6 +482,7 @@ export default function Workbench() {
       <StatusBar />
       {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {printOpen && <PrintDialog onClose={() => setPrintOpen(false)} />}
         {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}

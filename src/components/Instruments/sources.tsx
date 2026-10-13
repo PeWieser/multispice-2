@@ -6,14 +6,54 @@ import { InstrumentWindow, useEditor } from "@/state/editor";
 import { grid } from "./shared";
 import { setDocParamSynced } from "@/lib/desktopSync";
 
-export function PatternGenerator() {
+export function PatternGenerator({ win }: { win: InstrumentWindow }) {
   const doc = useEditor((s) => s.doc);
-  const clocks = doc.instances.filter((i) => i.partId === "clockgen" || i.partId === "vpulse");
+  // Gebunden: nur das eigene XPG-Symbol; ungebunden: alle Taktquellen + alle XPG.
+  const boundId = win.instanceId;
+  const clocks = doc.instances.filter((i) => (i.partId === "clockgen" || i.partId === "vpulse") && !boundId);
+  const xpgs = doc.instances.filter((i) => i.partId === "pattern" && (!boundId || i.id === boundId));
   return (
     <div className="flex h-full flex-col gap-2 p-2.5">
-      <div className="text-2xs text-ink-3">
-        Treibt digitale Taktquellen und Pulsgeneratoren. Platziere »Taktgenerator (digital)« oder »Pulsquelle« im Schaltplan.
-      </div>
+      {!boundId && (
+        <div className="text-2xs text-ink-3">
+          Treibt digitale Taktquellen und Pulsgeneratoren. Platziere »Taktgenerator (digital)«, »Pulsquelle« oder das »Mustergenerator (XPG)«-Schaltzeichen im Plan.
+        </div>
+      )}
+      {xpgs.map((c) => (
+        <div key={c.id} className="rounded-lg p-2 bg-surface-2">
+          <div className="mb-1 flex justify-between text-2xs">
+            <span className="mono text-teal">{c.label}</span>
+            <span className="mono text-ink-3">XPG</span>
+          </div>
+          {[1, 2].map((ch) => (
+            <div key={ch} className="mt-1">
+              <div className="mb-0.5 flex justify-between text-2xs">
+                <span className="text-ink-2">CH{ch}</span>
+                <span className="mono text-ink-3">
+                  {formatValue(Number(c.params[`freq${ch}`] ?? 1000), "Hz")} · {Number(c.params[`duty${ch}`] ?? 50)} %
+                </span>
+              </div>
+              <input
+                type="range"
+                className="w-full"
+                min={-1}
+                max={6}
+                step={0.02}
+                value={Math.log10(Number(c.params[`freq${ch}`] ?? 1000))}
+                onChange={(e) => setDocParamSynced(c.id, `freq${ch}`, Math.pow(10, Number(e.target.value)))}
+              />
+              <input
+                type="range"
+                className="mt-1 w-full"
+                min={1}
+                max={99}
+                value={Number(c.params[`duty${ch}`] ?? 50)}
+                onChange={(e) => setDocParamSynced(c.id, `duty${ch}`, Number(e.target.value))}
+              />
+            </div>
+          ))}
+        </div>
+      ))}
       {clocks.map((c) => (
         <div key={c.id} className="rounded-lg p-2 bg-surface-2">
           <div className="mb-1 flex justify-between text-2xs">

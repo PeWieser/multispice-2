@@ -217,6 +217,7 @@ export default function SheetTabs() {
               className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-ink-2 tree-row hover:text-ink"
               onClick={() => {
                 const s = list.find((l) => l.id === ctx.id);
+                setCtx(null);
                 if (s) startRename(s.id, benannt(s.id, s.name));
               }}
             >
