@@ -2069,9 +2069,9 @@ add({
 const extraOpamps: Array<{ id: string; name: string; gain: number; gbw: number; slew: number; units: number; desc: string }> = [
   { id: "opamp_lm324", name: "LM324 Quad OPV", gain: 1e5, gbw: 1e6, slew: 0.5e6, units: 4, desc: "LM324" },
   { id: "opamp_tl072", name: "TL072 Dual JFET OPV", gain: 2e5, gbw: 3e6, slew: 13e6, units: 2, desc: "TL072" },
+  { id: "opamp_tl082", name: "TL082 Dual JFET", gain: 2e5, gbw: 3e6, slew: 13e6, units: 2, desc: "TL082" },
   { id: "opamp_op07", name: "OP07 Präzisions-OPV", gain: 5e5, gbw: 0.6e6, slew: 0.3e6, units: 1, desc: "OP07" },
   // S4.1: Komparatoren bleiben statisch (slew = 0 → kein Slew-Param in der UI).
-  { id: "opamp_lm393_dual", name: "LM393 Dual Komparator", gain: 2e5, gbw: 1e6, slew: 0, units: 2, desc: "LM393" },
   { id: "opamp_lm339", name: "LM339 Quad Komparator", gain: 2e5, gbw: 1e6, slew: 0, units: 4, desc: "LM339" },
 ];
 
@@ -2099,7 +2099,7 @@ for (const o of extraOpamps) {
     category: isComp ? "Analoge ICs/Komparatoren" : "Analoge ICs/Operationsverstärker",
     tags: ["opv", "opamp", o.id],
     mount: "both",
-    footprint: "DIP-14 / SOIC-14",
+    footprint: o.units > 2 ? "DIP-14 / SOIC-14" : "DIP-8 / SOIC-8",
     pins: multi ? mpins : [
       { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
       { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
@@ -3463,29 +3463,7 @@ add({
 });
 
 
-add({
-  id: "opamp_tl082",
-  name: "TL082 Dual JFET",
-  ref: "U",
-  category: "Analoge ICs/Operationsverstärker",
-  tags: ["opamp","opamp_tl082"],
-  mount: "both",
-  pins: [
-    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
-    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "V-", x: 0, y: 30, electrical: "power_in" },
-  ],
-  symbol: [
-    { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
-    L(-40, -15, -30, -15), L(-40, 15, -30, 15), L(30, 0, 40, 0), L(0, -18, 0, -30), L(0, 18, 0, 30),
-    TXT(-20, -11, "+", 11), TXT(-20, 19, "−", 11),
-  ],
-  params: [
-    { key: "gain", label: "Gain", type: "number", def: 200000.0 },
-    { key: "gbw", label: "GBW", unit: "Hz", type: "number", def: 3000000.0 },
-    { key: "slew", label: "Slew-Rate", unit: "V/s", type: "number", def: 13000000.0 },
-  ],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "OPAMP", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), gbw: num(i,"gbw",3000000.0), slew: num(i,"slew",13000000.0), rin: 2e6, rout: 75, vdrop: 1.2, vcc: 15, vee: -15 } }],
-});
+
 
 
 add({
@@ -3648,6 +3626,7 @@ add({
 });
 
 
+const pins_comp_lm393: PinDef[] = [{ name: "IN1+", x: -60, y: -50 }, { name: "IN1-", x: -60, y: -30 }, { name: "OUT1", x: 60, y: -40 }, { name: "IN2+", x: -60, y: -10 }, { name: "IN2-", x: -60, y: 10 }, { name: "OUT2", x: 60, y: -20 }, { name: "V+", x: -60, y: 30 }, { name: "GND", x: -60, y: 50 }];
 add({
   id: "comp_lm393",
   name: "LM393 Dual Komparator",
@@ -3655,16 +3634,11 @@ add({
   category: "Analoge ICs/Komparatoren",
   tags: ["komparator","comp_lm393"],
   mount: "both",
-  pins: [
-    { name: "IN+", x: -40, y: -15, electrical: "input" }, { name: "IN-", x: -40, y: 15, electrical: "input" }, { name: "OUT", x: 40, y: 0, electrical: "output" },
-    { name: "V+", x: 0, y: -30, electrical: "power_in" }, { name: "GND", x: 0, y: 30, electrical: "power_in" },
-  ],
-  symbol: [
-    { t: "line", pts: [-30, -30, 30, 0, -30, 30, -30, -30] },
-    L(-40, -15, -30, -15), L(-40, 15, -30, 15), L(30, 0, 40, 0), L(0, -18, 0, -30), L(0, 18, 0, 30), TXT(-14, 4, "CMP", 8),
-  ],
+  footprint: "DIP-8 / SOIC-8",
+  pins: pins_comp_lm393,
+  symbol: icSymbol(110, 116, "LM393", pins_comp_lm393),
   params: [{ key: "gain", label: "Gain", type: "number", def: 200000.0 }],
-  toDevices: (i,n): Device[] => [{ id: i.id, type: "COMPARATOR", nodes: [n[0],n[1],n[2],conn(n[3]),conn(n[4])], params: { gain: num(i,"gain",200000.0), rout: 100, vcc: 5, vee: 0 } }],
+  toDevices: (i,n): Device[] => [{ id: i.id + ":A", type: "COMPARATOR", nodes: [n[0],n[1],n[2],conn(n[6]),conn(n[7])], params: { gain: num(i,"gain",200000.0), rout: 100, vcc: 5, vee: 0 } }, { id: i.id + ":B", type: "COMPARATOR", nodes: [n[3],n[4],n[5],conn(n[6]),conn(n[7])], params: { gain: num(i,"gain",200000.0), rout: 100, vcc: 5, vee: 0 } }],
 });
 
 
