@@ -38,6 +38,10 @@ function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
     try {
       sym = getPartSymbol(part, resolveSymbolStyle(symbolStylePref));
     } catch {}
+    // Schalter/Taster/Relais/DIP: Der Hebel lebt im Interaktiv-Overlay (S5.26)
+    // und fehlt im statischen Symbol – Vorschau malt ihn dazu, sonst sieht
+    // man nur Stutzen + Lagerpunkte.
+    sym = [...sym, ...switchPreviewPrims(part)];
     // S5.18: Symbol einpassen (ICs sind größer als die alte 48er-Norm).
     const fit = previewFit(sym, size);
     ctx.save();

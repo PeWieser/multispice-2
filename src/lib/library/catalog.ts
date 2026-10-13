@@ -568,8 +568,8 @@ add({
   pins: [{ name: "P", x: -30, y: 0, electrical: "input" }],
   symbol: [
     L(-30, 0, -14, 0),
-    { t: "line", pts: [-14, -10, -14, 10, 12, 0, -14, -10] },
-    TXT(-4, 4, "IN", 8),
+    { t: "line", pts: [-14, -18, -14, 18, 26, 0, -14, -18] },
+    TXT(2, 5, "IN", 9),
   ],
   params: [{ key: "pname", label: "Port-Name", type: "text", def: "IN1" }],
   toDevices: () => [],
@@ -585,8 +585,8 @@ add({
   pins: [{ name: "P", x: -30, y: 0, electrical: "output" }],
   symbol: [
     L(-30, 0, -14, 0),
-    { t: "line", pts: [12, -10, 12, 10, -14, 0, 12, -10] },
-    TXT(2, 4, "OUT", 8),
+    { t: "line", pts: [26, -18, 26, 18, -14, 0, 26, -18] },
+    TXT(7, 5, "OUT", 8),
   ],
   params: [{ key: "pname", label: "Port-Name", type: "text", def: "OUT1" }],
   toDevices: () => [],
@@ -602,8 +602,8 @@ add({
   pins: [{ name: "P", x: -30, y: 0, electrical: "passive" }],
   symbol: [
     L(-30, 0, -14, 0),
-    { t: "line", pts: [-14, 0, 0, -10, 14, 0, 0, 10, -14, 0] },
-    TXT(-2, 4, "IO", 8),
+    { t: "line", pts: [-16, 0, 0, -14, 16, 0, 0, 14, -16, 0] },
+    TXT(0, 5, "IO", 8),
   ],
   params: [{ key: "pname", label: "Port-Name", type: "text", def: "IO1" }],
   toDevices: () => [],
@@ -736,24 +736,24 @@ add({
   mount: "virtual",
   pins: [
     // BNC-Reihe unten wie am echten Gerät (v. l. n. r. = Pin-Index 0–4, stabil).
-    { name: "CH1", x: -32, y: 40 },
-    { name: "CH2", x: -16, y: 40 },
+    { name: "CH1", x: -40, y: 40 },
+    { name: "CH2", x: -20, y: 40 },
     { name: "CH3", x: 0, y: 40 },
-    { name: "CH4", x: 16, y: 40 },
-    { name: "GND", x: 32, y: 40 },
+    { name: "CH4", x: 20, y: 40 },
+    { name: "GND", x: 40, y: 40 },
   ],
   symbol: [
-    RECT(-40, -28, 80, 56, 3),
+    RECT(-50, -28, 100, 56, 3),
     // Bildschirm mit Trace-Glyphe
-    RECT(-32, -21, 64, 30, 2),
-    L(-28, -2, -20, -2, -16, -12, -12, -2, -4, -2, 0, -12, 4, -2, 12, -2, 20, -2, 28, -2),
+    RECT(-42, -21, 84, 30, 2),
+    L(-38, -2, -28, -2, -24, -12, -20, -2, -10, -2, -6, -12, -2, -2, 8, -2, 12, -12, 16, -2, 26, -2, 30, -12, 34, -2, 38, -2),
     TXT(0, 18, "4 CH", 8),
     // Anschluss-Stutzen (enden exakt auf den Pins)
-    L(-32, 28, -32, 40),
-    L(-16, 28, -16, 40),
+    L(-40, 28, -40, 40),
+    L(-20, 28, -20, 40),
     L(0, 28, 0, 40),
-    L(16, 28, 16, 40),
-    L(32, 28, 32, 40),
+    L(20, 28, 20, 40),
+    L(40, 28, 40, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -773,15 +773,15 @@ add({
   tags: ["multimeter", "dmm", "xdm", "instrument", "messung", "voltmeter", "spannung"],
   mount: "virtual",
   pins: [
-    { name: "+", x: -8, y: 40 },
-    { name: "-", x: 8, y: 40 },
+    { name: "+", x: -10, y: 40 },
+    { name: "-", x: 10, y: 40 },
   ],
   symbol: [
     RECT(-24, -28, 48, 56, 3),
     RECT(-17, -21, 34, 22, 2),
     TXT(0, 18, "XDM", 9),
-    L(-8, 28, -8, 40),
-    L(8, 28, 8, 40),
+    L(-10, 28, -10, 40),
+    L(10, 28, 10, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -795,16 +795,16 @@ add({
   tags: ["frequenzzähler", "zähler", "counter", "xfc", "instrument", "messung", "frequenz"],
   mount: "virtual",
   pins: [
-    { name: "IN", x: -8, y: 40 },
-    { name: "GND", x: 8, y: 40 },
+    { name: "IN", x: -10, y: 40 },
+    { name: "GND", x: 10, y: 40 },
   ],
   symbol: [
     RECT(-24, -28, 48, 56, 3),
     RECT(-17, -21, 34, 22, 2),
     TXT(0, 10, "XFC", 9),
     TXT(0, 20, "Hz", 7),
-    L(-8, 28, -8, 40),
-    L(8, 28, 8, 40),
+    L(-10, 28, -10, 40),
+    L(10, 28, 10, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -818,8 +818,8 @@ add({
   tags: ["bode", "plotter", "xbp", "instrument", "messung", "frequenzgang", "ac"],
   mount: "virtual",
   pins: [
-    { name: "OUT", x: -8, y: 40 },
-    { name: "GND", x: 8, y: 40 },
+    { name: "OUT", x: -10, y: 40 },
+    { name: "GND", x: 10, y: 40 },
   ],
   symbol: [
     RECT(-24, -28, 48, 56, 3),
@@ -827,8 +827,8 @@ add({
     L(-14, 6, 14, 6),
     L(-12, 4, -4, -2, 4, -6, 12, -10),
     TXT(0, 18, "XBP", 8),
-    L(-8, 28, -8, 40),
-    L(8, 28, 8, 40),
+    L(-10, 28, -10, 40),
+    L(10, 28, 10, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -842,30 +842,30 @@ add({
   tags: ["logikanalysator", "logic", "xla", "instrument", "messung", "digital", "bus"],
   mount: "virtual",
   pins: [
-    { name: "D0", x: -64, y: 40 },
-    { name: "D1", x: -48, y: 40 },
-    { name: "D2", x: -32, y: 40 },
-    { name: "D3", x: -16, y: 40 },
+    { name: "D0", x: -40, y: 40 },
+    { name: "D1", x: -30, y: 40 },
+    { name: "D2", x: -20, y: 40 },
+    { name: "D3", x: -10, y: 40 },
     { name: "D4", x: 0, y: 40 },
-    { name: "D5", x: 16, y: 40 },
-    { name: "D6", x: 32, y: 40 },
-    { name: "D7", x: 48, y: 40 },
-    { name: "GND", x: 64, y: 40 },
+    { name: "D5", x: 10, y: 40 },
+    { name: "D6", x: 20, y: 40 },
+    { name: "D7", x: 30, y: 40 },
+    { name: "GND", x: 40, y: 40 },
   ],
   symbol: [
-    RECT(-72, -28, 144, 56, 3),
-    RECT(-64, -21, 128, 22, 2),
-    L(-60, -4, -44, -4, -44, -14, -28, -14, -28, -4, -12, -4, -12, -14, 4, -14, 4, -4, 20, -4, 20, -14, 36, -14, 36, -4, 52, -4),
+    RECT(-50, -28, 100, 56, 3),
+    RECT(-42, -21, 84, 22, 2),
+    L(-38, -4, -28, -4, -28, -14, -18, -14, -18, -4, -8, -4, -8, -14, 2, -14, 2, -4, 12, -4, 12, -14, 22, -14, 22, -4, 32, -4, 32, -14, 38, -14),
     TXT(0, 18, "XLA", 8),
-    L(-64, 28, -64, 40),
-    L(-48, 28, -48, 40),
-    L(-32, 28, -32, 40),
-    L(-16, 28, -16, 40),
+    L(-40, 28, -40, 40),
+    L(-30, 28, -30, 40),
+    L(-20, 28, -20, 40),
+    L(-10, 28, -10, 40),
     L(0, 28, 0, 40),
-    L(16, 28, 16, 40),
-    L(32, 28, 32, 40),
-    L(48, 28, 48, 40),
-    L(64, 28, 64, 40),
+    L(10, 28, 10, 40),
+    L(20, 28, 20, 40),
+    L(30, 28, 30, 40),
+    L(40, 28, 40, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -879,19 +879,19 @@ add({
   tags: ["logic", "converter", "xlc", "instrument", "wahrheitstabelle", "digital", "boolesch"],
   mount: "virtual",
   pins: [
-    { name: "IN0", x: -72, y: 40 },
-    { name: "IN1", x: -56, y: 40 },
-    { name: "IN2", x: -40, y: 40 },
-    { name: "IN3", x: -24, y: 40 },
-    { name: "IN4", x: -8, y: 40 },
-    { name: "IN5", x: 8, y: 40 },
-    { name: "IN6", x: 24, y: 40 },
-    { name: "IN7", x: 40, y: 40 },
-    { name: "OUT", x: 56, y: 40 },
-    { name: "GND", x: 72, y: 40 },
+    { name: "IN0", x: -45, y: 40 },
+    { name: "IN1", x: -35, y: 40 },
+    { name: "IN2", x: -25, y: 40 },
+    { name: "IN3", x: -15, y: 40 },
+    { name: "IN4", x: -5, y: 40 },
+    { name: "IN5", x: 5, y: 40 },
+    { name: "IN6", x: 15, y: 40 },
+    { name: "IN7", x: 25, y: 40 },
+    { name: "OUT", x: 35, y: 40 },
+    { name: "GND", x: 45, y: 40 },
   ],
   symbol: [
-    RECT(-80, -28, 160, 56, 3),
+    RECT(-55, -28, 110, 56, 3),
     // Wahrheitstafel-Glyphe
     L(-24, -22, -24, 8),
     L(-12, -22, -12, 8),
@@ -903,16 +903,16 @@ add({
     L(-24, -22, 24, -22),
     L(-24, 8, 24, 8),
     TXT(0, 18, "XLC", 8),
-    L(-72, 28, -72, 40),
-    L(-56, 28, -56, 40),
-    L(-40, 28, -40, 40),
-    L(-24, 28, -24, 40),
-    L(-8, 28, -8, 40),
-    L(8, 28, 8, 40),
-    L(24, 28, 24, 40),
-    L(40, 28, 40, 40),
-    L(56, 28, 56, 40),
-    L(72, 28, 72, 40),
+    L(-45, 28, -45, 40),
+    L(-35, 28, -35, 40),
+    L(-25, 28, -25, 40),
+    L(-15, 28, -15, 40),
+    L(-5, 28, -5, 40),
+    L(5, 28, 5, 40),
+    L(15, 28, 15, 40),
+    L(25, 28, 25, 40),
+    L(35, 28, 35, 40),
+    L(45, 28, 45, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -926,16 +926,16 @@ add({
   tags: ["wattmeter", "watt", "xwm", "instrument", "messung", "leistung"],
   mount: "virtual",
   pins: [
-    { name: "V+", x: -8, y: 40 },
-    { name: "V-", x: 8, y: 40 },
+    { name: "V+", x: -10, y: 40 },
+    { name: "V-", x: 10, y: 40 },
   ],
   symbol: [
     RECT(-24, -28, 48, 56, 3),
     CIR(0, -4, 13),
     TXT(0, 0, "W", 11),
     TXT(0, 18, "XWM", 8),
-    L(-8, 28, -8, 40),
-    L(8, 28, 8, 40),
+    L(-10, 28, -10, 40),
+    L(10, 28, 10, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -949,8 +949,8 @@ add({
   tags: ["iv", "kennlinie", "xiv", "instrument", "messung", "diode", "transistor"],
   mount: "virtual",
   pins: [
-    { name: "+", x: -8, y: 40 },
-    { name: "-", x: 8, y: 40 },
+    { name: "+", x: -10, y: 40 },
+    { name: "-", x: 10, y: 40 },
   ],
   symbol: [
     RECT(-24, -28, 48, 56, 3),
@@ -958,8 +958,8 @@ add({
     L(-14, 8, 14, 8),
     L(-12, 6, -6, 4, 0, -2, 6, -10, 12, -13),
     TXT(0, 18, "XIV", 8),
-    L(-8, 28, -8, 40),
-    L(8, 28, 8, 40),
+    L(-10, 28, -10, 40),
+    L(10, 28, 10, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -973,8 +973,8 @@ add({
   tags: ["spektrum", "fft", "xsa", "instrument", "messung", "frequenz"],
   mount: "virtual",
   pins: [
-    { name: "IN", x: -8, y: 40 },
-    { name: "GND", x: 8, y: 40 },
+    { name: "IN", x: -10, y: 40 },
+    { name: "GND", x: 10, y: 40 },
   ],
   symbol: [
     RECT(-24, -28, 48, 56, 3),
@@ -985,8 +985,8 @@ add({
     L(4, 8, 4, -2),
     L(10, 8, 10, -6),
     TXT(0, 18, "XSA", 8),
-    L(-8, 28, -8, 40),
-    L(8, 28, 8, 40),
+    L(-10, 28, -10, 40),
+    L(10, 28, 10, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -1000,17 +1000,17 @@ add({
   tags: ["mustergenerator", "pattern", "xpg", "instrument", "takt", "puls", "digital"],
   mount: "virtual",
   pins: [
-    { name: "OUT1", x: -16, y: 40, electrical: "output" },
+    { name: "OUT1", x: -20, y: 40, electrical: "output" },
     { name: "OUT2", x: 0, y: 40, electrical: "output" },
-    { name: "COM", x: 16, y: 40 },
+    { name: "COM", x: 20, y: 40 },
   ],
   symbol: [
     RECT(-28, -28, 56, 56, 3),
     L(-20, 4, -12, 4, -12, -8, -4, -8, -4, 4, 4, 4, 4, -8, 12, -8, 12, 4, 20, 4),
     TXT(0, 18, "XPG", 8),
-    L(-16, 28, -16, 40),
+    L(-20, 28, -20, 40),
     L(0, 28, 0, 40),
-    L(16, 28, 16, 40),
+    L(20, 28, 20, 40),
   ],
   params: [
     { key: "freq1", label: "Frequenz CH1", unit: "Hz", type: "number", def: 1000 },
@@ -1037,15 +1037,15 @@ add({
   tags: ["distortion", "klirr", "thd", "xda", "instrument", "messung"],
   mount: "virtual",
   pins: [
-    { name: "IN", x: -8, y: 40 },
-    { name: "GND", x: 8, y: 40 },
+    { name: "IN", x: -10, y: 40 },
+    { name: "GND", x: 10, y: 40 },
   ],
   symbol: [
     RECT(-24, -28, 48, 56, 3),
     L(-16, 0, -12, -6, -8, -8, -4, -6, 0, 0, 4, 6, 8, 8, 12, 6, 16, 0),
     TXT(0, 18, "XDA", 8),
-    L(-8, 28, -8, 40),
-    L(8, 28, 8, 40),
+    L(-10, 28, -10, 40),
+    L(10, 28, 10, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -1059,9 +1059,9 @@ add({
   tags: ["network", "s-parameter", "xna", "instrument", "messung", "hf", "sparams"],
   mount: "virtual",
   pins: [
-    { name: "P1", x: -16, y: 40 },
+    { name: "P1", x: -20, y: 40 },
     { name: "P2", x: 0, y: 40 },
-    { name: "GND", x: 16, y: 40 },
+    { name: "GND", x: 20, y: 40 },
   ],
   symbol: [
     RECT(-28, -28, 56, 56, 3),
@@ -1070,9 +1070,9 @@ add({
     L(-24, -8, -16, -8),
     L(16, -8, 24, -8),
     TXT(0, 18, "XNA", 8),
-    L(-16, 28, -16, 40),
+    L(-20, 28, -20, 40),
     L(0, 28, 0, 40),
-    L(16, 28, 16, 40),
+    L(20, 28, 20, 40),
   ],
   params: [],
   toDevices: () => [],
@@ -1484,7 +1484,7 @@ for (const r of regs) {
 }
 
 /* ---------------- Digital logic ---------------- */
-interface GateSpec { id: string; name: string; model: string; inputs: number; label: string; inv: boolean; tags: string[] }
+interface GateSpec { id: string; name: string; model: string; inputs: number; label: string; inv: boolean; tags: string[]; loop?: boolean }
 const gateSpecs: GateSpec[] = [
   { id: "gate_and2", name: "AND (2 Eingänge)", model: "and2", inputs: 2, label: "&", inv: false, tags: ["und", "and", "7408"] },
   { id: "gate_and3", name: "AND (3 Eingänge)", model: "and3", inputs: 3, label: "&", inv: false, tags: ["und", "and", "7411"] },
@@ -1496,14 +1496,16 @@ const gateSpecs: GateSpec[] = [
   { id: "gate_xnor2", name: "XNOR (2 Eingänge)", model: "xnor2", inputs: 2, label: "=1", inv: true, tags: ["xnor", "74266"] },
   { id: "gate_not", name: "Inverter (NOT)", model: "not", inputs: 1, label: "1", inv: true, tags: ["not", "inverter", "7404", "4069"] },
   { id: "gate_buffer", name: "Buffer", model: "buffer", inputs: 1, label: "1", inv: false, tags: ["buffer", "treiber"] },
-  { id: "gate_schmitt", name: "Schmitt-Trigger Inverter", model: "schmitt", inputs: 1, label: "⎍", inv: true, tags: ["schmitt", "40106", "7414"] },
+  { id: "gate_schmitt", name: "Schmitt-Trigger Inverter", model: "schmitt", inputs: 1, label: "1", inv: true, tags: ["schmitt", "40106", "7414"], loop: true },
 ];
 for (const g of gateSpecs) {
   const h = Math.max(40, g.inputs * 20 + 20);
   const pins: PinDef[] = [];
   for (let k = 0; k < g.inputs; k++) pins.push({ name: String.fromCharCode(65 + k), x: -40, y: -((g.inputs - 1) * 10) + k * 20, electrical: "input" });
   pins.push({ name: "Y", x: 40, y: 0, electrical: "output" });
-  const sym: SymbolPrim[] = [RECT(-26, -h / 2, 52, h, 3), TXT(0, 5, g.label, 12)];
+  const sym: SymbolPrim[] = g.loop
+    ? [RECT(-26, -h / 2, 52, h, 3), L(-11, 7, -1, 7, -1, -7, 11, -7), L(-4.5, -1.5, -1, -6, 2.5, -1.5)]
+    : [RECT(-26, -h / 2, 52, h, 3), TXT(0, 5, g.label, 12)];
   for (const pin of pins) {
     if (pin.x < 0) sym.push(L(-40, pin.y, -26, pin.y));
     else sym.push(L(g.inv ? 32 : 26, 0, 40, 0));
@@ -1682,7 +1684,7 @@ add({
   id: "relay",
   name: "Relais (SPDT)",
   ref: "K",
-  category: "Elektromechanik/Schalter",
+  category: "Elektromechanik/Relais",
   tags: ["relais", "relay", "spdt"],
   mount: "THT",
   interactive: "relay",
@@ -2191,7 +2193,7 @@ for (const ic of extra74) {
     tags: ["74hc", "ttl", ic.model],
     mount: "both",
     pins,
-    symbol: icSymbol(w, h, ic.id.toUpperCase(), pins),
+    symbol: icSymbol(w, h, ic.name.split(" ")[0].toUpperCase(), pins),
     params: [
       { key: "vdd", label: "VDD", unit: "V", type: "number", def: 5 },
       { key: "vth", label: "VTH", unit: "V", type: "number", def: 2.5 },
@@ -2842,7 +2844,7 @@ add({
   mount: "THT",
   interactive: "led",
   pins: [{ name: "R", x: -30, y: -20 }, { name: "G", x: -30, y: 0 }, { name: "B", x: -30, y: 20 }, { name: "K", x: 30, y: 0 }],
-  symbol: [CIR(0,0,14), L(-30,-20,-10,-10), L(-30,0,-10,0), L(-30,20,-10,10), L(10,0,30,0)],
+  symbol: [CIR(0,0,14), L(-30,-20,-10,-10), L(-30,0,-10,0), L(-30,20,-10,10), L(10,0,30,0), L(2,-20,10,-28), L(6,-28,10,-28,10,-24), L(10,-16,18,-24), L(14,-24,18,-24,18,-20)],
   params: [{ key: "vf", label: "VF", unit: "V", type: "number", def: 2.2 }],
   toDevices: (i,n) => {
     const vf = num(i,"vf",2.2);
@@ -3415,9 +3417,13 @@ add({
   mount: "THT",
   pins: [{ name: "C", x: 12, y: -30 }, { name: "G", x: -30, y: 0 }, { name: "E", x: 12, y: 30 }],
   symbol: [
-    L(-30, 0, -8, 0), L(-8, -16, -8, 16), L(-2, -16, -2, -6), L(-2, -5, -2, 5), L(-2, 6, -2, 16),
-    L(-2, -11, 12, -11, 12, -30), L(-2, 11, 12, 11, 12, 30), L(-2, 0, 12, 0, 12, 11),
-    L(4, -4, 10, 0, 4, 4, 4, -4), CIR(0, 0, 24), TXT(0, -28, "IGBT", 8),
+    // Symbol-QA: echtes IGBT-Zeichen (Gate + Kanal + massive Kollektor-Schiene,
+    // Emitter-Pfeil nach außen) statt MOSFET-Kopie mit Bulk-Pfeil.
+    L(-30, 0, -8, 0), L(-8, -16, -8, 16), L(-2, -16, -2, 16),
+    RECT(3, -16, 3, 32, 0, true),
+    L(6, -11, 12, -11, 12, -30), L(6, 11, 12, 11, 12, 30),
+    L(8, 20, 12, 27), L(16, 20, 12, 27),
+    CIR(0, 0, 24), TXT(0, -28, "IGBT", 8),
   ],
   params: [
     { key: "vto", label: "VTO", unit: "V", type: "number", def: 4 },
@@ -6961,12 +6967,19 @@ add({
         if (m) { prim.x = m.nx; prim.y = m.ny; }
       }
     }
-    // Body-Rechtecke wachsen, wenn Pins über Ober-/Unterkannte hinausragen
+    // Body-Rechtecke wachsen, wenn seitliche Pin-Spalten über Ober-/Unterkante
+    // hinausragen. Pin-Reihen unten/oben (gleiche Y, z. B. Oszi-Buchsen) zählen
+    // nicht – sie hängen per Design an Stutzen unter dem Body (Symbol-QA).
+    const colCount = new Map<number, number>();
+    for (const q of pins) colCount.set(q.x, (colCount.get(q.x) ?? 0) + 1);
     for (const prim of part.symbol) {
       if (prim.t !== "rect" || prim.w < 16 || prim.h < 20) continue;
       const cy = prim.y + prim.h / 2;
       let need = 0;
-      for (const q of pins) need = Math.max(need, Math.abs(q.y - cy) + 8);
+      for (const q of pins) {
+        if ((colCount.get(q.x) ?? 0) < 2) continue;
+        need = Math.max(need, Math.abs(q.y - cy) + 8);
+      }
       if (need > prim.h / 2) {
         prim.h = Math.ceil(need) * 2;
         prim.y = cy - prim.h / 2;
