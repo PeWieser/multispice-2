@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PART_MAP, formatValue, partPins } from "@/lib/library/catalog";
 import { GRID, Instance, MeasurementProbe, SchematicDoc, instanceBounds, pinPosition, rotatePoint } from "@/lib/schematic/model";
 import { findNetTarget, finishNetDraft, netClick, previewNetPath, type NetDraft, type NetPathOptions, type NetTarget } from "@/lib/schematic/netdraw";
+import { computeFlowLinks, type FlowLink } from "@/lib/schematic/flowviz";
 import { engine, hitTestInstance, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
 import { estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
@@ -20,7 +21,7 @@ import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
 import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "@/lib/keyboard";
 import { summarizeCircuit } from "@/lib/a11y";
-import { type Pt, makeWireId, pointAtLength, polyLength, roundRect, snap, toScreen } from "./Canvas/geometry";
+import { type Pt, makeWireId, roundRect, snap, toScreen } from "./Canvas/geometry";
 import { dipLeverAt, findInstanceByValueLabel, findPinInfo, findPotSliderAt, getNetObstacles, getNetPinPoints, getNoteBounds, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, instanceLocalPoint, nearestNetName, probeTarget } from "./Canvas/hitTest";
 import { potSliderPosFromLocalY, switchToggle } from "@/lib/interactive/switches";
 import { NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, nearestFontStep, noteFirstBaseline, noteLineH, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
@@ -289,18 +290,21 @@ export default function Canvas() {
     // ── W1 / W105–W107: Physikalisch konsistente, sprungfreie Stromanimation ──
     // 1. Konstante Ladungsträgerdichte im Leiter (fester Punktabstand SPACING = 22 px);
     //    die Stromstärke I bestimmt die Driftgeschwindigkeit v(I).
-    // 2. Kontinuierliche Phasen-Integration pro Leitung (phase_k+1 = phase_k + v * dt):
-    //    kehrt sich der Stromfluss um, wechselt nur das Vorzeichen von v * dt —
-    //    die Elektronen bremsen ab und laufen ohne jeden Sprung zurück!
+    // 2. Kontinuierliche Phasen-Integration pro TEILSTÜCK (Kettenglied zwischen zwei
+    //    Knoten): phase_k+1 = phase_k + v * dt — bei Stromumkehr wechselt nur das
+    //    Vorzeichen von v * dt, die Perlen bremsen ab und laufen ohne Sprung zurück.
+    //    Pro Draht wäre falsch: ein Draht mit T-Abzweig führt links/rechts des
+    //    Abzweigs verschiedene (ggf. gegenläufige) Ströme (NE555-Astabil: R1↔R2
+    //    mit DIS-Abzweig — der Mittelwert zeigte eine Hälfte rückwärts an).
     // 3. T-Abzweige und Mehrpol-Bauteile (NE555, OPV, BJT, MOSFET) werden über
     //    Segment-Splitting und KCL-Bilanz vollständig berücksichtigt.
     const FLOW_SPACING = 22;
-    const flowByWire = new Map<string, { dir: number; mag: number; phase: number }>();
     const flowState = stateRef.current as any;
-    if (!flowState._wirePhases) {
-      flowState._wirePhases = new Map<string, number>();
+    if (!flowState._linkPhases) {
+      flowState._linkPhases = new Map<string, number>();
     }
-    const wirePhases: Map<string, number> = flowState._wirePhases;
+    const linkPhases: Map<string, number> = flowState._linkPhases;
+    let flowLinks: FlowLink[] = [];
     const flowLive = showCurrentFlow && live && (sim.running || live.time > 0);
     if (flowLive) {
       const dtms = sim.running && flowState._flowLast ? Math.min(Math.max(now - flowState._flowLast, 0), 80) : 0;
@@ -523,39 +527,16 @@ export default function Canvas() {
 
       const electron = st.currentFlowDirection !== "conventional";
       const timeScaleFactor = Math.max(0.25, Math.min(3.5, Math.pow(sim.timeScale || 1, 0.35)));
-      // W114: Erst ab 10 µA (1e-5 A) Stromfluss animieren – unterdrückt Sperr-/Leckströme
-      // (z. B. an gesperrter LED bei ausgeschaltetem 555-Ausgang oder hochohmigen Eingängen).
-      const MIN_FLOW_CURRENT = 1e-5;
-      for (const w of doc.wires) {
-        const chain = wireChains.get(w.id);
-        if (!chain || chain.length === 0) continue;
-        let weightedCurrent = 0;
-        let totalLen = 0;
-        for (const seg of chain) {
-          const pa = phi.get(seg.a);
-          const pb = phi.get(seg.b);
-          if (pa === undefined || pb === undefined) continue;
-          // Technischer Zweigstrom von seg.a nach seg.b ist (pa - pb) in Ampere
-          weightedCurrent += (pa - pb) * seg.len;
-          totalLen += seg.len;
-        }
-        if (totalLen < 1) continue;
-        const iWire = weightedCurrent / totalLen;
-        const mag = Math.abs(iWire);
-        if (mag < MIN_FLOW_CURRENT) continue;
-        const convDir = iWire > 0 ? 1 : -1;
-        const dir = electron ? -convDir : convDir;
-        // Gedämpfte logarithmische Driftgeschwindigkeit (px/s):
-        // ~20 px/s bei 10 µA, ~56 px/s bei 1 mA, ~80 px/s bei 10 mA, max 110 px/s
-        const speedPxPerSec =
-          Math.min(110, Math.max(18, 20 + Math.max(0, Math.log10(mag / MIN_FLOW_CURRENT)) * 18)) * timeScaleFactor;
-        const prevPhase = wirePhases.get(w.id) ?? 0;
-        const nextPhase = sim.running
-          ? (((prevPhase + dir * speedPxPerSec * dtSec) % FLOW_SPACING) + FLOW_SPACING) % FLOW_SPACING
-          : prevPhase;
-        wirePhases.set(w.id, nextPhase);
-        flowByWire.set(w.id, { dir, mag, phase: nextPhase });
-      }
+      // Richtung/Stärke/Phase pro TEILSTÜCK aus der Kirchhoff-Lösung (lib/flowviz).
+      const computed = computeFlowLinks(doc.wires, wireChains, phi, linkPhases, {
+        spacing: FLOW_SPACING,
+        electron,
+        timeScaleFactor,
+        running: sim.running,
+        dtSec,
+      });
+      flowLinks = computed.flows;
+      flowState._linkPhases = computed.nextPhases;
     }
 
     const wireColor = canvasColor("--wire");
@@ -742,35 +723,36 @@ export default function Canvas() {
         // W13: Der Endpunkt-Marker genügt – kein Glow-Streifen.
       }
 
-      // W15 / W105–W107 / W113: Dezentere, sprungfreie Ladungsträger-Perlen
-      // mit konstantem Abstand (FLOW_SPACING = 22 px) und kontinuierlich
-      // integrierter Phase pro Leitung.
-      // S5.28: Etwas präsenter (größer, deckender, Theme-Kontrastkontur).
-      const flow = flowByWire.get(wire.id);
-      if (flow && flow.mag >= 1e-5 && wire.points.length > 1) {
-        const totalLen = polyLength(wire.points);
-        if (totalLen >= 6) {
-          const iz = 1 / Math.max(view.zoom, 0.45);
-          // Deckkraft (0.40 bei 10 µA bis max. 0.78 ab 10 mA)
-          const intensity = Math.min(0.78, Math.max(0.40, 0.40 + (Math.log10(flow.mag / 1e-5) / 3) * 0.38));
-          const rDot = 2.4 * iz;
-          const isElectron = st.currentFlowDirection !== "conventional";
-          ctx.save();
-          ctx.globalAlpha = intensity;
-          ctx.fillStyle = isElectron ? "#f59e0b" : canvasColor("--ink-3"); // S5.15: Fix-Amber = Signal, Grau = Token
-          ctx.strokeStyle = isDarkCanvas() ? "rgba(255, 255, 255, 0.55)" : "rgba(15, 23, 42, 0.45)";
-          ctx.lineWidth = 0.85 * iz;
-          for (let pos = flow.phase; pos <= totalLen; pos += FLOW_SPACING) {
-            const pt = pointAtLength(wire.points, pos);
-            if (!pt) continue;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, rDot, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          }
-          ctx.restore();
+    }
+
+    // W15 / W105–W107 / W113: Dezentere, sprungfreie Ladungsträger-Perlen
+    // mit konstantem Abstand (FLOW_SPACING = 22 px), kontinuierlich integrierter
+    // Phase — und Richtung pro TEILSTÜCK: jede Kante des Draht-Graphen trägt
+    // ihren eigenen Kirchhoff-Strom (gegenläufige Hälften am T-Abzweig laufen
+    // korrekt auseinander statt gemittelt rückwärts).
+    // S5.28: Etwas präsenter (größer, deckender, Theme-Kontrastkontur).
+    if (flowLinks.length > 0) {
+      const iz = 1 / Math.max(view.zoom, 0.45);
+      const rDot = 2.4 * iz;
+      const isElectron = st.currentFlowDirection !== "conventional";
+      ctx.save();
+      ctx.fillStyle = isElectron ? "#f59e0b" : canvasColor("--ink-3"); // S5.15: Fix-Amber = Signal, Grau = Token
+      ctx.strokeStyle = isDarkCanvas() ? "rgba(255, 255, 255, 0.55)" : "rgba(15, 23, 42, 0.45)";
+      ctx.lineWidth = 0.85 * iz;
+      for (const link of flowLinks) {
+        // Deckkraft (0.40 bei 10 µA bis max. 0.78 ab 10 mA)
+        const intensity = Math.min(0.78, Math.max(0.40, 0.40 + (Math.log10(link.mag / 1e-5) / 3) * 0.38));
+        ctx.globalAlpha = intensity;
+        const dx = (link.bx - link.ax) / link.len;
+        const dy = (link.by - link.ay) / link.len;
+        for (let s = link.phase; s <= link.len; s += FLOW_SPACING) {
+          ctx.beginPath();
+          ctx.arc(link.ax + dx * s, link.ay + dy * s, rDot, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
         }
       }
+      ctx.restore();
     }
 
     // Alignment guides when dragging wire point or instances – delightful snap feedback (Figma/Multisim)
