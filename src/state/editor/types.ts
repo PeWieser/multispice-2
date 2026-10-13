@@ -353,6 +353,10 @@ export interface EditorState {
   renameSheet: (id: string, name: string) => void;
   /** W98c: Reihenfolge der Entwürfe in der Dateileiste per Drag & Drop ändern. */
   reorderSheets: (fromId: string, toId: string) => void;
+  /** Reiter schließen (der letzte Entwurf bleibt immer offen). */
+  closeSheet: (id: string) => void;
+  /** Entwurf duplizieren (tiefe Kopie mit neuer ID) und das Duplikat öffnen. */
+  duplicateSheet: (id: string) => void;
   setAnalysis: (a: Partial<AnalysisState>) => void;
   runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
   /** S2.1: bricht die laufende Analyse ab (Worker-Terminierung; Fallback: wirkungslos nach Start). */

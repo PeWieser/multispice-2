@@ -7,6 +7,7 @@ import BottomPanel from "./BottomPanel";
 import Canvas from "./Canvas";
 import MenuBar from "./MenuBar";
 import StatusBar from "./StatusBar";
+import SheetTabs from "./SheetTabs";
 import ComponentStrip from "./ComponentStrip";
 import DrawingTools from "./DrawingTools";
 import LibraryPalette from "./LibraryPalette";
@@ -359,6 +360,11 @@ export default function Workbench() {
           void printSchematicSheet(useEditor.getState().doc);
         }
       }
+      // Neuer Entwurf: Strg+Alt+N (Tabs über dem Canvas)
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        useEditor.getState().newDocument();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -414,6 +420,7 @@ export default function Workbench() {
         <MobileTopBar onMenu={() => setMobileMenuOpen(true)} onSettings={() => setSettingsOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1 flex-col">
+          <SheetTabs />
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {!editorOpen && <Canvas />}
             <InstrumentLayer />
@@ -469,6 +476,7 @@ export default function Workbench() {
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
+            <SheetTabs />
             <div className="relative min-h-0 flex-1 overflow-hidden">
               {!editorOpen && <Canvas />}
               <InstrumentLayer />
@@ -512,6 +520,7 @@ export default function Workbench() {
       </header>
       <main id="workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
         <div className="relative flex min-w-0 flex-1 flex-col">
+          <SheetTabs />
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {!editorOpen && <Canvas />}
             <InstrumentLayer />

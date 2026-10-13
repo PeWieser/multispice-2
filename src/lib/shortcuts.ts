@@ -44,6 +44,14 @@ export const SHORTCUTS: ShortcutGroup[] = [
     ],
   },
   {
+    title: "Entwürfe",
+    items: [
+      { label: "Neuer Entwurf", keys: ["⌘⌥N"] },
+      { label: "Umbenennen", keys: ["2× Klick"], note: "auf den Reiter" },
+      { label: "Duplizieren / Schließen", keys: ["Rechtsklick"], note: "Kontextmenü am Reiter" },
+    ],
+  },
+  {
     title: "Ansicht & Simulation",
     items: [
       { label: "Bibliothek", keys: ["⌘K"] },
