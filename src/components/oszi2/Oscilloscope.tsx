@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Knob from './Knob';
 import Button from './Button';
 import type { Env, ProbeState, RefWave, Settings } from './types';
-import { CH_COLORS, MEAS_TYPES, clamp, defaultSettings, step125 } from './types';
-import { Engine, NPTS, acquire, autoset, measure } from './engine';
+import { CH_COLORS, MEAS_TYPES, TDIV_MAX, TDIV_MIN, clamp, defaultSettings, step125 } from './types';
+import { Engine, NPTS, acquire, autoset, measure, HDIV } from './engine';
 import type { Acq } from './engine';
 import { H, W, SLOT_H, GY, drawBoot, drawGraticule, drawOverlay, drawWaves, MAIN, OVERVIEW, ZOOMR, searchMarks, srcData, srcName, srcScale } from './render';
 import { MENU_TITLES, applyKnob, buildMenu, cursorSels, defaultKnob } from './menus';
@@ -236,7 +236,7 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
       }
       let zoomAcq: Acq | null = null;
       if (st.zoom.on && eng.display && !st.acq.xy) {
-        zoomAcq = acquire(eng.lastTT, st.hDelay + st.zoom.pos * st.tdiv, st.tdiv / st.zoom.factor, st, env, eng.acMean, true);
+        zoomAcq = acquire(eng.lastTT, clamp(st.hDelay, -HDIV * st.tdiv, HDIV * st.tdiv) + st.zoom.pos * st.tdiv, st.tdiv / st.zoom.factor, st, env, eng.acMean, true);
       }
       // statistics
       if (res.newAcq && st.meas.stats && eng.display) {
@@ -318,7 +318,7 @@ export default function Oscilloscope({ envRef, probes, heldProbe, onTargetClick,
     if (!x.ch[k].on) { msg(`Kanal ${k + 1} ist ausgeschaltet`); return x; }
     return applyKnob(`ch${k}pos`, d, x);
   });
-  const hScale = (d: number) => set((x) => ({ ...x, tdiv: x.hFine ? +clamp(x.tdiv * Math.pow(1.03, -d), 2e-9, 100).toPrecision(3) : step125(x.tdiv, -d, 2e-9, 100) }));
+  const hScale = (d: number) => set((x) => ({ ...x, tdiv: x.hFine ? +clamp(x.tdiv * Math.pow(1.03, -d), TDIV_MIN, TDIV_MAX).toPrecision(3) : step125(x.tdiv, -d, TDIV_MIN, TDIV_MAX) }));
   const hPos = (d: number) => set((x) => applyKnob('hDelay', d, x));
   const trigLevel = (d: number) => { lastLevelChange.current = now(); set((x) => applyKnob('trigLevel', d, x)); };
   const multi = (d: number) => {

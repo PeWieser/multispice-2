@@ -3,7 +3,7 @@
 # Steve-Jobs-Qualitätsaudit — Runde 3 („Insanely great oder nicht shippen“)
 
 > Datum: 2026-09-25 · Branch `arena/01a0d95e-multispice-2` · Stand: nach Build-Fix (PR #2)
-> Vorgänger: `DESIGN_AUDIT_STEVE_JOBS.md` (Detail-Runde), `FINAL_AUDIT_STEVE_JOBS.md` (Funktionsabgleich Multisim)
+> Vorgänger (archiviert unter `docs/archiv/`): `DESIGN_AUDIT_STEVE_JOBS.md` (Detail-Runde), `FINAL_AUDIT_STEVE_JOBS.md` (Funktionsabgleich Multisim)
 > Für den schnellen Einstieg (Auftrag, Runden 15–18, Regeln, Lagekarte): **[UEBERGABE.md](UEBERGABE.md)**
 > Dieses Audit prüft nicht Features, sondern **jede Oberfläche, mit der ein Mensch das Produkt berührt** —
 > inklusive der Flächen, die niemand sieht („die Rückseite des Schranks“).
@@ -2870,3 +2870,1133 @@ Die Maus- und Tastatursteuerung (`e.pointerType === "mouse"`) bleibt zu 100 % un
 
 
 
+## §42 — Sprint 1 („Vertrauen"): Ehrliche Simulation, echte Übertragungsgrößen, aufgeräumte Doku (S1.1–S1.8)
+
+> Datum: 2026-10-03 · Branch `arena/01a1028e-multispice-2` · Auftrag: Deep-Dive-Fazit
+> („100-%-Multisim-Alternative" + „Apple-Qualität") → Sprint 1 aus der Roadmap.
+> Regel: Erst Plan ins Audit, dann Implementierung; Verifikation vor jedem Commit
+> (`tsc`, `eslint`, `npm test`, `next build`).
+
+### 42.1 Befund (Code-geprüft, keine Schätzung)
+
+- **S1.1** `runTransferFunction` gibt `inputResistance: 1000, outputResistance: 10`
+  hartcodiert zurück; nur die Verstärkung (finite Differenz) ist echt.
+- **S1.2** `runSensitivity` ignoriert `mode: "ac"` (immer DC), die UI bietet AC an.
+- **S1.3** `runPoleZero` gibt hartcodierte „Dummy poles/zeros for demo" zurück.
+  Schlimmster Vertrauensbruch im Repo: erfundene Analyseergebnisse.
+- **S1.4** `buildAcMatrix`: `F`/`H`/`J`/`SCR`/`TRIAC`/`VSWITCH` fallen in
+  `default: break` und werden im AC-Kleinsignal **still** ignoriert.
+  (Hintergrund: `operatingPoint()` ruft `updateEvents()` auf — die
+  `st.extra.on`-Zustände von VSWITCH/SCR/TRIAC sind nach dem OP gültig und
+  damit linearisierbar. F/H nutzen im DC-Kern eine Sense-Leitwert-Näherung
+  `gsense = 1e6`, die sich in AC exakt nachbilden lässt.)
+- **S1.5** Der „Network Analyzer" plottet reinen AC-Gain, spricht aber von
+  S11/S21 — ohne Port-Normierung, ohne Z₀.
+- **S1.6** `onpage_connector`/`offpage_connector` existieren nur als
+  `partId`-Zeichenkette in `buildNets` (Mechanismus vollständig), aber als
+  **kein platzierbares Bauteil**; Blätter („Sheets") sind unabhängige
+  Dokumente und werden einzeln simuliert. Off-Page über Blätter ist damit
+  heute unmöglich; die alten Audit-Docs behaupten das Gegenteil.
+- **S1.7** `DESIGN.md` verspricht einen Gerber-Export („RS-274X Platzhalter");
+  im Code existiert kein Gerber. Doku ≠ Wahrheit.
+- **S1.8** ~20 Audit-/Plan-`.md`s an der Repo-Wurzel, teils widersprüchlich
+  („92 %", „Steve würde veröffentlichen"). Niemand weiß, was gilt.
+- Nebenbefund: Der Grapher zeigt `tf`/`sensitivity`/`pz`/`param`/`fourier`/
+  `noisefigure` als rohen JSON-Dump.
+
+### 42.2 Plan (S1.1–S1.8)
+
+- **S1.1 Transferfunktion** (`analyses.ts`): Verstärkung wie bisher (finite
+  Differenz am OP); Rin/Rout zusätzlich per **Testquellen-Methode** am
+  linearisierten OP (unabhängige Quellen nullen, Teststrom einprägen,
+  U/I messen). Ergebnis: `{ gain, inputResistance, outputResistance, ok }`.
+- **S1.2 Sensitivität** (`analyses.ts` + `analysis_defs.ts`): AC-Modus =
+  normierte Sensitivität von |H(f)| an einer wählbaren Frequenz
+  (neues Feld, nur im AC-Modus relevant); DC wie bisher. Modus wird
+  ausgewertet, nicht ignoriert.
+- **S1.3 Pol-/Nullstellen** (`analyses.ts` + Def): Echte Extraktion per
+  **Levy-Anpassung** einer rationalen Funktion an den gemessenen
+  AC-Frequenzgang (Ordnung wählbar, Default 2) + **Durand-Kerner**-
+  Nullstellensuche; dazu die **Anpassungsgüte** (RMS-Fehler in dB), damit
+  die Näherung ehrlich bleibt. Grapher: PN-Karte (SVG) + Liste + Güte.
+- **S1.4 AC-Vervollständigung** (`analyses.ts` + `runner.ts`): JFET wie
+  MOSFET linearisieren (gm/gds aus OP-Spannungen); F/H als gesteuerte
+  Quellen mit `gain·gsense` + Sense-Leitwert (konsistent zum DC-Kern);
+  VSWITCH/SCR/TRIAC mit OP-Schaltzustand als Leitwert; Warnungen für
+  Näherungen (`DIGITAL`/`GATE`/`MCU`/`TIMER555` als 1 nS gegen Masse,
+  Schalter im OP-Zustand) über `report.warnings` in die Konsole.
+- **S1.5 S-Parameter** (`analyses.ts` + `Instruments.tsx`): `runSParams`
+  (Quelle Vs=2 mit Serien-Z₀, Last-Z₀ am Ausgang; S11 aus Zin,
+  S21 = V2) + Geräte-UI mit Z₀-Einstellung, |S11|/|S21| in dB + Phase.
+- **S1.6 Verbinder** (`catalog.ts` + Docs): `onpage_connector` als echtes
+  Bauteil (1 Pin, Namens-Parameter, keine Devices — reine Netzbindung);
+  Off-Page/blattübergreifend = Roadmap Sprint 3 (eigene User-Entscheidung,
+  siehe SPRINTS.md). Tab-Begriff „Schaltblätter" wird nach User-Antwort
+  entweder behalten (echte Blätter, Sprint 3) oder ehrlich umbenannt.
+- **S1.7 DESIGN.md ≡ Code**: Gerber-Anspruch entfernen, Nicht-Ziele
+  (PCB-Layout/Export, Multisim-Binärimport, 3D-Breadboard, Ladder)
+  dokumentieren; jede Sprint-1-Änderung als Befund→Maßnahme eintragen.
+- **S1.8 Doku-Archiv**: Überholte Audit-/Plan-Docs per `git mv` nach
+  `docs/archiv/` (+ Hinweis-README); an der Wurzel bleiben README, DESIGN,
+  MANIFEST, UEBERGABE, SPRINTS, STEVE_JOBS_QUALITY_AUDIT (Protokoll),
+  CLOUDFLARE sowie die Test-/A11y-Referenzen.
+- **Grapher**: eigene Renderer für `tf` (Kennwerte), `sensitivity`
+  (Tabelle) und `pz` (PN-Karte) statt JSON-Dump.
+- **Tests**: `scripts/simtest.ts` erweitern (TF an Spannungsteiler,
+  S-Parameter an Dämpfungsglied, PZ am RC-Tiefpass, AC mit JFET/F/H/
+  VSWITCH/SCR, Sensitivität AC/DC) — alles gegen analytische Werte.
+
+### 42.3 Umsetzung & Verifikation (2026-10-03, Sprint 1 abgeschlossen)
+
+- **S1.1** ✅ `runTransferFunction`: Verstärkung aus AC-Kleinsignal
+  (der Kern liest `source.dc`, kein Perturbations-Hack nötig); Rin per
+  Teststrom bei stromlos geschaltetem Eingang, Rout per Teststrom bei
+  kurzgeschlossenem Eingang — verifiziert am Teiler (2 kΩ / 500 Ω exakt).
+- **S1.2** ✅ `runSensitivity`: AC-Modus = normierte Sensitivität von |H|
+  an wählbarer Testfrequenz (neues Feld `frequency`); ohne AC-Quelle wird
+  `ac=1` an der Eingangsquelle gesetzt und als Warnung offengelegt.
+- **S1.3** ✅ `runPoleZero`: Levy-Fit (Ordnung wählbar, Default 2) +
+  Durand-Kerner; Güte in dB, Überordnung wird beschnitten (Warnung),
+  Wurzeln außerhalb des Sweep-Bands gezählt (`outside`). Verifiziert am
+  RC-Tiefpass (Pol −1000 exakt) und RLC-Bandpass (Paar −5000 ± j31225).
+- **S1.4** ✅ AC-Matrix: JFET (gm/gds), F (Steuerklemmen in Reihe —
+  das Sense-Element ist das interne Amperemeter, keine `gsense`-Näherung
+  nötig; behebt zugleich den Phantom-Branch), H, VSWITCH/SCR/TRIAC
+  (Ron/Roff aus OP). Abweichung vom Plan (§42.2): F/H ohne `gsense`,
+  dafür exakt. Digital-Bausteine → ehrliche Warnung (1-nS-Näherung).
+- **S1.5** ✅ `runSParams` (neu, eigene Analyse-Definition mit Z₀-Feld):
+  Vs=2 mit Serien-Z₀, Last-Z₀; S11 aus Zin, S21 = V2. Network Analyzer
+  konfiguriert Ports/Z₀/Sweep und plottet echte S11/S21 (dB + Phase).
+- **S1.6** ✅ `onpage_connector` als virtuelles Bauteil (keine Devices,
+  reine Netzbindung; gleicher Name = gleiches Netz, pro Tab);
+  Inline-Umbenennung per Doppelklick + Platzhalter im Editor. README/
+  DESIGN ehrlich zu Blättern; Richtungsentscheid → Sprint 3.
+- **S1.7** ✅ DESIGN.md: Gerber-Zeilen gestrichen (Code enthielt null
+  Gerber-Zeilen), Nicht-Ziele dokumentiert, Sprint-1-Tabelle
+  (Befund→Maßnahme) eingetragen.
+- **S1.8** ✅ 13 Docs per `git mv` nach `docs/archiv/` (+ Index-README);
+  Wurzel: README, DESIGN, MANIFEST, UEBERGABE, SPRINTS, Audit-Protokoll,
+  CLOUDFLARE, TEST_MATRIX, CIRCUIT_TEST_MATRIX, ACCESSIBILITY_AUDIT.
+  `TEST_MATRIX_HERZ_UND_NIEREN.md` war ein älteres Duplikat (Inhalt ⊂
+  TEST_MATRIX.md + §16 dort) → archiviert.
+- **Grapher** ✅ Renderer für `tf` (Kennwert-Karten), `sensitivity`
+  (Tabelle), `pz` (PN-Karte + Liste + Güte), `sparams` (Bode + CSV).
+- **Tests** ✅ Abweichung vom Plan: statt `simtest.ts` zu erweitern, neue
+  Suite `scripts/sprint1test.ts` (41 Checks gegen analytische Werte, alle
+  grün); `simtest.ts` + Szenarien-Runner melden Exit-Code 1 bei Fehlern;
+  101 Szenarien (`circuit_scenarios_full.ts`, 101/101 grün verifiziert) in
+  `npm test` aufgenommen — zuvor liefen sie in keiner Kette.
+- **Verifikation**: `tsc --noEmit` ✅ · `eslint src` ✅ ·
+  `npm test` ✅ (alle 9 Ketten grün, 230+ PASS) · `next build` ❌ nur durch
+  Google-Fonts-Fetch (Sandbox offline; pre-existing, `layout.tsx`
+  unberührt von Sprint 1) — kein Code-Fehler.
+- **Offen aus Sprint 1**: visuelle Verifikation im Dev-Server (Sandbox:
+  kein Server verfügbar); Build-Check mit Netz.
+- **Nachtrag 2026-10-04 (Blatt-Entscheid, User)**: Tabs = unabhängige
+  Entwürfe. Umgesetzt: Nutzer-Texte „Schaltblatt/Schaltblätter/Blatt" →
+  „Entwurf/Entwürfe" (StatusBar, MenuBar-Logs, Editor-Logs, Export-Titel,
+  Verbinder-Beschreibung); totes Duplikat `SheetTabs.tsx` gelöscht;
+  toter `offpage_connector`-Ast aus `buildNets` entfernt; CIRCUIT_TEST_MATRIX-
+  Zeile korrigiert. Behalten: interne Bezeichner (`sheets`, `SheetEntry`,
+  `openSheet`, `PrintSheet` — kein Nutzer-Nutzen beim Umbau), Zeichenblatt-
+  Metapher (Blattrand, Titelstempel, „Blatt 1/1" als Einblatt-Konvention),
+  Datenblatt/ShortcutSheet (fachlich korrekt). Historische „Schaltblatt"-
+  Stellen in diesem Protokoll (§§1–41) bleiben als Log unverändert.
+
+---
+
+## §43 · Sprint 2 — Gefühl (Plan, 2026-10-04)
+
+Ziel: Die App fühlt sich an wie Hardware, nicht wie eine Webseite.
+Jeder Befund unten ist code-geprüft (Datei:Zeile sinngemäß).
+
+### 43.1 Befund
+
+- **S2.1** `editor.ts:runAnalysis` ist `async`, blockiert aber den Main-Thread:
+  `runAnalysisLocal` läuft synchron (nur ein `setTimeout(0)`-Yield vorher,
+  Kommentar: „bevor der Kernel den Main-Thread belegt"). Kein Worker im Repo
+  (`grep -ri worker src` leer). Lange Analysen (Monte-Carlo, Sweeps) frieren
+  das UI ein; kein Fortschritt, kein Abbrechen. Sim-Lib ist worker-fähig:
+  kein `window`/`document` in `src/lib/sim/*` (nur FFT-„window"-Namensvetter),
+  `SchematicDoc` ist plain data (structured-clone-fähig).
+- **S2.2** Grapher-Fehlerzustand ist roher Text (`Grapher.tsx`: `✕ {error}`).
+  Der Kern liefert nur Flachtexte („Singulaere Matrix …?", „Keine Konvergenz
+  …"), keine Verdächtigen (`SolveResult`: nur `ok/iterations/message`).
+  Mechanismus für „zeigen" existiert: `setView({x,y,zoom})` + `NetInfo.points`
+  (Canvas-Koordinaten je Netz) — „Zoom to error" nutzt das für Instanzen.
+- **S2.3** Kein First-Run-State (`localStorage`-Keys: theme/symbolStyle/
+  favorites/probeHover/projekte — kein Run-Flag). Aber: DESIGN §1 verbietet
+  Nudges/Auto-Popups („Heiliger Geschmack"). Ein Spotlight muss strikt
+  einmalig, non-modal und wegklickbar sein, sonst bricht es das Manifest.
+- **S2.4** `RealtimeEngine.tick` rechnet `realtimeFactor` aus — zeigt ihn aber
+  nirgends außer einer Inspector-Debug-Zeile (in Exponentialschreibweise!).
+  Überlast wird still weggeworfen: `maxStepsPerFrame`-Clamp + `stepAccumulator
+  > 1 → reset` ohne Zähler. Adaptive Erholung existiert nur pro Schritt
+  (Sub-Stepping bei Nicht-Konvergenz), nicht bei Zeitüberlast.
+- **S2.5** 8 Presets (`tools.ts`), aber nur als Text-Menüs (Home-Palette +
+  Menü „Vorlagen"). Kein Bild, keine Beschreibung sichtbar. `docToSvg`
+  (Export-Renderer) existiert und kann ehrliche Thumbnails liefern.
+- **S2.6** `Workbench`: `if (!mounted) return null` — buchstäblich Leere bis
+  zur Hydrierung. `page.tsx` rendert Workbench direkt, kein `loading.tsx`,
+  kein Skeleton.
+- **Korrektur zu S2.6 (2026-10-04, vor Implementierung):** Das `mounted`-Gate
+  sitzt im Print-Portal (`PrintSheet`), nicht im Boot-Pfad — der Befund war
+  falsch. Richtig: `output: export` ohne `force-dynamic` prerendert die volle
+  Workbench (Chrome + Default-Entwurf); einzige echte Lücke ist der
+  `<canvas>` ohne Bitmap bis zum ersten rAF-Draw (Hintergrund-Blitz
+  `--app` → `--canvas`). Plan entsprechend reduziert, s. §43.3.
+
+### 43.2 Plan (S2.1–S2.6)
+
+- **S2.1 Worker** (`src/lib/sim/analysis.worker.ts` + Wrapper):
+  Protokoll `{id, kind, doc, payload} → {progress} | {result} | {error}`;
+  Next-Standard `new Worker(new URL(..., import.meta.url))`; bei jedem
+  Fehler (SSR, Blockade, Export-Edge) Fallback auf `runAnalysisLocal`.
+  Fortschritt: grob (gestartet/fertig) + opt-in `onProgress` für die
+  Schleifen-Analysen (Transient, Monte-Carlo, Sweeps); Abbrechen per
+  `terminate()` + frischer Worker. UI: Fortschrittsbalken + Abbrechen-Button
+  im Grapher-Kopf. Tests auf `runAnalysisLocal` bleiben gültig (Fallback =
+  derselbe Codepfad); Worker-Protokoll per Typcheck, kein DOM nötig.
+- **S2.2 Konvergenz-State** (`engine.ts` + `runner.ts` + `Grapher.tsx`):
+  `SolveResult.suspects?: string[]` — Nicht-Konvergenz: Top-3-Knoten nach
+  letztem Newton-Update |Δx|/tol (SPICE-Standard); singulär: Diagonale vor
+  `solve()` snapshotten, Null-Diagonalen → Namen (sonst ehrlich „kein
+  einzelner Knoten eingrenzbar"). Durchreichen: OP/Transient/DC-Sweep →
+  `AnalysisReport.suspects` + `convergence.kind`. Grapher: gestaltete
+  Fehlerkarte (Titel, Verdächtigen-Chips, „Problemknoten zeigen" →
+  `setView` auf `NetInfo.points`-Zentroid + pulsierender Canvas-Marker
+  `spotlight` im Store, auto-clear). Echtzeit-OP-Fehler nutzt denselben Marker.
+- **S2.3 Spotlight** (Manifest-konform): Key `multispice.firstRun.done`;
+  wenn fehlt: non-modaler Puls-Ring an ▶ (`data-testid`/Anker) + Hinweis-Chip
+  mit ×, verschwindet bei erstem Start/Klick/Esc; danach nie wieder.
+  DESIGN-Eintrag, warum das kein Nudge ist (einmalig, non-blockierend).
+- **S2.4 Überlast ehrlich** (`realtime.ts` + `StatusBar.tsx`):
+  `LiveState += {overload, effectiveSampleRate, droppedSec}`; Clamp und
+  Accumulator-Reset zählen statt schweigen; adaptiv: bei Dauer-Clamp dt
+  vergröbern (sampleRate halbieren bis 5 kHz, mit Hysterese zurück) —
+  offengelegt als Badge + einmaliger Log. StatusBar: `×1,0`/`×0,3`-Chip
+  (rot bei Überlast, Tooltip erklärt); Inspector-Zeile in ×-Format.
+- **S2.5 Galerie** (`PresetGallery.tsx`): Dialog/Grid, Thumbnails per
+  `docToSvg(preset.build())` (derselbe Renderer wie der Export — ehrlich),
+  Name + Beschreibung + „Laden"; Einstieg als erster Menüpunkt „Galerie …"
+  unter „Vorlagen". Memo auf Öffnen (8× SVG ist billig, aber nicht gratis).
+- **S2.6 Boot-Skeleton**: `!mounted`-Zweig rendert SSR-sicheres statisches
+  Skelett (Menü-/Canvas-Platzhalter, Puls) statt `null` — kein Store-Zugriff,
+  ersetzt durch Hydrierung. Kein `loading.tsx` nötig (eine Seite, kein Routing).
+- **Tests**: `scripts/sprint2test.ts` — Verdächtige an konstruierter
+  singulärer/nicht-konvergenter Netzliste; Überlast+Adaption per kleinem
+  `maxStepsPerFrame`; alle Presets bauen + `docToSvg` nicht-leer. Worker,
+  Spotlight, Skeleton: Typcheck + manuelle Prüfung (DOM/Threading).
+
+### 43.3 Umsetzung & Verifikation (2026-10-04, Sprint 2 abgeschlossen)
+
+- **S2.1** ✅ `analysis.worker.ts` (Protokoll progress/result/error) +
+  `analysis_client.ts` (`runAnalysisTask` mit synchronem Fallback +
+  `worker`-Flag). Fortschritt: `ProgressFn` in 8 Schleifen-Analysen
+  (tran/ac/dc/noise/mc/worstcase/temp/param, 2-%-gedrosselt), Callback hängt
+  der Worker an (structured-clone-sicher). Editor: eine Analyse zur Zeit
+  (alte wird terminiert), Fortschrittsbalken + Abbrechen im Grapher,
+  einmaliger Fallback-Hinweis im Log.
+- **S2.2** ✅ `SolveResult.{failure, suspects}`: singulär = Null-Diagonalen
+  vor `solve()` (max. 3), nicht-konvergent = Top-3 nach normiertem
+  Newton-Update (nicht-finite Updates → Rang 1). Durchgereicht: OP/Tran/
+  DC/Sens/TF → `AnalysisReport.{convergence, suspects}`; Runner hebt
+  `ok:false` in `errors` (der Grapher prüfte `.ok` nie — Fehler zeigten
+  leere Diagramme). Grapher: Fehlerkarte (Titel je Klasse, Hinweis,
+  Verdächtigen-Chips, „Problemknoten zeigen" → `setView` + pulsierender
+  Canvas-Marker `spotlight`, Auto-Clear 6 s/Klick; `I()`-Zweige zoomen aufs
+  Bauteil). Echtzeit-OP-Fehler markiert Netz-Verdacht ebenso.
+- **S2.3** ✅ `FirstRunSpotlight`: Puls-Ring an `[data-spot="start-sim"]`
+  (Desktop- + Mobil-▶) + Chip mit ×; Key `multispice.firstRun.spotlightDone`;
+  weg bei Start/Klick/Esc, nie wieder. Manifest: non-modal, non-blockierend
+  (pointer-events-none außer ×), kein Timer-Nag. Lint: kein setState im
+  Effekt-Body (rAF/Listener/Store-Subscription).
+- **S2.4** ✅ `LiveState.{overload, effectiveSampleRate, droppedSec}`:
+  Clamp/Accumulator-Reset zählen statt schweigen; adaptiv: nach 30
+  Clamp-Frames Rate halbieren (min. 5 kHz), nach 240 ruhigen Frames zurück;
+  Laufzeit-Änderung der Rate wird sofort übernommen. StatusBar: `×1,0`-Chip
+  (rot bei Überlast, `~` bei Adaption, Tooltip mit Rate + verworfenen
+  Sekunden); Inspector-Zeile in ×-Format. Zwei Test-Funde: rtf-Init 1 bis
+  zur ersten Messung (sonst Fehlalarm beim Start), Messfenster-Neustart in
+  `rebuild` (sonst Leerlauf eingerechnet).
+- **S2.5** ✅ `PresetGallery`: Dialog/Grid, Thumbnails per
+  `docToSvg(preset.build())` (Export-Renderer — ehrlich), Name +
+  Beschreibung + Laden; Einstieg „Galerie mit Vorschau …" in Menü + Palette
+  (Desktop + Mobil). Untertitel korrigiert: `loadPreset` ersetzt den Reiter
+  (Undo stellt her) — kein falsches Versprechen.
+- **S2.6** ✅ Plan reduziert (s. Korrektur §43.1): Canvas-Element mit
+  `background: var(--canvas)` — pre-draw = post-draw-Ton, kein Blitz, keine
+  visuelle Änderung nach Hydrierung. Kein `loading.tsx` (eine Route).
+- **Tests** ✅ `scripts/sprint2test.ts` (18 Checks, alle grün, in `npm test`
+  verdrahtet): singulär an V-Schleife mit `rser: 0` (Funde: 1-nΩ-Default
+  fängt reale Schleifen zu Recht; globales gmin fängt Knoten → Zweige als
+  Verdächtige), Nicht-Konvergenz via `maxIter: 1`, Runner-Hebung,
+  Fortschritt direkt + via Runner, Überlast/Adaption/droppedSec, 8/8
+  Galerie-Thumbnails. Worker/Spotlight/Boot: Typcheck + manuell (DOM/Threading).
+- **Verifikation**: `tsc --noEmit` ✅ · `eslint src` ✅ · `npm test` ✅
+  (alle 10 Ketten grün, 260 PASS) · `next build` weiterhin nur
+  Google-Fonts-Fetch (Sandbox offline, pre-existing).
+- **Offen aus Sprint 2**: visuelle Prüfung (Worker-Balken, Fehlerkarte,
+  Spotlight, Galerie, ×-Chip) im Dev-Server; Build-Check mit Netz.
+
+---
+
+## §44 · Sprint 3 — Struktur (Plan, 2026-10-04)
+
+Ziel: Multisim-Parität im Aufbau großer Entwürfe. Befunde code-geprüft.
+User-Entscheide (2026-10-04): Busse **voll** (Splitter + dynamische Pins),
+Hierarchie = **Custom-Parts + Ausbau**.
+
+### 44.1 Befund
+
+- **S3.1** Bus = nur lila Farbe: `Wire.isBus/busName/busWidth` existieren als
+  Daten, Canvas malt nur Farbe um (Strichstärke gleich), `buildNets`
+  ignoriert Busse vollständig (Bus-Leitung leitet als normales Netz!).
+  Einzige UI: Kontextmenü-Toggle „Als Bus markieren". Kein Tap, kein
+  Splitter, keine Breite. Dynamische Pins: `PinDef` statisch; `.pins`-Zugriffe
+  breit gestreut (Canvas ~12 Stellen), aber Funnels existieren:
+  `pinPosition(inst, idx)` (model.ts), `getPartSymbol(part, style)`,
+  `instanceBounds(inst)` — dort hängt Dynamik ein.
+- **S3.2** Custom-Parts mit Subcircuit-Expansion existieren
+  (`compileSubcircuitToDevices`, 14 Element-Kinds, keine Verschachtelung)
+  + `extractSubcircuitFromSchematic` (ganzes Blatt, partId-Substring-
+  Heuristik: `pId.includes("npn")` …). Kein „Auswahl als Bauteil", kein
+  exaktes Mapping, Limits undokumentiert.
+- **S3.3** Re-Annotate existiert nicht (`grep` leer). `Instance` hat kein
+  Label-Herkunfts-Flag (manuell vs. auto nicht unterscheidbar). Labels werden
+  als Device-IDs referenziert (Analyse-Meta im Speicher, Instrumente transient).
+- **S3.4** `PinDef` = nur name/x/y — keine elektrischen Typen. ERC heute:
+  unbekanntes Bauteil (E), Faults (W), keine Devices (W), kein GND (W),
+  offene Enden (W51, max. 12), Verbindungspunkte (Info). Kein Regelsatz-Dok.
+- **S3.5** Importe: SPICE-Netzliste (nur R/C/L/V/I/D/Q/M) + LTspice .asc.
+  Kein KiCad. SPICE E/G/F/H/J fallen still unter „übersprungen" (nur Notiz).
+- **S3.6** vcvs/vccs/ccvs/cccs existieren als Bibliotheks-Bauteile
+  („Quellen/Abhängige Quellen", 4 Pins OUT±/CTRL±, Engine-kompatibel:
+  F misst intern per gsense über CTRL — Reihenschaltung ist korrekter
+  Gebrauch). Item de facto erledigt — braucht nur Verifikation + Test.
+
+### 44.2 Plan (S3.1–S3.6)
+
+- **S3.1 Busse voll** (`catalog.ts` + `model.ts` + Canvas):
+  Semantik (ehrlich, dokumentiert): Bus-Leitung = visuelles Bündel +
+  Deklaration (`busName`, `busWidth`); elektrisch wirken NUR Tap/Splitter
+  per Namensbindung (`NAME[i]`); geometrische Berührung verbindet NICHT.
+  Katalog: `PartDef.pinsFor?(params)` + `symbolFor?(params, style)` +
+  Helfer `partPins/partSymbol`; `pinPosition`/`instanceBounds`/`buildNets`/
+  Canvas-Instanz-Stellen nutzen die Helfer (Library-Vorschau: Defaults).
+  Bauteile: `bus_tap` (1 Pin, params bus/bit → Netz `bus[bit]`);
+  `bus_splitter` (params bus/width 2/4/8/16; Pins BUS + 0..w−1; BUS-Pin = NC/
+  visueller Anker, dokumentiert). `buildNets`: Tap/Splitter-Bit-Pins in die
+  Namens-Union (wie S1.6-Verbinder); Validierung: Bit ≥ Breite → Warnung,
+  Tap ohne Deklaration → Hinweis. Bus-Draht: dick violett + Namensschild.
+- **S3.2 Custom-Parts = Hierarchie (festgelegt + ausgebaut)**:
+  Entscheid dokumentieren (DESIGN + Dialog-Hinweis). Ausbau:
+  „Auswahl als Bauteil speichern" (Kontextmenü/Part-Studio): neues
+  `extractSubcircuitFromSelection(doc, ids)` — exaktes partId-Mapping für
+  R/C/L/D/Q/M (Heuristik nur Fallback), Schnittstellen-Netze → Pins,
+  interne Netze → `INT_n`; PartEditor mit Vorausfüllung öffnen. Limits
+  dokumentiert: keine Verschachtelung, 14 Kinds, Quellen als Elemente ok.
+- **S3.3 Re-Annotate** (`editor.ts` + Menü): `reannotate()` — pro Ref-Präfix
+  in Leserichtung (y, dann x) neu nummerieren, undo-fähig; Analyse-State
+  zurücksetzen (Labels referenziert) + Log; alle Labels (kein
+  Herkunfts-Flag — dokumentiert). Menü Bearbeiten → „Neu nummerieren".
+- **S3.4 Pin-Typen + ERC** (`catalog.ts` + `model.ts` + DESIGN):
+  `PinDef.electrical?`: input/output/inout/power_in/power_out/passive/nc.
+  Regeln (nur wenn BEIDE Pins typisiert — keine False Positives bei 400
+  untypisierten Teilen; Masse-Netz „0" von Konflikt ausgenommen):
+  E1 Ausgang-gegen-Ausgang (Fehler), W1 typisierter Eingang offen, W2
+  power_in offen. Seed-Typen: gnd, vdc/vac/idc/iac, opamp/comparator,
+  555,117xx-VREG?, Logik-Gatter (Bestand prüfen). Regelsatz als DESIGN-Tabelle.
+- **S3.5 KiCad + SPICE-Coverage** (`importers.ts` + DESIGN): `.kicad_sch`
+  S-Expr-Minimal-Parser (Symbole R/C/D/Q/V/I + Drähte + Netzlabels +
+  Power-Symbole; Limits dokumentiert). SPICE_MAP += E/G/F/H/J (Teile
+  existieren) + Coverage-Tabelle in DESIGN (Buchstabe → Teil/Limit).
+- **S3.6 E/G/F/H**: Verifikation (platzierbar, Kategorie) + Regressionstest
+  (4-Pin-Verdrahtung → Devices; F-Reihen-Nutzen dokumentiert).
+- **Tests**: `scripts/sprint3test.ts` — Tap-Bindung/Trennung, Splitter-Pins
+  je Breite + Bit-Netze, Re-Annotate-Reihenfolge, ERC E1/W1/W2 + Stille bei
+  untypisiert, SPICE-E-Import, KiCad-Minimal, E/G/F/H-Expansion.
+
+### 44.3 Umsetzung & Verifikation (2026-10-04, abgeschlossen)
+
+- **S3.1 Busse**: umgesetzt wie geplant (`pinsFor/symbolFor`-Funnel,
+  `bus_tap`, `bus_splitter` 2/4/8/16, Namensbindung `BUS[i]`, Bus-Draht
+  leitet nicht + dick violett mit Schild, Breiten-/Bit-Prüfung).
+- **S3.2 Hierarchie**: `extractSelectionAsPart` („Auswahl als Bauteil…",
+  exakte Ports, GND global, Fehler statt Stillem, kein Nesting) +
+  Hierarchie-Entscheid (Custom-Parts, keine Subsheet-Blöcke). Bonus-Fund:
+  `newDocument` verlor Änderungen seit dem letzten Reiterwechsel
+  (Datenverlust!) — Rückschreibung ergänzt, Regression in S3.2-Tests.
+- **S3.3 Re-Annotate**: `reannotateLabels` + Menüpunkt, wie geplant.
+- **S3.4 ERC**: umgesetzt als E1–E4 (alle Warnungen; Plan-Abweichung: kein
+  Fehler-Level, kein W1/W2-Naming — dokumentiert in DESIGN). Kalibrierung:
+  MCU-Pins GPIO/passiv; Vorlagen ERC-still (555-CTRL 10 n, Zähler-RST→GND).
+- **S3.5**: SPICE E/G/F/H/J abgedeckt; KiCad-Minimal-Parser
+  (Symbole/Drähte/Dots/Labels/Texte, Drehungs-Suche, Pin-Snap, ehrliche
+  Skip-Hinweise); Router-Fix gegen geteilte Knicke (stiller Kurzschluss
+  über Ketten-Union behoben). W61-Lücke bleibt Known Limit (Warnung statt
+  Dot-Zwang; echte Behebung = Sprint-5-Kandidat).
+- **S3.6**: E/G/F/H-Abbildung verifiziert (E-Folger 1 V → 2 V im OP-Test).
+- **Verifikation**: `tsc` + `eslint` sauber; `npm test` (11 Skripte inkl.
+  neuem `sprint3test.ts`, 41 Checks) 2× vollständig grün; alle 8 Vorlagen
+  ERC-still (W98d).
+
+## §45 · Sprint 4 — Modelle (Plan, 2026-10-04)
+
+Ziel: Genauigkeit für reale Entwürfe. Befunde code-geprüft.
+
+### 45.1 Befund
+
+- **S4.1** OPAMP-Transient = flache tanh-Verstärkung + Sättigung; AC hat
+  dagegen den Einpol-GBW (`buildAcMatrix`, `gbw`-Param) — TRAN und AC
+  widersprechen sich oberhalb der Eckfrequenz. Slew-Werte stehen in der
+  OPV-Tabelle (`opamps[].slew`), werden aber nicht an Devices gereicht.
+- **S4.2** Diode: `cjo` fix + `tt·gd`-Diffusion (nur transient); keine
+  Sperrschicht-Gradierung, kein IS-Temp (nur `vt=kT/q` skaliert). BJT:
+  Ebers-Moll + Early, `cje/cjc` fix, kein TF/TR, kein IS/BF-Temp.
+- **S4.3** MOSFET Level 1, `cgs/cgd` fix, kein Temp, kein Bulk-Knoten.
+  JFET: gar keine Kapazitäten, kein Temp.
+- **S4.4** Monte-Carlo streut R/C/L + Q.bf; Worst-Case nur R/C/L
+  (Single-Key). Halbleiter-Streuung fehlt (IS, VTO, KP …).
+- **S4.5** Relais = R-Spule + VSWITCH mit Von/Voff-Hysterese
+  (`updateEvents`, auch im OP) — de facto fertig, braucht Verifikation.
+  FUSE = reines R, `irated` ungenutzt, kein I²t.
+- **S4.6** Trafo ideal (`lp/ratio/k`), kein Wicklungs-R, keine Sättigung,
+  keine Kernverluste. Kein T-Element.
+
+### 45.2 Plan (S4.1–S4.6)
+
+- **S4.1 OPV transient** (`engine.ts` + `catalog.ts`): Target aus
+  tanh-Stufe, dann Pol 1. Ordnung (tau = A0/2π·GBW, Backward-Euler,
+  Zustand in `extra`, Commit in `acceptTimestep`) + Slew-Begrenzung
+  (|Δv| ≤ SR·dt, Jacobian aus linearem Anteil). DC/OP unverändert.
+  Katalog: `slew`-Param (Defaults aus Tabelle) + Durchreichen.
+  COMPARATOR bleibt statisch (dokumentiert). Konsistenz AC↔TRAN testen.
+- **S4.2 Temp + Kapazitäten D/Q**: IS(T) = IS·(T/Tnom)^XTI·exp(−EG/k·
+  (1/T−1/Tnom)), BF(T) = BF·(T/Tnom)^XTB (Engine-Default XTB = 0 wie
+  SPICE, Katalog setzt xtb = 1,5 explizit ≈ +0,5 %/K, dokumentiert).
+  Sperrschicht: CJO·(1−vd/VJ)^−MJ mit FC-Grenze; BJT zusätzlich
+  MJE/MJC/VJE/VJC + TF/TR-Diffusion (gm·tf). SPICE-Defaults
+  (MJ = 0,5, MJE = 0,33 …). Kapazitäts-Chord statt Ladungsformulierung
+  (dokumentierter Kompromiss). AC nutzt dieselben Helfer am OP.
+- **S4.3 MOSFET-Temp + Meyer**: VTO(T) = VTO − vto_tc·(T−Tnom)
+  (Default 2 mV/K, dokumentierte Näherung), KP(T) = KP·(T/Tnom)^−BEX
+  (Default BEX = 1,5). Meyer: intrinsisches Cox·W·L nach Bereich auf
+  GS/GD partitioniert (Cutoff 0 / Triode je 1/2 / Sättigung 2/3 + 0) +
+  Overlap CGSO/CGDO·W; cox = 0 → fixe cgs/cgd (rückwärtskompatibel).
+  Kein Bulk-Knoten → kein CGB (Bulk = Source, dokumentiert). JFET:
+  Temp (beta/vto) + fixe cgs/cgd (war ganz ohne). AC am OP gleich.
+- **S4.4 Streuung** (`analyses.ts`): MC-Tabelle += D/LED/ZENER/SCHOTTKY.is,
+  Q.is, M.vto+kp, J.beta+vto; Worst-Case auf Param-Listen
+  generalisieren + gleiche Params. Streu-Tabelle in DESIGN. Seed bleibt.
+- **S4.5 Relais + Sicherung**: Relais-Verifikation (OP + TRAN,
+  Hysterese) + Regressionstest. Sicherung: I²t-Akkumulator in
+  `acceptTimestep`, löst bei `i2t` (Default 1 A²s), latchend bis
+  Rebuild (wie echt: ersetzen = Neustart), danach roff; `extra.blown`
+  + Strommeldung. Löst nur in TRAN/Echtzeit (OP hat keine Zeit —
+  dokumentiert).
+- **S4.6 Trafo + T-Element**: Trafo: rp/rs seriell, rcore parallel
+  primär (Default ∞ = aus), isat-Knie Lp(i) = Lp/(1+|ip|/isat)
+  (Chord, isat = 0 → aus). AC: rp/rs/rcore linear (Sättigung dort
+  ungesättigt, dokumentiert). TLINE neu: Z0 + td (len/vf), Bergeron
+  mit interpolierter Delay-Line (`outputs[]`, nur akzeptiert), transient;
+  OP = durchverbunden; AC exakt (verlustlose Telegraphengleichung);
+  neues Katalogteil „Übertragungsleitung".
+- **Tests**: `scripts/sprint4test.ts` — OPV-Ecke TRAN-vs-AC, Slew,
+  D-Vf-Drift (≈ −2 mV/K), Q-BF-Temp, M-VTO-Temp, Meyer-Regionen,
+  MC-σ + Seed-Repro, Worst-Case-Sensitivitäten, Relais-Hysterese,
+  Fuse-Trip + Latch, Trafo rp/Sättigung, TLINE-Laufzeit + AC-Phase.
+  Volle Suite grün halten.
+
+### 45.3 Umsetzung & Verifikation (wird nach Implementierung ergänzt)
+
+| Item | Test | Ergebnis |
+|------|------|----------|
+| S4.1 | Folger LM741 (GBW 1 MHz, slew=0) TRAN 100 kHz / 3 MHz + Slew-Rampe (PWL-Kante) + AC-Ecke | 0.995 / 0.316 = Theorie, Rampe 0.50 V/µs bei SR 0.5, Ecke 1.00 MHz — PASS. Fix dabei: OP hinterlegt vi/ve (Schritt-1-Clamp); GBW-Test mit SR slew-begrenzt → slew=0 |
+| S4.2 | 1N4148 @1 mA Vf-Drift 27→77 °C; NPN Ic(T); Depletion-Einheit | −2.03 mV/K (Th. −2), Ic +29 % (BF 200→252), FC-Grading 1.697×/fix — PASS |
+| S4.3 | NMOS Rds(T) 27→125 °C; Meyer-Einheit; AC-f3dB mit/ohne TOX | ×1.47 (Th. ~1.5), Regionen exakt, 23.3/17.1 MHz (Th. 22.7/17.1) — PASS |
+| S4.4 | MC/WC NPN-Stufe (BF/IS); MC-Diode (IS); WC-Sensitivitäten | σ=0.093 V, Ecken 2.59/3.69 V, Q1 „bf+is" gelistet, Dioden-σ 2.75 mV (Th. 2.6) — PASS |
+| S4.5 | Relais Anzug/Abfall (Katalog-VSWITCH); Sicherung 9.5 A/1 A | 4.01/1.99 V (Th. 4/2), Auslösung 45.2 ms (Th. ~45), hält bei IN — PASS |
+| S4.6 | Trafo rp-DC + Sättigungsknie (Stromrampe); TLINE TRAN/AC/OP | −1.000 A (Th.), Knie 3.67× = Th., Laufzeit 1.01 µs, AC \|H\|=1/−45°, OP durch — PASS |
+
+## §46 · Sprint 5 — Feinschliff (Audit 2026-10-04, REVIEW OFFEN)
+
+### 46.1 Befund
+
+- **S5.1 Dateien**: `Canvas.tsx` 4010, `editor.ts` 2072, `Instruments.tsx`
+  1698 Zeilen — ungeteilt (Render/Hit-Test/Pointer/Overlays vermischt).
+- **S5.2 Inspector**: nutzt `ui/`-Primitives nur teilweise; Zahlenformat
+  (`formatValue`/`parseValue` in `catalog.ts`) ohne 4k7-Eingabe, Einheiten
+  (Ω/µ) inkonsistent.
+- **S5.3 Tastatur**: kein Pfeil-Platzieren (nur Maus); Esc-Handler in 8+
+  Komponenten ohne definierte Kette, ungetestet.
+- **S5.4 A11y**: `role=status/log` punktuell (BottomPanel, Toasts); keine
+  Schaltungs-Zusammenfassung für Screenreader, kein Sim-Status-Live-Text.
+- **S5.5 Link-Teilen**: fehlt ganz (nur Datei-Speichern).
+- **S5.6 Wizards**: SPRINTS.md sagt „7 → ~12" — real sind es BEREITS 12
+  (Filter/CE/555 alle vorhanden), aber 0 Tests, Builder nicht extrahiert.
+  Zählziel überholt → stattdessen: Verifikation + Lücken schließen.
+  Lehrer-Modus + Beschreibungsbox fehlen.
+- **S5.7 Grapher**: keine Mess-Panel pro Kurve (nur Cursor?), kein
+  Kurven-Rechnen (A−B, RMS …).
+- **S5.8 Sweeps**: kein Nested Sweep, keine Batched Analyses, kein
+  Verzerrungs-Sweep (THD-vs-Pegel/Frequenz).
+- **S5.9 W61**: Ketten-Union verbindet weiter an geteilten Knicken (nur
+  Warnung seit S3; echte Behebung offen).
+
+### 46.2 Plan (S5.1–S5.9) — wartet auf Review
+
+- **S5.1 Datei-Aufteilung** (ohne Verhaltensänderung, Suite = Beweis):
+  `Canvas/` (Render/Hit-Test/Pointer/Overlays), `editor/` (Store/Slices),
+  `Instruments/` (Oszi/Messleitungen/Panels).
+- **S5.2 Inspector-Primitives + Zahlen**: Inspector vollständig auf
+  `ui/` (Field/Dialog/Menu/Tooltip); `lib/format.ts` neu (4k7/2µ2-Ein-
+  gabe, Ω/µ/°-Ausgabe); alle numerischen Anzeigen darüber.
+- **S5.3 Tastatur**: Bauteil per Pfeile bewegen + Enter platzieren
+  (Esc bricht ab); definierte Esc-Kette
+  Overlay → Messleitung → Auswahl → Werkzeug; Test der Kette.
+- **S5.4 Screenreader**: Zusammenfassung („3 Widerstände, 1 OPV, …,
+  2 Netze, ERC still") + Live-Region Sim-Status (läuft/fertig/fehler);
+  sichtbare Tests der Texte (kein E2E nötig).
+- **S5.5 Link-Teilen**: Schaltung komprimiert (deflate+base64) in URL-Hash;
+  Limit ehrlich (etwa „> 100 kB → Datei statt Link"); Öffnen per Hash.
+- **S5.6 Wizards/Lehrer/Box**: Builder nach `lib/wizards/` extrahieren,
+  alle 12 bauen + OP-konvergieren im Test; max. 2 Lücken-Wizards nach
+  Review-Wunsch; Lehrer-Modus (Sperr-Code: Werte/Faults verstecken +
+  Plan sperren); Beschreibungsbox-Bauteil mit Live-Werten (`{V(OUT)}`).
+  Review-Entscheide (2026-10-04): Plan freigegeben; Lehrer-Sperre =
+  4-stelliger Zahlencode; neue Wizards = LED-Vorwiderstands-Rechner +
+  Schmitt-Trigger (Hysterese-Rechnung); Postprozessor MIT FFT-Anzeige.
+- **S5.7 Grapher**: Mess-Panel pro Kurve (Min/Max/Mittel/RMS/f−3dB) +
+  Postprozessor (A+B/A−B/A·B/A·B-Verhältnis in dB, RMS/AVG-Hüllkurve).
+- **S5.8 Sweeps**: Nested Sweep (2 Parameter, Kurvenschar), Batched
+  Analyses (DC+AC+TRAN in einem Lauf, ein Report), THD-Sweep
+  (Klirrfaktor vs. Pegel via `runThd`).
+- **S5.9 W61-Fix**: Ketten-Union nur noch an Anschlüssen/Dots; Regression
+  (S3.4-Warn-Test wird Fix-Test); volle Suite grün halten.
+- **Tests**: `scripts/sprint5test.ts` — Esc-Kette, Zahlenformat-Roundtrips,
+  Wizard-Builds (12× OP-ok), Link-Roundtrip, Sweep-Kurvenzahlen,
+  W61-Fix, SR-Text-Snapshots. Volle Suite grün halten.
+
+### 46.3 Umsetzung & Verifikation (nach Review)
+
+| Item | Test | Ergebnis |
+|------|------|----------|
+| S5.1 | tsc + volle Suite (11 Skripte + circuit_scenarios_full 50/50); Move-Diffs vs. HEAD byte-identisch | PASS. editor.ts 2072 → Barrel + 22 Module (16 Slices); Canvas 4010 → 3108 + geometry/hitTest/render (+5 Callbacks extrahiert, Draw-Loop/Pointer bleiben komponentengebunden — dokumentiert); Instruments 1698 → 218 + shared/meters/analyzers/sources/Window. Fix dabei: scheduleAutosave → store.ts (Modul-Init-Zyklus). |
+| S5.2 | tsc + volle Suite (12 Skripte + circuit_scenarios_full 50/50); scripts/sprint5test.ts Block S5.2 (4 Checks) | PASS. lib/format.ts neu (parse/format aus catalog.ts, dort Re-Export); M-Fix: „1M"→1e6 (war Milli); ui/Field.tsx +Checkbox/+SliderField; Inspector auf Primitiven (ParamField-Dispatcher, Probe-/Solver-Sektionen, Buttons); nativ bleiben: Tabs, Inline-Label, Color, Textarea, Listen-Rows, Show-Grid (layout-/listen-spezifisch). |
+| S5.3 | tsc + volle Suite; sprint5test-Block S5.3 (Ketten-Wahrheitstabelle) | PASS. lib/keyboard.ts neu (resolveEscape: Overlay→Messleitung→Auswahl→Werkzeug); Canvas-Esc nutzt Kette (ein Druck = eine Ebene, löst W66-Nuke ab); W36-Listener aus Instruments.tsx entfernt (vereinheitlicht); Ghost per Pfeile (Raster, ⇧ 5-fach) + Enter platzieren (⇧ = weiter); Shortcuts-Hilfe ergänzt. |
+| S5.4 | tsc + volle Suite; sprint5test-Blöcke S5.4 (3 Checks: Labels, Zusammenfassung, Sim-Texte) | PASS. lib/a11y.ts neu (summarizeCircuit „3× Widerstand, …, ERC still", simLiveText läuft/fertig/fehler, completionNote, analysisLabel); Canvas-aria-label dynamisch; ScreenReaderStatus-Live-Region in Mobile-/Desktop-Layout. |
+| S5.5 | tsc + volle Suite; sprint5test-Blöcke S5.5 (3 Checks: base64url, Codec, Hash+Limit) | PASS. lib/share.ts neu (deflate+base64url via fflate, isomorph; `#s=`-Format; Limit 100 000); Menü „Link teilen …" (Desktop+Mobil, Datei-Fallback + Toast über Limit); Hash-Öffnen beim Start (gewinnt gegen Auto-Save, nutzt loadTextContentInEditor). |
+| S5.6 | tsc + volle Suite; sprint5test S5.6a–d (6 Checks) | PASS. (a) lib/wizards/ extrahiert (Move-Diffs vs. HEAD identisch), 12× Bau+OP-ok. (b) LED-Rechner (E12) + Schmitt-Trigger (±13,3 V Sättigung im Tran nachgewiesen); dabei formatValue-Nullenbug gefixt (150 Ω ≠ 15 Ω) + Regression. (c) Beschreibungsbox-Bauteil (pinlos, eigene Karte, {V}/{I}/{P}-Livewerte). (d) Lehrer-Modus: 4-Ziffern-Code (FNV-Hash, localStorage), Store-Guard in commit/setDoc/undo/redo/Preset/Neu, Canvas nur Pan/Zoom, Inspector-/Menü-/Wizard-Guards, Fehler-/Wert-Anzeige aus, Status-Schloss, Einstellungs-Bereich. |
+| S5.7 | tsc + volle Suite; sprint5test S5.7 (2 Checks) | PASS. lib/measure.ts (Min/Max/Mittel/RMS, f−3dB) + lib/postprocess.ts (A+B/A−B/A·B/A-B-dB mit ehrlichem NaN an B=0, RMS/AVG-Hüllkurve, Resampling, FFT via spectrum()); Grapher: Mess-Panel in Tran- + AC-Ansicht, Postprozessor-Bereich mit eigenem Plot (FFT logarithmisch). |
+| S5.8 | tsc + volle Suite; sprint5test S5.8 (4 Checks) | PASS. Kernel: applyParamToNetlist extrahiert (runParamSweep nutzt ihn, verhaltensgleich), runNestedSweep/runBatched/runThdSweep neu; Runner-Kinds + 3 Analyse-Defs (Dialog/Menü automatisch); Grapher-Ansichten (Kurvenschar inkl. bisher roher param-Ansicht, Batched-Dreifachplot, THD-Kurve). Verifikation: Nested 2×2 mit erwarteten Teiler-Spannungen, Batched ok, THD 84,5 % am Gleichrichter. |
+| S5.9 | tsc + volle Suite; S3.4-Warn-Test → Fix-Test (3 Expects) | PASS. buildNets-Kern umgestellt: Leitung/Pin/Punkt je eigener Union-Schlüssel statt globaler Ketten-Keys; Union nur noch an Anschlussstellen (Ende-auf-Segment, Pin-auf-Segment, Dot). S3.5-Knick-Warnung obsolet/entfernt; migrateDoc-Dots erhalten Altbestände. Regression: volle Suite grün (wiretest, Szenarien, Vorlagen unverändert). |
+
+## §47 · Steve-Audit Web/Desktop-Codepfade (2026-10-04)
+
+Befund: 6 Divergenzen zwischen Web- (Next.js/static) und Desktop-Pfad (Electron)
+an der `window.multispiceDesktop`-Bridge — alle gefixt, alle per Vertrags-Test
+abgesichert (`scripts/webdesktoptest.ts`, 5 Checks, in `npm test`).
+
+### 47.1 Befunde & Fixes
+
+| ID | Schwere | Befund → Fix |
+|----|---------|--------------|
+| WDA-1 | hoch | `loadAppDataSync(key)` laut Typ + 4 Aufrufern schlüsselbezogen, `preload.cjs` lieferte den ganzen Store → Desktop-Hydrierung (Projekt, Bibliothek, Slots, eigene Bauteile) lief bei leerem localStorage still ins Leere. → `pickAppDataKey(store, key)` in preload (ohne Key: ganzer Store, kompatibel); `require("electron")` geguardet, damit der Test die reine Funktion ohne Electron laden kann. |
+| WDA-2 | mittel | Strg+O im Web tot: Workbench machte `preventDefault` ohne Fallback (nur Menü-Button hatte das versteckte `<input>`). → `REQUEST_OPEN_FILE_EVENT` + `requestOpenFileDialog()` in `openFile.ts`; Menüleiste horcht, Workbench feuert bei `handled === false`. |
+| WDA-3 | mittel | `downloadBlob` (Grapher-PNG) einziger Export ohne Desktop-Zweig → kommentarlos in den Download-Ordner. → Desktop-Zweig via `arrayBuffer`→base64→`saveFile` (nativer Dialog). |
+| WDA-4 | niedrig | `activeFilePath` wurde nach AppData geschrieben, aber nie gelesen → Datei-Bindung ging verloren, sobald der Projekt-Blob keinen Pfad trug. → Fallback-Lesen in `loadProjectLocal`. |
+| WDA-5 | niedrig | Sync-Doppeltransport (BroadcastChannel + IPC) ohne Dedupe: jede Nachricht doppelt, Voll-Snapshots 2× alle 45 ms. → `src/lib/desktopSync.ts` (`withSyncNonce` + `createSyncDedupe`, Ring 200); verdrahtet in `sendMsg`/beiden `handleIncoming` + beiden Library-Sendern. Nachrichten ohne Nonce passieren (Altbestand). |
+| WDA-6 | niedrig | Bridge-Typen unvollständig (`initialAppData`, `onWindowState` in preload vorhanden, untypisiert); Titelleisten-Icon per lokalem Toggle falsch nach OS-seitigem Maximieren. → Typen ergänzt, `DesktopTitleBar` spiegelt echten Fensterstatus. |
+
+### 47.2 Verifikation
+
+`tsc --noEmit` ✓ · `node --check` (main/preload) ✓ ·
+`npm test` ✓ (alle Skripte inkl. neuem `webdesktoptest.ts`, 5 Checks) ·
+Nebenbei: zwei nachträgliche tsc-Fehler in Testskripten gefixt
+(S5.8-`as never`, S5.9-Junction-`id`) — Lehre: `tsc` läuft ab sofort auch
+*nach* jeder Test-Editierung, nicht nur davor.
+
+## §48 · Detailrunde Nutzerwünsche (2026-10-04)
+
+Sieben Punkte aus der Nutzerbeobachtung — geprüft, sechs gefixt, einer braucht
+eine Rückfrage. Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(wiretest 139 PASS inkl. 9 neuer Routing-Checks, webdesktoptest 7 Checks).
+
+| # | Punkt | Ergebnis |
+|---|-------|----------|
+| 1 | Menüpunkte flackern beim Drüberfahren | GEFIXT. Ursache: `.rise`-Animation spielte bei jedem Hover-Wechsel zwischen offenen Menüs neu. `Menu` kennt jetzt `instant` (Menüleiste setzt es bei Hover-/Pfeil-/Klick-Wechsel). |
+| 2 | Stift-/Radiergummi-Cursor billig | NEU GEZEICHNET (`cursors.ts`): technischer Stift (Schwarz/Akzentrille, Metallkonus), Radiergummi (Elfenbein/Blau, dezent geneigt), beide mit hellem Saum für dunkle Flächen. Hotspots unverändert an Spitze/Vorderkante. |
+| 3 | Kein Begrüßungswizard bei neuem Dokument | ENTFERNT. `EmptyCanvas` („Leerer Schaltplan / Widerstand platzieren“) gelöscht; neues Dokument = blanker Canvas. (Damit auch die falsche US-Zickzack-Darstellung weg.) |
+| 4 | Fenster blitzt nach Verschieben an alter Position | TEILFIX + RÜCKFRAGE. Beide Drag-Implementierungen sind bereits gehärtet (DOM-Direktschrieb + Commit); statisch nicht reproduzierbar. Gefixt: `Window` nutzte ein Voll-Store-Abo (jedes Fenster renderte bei jedem Store-Update neu). Frage: welches Fenster (Gerät/Bibliothek), welcher Browser? |
+| 5 | Desktop: Oszi/FG ohne Ein-/Ausgang, keine Messleitungen | GEFIXT. Drei Lücken: (a) `leadArmed` lebte nur im Kind-Store → neue Nachrichten `arm-lead`/`disarm-lead`, Haupt-Canvas legt die Leitung; (b) `leadArmed` jetzt im State-Snapshot (Platzieren/Abbrechen entwaffnet auch das Kind-Banner); (c) `set-doc-param` spiegelt FG-Zustand + Quellen-Parameter (Takt/Puls) ins Haupt-Doc, sonst simulierte die Engine veraltete Werte. Empfänger als reine Funktion (`applyChildMessageToMain`) + Sender-Verträge getestet. |
+| 6 | Leitungen: kürzeste freie Route, live, keine Pin-/Bauteil-Kreuzung | GEFIXT. Pins sind jetzt Hindernisse (A* mit ±4-px-Pad — bei 24-px-Raster bleibt ein Korridor; Start-/Zielpin ausgenommen/erreichbar); A* läuft immer wenn beide L-Knicks blockiert sind (vorher nur ohne Ecken); manuelle Ecken bleiben Fixpunkte (Vorschau-Knick wird beim Klick übernommen wie bisher). 9 neue Checks. |
+| 7 | Portable startet nicht (nichts beim Doppelklick) | GEFIXT (statisch; CI baut). Hauptverdacht bestätigt: .NET-Framework-`ZipArchive` versteht keine SFX-vorangestellten Daten + Trailer → „Central Directory corrupt“ → stiller Close. Jetzt: `SubStream`-Hülle (exakte Zip-Bytes), Fehler-Log (`%TEMP%\MultiSpice-Portable.log`), sichtbare Fehlermeldung statt stillem Verschwinden, Sofort-Absturz-Erkennung (Exit-Code). |
+
+## §49 · Fenster-Geist Nachschlag (2026-10-05)
+
+Nutzer-Rückmeldung zu §48 #4: betrifft **alle** verschiebbaren Fenster, nur
+Browser. Im Sandbox-Review kein Browser verfügbar (kein Chromium, kein Root
+für System-Libs, CDN-Mirror blockiert) — visuell nicht reproduzierbar. Statt
+weiterer Theorie beide Drag-Pfade identisch gehärtet (`Window.tsx`,
+`LibraryPalette.tsx`, Commit `1808d18`, `tsc`/`eslint`/`npm test` ✓):
+(1) Commit per `flushSync` — React schreibt denselben Endwert noch vor dem
+Paint; (2) `e.buttons === 0` + `pointercancel` beenden Zombie-Drags, statt
+dem Zeiger tastenlos zu folgen; (3) Drag-Start setzt allen Pending-Status
+zurück (kein Klick-ohne-Zug auf alten Werten); (4) `data-windrag`-CSS schaltet
+Transition/Animation am Fenster während Zug + 1 Frame nach Commit ab.
+Verifikation durch den Nutzer steht aus.
+
+Nachtrag (2026-10-05): Nutzer meldet Positions-Blitz als BEHOBEN, Bibliothek
+perfekt — aber Gerätefenster blinzelten nach dem Loslassen kurz aus/ein.
+Ursache: Lösen von `data-windrag` startete die `win-in`-Eintritts-Animation
+(Opacity) neu. Fix: `win-in`-Klasse wird beim Loslassen synchron abgestreift
+(Eintritt längst abgespielt) — Schutz + Commit-Logik unverändert.
+
+Nachtrag 2 (2026-10-05): FG-Display blitzte beim Verschieben (`lcd-fade` auf
+der LCD-Root wurde durch `animation: none` im Drag-Schutz beim Lösen neu
+gestartet — derselbe Mechanismus wie das win-in-Blinzeln). Fix: Guard deckt
+nur noch Transitionen ab; Inventur zeigt keine Transform-Animation in Fenstern
+(rise/commit-ment-Nutzung nur außerhalb), Neutstart-Klasse damit erledigt.
+
+## §50 · Sprint 5 Rest (S5.10–S5.13, Plan + S5.10, 2026-10-05)
+
+S5.1–S5.9 aus §46 sind PASS; aus SPRINTS.md blieben drei Zeilen offen, dazu
+der Nutzerwunsch „Fenster alle uneinheitlich" (Go für den Audit-Rest am
+2026-10-05, inkl. Fenster-Paket).
+
+### 50.1 Plan
+
+- **S5.10 Fenster-Chrom** (Nutzerwunsch): eine Quelle für Hülle +
+  Titelleiste aller Fenster (Instrumente, Bibliothek, Dialoge).
+- **S5.11 Datensicherheit**: Ungespeichert-Indikator (`savePending` sichtbar),
+  Crash-Recovery (Autosave neuer als Datei → Angebot), Migrationen testen.
+- **S5.12 Zugang**: Farbblind-Verifikation (keine Rot/Grün-Allein-Codierung,
+  Kontraste), UI-Schriftgröße (Setting), Touch-Parcours (Lücken schließen;
+  iPad-Sichtprüfung durch Nutzer).
+- **S5.13 Bauteile/Medien**: Stilführer Symbole (Doku), 14-Segment-Anzeige
+  (+ LCD-Bauteil prüfen; sevenseg/bargraph existieren), Sensoren (NTC/LDR),
+  WAV-Export (Tran-Kurve → .wav).
+
+### 50.2 S5.10 Ergebnis
+
+Befund: 3 Chrom-Dialekte — Instrumente (h-9, Kachel, xs/medium, IconButton
+sm, Radius 14, Border), Bibliothek (h-9, nacktes 12-px-Icon, .btn-Close,
+Radius 12), Dialoge (h-11, sm/semibold-h2, IconButton md, kein Border).
+Fix: `ui/WindowChrome.tsx` neu (`WINDOW_SHELL`, `WindowTitleBar` mit
+Icon-Kachel, Titel, Extra-, Aktions-Slot, Close; `grab` stoppt
+Pointer-Propagation für Aktionen zentral). Alle drei Besitzer migriert;
+Dialog-Panel hat jetzt Border, Dialog-Titel h-9/xs-medium. `role=dialog` +
+`aria-label` unverändert (kein A11y-Verlust durch h2→span).
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓. Sichtprüfung: Nutzer
+(kein Browser in der Sandbox).
+
+### 50.3 S5.11 Ergebnis (Datensicherheit, 2026-10-05)
+
+Befund (4 echte Lücken): (1) `void autoSaveToBoundFile` — Datei-Ergebnis
+verworfen, gebundene Datei konnte still veralten; (2) kein Speicher-Zustand
+sichtbar (savePending/lastSavedAt nirgends angezeigt); (3) keine Backup-
+Generation — korrupte Arbeitskopie (Crash mitten im Schreiben) = still
+leeres Dokument; Desktop-`writeFileSync` (AppData + Projektdatei) nicht
+atomar, korrupte AppData fiel auf `{}` = Totalverlust; (4) `migrateDoc`
+ungetestet. Kein Start-Konflikt nötig: Desktop startet nie mit Datei,
+Share-Hash-Entscheid (S5.5) bleibt.
+Fix: `saveHealth { local, file }` im Store (Auto-Save + manuelles Speichern
+pflegen; nur Zustandswechsel loggen); Download-Fallback meldet
+`viaDownload` (bindet nicht → nie „ok"); Status-Chip + `•`-Titel (Web:
+Workbench-Effekt; Desktop: `DesktopTitleBar showSaveState`, auch Taskleiste);
+localStorage-Rotation + `.prev`-Fallback (`fromBackup`-Warnung); AppData
+`.bak` + Backup-Read; `desktop/atomic.cjs` (Tmp+Rename) für AppData +
+Datei-Speichern (kein `.bak` beim Nutzer: Crash → alt ODER neu).
+Verifikation: `scripts/sprint5resttest.ts` (9 Checks) in `npm test`;
+`tsc` ✓, `eslint` ✓, Suite ✓, `node --check` ✓.
+
+### 50.4 S5.12 Ergebnis (Zugang, 2026-10-05)
+
+**Farbblind-Verifikation (statisch, kein Browser nötig):** `sprint5resttest`
+prüft 12 Text-Paare (≥ 4,5) + 6 Grafik-Paare (≥ 3,0) gegen die echten
+Variablen aus `globals.css`, hell + dunkel — alle grün, keine Änderung nötig.
+Codierungs-Inventur (Rot/Grün nie allein): Spannung = orange/blau-Verlauf
+(sicheres Paar) + exakte Werte im Inspector; Auswahl = blau/amber + Griffe;
+Stromfluss = Bewegung; Oszi-Kanäle = beschriftete CH-Badges; FG-Buchsen =
+rot/blau + OUT1/OUT2-Label; Status überall Glyphe + Text (✕/⚠/✓, „●
+Speichern …"); LED/Lampe = Helligkeit; Bargraph/7-Segment = Position +
+Helligkeit. Dokumentiert statt umgebaut: Hardware-Farben (Oszi-Spuren, LCD)
+bleiben Hardware.
+**UI-Schriftgröße:** `uiFontSize` (kompakt 14 / Standard 16 / groß 18 px
+Root → alle rem-Maße), Segment in Einstellungen → Darstellung, persistiert
+(`multispice.uiFontSize`), auch im Lehrer-Modus änderbar (reine Darstellung).
+**Touch:** Canvas `touch-none` + Pinch + Long-Press-Abbruch existierten;
+Lücken geschlossen: Statusleisten-Buttons (ERC, Speicher-Chip) + Tab-× auf
+24-px-Trefferflächen (WCAG 2.2); Rest (Menüs h-7, IconButtons 24+, Leisten
+28–36) vermessen-ok. Browser-Zoom bleibt erlaubt (WCAG 1.4.4, s. Layout).
+iPad-Parcours (Nutzer): Zwei-Finger-Zoom/Pan, Bauteil setzen + verdrahten per
+Touch, Menü/Dialoge bedienen, Tastatur-Platzieren entfällt (S5.3 Maus-Pendant
+bleibt), Schriftgröße Groß prüfen.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (sprint5resttest: 11 Checks).
+
+## §51 · Desktop-Geräte ohne Messdaten (Fix, 2026-10-05)
+
+Nutzerbefund: Gerätefenster in der Windows-App sichtbar, aber ohne Messdaten
+— noch nie gelaufen (kein Regressions-, sondern ein Nie-fertig-Fehler).
+Diagnose: Das Kind-Oszi tastet über `sampler` ab, dessen erste Zeile
+`if (!simEngine.running) return 0` lautet — `engine.running` wird aber nur
+von Start/Stopp gesetzt, die es im Kindfenster nicht gibt (Schritt-Treiber
+ist der Canvas-Loop, der im Kind nicht rendert). Folge: Total-Flatline.
+Zweitlücke: Das Langsam-Tier (`slowBuffers`, langsame Zeitbasen) wurde nie
+synchronisiert.
+Fix: Snapshot-Anwendung als getestete `applySnapshotToChild` nach
+`desktopSync.ts` extrahiert — spiegelt `engine.running` aus `msg.sim`,
+füllt Fast- + Slow-Puffer (Slow-Schlüssel fehlt = Stand behalten, nie
+wischen). Hauptfenster sendet Slow-Fenster (4096/Netz) jede 10. Nachricht +
+initial (`SYNC_SLOW_EVERY`, Bandbreite); Fast-Fenster (512) unverändert im
+45-ms-Takt. Sicher: Im Kind steppt nichts (kein Canvas-Loop), das Flag
+entriegelt nur Leser.
+Verifikation: `webdesktoptest` 7 → 9 Checks (running-Spiegel, Slow-Füllung,
+Slow-Erhalt, Fremdtyp); `tsc` ✓, `eslint` (0 Errors) ✓, Suite ✓.
+Sichtprüfung Desktop: Nutzer.
+
+## §52 · S5.13 Ergebnis (Bauteile/Medien, 2026-10-05)
+
+WAV-Export: `lib/wav.ts` (16-bit-PCM-mono, native Rate aus Median-dt,
+1–192 kHz geklemmt, lineares Resampling aufs Gitter, Peak −1 dBFS,
+2-M-Sample-Limit) + Grapher-Auswahl im Tran (Kurve + Button, Rate im
+Tooltip/Dateinamen; unbrauchbare Achse/Überlänge = ehrlicher Toast, keine
+Datei). Stilführer: `docs/symbol-stilfuehrer.md` (10-px-Pinraster, 1,3-px-
+`--symbol`-Strich, Text 7–13, kein `w`) + Lint über alle 771 Teile grün.
+14-Segment: 16 Pins (a–n, DP, COM), 15 LED-Devices (Kathode/Anode), Hex
+0–F + ASCII (A–Z, Ziffern, `-`; +16/+128 = DP), Linien-Renderer mit Glow.
+NTC: Engine-Type `NTC` (Beta-Gleichung bei Sim-Temperatur, OP-verifiziert
+gegen Handrechnung 2,5 V / 0,49 V). LDR: R(lux)-Potenzgesetz in
+`toDevices` (statisch, ehrlich dokumentiert).
+LCD zurückgestellt (bewusst): HD44780 bräuchte Bus-Protokoll + Timing +
+Interpreter — ohne Digital-Schicht (nur skalare `controls`, analoge Netze)
+gäbe es keine ehrliche Datenquelle; ein Fake-Display bräche die
+Sprint-1-Regel. 14-Segment deckt alphanumerisch ab.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (sprint5resttest: 18).
+
+## §53 · S5.14 Ergebnis (Live-Steuerung, Nutzerwunsch 2026-10-05)
+
+Befund: Schalter-/Poti-Klicks bei laufender Sim waren reine Deko — UI
+schrieb `controls[Label]`, der Solver liest `controls[Geräte-ID]`
+(Instanz-ID ≠ Label). Tastenbelegung und Poti-Schieber fehlten ganz;
+Taster rasteten ein statt zu tasten; Inspector-Strom/Leistung las per
+Label (= immer 0).
+Fix: Controls per Instanz-ID (Canvas + Renderer, Label-Fallback);
+`lib/sim/controls.ts` (Tasten-Normalisierung, Belegungs-Auflösung;
+Leertaste/`?` reserviert); `key`-Param auf allen 12
+Schalter/Taster/Poti-Teilen + Badge am Symbol; Taster momentan (Maus +
+Taste, Loslassen/Stopp/Blur öffnet); belegte Tasten gewinnen laufend
+gegen Editor-Kürzel (sonst Editor; Konflikt-Hinweis im Inspector);
+`setControlLive` (Param persistieren + Control setzen, ohne Rebuild);
+`setParam` verwirft stale Controls (editierter Param = Wahrheit);
+Hilfe-`?` ergänzt.
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 22 — u. a. Label-statt-ID wirkungslos als Fix-Doku).
+
+## §54 · S5.15 Ergebnis (§14-Backlog, Nutzerwahl 2026-10-05)
+
+Befund: 8 der 10 §14-Punkte waren bereits umgesetzt, aber nie abgehakt
+(Wire-Griffe + Drag, Hover-Highlight, Library-↑↓/Enter, Reduced-Motion-
+Block inkl. Stromfluss-Ausblendung, globale 2-px-`:focus-visible`-Regel,
+Log-Konsole `role=log aria-live=polite`); Probe-`<th>` ohne `scope`
+nachgetragen. Echte Lücken: (1) Canvas-Fix-Hex — dabei zwei wahre Fehler
+gefunden: ERC-/SP-Marker + Sonden-Badge mit fixem Weiß auf `--err`/`--warn`
+(kontrastarm im dunklen Theme, Badge-Grund teils beliebig) sowie fast
+unsichtbares Konventionell-Grau auf hellem Canvas; (2) kein Undo-Feedback
+(Toast-Komponente hieß schon `UndoToast`, wurde nie dafür genutzt, kein
+Auto-Dismiss).
+Fix: `inkOn()` (`canvas-theme.ts`, WCAG-Luminanz) für Badge-/Marker-Tinte;
+Motor/Griffe/Flow-Grau tokenisiert; LED- und Segment-Rot bleiben Fix-Hex
+als dokumentierte Hardware-Ausnahme (grüne LED bleibt grün) — Lint
+S5.15a verbietet neues Hex; Undo/Redo-Toast mit Gegenaktion + 5-s-Dismiss;
+Feedback-Kanon (Toast flüchtig / Log Protokoll / Chip Zustand).
+Skalierung: `scripts/s515perf.ts` (1001 Devices/1000 Knoten: Katalog 2 ms,
+Aufbau 4 ms, OP 42 ms, Sweep 2 ms; manuell, nicht in `npm test`).
+E2E-Geräte + Canvas-60-fps bleiben Nutzer-Parcours (Sandbox headless).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 25 — Hex-Lint, CSS-Guards, inkOn-Tabelle).
+
+## §55 · S5.16 Ergebnis (Steve-Theorie-Sweep, Nutzerfrage 2026-10-05)
+
+Frage: Sind Buttons/Fenster/Bedienung wenigstens in der Theorie einheitlich?
+Sweep über alle ~330 `onClick`-Stellen + Menüs + Dialog-Schalen (statisch,
+Sandbox headless): Kanon intakt — `.btn` (100×, echte Klasse), `.tab`,
+`.tree-row`, ToolButton/ToolGroup, ui/Menu mit Pfeil-Navigation (37× Desktop),
+alle 10 Dialog/Fenster-Dateien aus ui-Schale (Dialog/ModalShell/WindowChrome
+mit Esc + Fokus-Falle + role), Geräte-Skins (Oszi/FG) als legitime Ausnahme,
+lokale Dialekte (Segmented, Nav, Tiles, Zoom, Pillen) jeweils in sich stimmig.
+6 Befunde, alle gefixt: PartEditor-Fix-Rot (`#f87171` → `text-err`/`btn-danger`/
+`bg-err`, nur VCC-Canvas bleibt); Wahrheitstabellen-Weiß auf `--ok` (→
+`--accent-ink`, dunkles Theme); Sonden-Badges (4 Tabellen) + Leitungs-Header
+von Fix-Hex auf Sonden-Theme-Variablen (helles Theme zeigte andere Farben als
+die Sonden-Boxen); `.row/.badge/.sep` waren globale Klassennamen → `.ctx-*`;
+BottomSheet ohne Esc (→ Listener wie ModalShell).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 28 — TSX-Farb-Guards, Dialog-Einheitlichkeit, Bedien-Guards).
+Offen bleibt der echte Klick-Durchgang im Browser (E2E-Nutzer-Parcours).
+
+## §56 · S5.17 Ergebnis (Detail-Review, 4 Nutzerbefunde 2026-10-05)
+
+Nutzer-Rüge zu Recht: Der Theorie-Sweep war nicht detailtief genug. Befunde:
+(1) ⌘-Loop in der Bibliothek auf Windows — Ursache: Lucide-`Command`-Icon
+als ⌘K-Badge + Treffer-Glyphe (Text-Hints adaptieren längst). Fix: Badge
+plattformbedingt (`Strg+K` vs. ⌘K), Treffer-Icon → `Search` (bedeutungs-
+treu überall). Familien-Sweep: alle restlichen ⌘/⇧/⌥-UI-Stellen laufen über
+`adaptShortcut`/`Kbd`/`MenuItem-hint`; „⇧ oben“-Label → „↑ oben“.
+(2) Suche versprach „r 10k → Widerstand 10k“, setzte aber nie Werte. Fix:
+`lib/library/search.ts` (`splitValueQuery`: Wert = letztes Token mit
+Einheit/Infix, reine Zahlen bleiben Begriffe — „555“!; `mainValueParamKey`:
+nur Zahl-als-Hauptparameter) + `placingPreset` im Store (einmalig, leckt
+nicht: `setPlacing` setzt/löscht, `addInstance` verbraucht; beide Biblio-
+theks-Trichter Confirm + Drag liefern).
+(3) Kategorie-Baum startet eingeklappt (`CatNode`-Default).
+(4) Geräte-Fenster-Eckgriffe (SVG-Linien) → unsichtbar wie Bibliothek
+(Zone + Cursor + Titel + Aria bleiben).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 30 — Wert-Regel mit Toleranz, Detail-Guards).
+
+## §57 · S5.18 Ergebnis (Nutzer-Feinschliff, 3 Befunde 2026-10-05)
+
+(1) Text-Auswahl beim Ziehen/Slider: `user-select` kam im CSS schlicht nicht
+vor. Fix: `none` aufs Body-Chrom, Opt-outs (`input/textarea/select`,
+`[contenteditable]`, `.selectable`) für Log-Konsole + Inspector-Messwerte.
+(2) Platzieren-Button am Ende der Detailspalte (nach Pins + Hinweis) versenkt.
+Fix: Aktionszone direkt unter Vorschau/Name — Button + „wird als 10 kΩ
+platziert“-Chip (S5.17-Versprechen sichtbar eingelöst).
+(3) IC-Vorschaubilder leer: `SymbolPreview` skalierte starr auf eine 48er-Box,
+ein 70×96-IC zeigte nur leere Mitte. Fix: `lib/library/preview.ts`
+(`symbolBBox` + `previewFit`: einpassen, Strichstärke kompensiert).
+Ehrlichkeit: Alle drei brauchen Augen oder gezielte Layout-Proben — der
+blinde Theorie-Sweep (§55) prüfte Klassen, keine Wirkung. Lehre: Ab jetzt
+gehört zu jedem UI-Sprint eine „Wirkungs-Probe“ (sichtbares Verhalten im
+Code nachvollzogen, nicht nur Verdrahtung).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 33 — Fit-Geometrie, CSS-/Layout-Guards).
+
+## §58 · S5.19 Ergebnis (UI/UX-Komplettsweep mit Wirkungsprobe, 2026-10-05)
+
+Anlass: Nutzerbefunde S5.18 („das hättest du erkennen müssen“) + Grundsatz
+„gutes Design erklärt sich selbst“. Methode: 8 Flächen, je Fläche Wirkung
+im Code nachvollzogen (Layout-Geometrie, Event-Fluss, Zustandswechsel).
+
+Gefunden + gefixt (4):
+(1) Hinweis-Box in der Bib-Details (inkl. falschem Wort „Schaltfläche“)
+entfernt — Suchsyntax steht im Platzhalter, Zeilen zeigen Grab-Cursor.
+(2) Mobile Bibliothek defekt: `fixed`-Fenster brach aus dem Bottom-Sheet,
+kein Platzieren (kein Enter, Detail `md+` versteckt), keine Tabs/Kategorien
+(Nav-Spalte `md+`) → `fill`-Modus (füllt Sheet, ohne Fenster-Chrom),
+Aktionsleiste unten (Vorschau + Name + Platzieren), Bereichs-Tabs
+(Alle/Favoriten/Zuletzt), Kategorie-`<select>`; Texte fill-bewusst
+(kein „Enter zum Platzieren“, kein „Rechtsklick“ auf Touch).
+(3) Grapher-Leerzustand war reiner Tipp („Menü Analysen wählen“) →
+Aktion „DC-Arbeitspunkt berechnen“ (läuft `.op` direkt, wie Menü).
+(4) Touch-Toolbar (Platzieren/Sonde/Leitung/Auswahl) nutzte Text-Glyphen
+(↻↺⇆✕, 7 Stellen) → Lucide-Icons.
+
+Für sauber befunden: ⌘/⇧/⌥-Familie (MenuItem, Kbd, Tooltip, Ctxmenu
+adaptieren zentral — Fehlalarm Menü per Probe widerlegt), Fokusfalle +
+Esc in Dialogen, Ctxmenu-Viewport-Clamping, Toast (einzeln, 5 s, Aktion),
+Slider (nativ + gestylt), Messleitungs-Banner (Modus-Anzeige, kein Tipp).
+Bewusste Ausnahmen (Folgen/Warnungen ≠ Tipps): Projekte-Dialog
+(„Öffnen ersetzt …“), Extrahier-Warnungen, Probe-Leerstand (mit Buttons),
+Platzier-Log auf Desktop („R = drehen …“ — dort einzige Affordanz, da
+Toolbar touch-only ist).
+Verifikation: `tsc` ✓, `eslint` (0 Errors) ✓, `npm test` ✓
+(sprint5resttest: 36 — Selbst-Erklärungs-, Füll- und Aktions-Guards).
+
+## §59 · S5.20 Ergebnis (Oszi-Skalenprüfung, Nutzerbefund 2026-10-05)
+
+Befund: „Bei t groß fehlt das halbe Signal.“ Ursache im Code nachvollzogen:
+Der Oszi-Sampler (OsziScope.tsx) fiel nach ~2,9 s Historie (fast 0,41 s +
+slow 2,5 s) in gehaltene Randwerte — bei 15 Divs × tdiv war links alles
+flach, was älter war. Fix: Archiv-Tier in `realtime.ts` (zeitbasiert, nicht
+zählerbasiert — die Sim-Rate ist adaptiv, nur Zeit garantiert Tiefe:
+16384 Samples à 1/55 s ≈ 298 s), Sampler 3-stufig, tdiv-Max 100→10 s/div
+(Spanne 150 s + max. H-Verzögerung = 225 s Bedarf ≤ 298 s, per Test bewacht).
+Geometrie-Probe: alle 1-2-5-Schritte 2 ns…10 s (t0/dt/Trigger-Sample).
+Weiterer Sweep (Trigger/t/V): H-Verzögerung war unbegrenzt — große Werte
+ließen die Aufnahme scheinbar einfrieren (Warten auf postT); jetzt ±1
+Spanne (Knopf klemmt, Engine sichert alte Dokumente). Triggerpegel war
+unbegrenzt (jetzt ±8 Divs der Triggerquelle); Netz-Trigger lag schon immer
+fest auf 0 V, der Knopf lief trotzdem tot — jetzt ehrlich 0 V. Trigger-
+Suchfenster 0,25→0,05 s (4000 Schritte lösen 40 kSa/s Sim-Bandbreite auf;
+darüber begrenzt die Sim selbst, nicht der Trigger). Für korrekt befunden:
+Kurven-/Marker-Mapping, Clamp ±5,2 Divs, Invert, Zoom-Geometrie, Slope,
+Holdoff, Roll-Schwelle, Auto-Timeout. Test-Artefakt: Der alte Test-Sampler
+lieferte Netz „0“ ≠ 0 V und löschte per Differenzmessung das Signal —
+gefixt, Inhalt wird jetzt wirklich geprüft (vorher nur Zähler).
+Offen (Fidelity, kein Defekt): Rauschmodell σ ∝ V/div — auf groben Stufen
+sichtbar unruhiger als ein echtes Gerät (dort: festes Eingangsrauschen).
+Kandidat für S5.21, falls gewünscht.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (ozsitest: 32 Prüfungen).
+
+## §60 · S5.21 Ergebnis (Physikalisches Oszi-Rauschen, 2026-10-05)
+
+Nutzerprinzip (stehend): Alles so realitätsnah wie möglich. Das alte Modell
+(σ = 0,018·V/div + 0,0004·Tastkopf) war in Divs konstant — an feinen Stufen
+0,4 Divs Fuzz, an groben unruhig: beides unphysikalisch. Neues Modell in
+`oszi2/engine.ts`: 100 µVrms Front-End (70-MHz-Klasse) × Tastkopf-Faktor,
+Kette Rauschen→Filter→Quantisierung→Sättigung; 8-Bit-ADC (LSB = 8 Divs/256,
+HiRes ×0,22 mit Dither-Näherung); BW-Limit √(20/70) ≈ 0,53 nur bei dt ≫ τ
+(das digitale Filter überdämpft sonst doppelt); Trigger-Komparatoren analog
+(front-end only, kein Quantisierungsanteil). Peak-Hüllkurve quantisiert mit.
+Proben (ozsitest 11): GND-Rauschen folgt dem Modell ±40 % über 1 mV…10 V,
+bleibt unter 0,15 Divs, 10× ≈ 1 mVrms, BW-Verhältnis 0,53. Bewusst nicht
+getan: Trigger-Hysterese (mit physikalisch kleinem Rauschen kein Flattern
+mehr sichtbar — YAGNI), Tastkopf-Thermik (vernachlässigbar).
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (ozsitest: 36 Prüfungen).
+
+## §61 · S5.22 Ergebnis (Netzlabels + Notizzettel + Ein-Rahmen-Eingabe, 2026-10-05)
+
+Drei Nutzerbefunde, ein Sprint. (a) Labels waren reine Beschriftung — in
+Multisim verbinden sie: `buildNets` vereint jetzt gleichnamige Labels zum
+selben Netz (Vergleich case-insensitiv, erste Schreibweise wird Netzname;
+leere/blanko Namen vereinen nichts; Label und On-Page-Verbinder gleichen
+Namens laufen über denselben Mechanismus). (b) Notizen waren Textfelder im
+Editor-Stil — jetzt echte Klebezettel: gelbe Karte (max. 232×150 px, längerer
+Text wird mit „…“ gekappt), Markup `**fett**`/`*kursiv*`/`__unterstrichen__`
+(`src/lib/notes/markup.ts`: eigener Tag-Scanner, DOM-frei, damit auch im
+Test lauffähig), Schreiben direkt auf dem Zettel (`NoteEditor`: contentEditable
++ B/I/U-Toolbar, folgt Zoom/Pan, Platzieren→sofort tippen, Doppelklick öffnet,
+Esc auf leerer neuer Notiz verwirft sie still). Dabei zwei Fallen beseitigt:
+Der globale Key-Handler ignoriert jetzt contentEditable-Ziele (vorher hätten
+R/M/Entf/Space beim Tippen Canvas-Aktionen ausgelöst), und der tote
+`kind:"text"`-Pfad ist aus InlineEditor, Canvas, Touch-Button und Kontextmenü
+entfernt. (c) Das schwebende Eingabefeld war Panel + Badge + Box für vier
+Ziffern — jetzt ein Rahmen, dessen Breite dem Inhalt folgt (8–26 ch +
+Einheit), Einheit dezent ohne Chip.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (wiretest +5 Label-Checks,
+`notetest.ts` neu: 28 Prüfungen — Markup, Roundtrips, Editor-HTML, Karten-
+Caps, Verdrahtungs-Wächter).
+
+## §62 · S5.23 Ergebnis (Notizzettel 2.0, Nutzerbefunde 2026-10-05)
+
+Nutzer: „kein …, lieber scrollen, Zettel immer gleich groß, 3 Schriftgrößen,
+Zetteloptik verbessern“. Umsetzung: Einheitskarte 232×150 für jede Notiz
+(`getNoteBounds` konstant — Treffer, Auswahl und Editor folgen automatisch);
+Überlauf scrollt innen (Rad über dem Zettel fängt die Geste vor dem Zoom ab,
+Scrollstände in Refs — der Canvas zeichnet ohnehin jeden Frame neu;
+schlanke Leiste, dezent, betont bei Auswahl/Schweben). Schriftstufen 9/11/14
+(`NOTE_FONT_STEPS`, Legacy-Größen runden auf die nächste Stufe, M = alter
+Standard 11), Wahl als S/M/L-Segment in der Editor-Leiste, Größe committed
+mit dem Text in einem Undo-Schritt. Optik: Papier-Verlauf, Lichtkante oben,
+umgeknickte Ecke unten rechts, weicher Schatten — bewusst Fix-Gelb in beiden
+Themes (angelehnt ans S5.12-Prinzip: Objektfarbe wie LED-Emission), darum als
+dritte Ausnahme im S5.15a-Hex-Lint dokumentiert (`addColorStop`/`ink`-Kontext).
+Editor-Overlay spiegelt Karte, Größe und Ecke (WYSIWYG), scrollt nativ.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (notetest: 41 Prüfungen —
+Einheitskarte, Stufen-Rundung, Scroll-Klemmung, Rad-/…-/SML-Wächter).
+
+## §63 · S5.24 Ergebnis (Bibliothek + Wertfluss + Referenz, 2026-10-05)
+
+Vier Nutzerwünsche, nach Rückfragen (Wahl: R/C/L+Quellen, E-Reihe nur R,
+Referenz unters Hilfe-Menü, Diät+Kategorien ja). (a) Bibliothek: Mitte ohne
+doppelte Kategoriezeile und ohne generierte „Beschreibungen“ (nur echte
+Texte), Detailspalte ohne Badge-Zeile, Pins als `<details>` (auf bis 8 Pins);
+neue Top-Rubriken Sensoren (NTC/LDR aus „Widerstände“) und Stromversorgung
+(Regler aus „Analoge ICs“, GND/VCC aus „Quellen“) inkl. Icon-/Farb-Zeilen.
+(b) Wertfenster nach Platzieren: `openPlacedValueEditor` an allen drei
+Pfaden (Klick, Enter, Drop), nur für R/C/L + vdc/idc/vac mit numerischem
+Hauptparameter; `commitEditing` beendet bei ⇧-Serie den Platziermodus nicht
+mehr (Wert → weiter platzieren). (c) Rad-Schritte: `lib/values/series.ts`
+(E6/E12/E24, `stepEValue`/`nearestEValue`/`stepPercent`), Einstellung
+E6/E12/E24 (Store + localStorage, wie Symbolstil); NumberField mit nativem
+passivem-nein-Listener (Panel scrollt nicht mit), Entwurf bis Blur/Enter;
+Wertefeld ebenso (E-Reihe nur bei `partId === "resistor"`). (d) Referenz über
+Hilfe-Menü (Desktop + mobil): Farbcode (IEC 60062), E-Reihen, Kerko-Codes
+(2-stellig = direkt pF), SMD (3/4-stellig, R-Komma, 0-Brücke; EIA-96 ehrlich
+ausgenommen), Suffixe als Spiegel des echten Parsers — der Test fand dabei
+zwei echte Bugs (Dekadenfaktor ×10, „f“ allein = Farad statt Femto).
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (referencetest: 58).
+
+## §64 · S5.25 Ergebnis (Notiz- und Wertfeld-Feinschliff, 2026-10-05)
+
+Sieben Nutzerbefunde. (1) Eselsohr entfernt (Canvas-Dreieck + Editor-Div —
+glatte Karte). (2) Schriften 9/12/16 (`NOTE_FONT_STEPS`, Default M = 12;
+Legacy-Größen runden weiter auf die nächste Stufe). (3) Platzier-Geist war
+noch das alte Callout-Design („NOTIZ“-Kopf, 136×42) — jetzt die echte leere
+Einheitskarte (WYSIWYG); Geist versteckt sich zusätzlich bei offenem Editor
+(`!editingNote`). (4) Wertefeld: `px-3/py-2`, `gap-3` zur Einheit (vorher
+klebte sie am Text, Ränder ungleich). (5) Leere Notiz rendert nichts mehr
+(`dimmed`-Zweig samt „Notiz“-Kursiv gestrichen). (6) Editor-Leiste: oben,
+wenn ≥48 px Platz; sonst unten, wenn es dort passt; sonst oben überlappend
+(sichtbar geht vor); waagrecht in die Sichtfläche geklemmt (neuer
+`viewport`-Prop). (7a) Notiz-Auswahlrahmen entfällt während `sr.dragging`
+(idle Selektion behält ihn) und im Editor (warme Papierkante statt
+Selection-Blau — die Leiste zeigt den Modus). (7b) Diagonal-Bug: Die
+Vorschau-Schleife lief `ab preview[1]` und damit bei ≥2 Treppen-Ecken
+diagonal zur ersten Ecke zurück — jetzt wird der Schweif ab der letzten
+festen Ecke frisch gerechnet (`previewNetPath(ref, [], target)`), mit
+derselben Knickfolge wie der Klick (waagrecht angekommen → senkrecht weiter,
+`preferDir`/`flipBend`/A* identisch durchgereicht). Gleichheit Schweif ≡
+Klick-Suffix + Orthogonal-Garantie stehen als wiretest-Checks.
+Verifikation: `tsc` ✓, `eslint` ✓, `npm test` ✓ (notetest +6 Wächter,
+wiretest +3 Schweif-Checks).
+
+## §65 · S5.26 Ergebnis (Echte Schalter + Poti-Schieber + Pinbeschriftungen, 2026-10-06)
+
+Drei Nutzerwünsche, ein Sprint. (1) Schaltzeichen: SPDT/DPST/DPDT, alle Dreh-
+und alle DIP-Schalter waren derselbe 2-Pin-SPST-Fake — mit doppeltem Hebel
+(statisch im Symbol plus generisch im Overlay). Jetzt hat jede Schaltfunktion
+ihre echten Pole (SPDT: COM/NO/NC mit komplementären Geräten; DPST/DPDT:
+gekoppelte Pole; Dreh: COM plus Abgriffe; DIP: Gehäuse mit echter
+Pin-Nummerierung 1..N / 2N..N+1), ihr eigenes IEC-Zeichen (nur Statik im
+Symbol) und ihren zustandsabhängigen Hebel aus dem typ-bewussten Overlay
+(Wechsler berühren immer eine Seite, DP-Typen mit gestrichelter
+Wirkverbindung). Der Taster verlor seine T-Platte (lag doppelt zum Hebel)
+und bekam die IEC-Betätigungskappe. (2) Die Relais-Familie entpuppte sich
+beim Audit als dieselbe Fake-Klasse: „SPDT"/„DPDT" mit 4 Pins und einem
+SPST-Modell. Jetzt echte Wechsler (neuer VSWITCH-Parameter `invert`, NC-Pfad
+als eigenes Gerät) — und der Anker zieht im Overlay sichtbar an (liest den
+echten Spulen-Zustand aus dem Solver). (3) Poti: Das unsichtbare
+±5-%-Klicken ist gestrichen; daneben steht jetzt ein großer Schieberegler
+(Spur plus Füllung plus Knopf, Drag mit einer Undo-Stufe, live bei
+laufender Simulation, sonst Param-Editor). (4) Pinbeschriftungen überall:
+Jeder benannte Pin (Oszi, Funktionsgenerator, COM/NO/NC, COIL±, …) zeigt
+seinen Namen — unrotiert lesbar, außen versetzt; rein numerische entfallen.
+Katalog-Audit über alle 418 Bauteile: keine leeren Symbole, keine
+Raster-/Namen-Verstöße. Interaktions-Regel für alle Schalter in einem Modul
+(`switches.ts`: Klick, Taste, Inspektor-Live und Overlay lesen dieselbe
+Wahrheit); `setParam` räumt abgeleitete Geräte-Controls (`<id>_<suffix>`)
+mit ab, sonst überschatten sie editierte Params.
+
+## §66 · S5.27 Ergebnis (Notiz-Auswahl, Editor-WYSIWYG, Drag-Rahmen, 2026-10-06)
+
+Drei Nutzerbefunde an den Notizzetteln. (1) Der Direkteditor wählte beim
+Öffnen den gesamten Text („Tippen ersetzt") — ein Tastenschlag löschte so
+den ganzen Zettel. Jetzt steht der Caret ohne Auswahl an der Klickstelle
+(`caretRangeFromPoint`, Firefox-Fallback, sonst ans Ende); die
+Klickposition fließt vom Canvas in den Editor. (2) Bearbeitung und Ansicht
+sind jetzt pixelgleich: Eine Karten-Metrik (`NOTE_PAD_X`, `NOTE_TOP_PAD`,
+`noteLineH`, `noteFirstBaseline`, Editor-Padding mit Rahmen-Korrektur und
+Ascent-Herleitung) speist Canvas und Editor; Kontur (blau/braun je Auswahl),
+Eckenradius, Schatten, Lichtkante, Schrift (Gewicht 500, Familie, exakte
+px-Zeilenhöhe statt 1.45) und Unterstreichung sind gespiegelt, der
+Scrollstand wird übernommen. Restfehler ≤1px je nach Plattform-Schrift
+(dokumentiert). (3) Beim Ziehen zeichnet der Zettel gar keinen Rahmen mehr
+— weder den blauen Auswahl- noch den braunen Ruherahmen. Nebenbei gefixt:
+Zettelwechsel (B öffnen, während A offen ist) committed A per
+Unmount-Commit statt ihn zu verwerfen; `commitNote` schließt nur noch, wenn
+derselbe Zettel noch offen ist (funktionales setState, kein
+Render-Ref-Zugriff — der Lint verbietet ihn).
+
+## §67 · S5.28 Ergebnis (Blattgrößen, One-Shot-Platzierung, Elektronen, 2026-10-06)
+
+Drei Nutzerwünsche. (1) Drei Notizblatt-Größen: S (170×110), M (232×150,
+bisheriger Zettel, Standard) und L (310×200) — als `card`-Feld auf der
+Notiz (Altbestand fällt auf M zurück). Ein Button in der Auswahlleiste
+(„Karte: M") schaltet M → L → S (undo-fähig); Umbruch, Trefferzonen und
+Editor folgen der Größe aus derselben Quelle. (2) Platzieren ist One-Shot:
+Notiz setzen, schreiben, woanders hinklicken — die Notiz bleibt committed
+stehen, keine neue entsteht (offener Editor plus Klick ins Leere beendet
+nur; Klick auf einen anderen Zettel wechselt weiterhin). (3) Elektronen der
+Stromanimation sind deutlicher, aber maßvoll: Punkt 2.0 → 2.4, Deckkraft
+0.32–0.68 → 0.40–0.78 (gleiche Log-Kurve), Kontur mit Theme-Kontrast
+(dunkel im Light-, hell im Dark-Mode). Abstand, Farben und Schwelle
+unverändert.
+
+## §68 · S5.29 Ergebnis (Taster-Stößel, Vorschau-Hebel, Drop-Position, 2026-10-06)
+
+Zwei Befunde. (1) Schalter/Taster-Darstellung: per Render-Musterung geprüft —
+echtes `drawInstance` aus `render.ts` plus echte `SymbolPreview`-Logik über
+Node-Canvas (17 Bauteil-Zustände, 7 Vorschauen). Befund A: Die Taster-Kappe
+saß mittig auf der Hebelspitze (offen, „Lolli" über dem rechten Lagerpunkt)
+bzw. auf dem Kontakt (geschlossen, Kollision mit Lagerpunkt und Leitung).
+Jetzt IEC-Stößel: kurzer Stiel vom Hebel senkrecht nach oben, Kappe (r=3)
+obenauf, klar getrennt vom Lagerpunkt; gedrückt fährt der Stößel mit dem
+Hebel herunter (Stiel auf dem geschlossenen Kontakt, Kappe 3 px darüber).
+Befund B: Die Bibliotheks-Vorschau zeichnet nur Katalog-Statik — Schalter
+erschienen ganz ohne Hebel (zwei Stummel mit Punkten), DIP als leeres
+Kästchen, Drehschalter ohne Zeiger. Jetzt hängt `SymbolPreview` die
+Ruhe-Stellung aus der neuen reinen Quelle `switchPreviewPrims` an (offen
+bzw. NC, Dreh auf Abgriff 1, DIP alle offen; ohne gestrichelte
+Wirkverbindung), vor dem Fit, damit der Hebel in die Einpassung zählt.
+Verifiziert korrekt und unverändert: SPST-Hebel, SPDT/DPDT-Wechsler (immer
+an einer Seite), DPST-Doppelhebel, Dreh-Zeiger, DIP-Hebel im Gehäuse,
+Relais-Anker (zieht sichtbar an); die Wirkverbindung kreuzt die Hebel
+normgerecht (mechanische Kopplung). (2) Drag-&-Drop aus der Bibliothek
+(ComponentStrip/DeviceBar gleich mit) landete weit links neben dem Cursor:
+die W133-Handler rechneten `(client - rect - view) / zoom` statt der exakten
+Umkehr von `toScreen` (`/ zoom + view`) — bei gepanntem/gezoomtem Canvas
+ein Versatz von `view * (1 + 1/zoom)`. Ghost und Ablage gehen jetzt über
+`toWorld` (stabile Referenz, Effekt-Dep). Nativer Datei-Drop war schon
+korrekt.
+
+## §69 · S5.30 Ergebnis (Spannungsteiler-Easter-Egg, 2026-10-06)
+
+Ein Wunsch, ein Witz. Bedingung: mindestens eine Spannungsquelle (VDC, VAC
+oder Pulsquelle — Stromquelle zählt nicht, Funktionsgenerator auch nicht),
+genau ein schlichter Widerstand (Stellwiderstand zählt nicht) und eine
+Notiz mit dem Wort „Spannungsteiler" (Groß-/Kleinschreibung egal). Läuft die
+Simulation, trägt die Notiz einen roten, 8° gedrehten Stempel
+(„r u serious?", kursiv-fett, wörtlich mit kleinem r) mittig über der Karte;
+der Notiztext darunter bleibt stehen und lesbar. Angebracht nur zur
+Laufzeit — anhalten oder umbauen (zweiten Widerstand dazu!) lässt den
+Stempel kommentarlos verschwinden. Umsetzung: reiner Trigger
+`dividerJokeNoteIds(doc)` in `src/lib/notes/easteregg.ts` (ein Scan pro
+Frame, vernachlässigbar), Stempel im Notiz-Zweig von `draw` nach Text und
+Scroll-Leiste, mit eigener Save-Ebene (Ausrichtung/Schrift des Rests
+unberührt) und Breitenklemmung auf `cardW − 24` (alle drei Blattformate).
+Theme-Rot `--err` (kein Fix-Hex — der S5.15a-Canvas-Lint verbietet es; auf dem
+immer gelben Zettelpapier in beiden Themes lesbar).
+Stempel-Geometrie per Musterung gegengeschaut (M- und S-Karte).
+
+## §70 · S5.31 Ergebnis (Notiz-Unmount-Spiegel, Trigger-Hysterese, 2026-10-06)
+
+Zwei Befunde. (1) Notizen verschwanden, wenn man nach dem Schreiben daneben
+klickte: In React 19 ist `cardRef.current` beim Unmount-Cleanup bereits
+null — der S5.27-Unmount-Commit las `innerHTML` als `""`, und `commitNote`
+verwarf die neue Notiz still (Regel: leer + neu = weg). Verifiziert mit
+jsdom-Repro am echten NoteEditor (ohne Fix `""`/rot, mit Fix Text/grün, per
+Stash gegengeprüft). Jetzt spiegelt der Editor sein HTML bei jedem Input
+sowie nach Paste und Format-Klicks (Stil ändert das HTML je nach Browser
+ohne Input-Event) und committed aus dem Spiegel; die Entscheidung lebt als
+reine, testbare Funktion `resolveNoteCommit` (getippt → nie verwerfen).
+`updateNote`-Leertext behält weiter den alten Text (echter Store-Test).
+(2) Der Oszi-Trigger „lief durch" (alle Messpunkte): Der Komparator hatte
+keine Hysterese — bei stehendem Signal (0 V + Rauschen) oder ruhigen
+Messpunkten feuerte er 120/120 Frames auf Rauschen; das Rauschband wurde
+jeden Frame neu erfasst und sprang. Echte Komparatoren haben Hysterese:
+`findTrigger` ist jetzt ein Schmitt mit 0,3 Divs der Triggerquelle (Netz:
+0,25 auf dem normierten ±1-Sinus) — nur volle Banddurchgänge zählen,
+dazwischen wird gehalten. Verifiziert: schweigt auf Rauschen, Kleinsignal
+im Band und DC-Ruhelage; Vollkette mit echter Simulation (rc-lowpass,
+1 kHz, echte Puffer + Sampler): 240/240 getriggert, Phasenfehler ≤ 10 µs
+(stehend); fallende Flanke und 50-Hz-Netz-Raster treffen. Seitenbefund:
+alles andere der Trigger-Kette (Modi, Quelle, Flanke, Menü, Pegel-Knopf,
+Darstellung, Clock, Sampler) war korrekt — nur die Hysterese fehlte.
+
+## §71 · S5.32 Ergebnis (IC-Programm: Inventur + Modell-Fundament, 2026-10-07)
+
+Inventur auf Wunsch: 265 ICs von 418 Katalogteilen (215 digital, 24 analog,
+15 Regler, 9 MCU, 2 Wandler). Die Simulationslogik ist komplett
+handgeschrieben im Repo (digital.ts-Verhaltensmodelle, Boyle-OPV/Timer/
+Regler in der Engine, Arduino-C-Interpreter für MCUs) — keine
+Hersteller-Modelle. Ehrlicher Befund dabei: Viele Multi-Unit-ICs sind nur
+dem Namen nach der Typ (Quad-NAND als 1 Gatter mit 11 Eingängen,
+Transceiver als 1 Buffer, Komparator als ALU, Dekoder mit falscher Breite,
+„Quad"-OPVs mit einer Einheit, Duplikate, wirkungslose Parameter); kein
+Test prüfte Modell↔Name je. Scope per Vierfach-Votum: volles Programm,
+Funktionsboxen, Analog-Ausgänge ja, Typen einmalig + Familien-Parameter.
+S5.32 legt das Fundament: 23 neue Modelle (u. a. 74595, 74245, 7485/83,
+7447/4511/4543, 74148, 4052/53, L293, ULN2003/2803, MAX232; Polaritäten an
+Datenblättern verifiziert: 4511-LE, 245-DIR, L293-Tabelle, 4543-LD/BI),
+nand8/nor4-Labels ergänzt (fielen still in AND!), `volts`-Analog-Ausgänge
+für Verhaltensmodelle (DAC-Sonderfall in der Engine ersetzt, 4051/4066
+jetzt echt analog), Pinzahl-Register als Basis der S5.33-Konsistenzprüfung.
+83 neue Modell-Wächter, alle grün.
+S5.33 schließt das volle Programm ab: Alle Fehl-Mappings sind behoben —
+157 Katalog-Blöcke per Remap-Skript (46× 74/74HC-MSI mit korrekten Modellen
+und Multi-Device-Duals/Quads, 68× 74-Gatter mit korrigierten Pinouts,
+deutschen Namen und Familien-Defaults, 42× CMOS mit vollen Pinouts und
+21 neuen Modellen, ADC/DAC mit vref), dazu per Hand: cmosComplex-Zeilen
+(4017/20/40/60/11/28/51/52/53, 4013 als Dual-dffn), cmosGates/extra74 als
+Multi-Unit, 4007 als 6 echte MOSFETs mit internen Brücken, Analog-Multis
+(LM324/339, TL074/084, NE5532, LM358, TL072, LM393) mit allen Einheiten.
+Zählerflanken an Datenblättern verifiziert (4020/40/60 fallen, 4022 mit
+INH/COUT, 4060-Q-Auswahl). Der Konsistenzwächter check-ic-models läuft in
+`npm test` (216 Digital-Teile sauber) und fängt jedes künftige Fehl-Mapping
+für immer ab. 61 neue Modell-Wächter (144 gesamt), alle grün. Bewusste
+Abweichungen sind dokumentiert (Push-Pull statt Open-Collector, kein
+Sync-Load bei 74160–63, keine Oszillator-Pins bei 4060).

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, Crosshair, Grid3X3, SlidersHorizontal } from "lucide-react";
+import { Activity, Crosshair, Grid3X3, GraduationCap, SlidersHorizontal } from "lucide-react";
 import { DialogHeader, ModalShell } from "./ui";
-import { ThemePref, useEditor } from "@/state/editor";
+import { ThemePref, UiFontSize, useEditor } from "@/state/editor";
 import {
   loadHoverConfig,
   saveHoverConfig,
@@ -11,9 +11,11 @@ import {
   SymbolStylePref,
   saveSymbolStyle,
   detectLocaleSymbol,
+  ESeriesPref,
+  saveESeries,
 } from "@/lib/settings";
 
-type SettingsSection = "general" | "canvas" | "simulation" | "probes";
+type SettingsSection = "general" | "canvas" | "simulation" | "probes" | "teacher";
 
 function MacSwitch({
   checked,
@@ -128,6 +130,78 @@ function SettingsRow({
   );
 }
 
+/** S5.6d: Lehrer-Bereich — 4-stelliger Code, Sperren/Entsperren. */
+function TeacherSection() {
+  const teacher = useEditor((s) => s.teacher);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const st = useEditor.getState;
+
+  const status = teacher.locked ? "Gesperrt" : teacher.codeHash ? "Entsperrt (Code gesetzt)" : "Aus (kein Code)";
+  const statusColor = teacher.locked ? "var(--err)" : teacher.codeHash ? "var(--ok)" : "var(--ink-3)";
+
+  const onSetCode = () => {
+    if (st().setTeacherCode(code)) { setCode(""); setError(null); }
+    else setError("Code braucht genau 4 Ziffern.");
+  };
+  const onUnlock = () => {
+    if (st().unlockTeacher(code)) { setCode(""); setError(null); }
+    else setError("Falscher Code.");
+  };
+
+  return (
+    <SettingsGroup title="Lehrer-Modus (Unterricht)">
+      <SettingsRow title="Status" subtitle="Gesperrt: Nennwerte und Fehlerbilder versteckt, Plan unveränderbar. Messen und Simulieren bleiben erlaubt.">
+        <span className="text-xs font-medium" style={{ color: statusColor }}>{status}</span>
+      </SettingsRow>
+      {!teacher.locked && (
+        <SettingsRow title={teacher.codeHash ? "Code ändern" : "Code festlegen"} subtitle="Genau 4 Ziffern. Der Code liegt nur gehasht auf diesem Gerät.">
+          <span className="flex items-center gap-2">
+            <input
+              className="input mono w-24"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              autoComplete="off"
+              placeholder="••••"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              onKeyDown={(e) => { if (e.key === "Enter") onSetCode(); }}
+            />
+            <button className="btn" onClick={onSetCode}>Setzen</button>
+          </span>
+        </SettingsRow>
+      )}
+      {teacher.codeHash && !teacher.locked && (
+        <SettingsRow title="Plan sperren" subtitle="Ab sofort: keine Änderungen, keine Nennwerte, keine Fehlerbilder.">
+          <button className="btn" onClick={() => st().setTeacherLocked(true)}>Sperren</button>
+        </SettingsRow>
+      )}
+      {teacher.locked && (
+        <SettingsRow title="Entsperren" subtitle="Code eingeben, um den Plan wieder freizugeben.">
+          <span className="flex items-center gap-2">
+            <input
+              className="input mono w-24"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              autoComplete="off"
+              placeholder="••••"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              onKeyDown={(e) => { if (e.key === "Enter") onUnlock(); }}
+            />
+            <button className="btn" onClick={onUnlock}>Entsperren</button>
+          </span>
+        </SettingsRow>
+      )}
+      {error && (
+        <div className="px-3.5 py-2 text-xs" style={{ color: "var(--err)" }}>{error}</div>
+      )}
+    </SettingsGroup>
+  );
+}
+
 export default function SettingsDialog({
   open = true,
   onClose,
@@ -139,7 +213,9 @@ export default function SettingsDialog({
   const [hoverCfg, setHoverCfg] = useState<ProbeHoverConfig>(() => loadHoverConfig());
 
   const theme = useEditor((s) => s.theme);
+  const uiFontSize = useEditor((s) => s.uiFontSize);
   const symbolStyle = useEditor((s) => s.symbolStyle);
+  const eSeries = useEditor((s) => s.eSeries);
   const showGrid = useEditor((s) => s.showGrid);
   const snap = useEditor((s) => s.snap);
   const autoRoute = useEditor((s) => s.autoRoute);
@@ -174,6 +250,19 @@ export default function SettingsDialog({
     saveSymbolStyle(s);
   };
 
+  const applyESeries = (s: ESeriesPref) => {
+    st().setESeries(s);
+    saveESeries(s);
+  };
+
+  // S5.12: UI-Schriftgröße (reine Darstellung — auch im Lehrer-Modus erlaubt).
+  const applyUiFontSize = (f: UiFontSize) => {
+    st().setUiFontSize(f);
+    try {
+      localStorage.setItem("multispice.uiFontSize", f);
+    } catch {}
+  };
+
   const navItems: Array<{
     id: SettingsSection;
     label: string;
@@ -183,6 +272,7 @@ export default function SettingsDialog({
     { id: "canvas", label: "Arbeitsfläche", icon: <Grid3X3 size={14} /> },
     { id: "simulation", label: "Simulation", icon: <Activity size={14} /> },
     { id: "probes", label: "Messsonden", icon: <Crosshair size={14} /> },
+    { id: "teacher", label: "Lehrer-Modus", icon: <GraduationCap size={14} /> },
   ];
 
   const activeStd: "iec" | "ansi" =
@@ -238,6 +328,20 @@ export default function SettingsDialog({
                       onChange={applyTheme}
                     />
                   </SettingsRow>
+                  <SettingsRow
+                    title="Schriftgröße"
+                    subtitle="Skaliert Texte und Bedienelemente der Oberfläche (Schaltplan folgt dem Zoom)"
+                  >
+                    <MacSegmented<UiFontSize>
+                      value={uiFontSize}
+                      options={[
+                        { value: "compact", label: "Kompakt" },
+                        { value: "standard", label: "Standard" },
+                        { value: "large", label: "Groß" },
+                      ]}
+                      onChange={applyUiFontSize}
+                    />
+                  </SettingsRow>
                 </SettingsGroup>
 
                 <SettingsGroup title="Schaltplan-Norm">
@@ -260,6 +364,23 @@ export default function SettingsDialog({
                     <SymbolPreviewCard label="Kondensator" std={activeStd} kind="C" />
                     <SymbolPreviewCard label="Operationsverstärker" std={activeStd} kind="OP" />
                   </div>
+                </SettingsGroup>
+
+                <SettingsGroup title="Bauteilwerte">
+                  <SettingsRow
+                    title="E-Reihe"
+                    subtitle="Normwert-Schritte beim Scrollen über Widerstandswerten (Widerstand läuft in der Reihe, alle anderen Felder prozentual)"
+                  >
+                    <MacSegmented<ESeriesPref>
+                      value={eSeries}
+                      options={[
+                        { value: "E6", label: "E6" },
+                        { value: "E12", label: "E12" },
+                        { value: "E24", label: "E24" },
+                      ]}
+                      onChange={applyESeries}
+                    />
+                  </SettingsRow>
                 </SettingsGroup>
               </>
             )}
@@ -435,6 +556,9 @@ export default function SettingsDialog({
                   />
                 </SettingsRow>
               </SettingsGroup>
+            )}
+            {section === "teacher" && (
+              <TeacherSection />
             )}
           </main>
         </div>

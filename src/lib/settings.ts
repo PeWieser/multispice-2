@@ -1,5 +1,7 @@
 "use client";
 
+import type { PrintFormat, TitleDefaults } from "@/lib/schematic/model";
+
 export interface ProbeHoverConfig {
   showV: boolean;
   showI: boolean;
@@ -10,12 +12,13 @@ export interface ProbeHoverConfig {
 
 export const DEFAULT_HOVER: ProbeHoverConfig = {
   // W4: Der Canvas ist still. Messwerte auf Abruf (Alt+Hover, Probes, Einstellungen),
-  // nicht als Dauerbeschuss.
-  showV: false,
+  // nicht als Dauerbeschuss. S6.5: Alt+Hover zeigt per Default Netz+V (sonst wäre
+  // die Geste ohne vorherigen Einstellungsbesuch wirkungslos).
+  showV: true,
   showI: false,
   showP: false,
   showFreq: false,
-  showNetName: false,
+  showNetName: true,
 };
 
 export function loadHoverConfig(): ProbeHoverConfig {
@@ -77,5 +80,72 @@ export function loadSymbolStyle(): SymbolStylePref {
 export function saveSymbolStyle(pref: SymbolStylePref) {
   try {
     localStorage.setItem("multispice.symbolStyle", pref);
+  } catch {}
+}
+
+/* ------------------------------------------------------------------ */
+/* E-Reihe – Schrittweite beim Scrollen über Widerstandswerten (S5.24) */
+/* ------------------------------------------------------------------ */
+export type ESeriesPref = "E6" | "E12" | "E24";
+
+export function loadESeries(): ESeriesPref {
+  try {
+    const raw = localStorage.getItem("multispice.eSeries") as ESeriesPref | null;
+    if (raw === "E6" || raw === "E12" || raw === "E24") return raw;
+  } catch {}
+  return "E12";
+}
+
+export function saveESeries(pref: ESeriesPref) {
+  try {
+    localStorage.setItem("multispice.eSeries", pref);
+  } catch {}
+}
+
+/* ------------------------------------------------------------------ */
+/* Druckbögen – Schriftfeld-Vorgaben + Druckeinstellung (rechnerweit)  */
+/* ------------------------------------------------------------------ */
+export const DEFAULT_TITLE_DEFAULTS: TitleDefaults = { owner: "", drawnBy: "", docType: "Stromlaufplan" };
+
+export function loadTitleDefaults(): TitleDefaults {
+  try {
+    const raw = localStorage.getItem("multispice.titleDefaults");
+    if (raw) return { ...DEFAULT_TITLE_DEFAULTS, ...JSON.parse(raw) };
+  } catch {}
+  return { ...DEFAULT_TITLE_DEFAULTS };
+}
+
+export function saveTitleDefaults(v: TitleDefaults) {
+  try {
+    localStorage.setItem("multispice.titleDefaults", JSON.stringify(v));
+  } catch {}
+}
+
+export interface PrintSetup {
+  format: PrintFormat;
+  scope: "all" | "active";
+  toc: boolean;
+  bom: boolean;
+}
+
+const DEFAULT_PRINT_SETUP: PrintSetup = { format: "a4l", scope: "all", toc: true, bom: true };
+
+export function loadPrintSetup(): PrintSetup {
+  try {
+    const raw = localStorage.getItem("multispice.printSetup");
+    if (raw) {
+      const p = { ...DEFAULT_PRINT_SETUP, ...JSON.parse(raw) } as PrintSetup;
+      if (p.format !== "a4p" && p.format !== "a4l" && p.format !== "a3l") p.format = "a4l";
+      if (p.scope !== "all" && p.scope !== "active") p.scope = "all";
+      if (typeof p.bom !== "boolean") p.bom = true;
+      return p;
+    }
+  } catch {}
+  return { ...DEFAULT_PRINT_SETUP };
+}
+
+export function savePrintSetup(v: PrintSetup) {
+  try {
+    localStorage.setItem("multispice.printSetup", JSON.stringify(v));
   } catch {}
 }

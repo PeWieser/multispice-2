@@ -1,0 +1,447 @@
+
+import { ESeriesPref, SymbolStylePref } from "@/lib/settings";
+import { Instance, NetLabel, NetlistBuildResult, PrintFormat, Rotation, SchematicDoc, TextNote, Wire } from "@/lib/schematic/model";
+import { AnalysisPayload } from "@/lib/sim/runner";
+import { IntegrationMethod } from "@/lib/sim/engine";
+import type { TeacherLockState } from "@/lib/teacher";
+import type { CustomPartParamLink, CustomPartSpec, CustomPinSpec, ExtractBoundaryNet, SubcircuitElement } from "@/lib/library/customParts";
+import type { SymbolPrim } from "@/lib/library/catalog";
+
+export type Tool = "select" | "wire" | "junction" | "place" | "pan" | "probe" | "probe_voltage" | "probe_current" | "probe_power" | "probe_diff" | "probe_digital" | "erase" | "text" | "label";
+
+export type InstrumentKind =
+  | "dmm"
+  | "scope"
+  | "funcgen"
+  | "bode"
+  | "logic"
+  | "watt"
+  | "iv"
+  | "pattern"
+  | "spectrum"
+  | "counter"
+  | "logicconv"
+  | "distortion"
+  | "network"
+  | "inspector";
+
+export interface InstrumentWindow {
+  id: string;
+  kind: InstrumentKind;
+  title: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
+  minimized: boolean;
+  /** W29: gebundene Geräte (Oszi) hängen an einer Instanz auf dem Plan. */
+  instanceId?: string;
+  /** true = Fenster sitzt im Dock am unteren Rand (Layout statt x/y). */
+  docked?: boolean;
+  config: Record<string, unknown>;
+}
+
+/** Runde 17 (W32c): eine herausgenommene Messleitung (BNC-Klick).
+ *  Runde 19 (W36): generisch für alle Geräte – das Oszi nimmt damit einen
+ *  Tastkopf auf (CH1–CH4), der FG-2500 ein Kabel (OUT1/OUT2). */
+export interface ArmedLead {
+  instanceId: string;
+  pinIndex: number;
+  /** Anzeigename des Anschlusses („CH3“, „OUT1“) – Banner + Log. */
+  name?: string;
+  /** Farbe des Anschlusses (Oszi-Kanalfarbe; FG = Buchsenfarbe). */
+  color?: string;
+}
+
+export interface LogEntry {
+  id: number;
+  level: "info" | "warn" | "error" | "ok";
+  time: string;
+  message: string;
+}
+
+export interface AnalysisState {
+  kind: string;
+  running: boolean;
+  error?: string;
+  data?: unknown;
+  durationMs?: number;
+  /** Die Parameter der letzten Analyse (Quellen, Knoten …) — für Achsenbeschriftung im Grapher. */
+  meta?: Record<string, unknown>;
+  /** S2.1: Fortschritt 0..1 während `running` (Worker; Fallback springt auf 1). */
+  progress?: number;
+  /** S2.2: Konvergenz-Diagnose des Kernels (nur bei Fehlschlag belegt). */
+  convergence?: "singular" | "nonconvergent";
+  /** S2.2: verdächtige Knoten/Zweige, schlimmster zuerst. */
+  suspects?: string[];
+}
+
+export interface ClipboardData {
+  instances: Instance[];
+  wires: Wire[];
+  labels: NetLabel[];
+  notes: TextNote[];
+  probes: import("@/lib/schematic/model").MeasurementProbe[];
+  /** W61: Verbindungspunkte mitkopieren, damit Kreuzungsverbindungen erhalten bleiben. */
+  junctions?: import("@/lib/schematic/model").Junction[];
+}
+
+export type ThemePref = "system" | "dark" | "light";
+export type UiFontSize = "compact" | "standard" | "large";
+
+export type PartEditorTab = "circuit" | "symbol" | "pins" | "params";
+
+export interface PartEditorMeta {
+  name: string;
+  ref: string;
+  category: string;
+  footprint: string;
+  mount: "THT" | "SMD" | "both";
+  description: string;
+}
+
+/** S6.2 (Phase 2): Geparkter Haupt-Plan, während der Bauteile-Editor offen ist. */
+export interface ParkedEditorState {
+  doc: SchematicDoc;
+  past: SchematicDoc[];
+  future: SchematicDoc[];
+  view: { x: number; y: number; zoom: number };
+  selection: string[];
+  tool: Tool;
+  placingPartId: string | null;
+  libraryOpen: boolean;
+  rightOpen: boolean;
+  leftOpen: boolean;
+  bottomOpen: boolean;
+  savePending: boolean;
+}
+
+/** S6.3: Ergebnis des letzten Testlaufs im Bauteile-Editor. */
+export interface PartEditorTestResult {
+  ok: boolean;
+  message: string;
+  devices: number;
+  nodes: number;
+  at: number;
+}
+
+/** S6.3: Ausstehende Ersetzung nach „Auswahl als Bauteil“ (wird beim
+ * Speichern mit Platzieren ausgeführt: Originale raus, Instanz rein). */
+export interface PendingReplace {
+  boundary: ExtractBoundaryNet[];
+  consumed: { instances: string[]; wires: string[]; labels: string[]; junctions: string[]; notes: string[] };
+  center: { x: number; y: number };
+}
+
+/** S6.4: Dasselbe Bauteil (gleiche ID) existiert in zwei Fassungen —
+ * der Nutzer entscheidet pro Konflikt („jedes Mal nachfragen“). */
+export interface SpecConflict {
+  id: string;
+  name: string;
+  source: "project" | "import";
+  embedded: CustomPartSpec;
+}
+
+/** S6.2 (Phase 2): Zustand des Bauteile-Editors (Doc-Swap-Modus). */
+export interface PartEditorData {
+  open: boolean;
+  editingId: string | null;
+  dirty: boolean;
+  /** Schließen-Rückfrage sichtbar (Esc im Leerlauf / Schließen-Button bei dirty). */
+  confirmClose: boolean;
+  tab: PartEditorTab;
+  meta: PartEditorMeta;
+  links: CustomPartParamLink[];
+  pinOverrides: Record<string, Partial<CustomPinSpec>>;
+  customSymbol: SymbolPrim[];
+  /** Legacy-Transistor-Tabelle (Rückhalt beim Öffnen alter Bauteile). */
+  legacyTable: SubcircuitElement[] | null;
+  parked: ParkedEditorState | null;
+  /** S6.3: Live-Testlauf aktiv (Engine rechnet auf dem Editor-Doc). */
+  testRunning: boolean;
+  testResult: PartEditorTestResult | null;
+  /** S6.3: Spannungsfarben vor dem Testlauf (null = kein Test aktiv). */
+  testVoltColors: boolean | null;
+  /** S6.3: Ersetzung nach Extrakt (oder null). */
+  pendingReplace: PendingReplace | null;
+  /** S6.4: Offene Fassungs-Konflikte (Projekt/Import vs. Bibliothek). */
+  specConflicts: SpecConflict[];
+}
+
+/** Druckbögen: Druckauftrag (Format, Umfang, Verzeichnis). */
+export interface PrintTicket {
+  format: PrintFormat;
+  scope: "all" | "active";
+  toc: boolean;
+  bom: boolean;
+}
+
+export interface EditorState {
+  doc: SchematicDoc;
+  selection: string[];
+  hoverNet: string | null;
+  tool: Tool;
+  placingPartId: string | null;
+  /** S5.17: Einmal-Vorbelegung aus der Suche („r 10k“) — addInstance verbraucht sie. */
+  placingPreset: { partId: string; params: Record<string, number | string | boolean> } | null;
+  /** W75: Drehung & Spiegelung des Bauteils in der Hand vor dem Absetzen. */
+  placingRot: Rotation;
+  placingMirror: boolean;
+  view: { x: number; y: number; zoom: number };
+  theme: ThemePref;
+  uiFontSize: UiFontSize;
+  symbolStyle: SymbolStylePref;
+  eSeries: ESeriesPref;
+  showGrid: boolean;
+  snap: boolean;
+  autoRoute: boolean;
+  showCurrentFlow: boolean;
+  showVoltageColors: boolean;
+  /** W1: Richtung der Stromfluss-Punkte. Default "electron" (− → +), Alternative "conventional" (+ → − außen). */
+  currentFlowDirection: "electron" | "conventional";
+  showInlineValues: boolean;
+  /** Runde 11: Lineale am Canvas-Rand (Ref-2-Chrome). */
+  showRulers: boolean;
+  /** Runde 11: Blattrand + Titelstempel um den Inhalt (Zeichenblatt). */
+  showPageFrame: boolean;
+  showErcMarkers: boolean;
+  showRated: boolean;
+  netResult: NetlistBuildResult;
+  past: SchematicDoc[];
+  future: SchematicDoc[];
+  logs: LogEntry[];
+  bottomTab: "console" | "netlist" | "errors" | "probes" | "bom" | "results";
+  bottomOpen: boolean;
+  leftOpen: boolean;
+  rightOpen: boolean;
+  libraryOpen: boolean;
+  libraryPos: { x: number; y: number };
+  librarySize: { w: number; h: number };
+  instruments: InstrumentWindow[];
+  /** Sichtbarer Auto-Save-Beweis: letzter erfolgreicher Schreibzeitpunkt. */
+  lastSavedAt: number | null;
+  /** true = Änderung wartet auf den debounceten Auto-Save. */
+  savePending: boolean;
+  /** S5.11: Speicher-Gesundheit — lokal (Arbeitskopie) + gebundene Datei. */
+  saveHealth: { local: "ok" | "error"; file: "none" | "ok" | "stale" };
+  probes: string[];
+  analysis: AnalysisState;
+  sim: {
+    running: boolean;
+    timeScale: number;
+    sampleRate: number;
+    method: IntegrationMethod;
+    temperature: number;
+    tick: number;
+    fps: number;
+  };
+  favorites: string[];
+  recent: string[];
+  clipboard: ClipboardData | null;
+  toast: { message: string; actionLabel?: string; action?: () => void } | null;
+  placingProbeKind: import("@/lib/schematic/model").ProbeKind | null;
+  /** S5.6d: Lehrer-Modus (Werte/Faults versteckt + Plan gesperrt). */
+  teacher: TeacherLockState;
+  /** S6.2 (Phase 2): Bauteile-Editor (Doc-Swap-Modus). */
+  partEditor: PartEditorData;
+
+  /* actions */
+  setDoc: (doc: SchematicDoc, pushHistory?: boolean) => void;
+  commit: (mutator: (doc: SchematicDoc) => void, label?: string) => void;
+  /** W79: Fasst eine laufende Maus-Ziehgeste zu genau einem Undo-Schritt zusammen. */
+  beginGesture: () => void;
+  endGesture: () => void;
+  undo: () => void;
+  redo: () => void;
+  setTool: (t: Tool) => void;
+  setPlacing: (partId: string | null, preset?: { partId: string; params: Record<string, number | string | boolean> } | null) => void;
+  setPlacingProbe: (kind: import("@/lib/schematic/model").ProbeKind | null) => void;
+  addInstance: (partId: string, x: number, y: number, opts?: { rot?: Rotation; mirror?: boolean; autoWire?: boolean }) => string | null;
+  deleteSelection: () => void;
+  rotateSelection: (dir?: 1 | -1) => void;
+  mirrorSelection: () => void;
+  moveSelection: (dx: number, dy: number) => void;
+  setSelection: (ids: string[]) => void;
+  selectAll: () => void;
+  copySelection: () => void;
+  pasteClipboard: () => void;
+  duplicateSelection: () => void;
+  setParam: (instanceId: string, key: string, value: number | string | boolean) => void;
+  /** S5.14: Live-Steuerwert (closed/pos) — Param persistieren + Control setzen, ohne Rebuild. */
+  setControlLive: (instanceId: string, key: string, value: number | string | boolean) => void;
+  setInstanceText: (instanceId: string, text: string) => void;
+  /** W81: Netzlabel umbenennen & Textnotiz bearbeiten. */
+  updateLabel: (id: string, name: string) => void;
+  updateNote: (id: string, text: string, size?: number) => void;
+  addWire: (w: Wire) => void;
+  /** W54/W78: ein Segment einer Leitung senkrecht verschieben (ohne Pin-Abriss). */
+  setWireSegmentOffset: (wireId: string, segIdx: number, orig: Array<{ x: number; y: number }>, dx: number, dy: number) => void;
+  /** W78: einen Eck-/Endpunkt einer Leitung streng orthogonal verschieben. */
+  setWireCornerPosition: (wireId: string, pointIdx: number, orig: Array<{ x: number; y: number }>, target: { x: number; y: number }) => void;
+  /** W55: ausgewählte Bauteile ausrichten (links/rechts/oben/unten/mitte). */
+  alignSelection: (mode: "left" | "right" | "top" | "bottom" | "centerH" | "centerV") => void;
+  /** W55: ausgewählte Bauteile mit gleichem Abstand verteilen. */
+  distributeSelection: (axis: "h" | "v") => void;
+  /** W55: ausgewählte Leitungen begradigen (Raster, rechte Winkel, Pins). */
+  straightenSelection: () => void;
+  /** S3.3: Referenzen pro Präfix in Leserichtung neu nummerieren (Undo-fähig). */
+  reannotate: () => void;
+  /** W55: alle Leitungen prüfen und reparieren (Importe, alte Pläne). */
+  repairWires: () => void;
+  /** W61: Verbindungspunkt setzen/entfernen (Multisim-Kreuzung). */
+  toggleJunction: (x: number, y: number) => void;
+  /** W32c: Messleitung an Leitung/Pin legen – ersetzt die Leitung des Kanals. */
+  connectProbeWire: (instanceId: string, pinIndex: number, target: { x: number; y: number }) => void;
+  /** W32c: Welcher Kanal hält gerade eine Messleitung in der Hand? */
+  leadArmed: ArmedLead | null;
+  setLeadArmed: (a: ArmedLead | null) => void;
+  /** W32a/Sicherheitsnetz: Geräte-Konfiguration überlebt Schließen/Wiederöffnen. */
+  configArchive: Record<string, Record<string, unknown>>;
+  addMeasurementProbe: (kind: import("@/lib/schematic/model").ProbeKind, x: number, y: number) => string | null;
+  updateMeasurementProbe: (id: string, patch: Partial<import("@/lib/schematic/model").MeasurementProbe>) => void;
+  removeMeasurementProbe: (id: string) => void;
+  setView: (v: Partial<{ x: number; y: number; zoom: number }>) => void;
+  fitView: () => void;
+  /** S2.2: pulsierender Problem-Marker (Welt-Koordinaten) oder null. */
+  spotlight: { x: number; y: number; label: string } | null;
+  /** S2.2: zentriert den Problemknoten eines Netzes + setzt den Marker. */
+  spotlightNet: (net: string) => void;
+  clearSpotlight: () => void;
+  /** S3.2: Auswahl-Extraktion als Bauteil (Instanz-IDs) oder null. */
+  extractIds: string[] | null;
+  openExtractDialog: (ids: string[]) => void;
+  closeExtractDialog: () => void;
+  setTheme: (t: ThemePref) => void;
+  setUiFontSize: (s: UiFontSize) => void;
+  setSymbolStyle: (s: SymbolStylePref) => void;
+  setESeries: (s: ESeriesPref) => void;
+  toggleTheme: () => void;
+  log: (level: LogEntry["level"], message: string) => void;
+  clearLogs: () => void;
+  setBottomTab: (t: EditorState["bottomTab"]) => void;
+  toggleBottom: () => void;
+  toggleLeft: () => void;
+  toggleRight: () => void;
+  toggleLibrary: () => void;
+  setLibraryPos: (pos: { x: number; y: number }) => void;
+  setLibrarySize: (size: { w: number; h: number }) => void;
+  setToast: (t: { message: string; actionLabel?: string; action?: () => void } | null) => void;
+  clearToast: () => void;
+  /** S5.6d: Lehrer-Code setzen (Format 4 Ziffern). Gibt false bei ungültigem Code. */
+  setTeacherCode: (code: string) => boolean;
+  setTeacherLocked: (locked: boolean) => void;
+  /** Entsperren mit Code. Gibt false bei falschem Code. */
+  unlockTeacher: (code: string) => boolean;
+  openInstrument: (kind: InstrumentKind, opts?: { instanceId?: string; title?: string }) => void;
+  /** W10: Inspector-Fenster öffnen/schließen (Geräte-Bar, Strg+I, Kontextmenü). */
+  toggleInspector: () => void;
+  closeInstrument: (id: string) => void;
+  updateInstrument: (id: string, patch: Partial<InstrumentWindow>) => void;
+  focusInstrument: (id: string) => void;
+  toggleProbe: (net: string) => void;
+  toggleCurrentFlow: () => void;
+  toggleVoltageColors: () => void;
+  setCurrentFlowDirection: (d: "electron" | "conventional") => void;
+  toggleInlineValues: () => void;
+  toggleRulers: () => void;
+  togglePageFrame: () => void;
+  toggleErcMarkers: () => void;
+  toggleRated: () => void;
+  startSim: () => void;
+  pauseSim: () => void;
+  stopSim: () => void;
+  setSimOption: <K extends keyof EditorState["sim"]>(k: K, v: EditorState["sim"][K]) => void;
+  bumpTick: (fps: number) => void;
+  loadPreset: (id: string) => void;
+  newDocument: () => void;
+  /** W72: Entwurf aus der Dateileiste öffnen. */
+  openSheet: (id: string) => void;
+  /** W72: Entwurfsname in der Dateileiste nachführen (Umbenennen im Inspector). */
+  renameSheet: (id: string, name: string) => void;
+  /** W98c: Reihenfolge der Entwürfe in der Dateileiste per Drag & Drop ändern. */
+  reorderSheets: (fromId: string, toId: string) => void;
+  /** Reiter schließen (der letzte Entwurf bleibt immer offen). */
+  closeSheet: (id: string) => void;
+  /** Entwurf duplizieren (tiefe Kopie mit neuer ID) und das Duplikat öffnen. */
+  duplicateSheet: (id: string) => void;
+  /** Blätter Stufe B: neue (leere) Seite anlegen und öffnen. */
+  addPage: () => void;
+  /** Blätter Stufe B: Seite wechseln (reine Ansicht — Sim/Undo laufen weiter). */
+  openPage: (id: string) => void;
+  /** Blätter Stufe B: Seite umbenennen. */
+  renamePage: (id: string, name: string) => void;
+  /** Blätter Stufe B: Seite löschen (die letzte bleibt erhalten). */
+  deletePage: (id: string) => void;
+  /** Druckbögen: aktueller Druckauftrag (legt fest, was PrintSheet rendert). */
+  printTicket: PrintTicket;
+  /** Druckbögen: Druckauftrag setzen (Druckdialog → Drucken). */
+  setPrintTicket: (t: PrintTicket) => void;
+  setAnalysis: (a: Partial<AnalysisState>) => void;
+  runAnalysis: (kind: string, payload?: AnalysisPayload) => Promise<void>;
+  /** S2.1: bricht die laufende Analyse ab (Worker-Terminierung; Fallback: wirkungslos nach Start). */
+  cancelAnalysis: () => void;
+  saveProject: (name?: string, opts?: { saveAs?: boolean }) => Promise<void>;
+  restoreLocalProject: () => void;
+  markFavorite: (partId: string) => void;
+  /* S6.2 (Phase 2): Bauteile-Editor */
+  openPartEditor: (partId?: string | null) => void;
+  closePartEditor: () => void;
+  /** Schließen anstoßen (dirty → Rückfrage, sonst direkt) — letzte Esc-Ebene im Editor. */
+  requestPartEditorClose: () => void;
+  setPartEditorConfirmClose: (v: boolean) => void;
+  savePartEditor: (place?: boolean) => boolean;
+  setPartEditorTab: (t: PartEditorTab) => void;
+  setPartEditorMeta: (patch: Partial<PartEditorMeta>) => void;
+  toggleParamLink: (instanceId: string, key: string) => void;
+  updateParamLink: (name: string, patch: Partial<CustomPartParamLink>) => void;
+  deleteParamLink: (name: string) => void;
+  setPinOverride: (portName: string, patch: Partial<CustomPinSpec> | null) => void;
+  setPartEditorSymbol: (prims: SymbolPrim[]) => void;
+  markPartEditorDirty: () => void;
+  startPartEditorTest: () => void;
+  stopPartEditorTest: () => void;
+  /** S6.3: Auswahl prüfen → Editor mit Extrakt öffnen (Ersetzen vorgemerkt). */
+  extractSelectionToEditor: () => void;
+  /** S6.4: Mitgereiste Specs einhängen; Konflikte → specConflicts. */
+  restoreProjectCustomParts: (specs?: CustomPartSpec[]) => void;
+  /** S6.4: Konflikt entscheiden (project/import übernimmt oder Bibliothek bleibt). */
+  resolveSpecConflict: (id: string, choice: "incoming" | "library") => void;
+  dismissSpecConflicts: () => void;
+  /** S6.4: .mspart-Text importieren (neu → Bibliothek, anders → Konflikt). */
+  importCustomSpecText: (text: string, fileName: string) => void;
+  duplicateCustomPart: (id: string) => string | null;
+  renameCustomPart: (id: string, name: string) => boolean;
+  /** Löschen mit Verwendungs-Schutz: verbaut → { ok: false, reason }. */
+  deleteCustomPartGuarded: (id: string) => { ok: boolean; reason?: string };
+  refreshNets: () => void;
+}
+
+export interface SheetEntry {
+  id: string;
+  name: string;
+  doc: SchematicDoc;
+}
+
+/** Runde 20 (W40): Ein Fenstermanager für alle Instrumente. Je Art stehen hier
+ *  die Entwurfsbreite (Panel-Layout) und die Mindesthöhe bzw. das natürliche
+ *  Maß der Geräte-Fenster – der Fenster-Fit misst beim Öffnen nach und setzt
+ *  die Größe exakt (`useWindowFit`, `DeviceFit`/`PanelProbe`). */
+export interface WindowSpec {
+  /** Entwurfsbreite des Inhalts (Layout-Bezug für die Messung). */
+  w: number;
+  /** Natürliche Höhe (Geräte) bzw. Höhen-Untergrenze (Panels). */
+  h: number;
+}
+
+export interface PinRef {
+  instId: string;
+  pinIndex: number;
+  x: number;
+  y: number;
+}
+
+/** S5.1: Zustandsfelder ohne Aktionen (für initialState). */
+export type EditorData = {
+  [K in keyof EditorState as EditorState[K] extends (...args: never[]) => unknown ? never : K]: EditorState[K];
+};

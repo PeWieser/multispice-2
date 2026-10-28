@@ -129,6 +129,10 @@ export interface SolveResult {
   ok: boolean;
   iterations: number;
   message?: string;
+  /** S2.2: Fehlerklasse für den gestalteten Konvergenz-Zustand. */
+  failure?: "singular" | "nonconvergent";
+  /** S2.2: verdächtige Knoten/Zweige, schlimmster zuerst (max. 3). Leer = keiner eingrenzbar. */
+  suspects?: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -290,6 +294,88 @@ function fetlim(vnew: number, vold: number, vto: number): number {
 /** Runde 24 (W59): Obergrenze für sinnvolle Knotenspannungen/Zweigströme. */
 const SANE_LIMIT = 1e9;
 
+/* ------------------------------------------------------------------ */
+/* S4.2/S4.3: Temperatur-Skalierung + Sperrschichtkapazitäten (SPICE-like) */
+/* Geteilte Helfer für DC-Kern (loadDevices) und AC (buildAcMatrix), damit */
+/* beide Zweige exakt dieselben temperaturskalierten Werte sehen.         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sättigungsstrom bei Temperatur (°C), SPICE-2G-Form:
+ * IS·(T/Tnom)^(XTI/N)·exp(−EG/N·(1/Vt−1/Vt0)).
+ * Die Division durch den Emissionskoeffizienten N ist entscheidend: ohne sie
+ * driftet eine 1N4148 mit −5 mV/K statt der realen −2 mV/K (S4.2 verifiziert).
+ * BJT ruft mit nEm = 1 (Gummel-Poon ohne NF im IS-Term).
+ */
+export function tempScaledIS(is: number, tempC: number, tnomC: number, xti: number, egEV: number, nEm = 1): number {
+  const t = tempC + KELVIN;
+  const t0 = tnomC + KELVIN;
+  if (!(t > 0) || !(t0 > 0)) return is;
+  const n = nEm > 0.1 ? nEm : 1;
+  const vtT = (BOLTZMANN * t) / CHARGE;
+  const vt0 = (BOLTZMANN * t0) / CHARGE;
+  return is * Math.pow(t / t0, xti / n) * Math.exp(Math.max(-60, Math.min(60, (-egEV / n) * (1 / vtT - 1 / vt0))));
+}
+
+/** BJT-Stromverstärkung bei Temperatur: BF·(T/Tnom)^XTB. */
+export function tempScaledBF(bf: number, tempC: number, tnomC: number, xtb: number): number {
+  const t = tempC + KELVIN;
+  const t0 = tnomC + KELVIN;
+  if (!(t > 0) || !(t0 > 0)) return bf;
+  return bf * Math.pow(t / t0, xtb);
+}
+
+/** MOS-Schwellspannung bei Temperatur (lineare Näherung, dokumentiert). */
+export function tempScaledVTO(vto: number, tempC: number, tnomC: number, vtoTc: number): number {
+  return vto - vtoTc * (tempC - tnomC);
+}
+
+/** MOS-Transkonduktanz bei Temperatur (Beweglichkeit ∼ T^−BEX). */
+export function tempScaledKP(kp: number, tempC: number, tnomC: number, bex: number): number {
+  const t = tempC + KELVIN;
+  const t0 = tnomC + KELVIN;
+  if (!(t > 0) || !(t0 > 0)) return kp;
+  return kp * Math.pow(t / t0, -bex);
+}
+
+/** S4.3: Oxidkapazität W·L·εox/TOX (TOX = 0 → Meyer aus). */
+export function mosCoxWL(w: number, l: number, tox: number): number {
+  return tox > 0 && w > 0 && l > 0 ? ((3.453e-11 / tox) * w * l) : 0;
+}
+
+/**
+ * S4.3: Meyer-Kapazitäten [CGS, CGD] aus Arbeitspunkt-Bereich.
+ * Cutoff 0/0, linear Cox/2 je, Sättigung 2Cox/3 + 0 (vertauscht bei VDS < 0).
+ * Intrinsisch, addiert sich auf feste CGS/CGD-Params + CGSO/CGDO-Überlapp.
+ */
+export function meyerCaps(coxWL: number, vov: number, vdsA: number, reverse: boolean): [number, number] {
+  let cgs = 0;
+  let cgd = 0;
+  if (coxWL > 0 && vov > 0) {
+    if (vdsA < vov) {
+      cgs = 0.5 * coxWL;
+      cgd = 0.5 * coxWL;
+    } else {
+      cgs = (2 / 3) * coxWL;
+      cgd = 0;
+    }
+  }
+  return reverse ? [cgd, cgs] : [cgs, cgd];
+}
+
+/** SPICE-Sperrschichtkapazität mit FC-Depletion-Grenze (MJ = 0 → fix C0). */
+export function depletionCap(c0: number, vd: number, vj: number, mj: number, fc: number): number {
+  if (!(c0 > 0)) return 0;
+  if (!(mj > 0)) return c0;
+  const vjSafe = vj > 0.01 ? vj : 1;
+  const fcSafe = Math.min(Math.max(fc, 0.05), 0.95);
+  if (vd < fcSafe * vjSafe) {
+    return c0 * Math.pow(Math.max(1 - vd / vjSafe, 1e-9), -mj);
+  }
+  const base = Math.pow(1 - fcSafe, -(1 + mj));
+  return c0 * base * (1 - fcSafe * (1 + mj) + (mj * vd) / vjSafe);
+}
+
 const p = (d: Device, key: string, def: number): number => {
   const v = d.params?.[key];
   return typeof v === "number" && Number.isFinite(v) ? v : def;
@@ -378,11 +464,10 @@ export class Simulator {
           st.br = nNodes + branch++;
           this.branchNames.push(d.id);
           break;
-        case "F":
-          // current controlled current source needs the controlling branch (a 0V source)
-          st.br = nNodes + branch++;
-          this.branchNames.push(d.id + ":ctrl");
-          break;
+        // Hinweis: "F" (CCCS) braucht keinen Zweig — der Steuerstrom wird über
+        // den internen 1-µΩ-Sense-Leitwert zwischen den Steuerklemmen gemessen
+        // (Steuerklemmen in Reihe schalten!). Ein ungenutzter Zweig würde die
+        // Matrix singulär machen.
         case "OPAMP":
         case "COMPARATOR":
           st.br = nNodes + branch++;
@@ -430,8 +515,11 @@ export class Simulator {
     switch (d.type) {
       case "R":
       case "LAMP":
-      case "FUSE":
         return (va - vb) / Math.max(this.resistance(d), 1e-12);
+      case "NTC":
+        return (va - vb) / Math.max(this.ntcResistance(d), 1e-12);
+      case "FUSE":
+        return (va - vb) / Math.max(this.fuseResistance(d), 1e-12);
       case "C": {
         const geq = st.extra?.geq ?? 0;
         const ieq = st.extra?.ieq ?? 0;
@@ -472,12 +560,23 @@ export class Simulator {
       case "J": {
         return st.extra?.id ?? st.extra?.ic ?? 0;
       }
+      case "TLINE": {
+        // S4.6: Port-1-Strom (n0 → n1). OP: durchverbunden → Strom der 1-µΩ-Brücke.
+        if (!st.outputs?.length) {
+          const c = this.nodeIndex.get(d.nodes[2] ?? GND) ?? -1;
+          const v2 = this.vOf(this.isGround(d.nodes[2]) ? -1 : c);
+          return (va - v2) * 1e6;
+        }
+        const z0 = Math.max(p(d, "z0", 50), 1e-6);
+        const [e1] = this.tlineExcitation(d, this.time);
+        return (va - vb - e1) / z0;
+      }
       case "GATE":
       case "DIGITAL": {
         // Sum of output currents
         const outs = st.outputs ?? [];
         let sum = 0;
-        for (let i = 0; i < outs.length; i += 2) {
+        for (let i = 0; i < outs.length; i += 3) { // S5.32: Triples
           const lvl = outs[i + 1];
           if (lvl < 0) continue;
           // rough estimate: output current proportional to load, not tracked; use 0
@@ -604,6 +703,61 @@ export class Simulator {
     return Math.max(r, 1e-9);
   }
 
+  /** S4.5: Sicherungs-Widerstand — nach dem Durchbrennen roff (rastend). */
+  fuseResistance(d: Device): number {
+    const blown = (d.state?.extra?.blown ?? 0) > 0.5;
+    return blown ? Math.max(p(d, "roff", 1e9), 1) : this.resistance(d);
+  }
+
+  /**
+   * S5.13: NTC-Widerstand nach Beta-Gleichung
+   * R = R25 · exp(B · (1/T − 1/T25)), T in Kelvin. Temperatur = globale
+   * Sim-Temperatur (wie alle S4-Modelle; Temperaturwechsel baut neu).
+   */
+  ntcResistance(d: Device): number {
+    const r25 = Math.max(p(d, "r25", 10000), 1e-9);
+    const b = p(d, "b", 3950);
+    const tnom = p(d, "tnom", 25);
+    const t = this.options.temperature + KELVIN;
+    const t25 = tnom + KELVIN;
+    return Math.max(r25 * Math.exp(b * (1 / t - 1 / t25)), 1e-9);
+  }
+
+  /** S4.6: Laufzeit der Übertragungsleitung (td gewinnt, sonst len/vf/c). */
+  tlineDelay(d: Device): number {
+    const td = p(d, "td", 0);
+    if (td > 0) return td;
+    const len = p(d, "len", 0);
+    if (len > 0) return len / (Math.max(p(d, "vf", 0.66), 0.05) * 299792458);
+    return 0;
+  }
+
+  /**
+   * S4.6: Bergeron-Anregung [E1, E2] = [s2(t−td), s1(t−td)] aus akzeptierter
+   * Historie (outputs = [t, s1, s2]-Tripel, linear interpoliert; Leitung vor
+   * t = 0 relaxiert). Nur Vergangenes → Newton-sicher.
+   */
+  tlineExcitation(d: Device, t: number): [number, number] {
+    const td = this.tlineDelay(d);
+    const h = d.state?.outputs ?? [];
+    const tq = t - td;
+    const sample = (idx: number): number => {
+      if (h.length < 3 || tq <= h[0]) return 0;
+      for (let k = 0; k + 3 <= h.length; k += 3) {
+        const t0 = h[k];
+        const hasNext = k + 6 <= h.length;
+        const t1 = hasNext ? h[k + 3] : Infinity;
+        if (tq >= t0 && tq < t1) {
+          if (!hasNext) return h[k + idx];
+          const f = (tq - t0) / Math.max(t1 - t0, 1e-18);
+          return h[k + idx] + f * (h[k + 3 + idx] - h[k + idx]);
+        }
+      }
+      return h[h.length - 3 + idx];
+    };
+    return [sample(2), sample(1)];
+  }
+
   /* --------------------------- stamping --------------------------- */
 
   private stampConductance(m: RealMatrix, a: number, b: number, g: number): void {
@@ -651,9 +805,16 @@ export class Simulator {
       switch (d.type) {
         /* ---------------- passive ---------------- */
         case "R":
-        case "FUSE":
-          this.stampConductance(m, n0, n1, 1 / this.resistance(d));
+        case "FUSE": {
+          // S4.5: durchgebrannt → roff (rastend); Integral in acceptTimestep.
+          this.stampConductance(m, n0, n1, 1 / this.fuseResistance(d));
           break;
+        }
+        case "NTC": {
+          // S5.13: Heißleiter — Beta-Gleichung bei Sim-Temperatur.
+          this.stampConductance(m, n0, n1, 1 / this.ntcResistance(d));
+          break;
+        }
         case "LAMP": {
           const rated = p(d, "v", 12);
           const pw = p(d, "p", 1);
@@ -735,11 +896,19 @@ export class Simulator {
           const nm = this.idx(d.nodes[1]);
           const sp = this.idx(d.nodes[2]);
           const sm = this.idx(d.nodes[3]);
-          const lp = Math.max(p(d, "lp", 1), 1e-9);
+          const lp0 = Math.max(p(d, "lp", 1), 1e-9);
+          // S4.6: Sättigungsknie aus Primärstrom (Chord, Vorzeichen: Vor-Schritt).
+          // Skaliert Lp/Ls/M gemeinsam (sonst k > 1!); Sekundär-Gegenkompensation
+          // nicht modelliert (dokumentiert). isat = 0 → aus.
+          const isat = p(d, "isat", 0);
+          const satF = isat > 0 ? 1 / (1 + Math.abs(st.histI[0] ?? 0) / isat) : 1;
+          const lp = lp0 * satF;
           const ratio = Math.max(p(d, "ratio", 1), 1e-6);
-          const ls = lp / (ratio * ratio);
+          const ls = (lp0 / (ratio * ratio)) * satF;
           const k = Math.min(0.9999, p(d, "k", 0.999));
-          const mut = k * Math.sqrt(lp * ls);
+          const mut = k * Math.sqrt(lp0 * (lp0 / (ratio * ratio))) * satF;
+          const rp = Math.max(p(d, "rp", 0), 0);
+          const rs = Math.max(p(d, "rs", 0), 0);
           const b1 = st.br;
           const b2 = st.br2;
           if (np >= 0) {
@@ -759,17 +928,39 @@ export class Simulator {
             m.add(b2, sm, -1);
           }
           if (!ctx.transient) {
-            m.add(b1, b1, -1e-3);
-            m.add(b2, b2, -1e-3);
+            // S4.6: DC = Wicklungswiderstände (Fallback 1 mΩ wie bisher).
+            m.add(b1, b1, -(rp > 0 ? rp : 1e-3));
+            m.add(b2, b2, -(rs > 0 ? rs : 1e-3));
           } else {
             const { a0 } = this.integrationCoeffs(ctx.dt);
-            m.add(b1, b1, -a0 * lp);
+            m.add(b1, b1, -a0 * lp - rp);
             m.add(b1, b2, -a0 * mut);
-            m.add(b2, b2, -a0 * ls);
+            m.add(b2, b2, -a0 * ls - rs);
             m.add(b2, b1, -a0 * mut);
             m.addRhs(b1, -(a0 * lp * st.histI[0] + a0 * mut * (st.extra!.i2 ?? 0)));
             m.addRhs(b2, -(a0 * ls * (st.extra!.i2 ?? 0) + a0 * mut * st.histI[0]));
           }
+          // S4.6: Kernverluste als Parallelwiderstand primär (rcore ≤ 0 → aus).
+          const rcore = p(d, "rcore", 0);
+          if (rcore > 0) this.stampConductance(m, np, nm, 1 / rcore);
+          break;
+        }
+        case "TLINE": {
+          // S4.6: Bergeron-Leitung (verlustlos). OP/DC: durchverbunden.
+          const n2 = this.idx(d.nodes[2]);
+          const n3 = this.idx(d.nodes[3]);
+          const td = this.tlineDelay(d);
+          if (!ctx.transient || !(td > 0)) {
+            this.stampConductance(m, n0, n2, 1e6);
+            this.stampConductance(m, n1, n3, 1e6);
+            break;
+          }
+          const z0 = Math.max(p(d, "z0", 50), 1e-6);
+          const [e1, e2] = this.tlineExcitation(d, ctx.time);
+          this.stampConductance(m, n0, n1, 1 / z0);
+          this.stampCurrent(m, n0, n1, -e1 / z0);
+          this.stampConductance(m, n2, n3, 1 / z0);
+          this.stampCurrent(m, n2, n3, -e2 / z0);
           break;
         }
         /* ---------------- sources ---------------- */
@@ -845,6 +1036,8 @@ export class Simulator {
         }
         case "F": {
           // CCCS with internal sense resistor on control branch
+          // (Steuerklemmen in Reihe schalten — der Sense-Leitwert IST das
+          // Strommessgerät; parallel zu einem idealen Kurzschluss misst er 0).
           const cp = this.idx(d.nodes[2]);
           const cm = this.idx(d.nodes[3]);
           const beta = p(d, "gain", 1);
@@ -852,6 +1045,7 @@ export class Simulator {
           this.stampConductance(m, cp, cm, gsense);
           const ic = (this.vOf(cp) - this.vOf(cm)) * gsense;
           this.stampCurrent(m, n0, n1, beta * ic);
+          st.extra!.id = beta * ic;
           break;
         }
         /* ---------------- switches ---------------- */
@@ -865,7 +1059,9 @@ export class Simulator {
           break;
         }
         case "VSWITCH": {
-          const on = st.extra!.on ?? 0;
+          // S5.26: invert=1 kehrt den Ausgang um (NC-Pfad echter Wechsler-Relais;
+          // die Hysterese in updateEvents bleibt unverändert Rohzustand).
+          const on = (st.extra!.on ?? 0) ^ (p(d, "invert", 0) > 0.5 ? 1 : 0);
           const g = on ? 1 / Math.max(p(d, "ron", 1), 1e-6) : 1 / Math.max(p(d, "roff", 1e9), 1);
           this.stampConductance(m, n0, n1, g);
           break;
@@ -875,8 +1071,12 @@ export class Simulator {
         case "LED":
         case "ZENER":
         case "SCHOTTKY": {
-          const is = p(d, "is", d.type === "SCHOTTKY" ? 1e-8 : 1e-14);
+          // S4.2: IS temperaturskaliert (XTI/EG, /N); Sperrschicht unten gradiert.
           const n = p(d, "n", d.type === "LED" ? 2.0 : 1.0);
+          const is = tempScaledIS(
+            p(d, "is", d.type === "SCHOTTKY" ? 1e-8 : 1e-14),
+            ctx.temp, p(d, "tnom", 27), p(d, "xti", 3), p(d, "eg", 1.11), n,
+          );
           const rs = p(d, "rs", d.type === "LED" ? 8 : 0.01);
           const bv = p(d, "bv", d.type === "ZENER" ? 5.1 : 1e3);
           const nvt = n * vt;
@@ -937,7 +1137,9 @@ export class Simulator {
           this.stampConductance(m, n0, n1, geff);
           this.stampCurrent(m, n0, n1, ieqEff);
           if (ctx.transient) {
-            const cj = p(d, "cjo", 1e-12) + p(d, "tt", 0) * gd;
+            // S4.2: gradierte Sperrschicht (MJ = 0 → fix) + TT-Diffusion.
+            // Kapazitäts-Chord statt Ladungsformulierung (dokumentiert).
+            const cj = depletionCap(p(d, "cjo", 1e-12), vj, p(d, "vj", 1), p(d, "mj", 0.5), p(d, "fc", 0.5)) + p(d, "tt", 0) * gd;
             if (cj > 0) {
               const { a0 } = this.integrationCoeffs(ctx.dt);
               const geqC = a0 * cj;
@@ -955,9 +1157,11 @@ export class Simulator {
           const nc = this.idx(d.nodes[0]);
           const nb = this.idx(d.nodes[1]);
           const ne = this.idx(d.nodes[2]);
-          const isat = p(d, "is", 1e-15);
-          const bf = Math.max(p(d, "bf", 200), 1e-3);
-          const br2 = Math.max(p(d, "br", 2), 1e-3);
+          // S4.2: IS/BF/BR temperaturskaliert (XTB-Default 0 wie SPICE).
+          const tnomQ = p(d, "tnom", 27);
+          const isat = tempScaledIS(p(d, "is", 1e-15), ctx.temp, tnomQ, p(d, "xti", 3), p(d, "eg", 1.11));
+          const bf = Math.max(tempScaledBF(p(d, "bf", 200), ctx.temp, tnomQ, p(d, "xtb", 0)), 1e-3);
+          const br2 = Math.max(tempScaledBF(p(d, "br", 2), ctx.temp, tnomQ, p(d, "xtb", 0)), 1e-3);
           const vaf = p(d, "vaf", 100);
           const pnp = p(d, "pnp", 0) > 0.5 ? -1 : 1;
           const vbeRaw = pnp * (this.vOf(nb) - this.vOf(ne));
@@ -999,8 +1203,12 @@ export class Simulator {
           st.extra!.ib = pnp * ib;
           st.extra!.id = pnp * ic;
           if (ctx.transient) {
-            const cje = p(d, "cje", 5e-12);
-            const cjc = p(d, "cjc", 2e-12);
+            // S4.2: gradierte Sperrschichten + TF/TR-Diffusion (Chord, s. Diode).
+            const fcQ = p(d, "fc", 0.5);
+            const gmF = (isat * evbe) / vt;
+            const gmR = (isat * evbc) / vt;
+            const cje = depletionCap(p(d, "cje", 5e-12), vbe, p(d, "vje", 0.75), p(d, "mje", 0.33), fcQ) + p(d, "tf", 0) * gmF;
+            const cjc = depletionCap(p(d, "cjc", 2e-12), vbc, p(d, "vjc", 0.75), p(d, "mjc", 0.5), fcQ) + p(d, "tr", 0) * gmR;
             const { a0 } = this.integrationCoeffs(ctx.dt);
             const gbe = a0 * cje;
             const gbc = a0 * cjc;
@@ -1017,11 +1225,13 @@ export class Simulator {
           const ng = this.idx(d.nodes[1]);
           const ns = this.idx(d.nodes[2]);
           const pmos = p(d, "pmos", 0) > 0.5 ? -1 : 1;
-          const kp = p(d, "kp", 2e-5);
+          // S4.3: KP/VTO temperaturskaliert (Engine-Defaults 0 = SPICE L1 ohne Temp).
+          const tnomM = p(d, "tnom", 27);
+          const kp = tempScaledKP(p(d, "kp", 2e-5), ctx.temp, tnomM, p(d, "bex", 0));
           const w = p(d, "w", 1e-4);
           const l = p(d, "l", 1e-5);
           const beta = (kp * w) / l;
-          const vto = p(d, "vto", 2) * pmos;
+          const vto = tempScaledVTO(p(d, "vto", 2), ctx.temp, tnomM, p(d, "tcv", 0)) * pmos;
           const lambda = p(d, "lambda", 0.02);
           const vgsRaw = pmos * (this.vOf(ng) - this.vOf(ns));
           const vdsRaw = pmos * (this.vOf(nd) - this.vOf(ns));
@@ -1065,8 +1275,10 @@ export class Simulator {
           this.stampCurrent(m, nd, ns, pmos * ieq);
           st.extra!.id = pmos * id;
           if (ctx.transient) {
-            const cgs = p(d, "cgs", 5e-12);
-            const cgd = p(d, "cgd", 2e-12);
+            // S4.3: fix + Überlapp (CGSO/CGDO·W) + Meyer intrinsisch (TOX > 0).
+            const [mgs, mgd] = meyerCaps(mosCoxWL(w, l, p(d, "tox", 0)), vov, vdsA, reverse);
+            const cgs = p(d, "cgs", 5e-12) + p(d, "cgso", 0) * w + mgs;
+            const cgd = p(d, "cgd", 2e-12) + p(d, "cgdo", 0) * w + mgd;
             const { a0 } = this.integrationCoeffs(ctx.dt);
             const g1 = a0 * cgs;
             const g2 = a0 * cgd;
@@ -1139,21 +1351,62 @@ export class Simulator {
           const span = Math.max((vsatH - vsatL) / 2, 0.1);
           const arg = (gain * vd) / span;
           const tanh = Math.tanh(Math.max(-40, Math.min(40, arg)));
-          const vout = mid + span * tanh;
+          const vtarget = mid + span * tanh;
           const dv = (gain * (1 - tanh * tanh)) / 1;
           const rout = p(d, "rout", d.type === "COMPARATOR" ? 100 : 75);
-          // branch: v(out) - rout*i = vout_lin  => linearised around vd
+          // S4.1: OPV im Transient mit Einpol-GBW + Slew (DC/OP und
+          // COMPARATOR bleiben statisch). Boyle-Stil: Der Pol wirkt auf den
+          // LINEAREN Fehler (tau·dVi/dt + Vi = A0·vd), die Sättigung danach
+          // (Vi = interne Hochverstärkungs-Knotenspannung, darf Rails
+          // überschreiten, geklemmt gegen Windup). Pol hinter der Sättigung
+          // geht nicht: Dort ist dv = 0 und Newton erblindet (Folger fror
+          // ein). Slew klemmt |ΔVe| ≤ SR·dt; Jacobian aus linearem Anteil
+          // (Chord — dokumentiert). Konsistent zum AC-Einpol in buildAcMatrix.
+          let veq = vtarget;
+          let dveq = dv;
+          if (ctx.transient && d.type === "OPAMP") {
+            const gbw = Math.max(p(d, "gbw", 1e6), 1);
+            const tau = gain / (2 * Math.PI * gbw);
+            const k = tau > 0 ? ctx.dt / tau / (1 + ctx.dt / tau) : 1;
+            let viPrev = st.extra!.vi;
+            if (viPrev === undefined) {
+              // Erster Transient-Schritt: Vi aus OP-Ausgang zurückgewinnen.
+              const frac = Math.max(-0.999, Math.min(0.999, (this.vOf(no) - mid) / span));
+              viPrev = mid + span * Math.atanh(frac);
+            }
+            const viNew = viPrev + k * (gain * vd + mid - viPrev);
+            const viCl = mid + Math.max(-2 * span, Math.min(2 * span, viNew - mid));
+            const satArg = Math.max(-40, Math.min(40, (viCl - mid) / span));
+            const satTanh = Math.tanh(satArg);
+            const veTarget = mid + span * satTanh;
+            const vePrev = st.extra!.ve ?? this.vOf(no);
+            const slew = p(d, "slew", 0);
+            const veLin = veTarget;
+            veq = slew > 0 ? vePrev + Math.max(-slew * ctx.dt, Math.min(slew * ctx.dt, veLin - vePrev)) : veLin;
+            dveq = (1 - satTanh * satTanh) * k * gain;
+            st.extra!.viNew = viCl;
+            st.extra!.veNew = veq;
+          } else if (!ctx.transient && d.type === "OPAMP") {
+            // S4.1-Fix: OP hinterlegt akzeptierte Startwerte für TRAN-Schritt 1.
+            // Vorher las Schritt 1 `vOf(no)` = laufende Newton-Iterierte, der
+            // Slew-Clamp war dadurch im ersten Schritt wirkungslos (0 → 8 V
+            // in 100 ns bei Kante an t = 0). UIC-Pfad: Fallback unten bleibt.
+            const frac0 = Math.max(-0.999, Math.min(0.999, (vtarget - mid) / span));
+            st.extra!.vi = mid + span * Math.atanh(frac0);
+            st.extra!.ve = vtarget;
+          }
+          // branch: v(out) - rout*i = veq_lin  => linearised around vd
           if (no >= 0) {
             m.add(no, br, 1);
             m.add(br, no, 1);
           }
           m.add(br, br, -rout);
-          if (np >= 0) m.add(br, np, -dv);
-          if (nn >= 0) m.add(br, nn, dv);
-          m.addRhs(br, vout - dv * vd);
+          if (np >= 0) m.add(br, np, -dveq);
+          if (nn >= 0) m.add(br, nn, dveq);
+          m.addRhs(br, veq - dveq * vd);
           // differential input resistance
           this.stampConductance(m, np, nn, 1 / Math.max(p(d, "rin", 2e6), 1));
-          st.extra!.vout = vout;
+          st.extra!.vout = vtarget;
           break;
         }
         case "VREG": {
@@ -1205,26 +1458,17 @@ export class Simulator {
       case "GATE":
       case "DIGITAL":
       case "MCU": {
-        // Special handling for DAC: analog output from mem.vout
-        const model = (d.model ?? "").toLowerCase();
-        if (model === "dac8") {
-          const vout = (st.digital as any)?.vout ?? 0;
-          // Assume last node is analog output
-          const outNode = this.idx(d.nodes[d.nodes.length - 1] ?? d.nodes[0]);
-          if (outNode >= 0) this.stampVoltageSoft(m, outNode, -1, vout, rout);
-          break;
-        }
-        const outPins: number[] = (st.extra!.outPins as unknown as number[]) ?? [];
-        void outPins;
-        const pinList = (st.digital?.outCount ?? 0) | 0;
-        void pinList;
-        for (let i = 0; i < outs.length; i += 2) {
+        // S5.32: [pin, level, volts?]-Triples; volts (echte Analogspannung)
+        // schlägt level*vdd (DAC-Sonderfall dadurch überflüssig, entfernt).
+        for (let i = 0; i < outs.length; i += 3) {
           const pinIdx = outs[i];
           const level = outs[i + 1];
+          const raw = outs[i + 2];
+          const hasVolts = typeof raw === "number" && !Number.isNaN(raw);
           if (pinIdx < 0) continue;
           const node = this.idx(d.nodes[pinIdx]);
-          if (level < 0) continue; // hi-Z
-          this.stampVoltageSoft(m, node, -1, level * vdd, rout);
+          if (level < 0 && !hasVolts) continue; // hi-Z
+          this.stampVoltageSoft(m, node, -1, hasVolts ? raw : level * vdd, rout);
         }
         break;
       }
@@ -1323,24 +1567,69 @@ export class Simulator {
     return true;
   }
 
+  /** S2.2: Anzeigename für einen Lösungsvektor-Index (Knoten oder Stromzweig). */
+  private suspectName(i: number): string {
+    if (i < this.nodeNames.length) return this.nodeNames[i];
+    const b = i - this.nodeNames.length;
+    return "I(" + (this.branchNames[b] ?? `Zweig${b}`) + ")";
+  }
+
   iterate(ctx: StampContext): SolveResult {
     const maxIter = this.options.maxIter;
+    const n = this.size;
     let damping = 1;
+    // S2.2: Diagonale vor dem Lösen sichern (solve() faktorisiert in place);
+    // normierte Updates für die Verdächtigen-Rangliste merken.
+    const diag = new Float64Array(n);
+    const lastScore = new Float64Array(n);
+    const { abstol, reltol, vntol } = this.options;
+    const nNodes = this.nodeNames.length;
     for (let iter = 0; iter < maxIter; iter++) {
       this.matrix.clear();
       this.limited = false;
       this.loadDevices(ctx);
+      for (let i = 0; i < n; i++) diag[i] = this.matrix.a[i * n + i];
       const sol = this.matrix.solve();
-      if (!sol) return { ok: false, iterations: iter, message: "Singulaere Matrix (Knoten ohne DC-Pfad zur Masse?)" };
+      if (!sol) {
+        const suspects: string[] = [];
+        for (let i = 0; i < n && suspects.length < 3; i++) {
+          if (Math.abs(diag[i]) < 1e-18) suspects.push(this.suspectName(i));
+        }
+        return {
+          ok: false,
+          iterations: iter,
+          message: "Singulaere Matrix (Knoten ohne DC-Pfad zur Masse?)",
+          failure: "singular",
+          suspects,
+        };
+      }
       if (iter > 20) damping = 0.6;
       if (iter > 50) damping = 0.3;
       const next = new Float64Array(this.size);
       for (let i = 0; i < this.size; i++) next[i] = this.x[i] + damping * (sol[i] - this.x[i]);
+      for (let i = 0; i < n; i++) {
+        const a = next[i];
+        const b = this.x[i];
+        const tol =
+          i < nNodes
+            ? vntol + reltol * Math.max(Math.abs(a), Math.abs(b))
+            : abstol + reltol * Math.max(Math.abs(a), Math.abs(b)) + 1e-9;
+        const d = Math.abs(a - b);
+        lastScore[i] = !Number.isFinite(d) ? Number.POSITIVE_INFINITY : d / tol;
+      }
       const done = this.converged(next) && iter > 0;
       this.x = next;
       if (done) return { ok: true, iterations: iter + 1 };
     }
-    return { ok: false, iterations: maxIter, message: "Keine Konvergenz (Newton-Raphson Grenze erreicht)" };
+    const order = Array.from({ length: n }, (_, i) => i).sort((p, q) => lastScore[q] - lastScore[p]);
+    const suspects = order.slice(0, 3).filter((i) => lastScore[i] > 0).map((i) => this.suspectName(i));
+    return {
+      ok: false,
+      iterations: maxIter,
+      message: "Keine Konvergenz (Newton-Raphson Grenze erreicht)",
+      failure: "nonconvergent",
+      suspects,
+    };
   }
 
   makeCtx(time: number, dt: number, transient: boolean, gmin = this.options.gmin, srcFactor = 1): StampContext {
@@ -1443,7 +1732,8 @@ export class Simulator {
             mem: st.digital,
           });
           const outs: number[] = [];
-          for (const port of ports) outs.push(port.pin, port.level);
+          // S5.32: [pin, level, volts?]-Triples (volts = NaN ohne Analog-Ausgang).
+          for (const port of ports) outs.push(port.pin, port.level, port.volts ?? NaN);
           if (!st.outputs || st.outputs.join() !== outs.join()) changed = true;
           st.outputs = outs;
           break;
@@ -1475,7 +1765,7 @@ export class Simulator {
           const outs: number[] = [];
           for (const [pin, level] of Object.entries(mcu.pinOut)) {
             const idx = Number(pin);
-            if (idx >= 0 && idx < d.nodes.length) outs.push(idx, Number(level));
+            if (idx >= 0 && idx < d.nodes.length) outs.push(idx, Number(level), NaN);
           }
           if (!st.outputs || st.outputs.join() !== outs.join()) changed = true;
           st.outputs = outs;
@@ -1517,6 +1807,22 @@ export class Simulator {
           st.extra!.i2 = st.br2 >= 0 ? this.x[st.br2] : 0;
           break;
         }
+        case "TLINE": {
+          // S4.6: akzeptierte Wellengrößen anhängen (s = 2V − E aus I = (V−E)/Z0),
+          // Historie älter als eine Laufzeit stutzen.
+          const td = this.tlineDelay(d);
+          if (!(td > 0)) break;
+          const n2 = this.idx(d.nodes[2]);
+          const n3 = this.idx(d.nodes[3]);
+          const v1 = this.vOf(n0) - this.vOf(n1);
+          const v2 = this.vOf(n2) - this.vOf(n3);
+          const [e1, e2] = this.tlineExcitation(d, this.time);
+          const h = st.outputs ?? [];
+          h.push(this.time, 2 * v1 - e1, 2 * v2 - e2);
+          while (h.length > 6 && h[3] < this.time - td) h.splice(0, 3);
+          st.outputs = h;
+          break;
+        }
         case "D":
         case "LED":
         case "ZENER":
@@ -1534,6 +1840,28 @@ export class Simulator {
         case "M": {
           st.hist[0] = this.vOf(this.idx(d.nodes[1])) - this.vOf(this.idx(d.nodes[2]));
           st.hist[1] = this.vOf(this.idx(d.nodes[1])) - this.vOf(this.idx(d.nodes[0]));
+          break;
+        }
+        case "OPAMP": {
+          // S4.1: akzeptierter Pol-Zustand + Ausgang für Schritt n+1.
+          // (Vi geklemmt gegen Windup; Rest wie in loadDevices berechnet.)
+          if (st.extra!.viNew !== undefined) st.extra!.vi = st.extra!.viNew;
+          if (st.extra!.veNew !== undefined) st.extra!.ve = st.extra!.veNew;
+          break;
+        }
+        case "FUSE": {
+          // S4.5: Joule-Integral dw/dt = i² − w/τ, Schmelzen bei w ≥ I²t (rastend).
+          // i2t = 0 → auto (2·IN)²·τ: hält Nennstrom dauerhaft, löst bei 10×
+          // Nennstrom in ≈ 40 ms aus. Nur TRAN (DC kennt keine Zeit).
+          if ((st.extra!.blown ?? 0) > 0.5) break;
+          const irated = Math.max(p(d, "irated", 1), 1e-9);
+          const tau = Math.max(p(d, "tau", 1), 1e-6);
+          const i2t = p(d, "i2t", 0) > 0 ? p(d, "i2t", 0) : 4 * irated * irated * tau;
+          const r = Math.max(this.resistance(d), 1e-12);
+          const i = (this.vOf(n0) - this.vOf(n1)) / r;
+          const wPrev = Math.max(st.extra!.w ?? 0, 0);
+          st.extra!.w = Math.max(wPrev + (i * i - wPrev / tau) * dt, 0);
+          if (st.extra!.w >= i2t) st.extra!.blown = 1;
           break;
         }
         default:

@@ -1,12 +1,22 @@
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus } from "lucide-react";
-import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol } from "@/lib/library/catalog";
+import { flushSync } from "react-dom";
+import { Search, Star, X, FileText, ExternalLink, Zap, LayoutGrid, Command, Clock, Plus, Upload, Pencil, Copy, Download, Trash2, Cpu } from "lucide-react";
+import { CategoryNode, PARTS, PART_MAP, PartDef, buildCategoryTree, getPartSymbol, partPins } from "@/lib/library/catalog";
 import { useEditor, useHud } from "@/state/editor";
 import { CategoryIcon } from "@/lib/library/icons";
 import { getDatasheet, getDatasheetSearchUrl, getOctopartUrl } from "@/lib/library/datasheets";
 import { resolveSymbolStyle } from "@/lib/settings";
+import { WINDOW_SHELL, WindowTitleBar } from "./ui";
+import { withSyncNonce } from "@/lib/desktopSync";
+import { mainValueParamKey, splitValueQuery } from "@/lib/library/search";
+import { previewFit } from "@/lib/library/preview";
+import { switchPreviewPrims } from "@/lib/interactive/switches";
+import { formatValue } from "@/lib/format";
+import { useIsApple } from "@/lib/platform";
+import { CUSTOM_SPECS, SPEC_FILE_EXT } from "@/lib/library/customParts";
+import { downloadText } from "@/lib/download";
 
 // --- Symbol Preview (mini canvas) – ISO/ANSI aware, memoized ---
 function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
@@ -24,22 +34,27 @@ function SymbolPreview({ part, size = 40 }: { part: PartDef; size?: number }) {
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
-    // center
-    ctx.save();
-    ctx.translate(size / 2, size / 2);
-    const scale = size / 48;
-    ctx.scale(scale, scale);
-    const cs = getComputedStyle(document.documentElement);
-    const ink = cs.getPropertyValue("--symbol").trim() || "#1c1f22";
-    ctx.strokeStyle = ink;
-    ctx.fillStyle = ink;
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
     let sym = part.symbol;
     try {
       sym = getPartSymbol(part, resolveSymbolStyle(symbolStylePref));
     } catch {}
+    // Schalter/Taster/Relais/DIP: Der Hebel lebt im Interaktiv-Overlay (S5.26)
+    // und fehlt im statischen Symbol – Vorschau malt ihn dazu, sonst sieht
+    // man nur Stutzen + Lagerpunkte.
+    sym = [...sym, ...switchPreviewPrims(part)];
+    // S5.18: Symbol einpassen (ICs sind größer als die alte 48er-Norm).
+    const fit = previewFit(sym, size);
+    ctx.save();
+    ctx.translate(size / 2, size / 2);
+    ctx.scale(fit.scale, fit.scale);
+    ctx.translate(-fit.cx, -fit.cy);
+    const cs = getComputedStyle(document.documentElement);
+    const ink = cs.getPropertyValue("--symbol").trim() || "#1c1f22";
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    ctx.lineWidth = fit.lineWidth;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     for (const prim of sym) {
       switch (prim.t) {
         case "line":
@@ -110,9 +125,8 @@ function scorePart(part: PartDef, tokens: string[]): number {
 }
 
 function searchAdvanced(query: string): PartDef[] {
-  const raw = query.trim().toLowerCase();
-  if (!raw) return [];
-  const tokens = raw.split(/\s+/).filter(Boolean);
+  const { terms: tokens } = splitValueQuery(query); // S5.17: „10k" scort nicht mit
+  if (!tokens.length) return [];
   const scored = PARTS.map((p) => ({ part: p, score: scorePart(p, tokens) }))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -126,11 +140,13 @@ const PartRow = React.memo(function PartRow({
   part,
   onSelect,
   onStartDrag,
+  onContextMenu,
   selected,
 }: {
   part: PartDef;
   onSelect: (id: string) => void;
   onStartDrag: (id: string) => void;
+  onContextMenu?: (e: React.MouseEvent, id: string) => void;
   selected?: boolean;
 }) {
   const placing = useEditor((s) => s.placingPartId);
@@ -141,13 +157,14 @@ const PartRow = React.memo(function PartRow({
 
   return (
     <div
-      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)] cursor-pointer"
+      className="group flex w-full select-none items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors tree-row cursor-grab active:cursor-grabbing"
       style={
         active || selected
           ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }
           : { border: "1px solid transparent" }
       }
       onClick={() => onSelect(part.id)}
+      onContextMenu={onContextMenu ? (e) => onContextMenu(e, part.id) : undefined}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         if ((e.target as HTMLElement)?.closest("button,a")) return;
@@ -171,7 +188,6 @@ const PartRow = React.memo(function PartRow({
         e.preventDefault();
       }}
     >
-      <SymbolPreview part={part} size={36} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
           <span className="block truncate text-xs font-medium leading-[1.2]">{part.name}</span>
@@ -180,15 +196,13 @@ const PartRow = React.memo(function PartRow({
           </span>
           {datasheet?.direct && <span className="rounded bg-amber-500/20 px-1 py-0 text-2xs text-amber-400">PDF</span>}
         </span>
-        <span className="block truncate text-2xs text-ink-3 leading-[1.2] mt-0.5">{part.description ?? `${part.category.split("/").slice(-1)[0]} · ${part.mount} · ${part.footprint ?? ""}`}</span>
-        <span className="mt-1 flex gap-1">
-          <CategoryIcon category={part.category} size={12} />
-          <span className="text-2xs text-ink-3">{part.category.split("/").slice(-1)[0]}</span>
-        </span>
+        {part.description && (
+          <span className="block truncate text-2xs text-ink-3 leading-[1.2] mt-0.5">{part.description}</span>
+        )}
       </span>
       <div className="flex flex-col items-center gap-1 shrink-0">
         <button
-          className="grid h-6 w-6 place-items-center rounded-md hover:bg-[color-mix(in_srgb,var(--ink)_10%,transparent)]"
+          className="grid h-6 w-6 place-items-center rounded-md tree-row"
           onClick={(e) => {
             e.stopPropagation();
             const st = useEditor.getState();
@@ -232,7 +246,7 @@ function CatNode({
   selCat: string | null;
   onSel: (path: string) => void;
 }) {
-  const [open, setOpen] = useState(depth < 1);
+  const [open, setOpen] = useState(false); // S5.17: Kategorien starten eingeklappt
   const count = useMemo(() => {
     const flat = (n: CategoryNode): number => n.parts.length + n.children.reduce((a, c) => a + flat(c), 0);
     return flat(node);
@@ -250,7 +264,7 @@ function CatNode({
           {node.children.length ? (open ? "▾" : "▸") : ""}
         </button>
         <button
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-2xs tree-row"
           style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
           onClick={() => onSel(node.path)}
           title={node.name}
@@ -268,12 +282,21 @@ function CatNode({
 export default function LibraryPalette({
   onPartEditor,
   standalone = false,
+  fill = false,
+  partFilter,
+  docked = false,
 }: {
   onPartEditor?: () => void;
   standalone?: boolean;
+  /** S5.19: Füll-Modus fürs mobile Bottom-Sheet (kein Fenster-Chrom). */
+  fill?: boolean;
+  /** S6.2: Angedockt in der Bauteile-Editor-Shell (immer offen, Fluss-Layout). */
+  docked?: boolean;
+  /** S6.2: Strenger Filter für den Bauteile-Editor (nur sim-fähige Teile + Ports). */
+  partFilter?: (p: PartDef) => boolean;
 } = {}) {
   const openStore = useEditor((s) => s.libraryOpen);
-  const open = standalone ? true : openStore;
+  const open = standalone || docked ? true : openStore;
   const pos = useEditor((s) => s.libraryPos);
   const size = useEditor((s) => s.librarySize);
   const setPos = useEditor((s) => s.setLibraryPos);
@@ -288,6 +311,12 @@ export default function LibraryPalette({
   const [selected, setSelected] = useState<PartDef | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [selCat, setSelCat] = useState<string | null>(null);
+  const teacherLocked = useEditor((s) => s.teacher.locked);
+  // S6.4: Verwalten eigener Bauteile (Kontextmenü, Umbenennen, Import).
+  const [ctx, setCtx] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const [armDelete, setArmDelete] = useState<string | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   const [customRev, setCustomRev] = useState(0);
   const activeTab = tab === "fav" ? "favorites" : tab === "recent" ? "recent" : "all";
   // Prevent re-render of list during drag – memoize results
@@ -302,12 +331,25 @@ export default function LibraryPalette({
 
   const tree = useMemo(() => {
     void customRev;
-    return buildCategoryTree(PARTS);
-  }, [customRev]);
+    return buildCategoryTree(partFilter ? PARTS.filter(partFilter) : PARTS);
+  }, [customRev, partFilter]);
+  // S5.19: flache Kategorieliste fürs mobile <select> (Nav-Spalte ist md+).
+  const catOptions = useMemo(() => {
+    const out: { path: string; label: string }[] = [];
+    const walk = (nodes: CategoryNode[], prefix: string) => {
+      for (const n of nodes) {
+        out.push({ path: n.path, label: `${prefix}${n.path.split("/").slice(-1)[0]}` });
+        walk(n.children, `${prefix}– `);
+      }
+    };
+    walk(tree.children, "");
+    return out;
+  }, [tree]);
   const results = useMemo(() => {
     void customRev;
-    return query ? searchAdvanced(query) : [];
-  }, [query, customRev]);
+    const hits = query ? searchAdvanced(query) : [];
+    return partFilter ? hits.filter(partFilter) : hits;
+  }, [query, customRev, partFilter]);
   // Runde 12 (W22): Dreispalter – Spalte 2 zeigt die Teile der gewählten Kategorie
   const groups = useMemo(() => {
     const flat = (n: CategoryNode): PartDef[] => [...n.parts, ...n.children.flatMap(flat)];
@@ -327,14 +369,16 @@ export default function LibraryPalette({
   }, [selCat, tree]);
   const visibleList = useMemo(() => {
     if (query) return results;
-    if (tab === "fav") return favorites.map((id) => PART_MAP[id]).filter(Boolean) as PartDef[];
-    if (tab === "recent") return recent.map((id) => PART_MAP[id]).filter(Boolean) as PartDef[];
+    if (tab === "fav") return favorites.map((id) => PART_MAP[id]).filter((p): p is PartDef => !!p && (!partFilter || partFilter(p)));
+    if (tab === "recent") return recent.map((id) => PART_MAP[id]).filter((p): p is PartDef => !!p && (!partFilter || partFilter(p)));
     return groups.flatMap((g) => g.parts);
-  }, [query, results, tab, favorites, recent, groups]);
+  }, [query, results, tab, favorites, recent, groups, partFilter]);
 
   const dragRef = useRef<{ x: number; y: number; px: number; py: number; w: number } | null>(null);
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const resizePending = useRef<{ w: number; h: number } | null>(null);
+  const pendingPosRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingSizeRef = useRef<{ w: number; h: number } | null>(null);
   const paletteRef = useRef<HTMLDivElement>(null);
 
   // W32a: Nach jedem Render die direkten DOM-Schreibvorgänge wiederherstellen –
@@ -352,63 +396,84 @@ export default function LibraryPalette({
   // den Viewport (kein Hängenbleiben außerhalb) + Repair nach jedem Render.
   useEffect(() => {
     let raf = 0;
-    let pendingPos: { x: number; y: number } | null = null;
-    let pendingSize: { w: number; h: number } | null = null;
     const apply = () => {
       raf = 0;
       if (paletteRef.current) {
-        if (pendingPos && dragRef.current) {
-          paletteRef.current.style.transform = `translate3d(${pendingPos.x - dragRef.current.px}px, ${pendingPos.y - dragRef.current.py}px, 0)`;
+        if (pendingPosRef.current && dragRef.current) {
+          paletteRef.current.style.transform = `translate3d(${pendingPosRef.current.x - dragRef.current.px}px, ${pendingPosRef.current.y - dragRef.current.py}px, 0)`;
         }
-        if (pendingSize) {
-          paletteRef.current.style.width = pendingSize.w + "px";
-          paletteRef.current.style.height = pendingSize.h + "px";
+        if (pendingSizeRef.current) {
+          paletteRef.current.style.width = pendingSizeRef.current.w + "px";
+          paletteRef.current.style.height = pendingSizeRef.current.h + "px";
         }
       }
     };
+    const clearDragFlag = () => {
+      // CSS-Schutz erst nach dem nächsten Paint lösen (Commit ist dann sichtbar).
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          paletteRef.current?.removeAttribute("data-windrag");
+        }),
+      );
+    };
+    const onUp = () => {
+      if (dragRef.current && pendingPosRef.current && paletteRef.current) {
+        // Endwerte direkt ins DOM schreiben, DANN synchron committen: React
+        // schreibt denselben Wert noch vor dem Paint — kein Zwischenframe
+        // mit anderer Position („Aufblitzen" nach dem Loslassen).
+        paletteRef.current.style.left = pendingPosRef.current.x + "px";
+        paletteRef.current.style.top = pendingPosRef.current.y + "px";
+        paletteRef.current.style.transform = "";
+        flushSync(() => {
+          setPos(pendingPosRef.current!);
+        });
+      }
+      if (resizeRef.current && pendingSizeRef.current) {
+        flushSync(() => {
+          setSize(pendingSizeRef.current!);
+        });
+      }
+      dragRef.current = null;
+      resizeRef.current = null;
+      resizePending.current = null;
+      pendingPosRef.current = null;
+      pendingSizeRef.current = null;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      clearDragFlag();
+    };
     const onMove = (e: PointerEvent) => {
+      // Taste schon los (Up ging außerhalb verloren)? Anstandslos beenden,
+      // statt dem Zeiger ohne Taste zu folgen (Zombie-Drag).
+      if ((dragRef.current || resizeRef.current) && e.buttons === 0) {
+        onUp();
+        return;
+      }
       if (dragRef.current) {
         // Titelleiste bleibt greifbar: mindestens 180 px horizontal,
         // 60 px vertikal im Viewport.
-        pendingPos = {
+        pendingPosRef.current = {
           x: Math.min(window.innerWidth - 180, Math.max(180 - dragRef.current.w, dragRef.current.px + e.clientX - dragRef.current.x)),
           y: Math.min(window.innerHeight - 60, Math.max(0, dragRef.current.py + e.clientY - dragRef.current.y)),
         };
         if (!raf) raf = requestAnimationFrame(apply);
       }
       if (resizeRef.current) {
-        pendingSize = {
+        pendingSizeRef.current = {
           w: Math.max(640, Math.min(window.innerWidth - 20, resizeRef.current.w + e.clientX - resizeRef.current.x)),
           h: Math.max(380, Math.min(window.innerHeight - 20, resizeRef.current.h + e.clientY - resizeRef.current.y)),
         };
-        resizePending.current = pendingSize;
+        resizePending.current = pendingSizeRef.current;
         if (!raf) raf = requestAnimationFrame(apply);
       }
     };
-    const onUp = () => {
-      if (dragRef.current && pendingPos && paletteRef.current) {
-        // Endposition direkt setzen + Transform leeren, dann committen (kein Sprung).
-        paletteRef.current.style.left = pendingPos.x + "px";
-        paletteRef.current.style.top = pendingPos.y + "px";
-        paletteRef.current.style.transform = "";
-        setPos(pendingPos);
-      }
-      if (resizeRef.current && pendingSize) {
-        setSize(pendingSize);
-      }
-      dragRef.current = null;
-      resizeRef.current = null;
-      resizePending.current = null;
-      pendingPos = null;
-      pendingSize = null;
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
-    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [setPos, setSize]);
@@ -416,7 +481,10 @@ export default function LibraryPalette({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") toggle();
+      // Gedockt (Bauteile-Editor) schließt Esc nichts — die Canvas-Esc-Kette läuft
+      // daneben; sonst flackert libraryOpen + der Fokus springt in die Suche.
+      // Gleiches gilt für die verdeckte Haupt-Palette bei offenem Editor.
+      if (e.key === "Escape" && !docked && !useEditor.getState().partEditor.open) toggle();
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         toggle();
@@ -439,40 +507,109 @@ export default function LibraryPalette({
     if (part) setSelected(part);
   };
 
+  // S6.4: Kontextmenü nur für eigene Bauteile (Katalog bleibt unantastbar).
+  const onRowContextMenu = useCallback((e: React.MouseEvent, id: string) => {
+    const part = PART_MAP[id];
+    if (!part?.tags?.includes("custom")) return;
+    if (useEditor.getState().teacher.locked) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setArmDelete(null);
+    setRenaming(null);
+    setCtx({ x: e.clientX, y: e.clientY, id });
+  }, []);
+
+  const doExportSpec = (id: string) => {
+    const spec = CUSTOM_SPECS.get(id);
+    if (!spec) return;
+    const base = (spec.name.trim() || "bauteil").replace(/[\\/:*?"<>|]/g, "-");
+    downloadText(`${base}${SPEC_FILE_EXT}`, JSON.stringify(spec, null, 2), "application/json");
+    useEditor.getState().log("ok", `„${spec.name}“ als ${SPEC_FILE_EXT}-Datei exportiert.`);
+    setCtx(null);
+  };
+
+  const doDeleteSpec = (id: string) => {
+    const st = useEditor.getState();
+    const res = st.deleteCustomPartGuarded(id);
+    if (!res.ok) {
+      st.setToast({ message: res.reason ?? "Löschen nicht möglich." });
+      return;
+    }
+    if (st.placingPartId === id) st.setPlacing(null);
+    if (selected?.id === id) setSelected(null);
+    setCtx(null);
+    setArmDelete(null);
+  };
+
+  const commitRename = () => {
+    if (!renaming) return;
+    const ok = useEditor.getState().renameCustomPart(renaming.id, renaming.value);
+    if (ok) {
+      setRenaming(null);
+      setCtx(null);
+      if (selected?.id === renaming.id) setSelected(PART_MAP[renaming.id] ?? null);
+    }
+  };
+
+  const onImportFile = async (f: File | undefined) => {
+    if (importRef.current) importRef.current.value = "";
+    if (!f) return;
+    try {
+      const text = await f.text();
+      useEditor.getState().importCustomSpecText(text, f.name);
+    } catch {
+      useEditor.getState().setToast({ message: "Datei nicht lesbar." });
+    }
+  };
+
+  const apple = useIsApple();
+  // S5.17: Such-Wert („r 10k") als Einmal-Vorbelegung fürs platzierte Teil.
+  const presetFor = useCallback((id: string) => {
+    const { value } = splitValueQuery(query);
+    if (value === undefined) return null;
+    const part = PART_MAP[id];
+    const key = part ? mainValueParamKey(part) : null;
+    return key ? { partId: id, params: { [key]: value } } : null;
+  }, [query]);
+
   // W132 & W133: Nur beim Klick auf den „Platzieren“-Button (bzw. Enter) oder
   // beim Klicken-und-Ziehen eines Bauteils schließt sich die Bibliothek.
   const onConfirmPlace = useCallback(
     (id: string) => {
       const part = PART_MAP[id];
       if (part) setSelected(part);
-      setPlacing(id);
+      setPlacing(id, presetFor(id));
       useEditor.setState({ libraryOpen: false });
       if (standalone && typeof window !== "undefined") {
+        // WDA-5: Eine Nonce für beide Transporte — das Hauptfenster verwirft das Duplikat.
+        const msg = withSyncNonce({ type: "pick-part", partId: id });
         try {
           const bc = new BroadcastChannel("multispice-desktop-sync");
-          bc.postMessage({ type: "pick-part", partId: id });
+          bc.postMessage(msg);
           bc.close();
         } catch {}
-        window.multispiceDesktop?.sendSync({ type: "pick-part", partId: id });
+        window.multispiceDesktop?.sendSync(msg);
         window.multispiceDesktop?.windowControl("close");
       }
     },
-    [setPlacing, standalone],
+    [setPlacing, standalone, presetFor],
   );
 
   const onStartDragPart = (id: string) => {
     const part = PART_MAP[id];
     if (part) setSelected(part);
-    setPlacing(id);
+    setPlacing(id, presetFor(id));
     useHud.setState({ dragPart: id });
     useEditor.setState({ libraryOpen: false });
     if (standalone && typeof window !== "undefined") {
+      // WDA-5: Eine Nonce für beide Transporte — das Hauptfenster verwirft das Duplikat.
+      const msg = withSyncNonce({ type: "pick-part", partId: id });
       try {
         const bc = new BroadcastChannel("multispice-desktop-sync");
-        bc.postMessage({ type: "pick-part", partId: id });
+        bc.postMessage(msg);
         bc.close();
       } catch {}
-      window.multispiceDesktop?.sendSync({ type: "pick-part", partId: id });
+      window.multispiceDesktop?.sendSync(msg);
       window.multispiceDesktop?.windowControl("close");
     }
   };
@@ -513,7 +650,7 @@ export default function LibraryPalette({
   }, [open, selected, selectedIdx, query, tab, results, visibleList, onConfirmPlace]);
 
   if (!open) return null;
-  if (!standalone && typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
+  if (!standalone && !docked && typeof window !== "undefined" && window.multispiceDesktop?.isDesktop) {
     return null;
   }
 
@@ -521,40 +658,36 @@ export default function LibraryPalette({
     <div
       ref={paletteRef}
       className={
-        standalone
+        standalone || fill || docked
           ? "flex h-full w-full flex-col overflow-hidden"
-          : "fixed z-40 flex flex-col overflow-hidden rounded-xl will-change-transform"
+          : `fixed z-40 will-change-transform ${WINDOW_SHELL}`
       }
       style={
-        standalone
+        standalone || fill || docked
           ? { background: "var(--surface)" }
-          : {
-              left: pos.x,
-              top: pos.y,
-              width: size.w,
-              height: size.h,
-              background: "var(--surface)",
-              border: "1px solid var(--hairline-strong)",
-              boxShadow: "var(--shadow-3)",
-            }
+          : { left: pos.x, top: pos.y, width: size.w, height: size.h }
       }
     >
-      {!standalone && (
-      <div
-        className="flex h-9 shrink-0 cursor-grab items-center gap-2 px-3 border-b border-hairline"
+      {!standalone && !fill && !docked && (
+      <WindowTitleBar
+        icon={<LayoutGrid size={12} />}
+        title="Bibliothek"
+        hint="Ziehen bewegt das Fenster"
+        grab
         onPointerDown={(e) => {
           dragRef.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y, w: paletteRef.current?.offsetWidth ?? 420 };
+          // Zombie-Status aus abgebrochenen Gesten (Up außerhalb) vergessen.
+          pendingPosRef.current = null;
+          pendingSizeRef.current = null;
+          paletteRef.current?.setAttribute("data-windrag", "");
         }}
-      >
-        <span className="text-xs font-medium flex items-center gap-1.5">
-          <LayoutGrid size={12} /> Bibliothek
-        </span>
-        <span className="flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-ink-3 border border-hairline">
-          <Command size={9} />K
-        </span>
-        <div className="flex-1" />
-        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
-          {onPartEditor && (
+        extra={
+          <span className="flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-ink-3 border border-hairline">
+            {apple ? (<><Command size={9} />K</>) : "Strg+K"}
+          </span>
+        }
+        actions={
+          onPartEditor ? (
             <button
               type="button"
               className="btn h-6 gap-1 px-2 text-2xs"
@@ -564,16 +697,16 @@ export default function LibraryPalette({
               <Plus size={11} />
               <span>Bauteil-Editor</span>
             </button>
-          )}
-          <button className="btn px-1 py-0.5 h-6" onClick={toggle} title="Schließen (Esc)" aria-label="Schließen (Esc)">
-            <X size={13} />
-          </button>
-        </div>
-      </div>
+          ) : undefined
+        }
+        onClose={toggle}
+        closeLabel="Schließen (Esc)"
+      />
       )}
 
       <div className="p-2.5 space-y-2">
-        <div className="relative">
+        <div className="flex items-stretch gap-1.5">
+        <div className="relative min-w-0 flex-1">
           <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
             id="lib-search"
@@ -593,6 +726,25 @@ export default function LibraryPalette({
             </button>
           )}
         </div>
+        {!teacherLocked && !partFilter && (
+          <button
+            className="btn h-8 shrink-0 gap-1 px-2 text-2xs"
+            title="Bauteil-Datei (.mspart) importieren"
+            aria-label="Bauteil-Datei (.mspart) importieren"
+            onClick={() => importRef.current?.click()}
+          >
+            <Upload size={12} />
+          </button>
+        )}
+        </div>
+        <input
+          ref={importRef}
+          type="file"
+          accept=".mspart,.json,application/json"
+          className="hidden"
+          aria-hidden
+          onChange={(e) => void onImportFile(e.target.files?.[0])}
+        />
 
         {/* Quick Stats */}
         <div className="flex items-center gap-2 text-2xs text-ink-3">
@@ -605,25 +757,63 @@ export default function LibraryPalette({
         </div>
       </div>
 
+      {(fill || docked) && (
+        <div className="flex shrink-0 items-center gap-1.5 px-2.5 pb-2">
+          <div className="flex shrink-0 rounded-lg border border-hairline bg-surface-2 p-0.5" role="tablist" aria-label="Bibliotheksbereich">
+            {(
+              [
+                { t: "all", label: "Alle", Icon: LayoutGrid },
+                { t: "fav", label: "Favoriten", Icon: Star },
+                { t: "recent", label: "Zuletzt", Icon: Clock },
+              ] as const
+            ).map(({ t, label, Icon }) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                title={label}
+                aria-label={label}
+                className="grid h-7 w-9 place-items-center rounded-md"
+                style={tab === t ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--ink-3)" }}
+                onClick={() => { setQuery(""); setTab(t); setSelCat(null); }}
+              >
+                <Icon size={14} />
+              </button>
+            ))}
+          </div>
+          <select
+            className="input h-7 min-w-0 flex-1 text-2xs"
+            value={selCat ?? ""}
+            onChange={(e) => { setQuery(""); setTab("all"); setSelCat(e.target.value || null); }}
+            aria-label="Kategorie"
+          >
+            <option value="">Alle Kategorien</option>
+            {catOptions.map((c) => (
+              <option key={c.path} value={c.path}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
         {/* Spalte 1 – Navigation (Ref-1 Component Browser) */}
         <div className="hidden w-[170px] shrink-0 flex-col overflow-y-auto border-r py-1 md:flex border-hairline bg-surface-2">
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs tree-row"
             style={!query && tab === "all" && !selCat ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("all"); setSelCat(null); }}
           >
             <LayoutGrid size={12} /> Alle <span className="mono ml-auto text-2xs text-ink-3">{PARTS.length}</span>
           </button>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs tree-row"
             style={!query && tab === "fav" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("fav"); setSelCat(null); }}
           >
             <Star size={12} /> Favoriten <span className="mono ml-auto text-2xs text-ink-3">{favorites.length}</span>
           </button>
           <button
-            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]"
+            className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-2xs tree-row"
             style={!query && tab === "recent" ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : undefined}
             onClick={() => { setQuery(""); setTab("recent"); setSelCat(null); }}
           >
@@ -646,23 +836,23 @@ export default function LibraryPalette({
           {query ? (
             <div>
               <div className="px-2 py-1 text-2xs uppercase tracking-wide text-ink-3 flex items-center gap-1.5">
-                <Command size={10} /> {results.length} Treffer für „{query}“ – Enter zum Platzieren
+                <Search size={10} /> {results.length} Treffer für „{query}“{fill ? "" : " – Enter zum Platzieren"}
               </div>
               {results.map((p, idx) => (
-                <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id || idx === selectedIdx} />
+                <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} onContextMenu={onRowContextMenu} selected={selected?.id === p.id || idx === selectedIdx} />
               ))}
             </div>
           ) : activeTab === "favorites" ? (
             <div>
               {favorites.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} onContextMenu={onRowContextMenu} selected={selected?.id === p!.id} />
               ))}
-              {!favorites.length && <div className="p-6 text-center text-xs text-ink-3">Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit</div>}
+              {!favorites.length && <div className="p-6 text-center text-xs text-ink-3">{fill ? "Noch keine Favoriten – Stern am Bauteil tippen" : "Noch keine Favoriten – Stern klicken oder Rechtsklick → Favorit"}</div>}
             </div>
           ) : activeTab === "recent" ? (
             <div>
               {recent.map((id) => PART_MAP[id]).filter(Boolean).map((p) => (
-                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p!.id} />
+                <PartRow key={p!.id} part={p!} onSelect={onSelectPart} onStartDrag={onStartDragPart} onContextMenu={onRowContextMenu} selected={selected?.id === p!.id} />
               ))}
               {!recent.length && <div className="p-6 text-center text-xs text-ink-3">Noch nichts verwendet – platziere Bauteile</div>}
             </div>
@@ -677,7 +867,7 @@ export default function LibraryPalette({
                     </div>
                   )}
                   {g.parts.map((p) => (
-                    <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} selected={selected?.id === p.id} />
+                    <PartRow key={p.id} part={p} onSelect={onSelectPart} onStartDrag={onStartDragPart} onContextMenu={onRowContextMenu} selected={selected?.id === p.id} />
                   ))}
                 </div>
               ))}
@@ -699,23 +889,28 @@ export default function LibraryPalette({
                   <span className="text-sm font-semibold">{detailPart.name}</span>
                 </div>
                 <div className="mt-1 text-2xs text-ink-3 leading-snug">{detailPart.description ?? "Keine Beschreibung – generisches Bauteil"}</div>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
-                    {detailPart.ref}
-                  </span>
-                  <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
-                    {detailPart.mount}
-                  </span>
-                  {detailPart.footprint && (
-                    <span className="rounded-full px-2 py-0.5 text-2xs border bg-surface border-hairline text-ink-2">
-                      {detailPart.footprint}
-                    </span>
-                  )}
-                </div>
+                <button
+                  className="btn btn-primary mt-2 w-full justify-center py-2 text-xs font-medium"
+                  onClick={() => onConfirmPlace(detailPart.id)}
+                >
+                  {`Als ${detailPart.ref} platzieren (Enter)`}
+                </button>
+                {(() => {
+                  const { value } = splitValueQuery(query);
+                  const key = value !== undefined ? mainValueParamKey(detailPart) : null;
+                  if (value === undefined || !key) return null;
+                  const pr = detailPart.params.find((d) => d.key === key);
+                  return (
+                    <div className="mono mt-1.5 rounded-md px-2 py-1 text-center text-2xs text-teal" style={{ background: "color-mix(in srgb, var(--teal) 12%, transparent)" }}>
+                      wird als {formatValue(value, pr?.unit ?? "")} platziert
+                    </div>
+                  );
+                })()}
+
               </div>
 
-              <div className="rounded-lg p-2.5 bg-surface border border-hairline">
-                <div className="text-2xs uppercase tracking-wide text-ink-3 mb-1.5">Parameter</div>
+              <div className="panel rounded-lg p-2.5">
+                <div className="section-head">Parameter</div>
                 <div className="space-y-1">
                   {detailPart.params.slice(0, 5).map((pr) => (
                     <div key={pr.key} className="flex justify-between text-2xs">
@@ -750,7 +945,7 @@ export default function LibraryPalette({
                     href={getDatasheetSearchUrl(detailPart.id, detailPart.name)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-2xs border hover:bg-surface border-hairline text-ink-2"
+                    className="btn border border-hairline"
                   >
                     <Search size={10} /> AllDatasheet
                   </a>
@@ -758,47 +953,173 @@ export default function LibraryPalette({
                     href={getOctopartUrl(detailPart.id)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-2xs border hover:bg-surface border-hairline text-ink-2"
+                    className="btn border border-hairline"
                   >
                     <ExternalLink size={10} /> Octopart
                   </a>
                 </div>
               </div>
 
-              {detailPart.pins && detailPart.pins.length > 0 && (
-                <div className="rounded-lg p-2.5 bg-surface border border-hairline">
-                  <div className="text-2xs uppercase tracking-wide text-ink-3 mb-1.5">Pins ({detailPart.pins.length})</div>
-                  <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-2xs text-ink-2">
-                    {detailPart.pins.map((pn, i) => (
+              {partPins(detailPart).length > 0 && (
+                <details
+                  className="rounded-lg bg-surface border border-hairline"
+                  open={partPins(detailPart).length <= 8}
+                >
+                  <summary className="cursor-pointer list-none px-2.5 py-2 text-2xs uppercase tracking-wide text-ink-3 [&::-webkit-details-marker]:hidden">
+                    Pins ({partPins(detailPart).length})
+                  </summary>
+                  <div className="flex flex-wrap gap-x-2.5 gap-y-1 mono text-2xs text-ink-2 px-2.5 pb-2.5">
+                    {partPins(detailPart).map((pn, i) => (
                       <span key={i}>{pn.name || `Pin ${i + 1}`}</span>
                     ))}
                   </div>
-                </div>
+                </details>
               )}
 
-              <div className="rounded-lg p-2 text-2xs text-ink-3 leading-snug" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)" }}>
-                <div className="font-medium text-2xs mb-1">Hinweis</div>
-                Klick wählt das Bauteil zur Vorschau aus. Zum Platzieren auf „Platzieren“ klicken (Enter) oder das Bauteil direkt gedrückt auf die Schaltfläche ziehen. Suche mit „r 10k“ für Widerstand 10k.
-              </div>
 
-              <button
-                className="btn btn-primary w-full justify-center py-2 text-xs font-medium"
-                onClick={() => onConfirmPlace(detailPart.id)}
-              >
-                {`Als ${detailPart.ref} platzieren (Enter)`}
-              </button>
             </div>
           </div>
         )}
       </div>
 
+      {fill && selected && (
+        <div className="shrink-0 border-t border-hairline bg-surface p-2.5">
+          <div className="flex items-center gap-2.5">
+            <SymbolPreview part={selected} size={40} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-medium">{selected.name}</div>
+              <div className="mono text-2xs text-ink-3">
+                {selected.ref}
+                {(() => {
+                  const { value } = splitValueQuery(query);
+                  const key = value !== undefined ? mainValueParamKey(selected) : null;
+                  if (value === undefined || !key) return null;
+                  const pr = selected.params.find((d) => d.key === key);
+                  return <> · {formatValue(value, pr?.unit ?? "")}</>;
+                })()}
+              </div>
+            </div>
+            <button
+              className="btn btn-primary shrink-0 px-3 py-2 text-xs font-medium"
+              onClick={() => onConfirmPlace(selected.id)}
+            >
+              Platzieren
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* S6.4: Verwalten eigener Bauteile */}
+      {ctx && (() => {
+        const vw = typeof window !== "undefined" ? window.innerWidth : 800;
+        const vh = typeof window !== "undefined" ? window.innerHeight : 600;
+        const w = 240;
+        const h = renaming ? 150 : 250;
+        const left = Math.min(Math.max(ctx.x, 12), vw - w - 12);
+        const top = Math.min(Math.max(ctx.y, 12), vh - h - 12);
+        const st = useEditor.getState();
+        const row = "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left tree-row";
+        const close = () => { setCtx(null); setRenaming(null); setArmDelete(null); };
+        return (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onPointerDown={close}
+              onContextMenu={(e) => { e.preventDefault(); close(); }}
+            />
+            <div
+              className="fixed z-50 min-w-[220px] max-w-[260px] rounded-xl p-1.5 text-xs backdrop-blur-xl"
+              style={{ left, top, background: "color-mix(in srgb, var(--surface) 94%, transparent)", border: "1px solid var(--hairline-strong)", boxShadow: "0 12px 40px rgba(0,0,0,0.45)" }}
+              role="menu"
+              onPointerDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              {renaming && renaming.id === ctx.id ? (
+                <div className="p-1">
+                  <div className="px-1.5 pb-1 text-2xs text-ink-3">Umbenennen</div>
+                  <input
+                    autoFocus
+                    className="input h-8 text-xs"
+                    value={renaming.value}
+                    onChange={(e) => setRenaming({ id: renaming.id, value: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename();
+                      else if (e.key === "Escape") { setRenaming(null); setCtx(null); }
+                    }}
+                  />
+                  <div className="flex justify-end gap-1.5 pt-2">
+                    <button className="btn h-7 px-2.5 text-2xs" onClick={() => { setRenaming(null); setCtx(null); }}>
+                      Abbrechen
+                    </button>
+                    <button className="btn btn-primary h-7 px-2.5 text-2xs" onClick={commitRename}>
+                      OK
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    className={row}
+                    onClick={() => {
+                      const id = ctx.id;
+                      close();
+                      if (!st.partEditor.open) st.openPartEditor(id);
+                    }}
+                  >
+                    <Cpu size={13} /> Im Editor bearbeiten
+                  </button>
+                  <button
+                    className={row}
+                    onClick={() => {
+                      st.duplicateCustomPart(ctx.id);
+                      close();
+                    }}
+                  >
+                    <Copy size={13} /> Duplizieren
+                  </button>
+                  <button
+                    className={row}
+                    onClick={() => {
+                      const spec = CUSTOM_SPECS.get(ctx.id);
+                      setRenaming({ id: ctx.id, value: spec?.name ?? "" });
+                      setArmDelete(null);
+                    }}
+                  >
+                    <Pencil size={13} /> Umbenennen
+                  </button>
+                  <button className={row} onClick={() => doExportSpec(ctx.id)}>
+                    <Download size={13} /> Exportieren (.mspart)
+                  </button>
+                  <div className="mx-2 my-1 h-px bg-hairline" role="separator" />
+                  <button
+                    className={`${row} ${armDelete === ctx.id ? "text-red-400" : ""}`}
+                    onClick={() => {
+                      if (armDelete === ctx.id) doDeleteSpec(ctx.id);
+                      else setArmDelete(ctx.id);
+                    }}
+                  >
+                    <Trash2 size={13} /> {armDelete === ctx.id ? "Wirklich löschen?" : "Löschen"}
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        );
+      })()}
+
+      {!standalone && !fill && !docked && (
       <div
         className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
         onPointerDown={(e) => {
           resizeRef.current = { x: e.clientX, y: e.clientY, w: size.w, h: size.h };
+          pendingPosRef.current = null;
+          pendingSizeRef.current = null;
+          resizePending.current = null;
+          paletteRef.current?.setAttribute("data-windrag", "");
         }}
         style={{ background: "linear-gradient(135deg, transparent 50%, var(--hairline-strong) 50%)" }}
       />
+      )}
     </div>
   );
 }

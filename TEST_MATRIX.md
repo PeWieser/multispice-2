@@ -172,10 +172,10 @@
 | 12.2 | Touch Targets | Min 44x44px auf Mobile, 36px Desktop, Probe Hit 26px Mobile, Wire 12px Mobile | ✅ |
 | 12.3 | aria-label | Alle Buttons haben aria-label oder title, Icons haben aria-hidden, Dialog role=dialog aria-modal, Menu role=menu/menuitem | ✅ |
 | 12.4 | Keyboard Navigation | Tab durch alle interaktiven Elemente, Shift+Tab zurück, Enter aktiviert, Esc schließt Dialog/Menu/Context/Place-Modus, Shortcuts: R,C,L,D,Q,M,U,V,GND,555,W,⌘K,/,⌘Z,⌘S,⌘N,⌘P,Leertaste Start, F Fit, Entf Löschen, Pfeiltasten Move, R Drehen | ✅ |
-| 12.5 | Screenreader | Roles: button, dialog, menu, menuitem, tab, tabpanel, grid, row, cell, Live Regions für Logs (aria-live polite), Probes Tabelle mit caption, th scope | 🔄 Partial – Live Regions fehlen teilweise |
-| 12.6 | Reduced Motion | prefers-reduced-motion: Keine Animationen, kein Stromfluss animiert, keine Pulse, sofortiges Erscheinen | 🔄 TODO – CSS Media Query fehlt |
+| 12.5 | Screenreader | Roles: button, dialog, menu, menuitem, tab, tabpanel, grid, row, cell, Live Regions für Logs (aria-live polite), Probes Tabelle mit caption, th scope | ✅ (S5.15: Log-Konsole role=log, th scope=col) |
+| 12.6 | Reduced Motion | prefers-reduced-motion: Keine Animationen, kein Stromfluss animiert, keine Pulse, sofortiges Erscheinen | ✅ (S5.15 verifiziert: globals.css-Block + Test S5.15b) |
 | 12.7 | Tabular Nums | Alle Zahlen mono tabular-nums, kein Springen bei Wertänderung | ✅ |
-| 12.8 | Focus Visible | Focus Ring 2px accent, offset 2px, immer sichtbar bei Tastatur, nicht bei Maus | 🔄 TODO – :focus-visible fehlt |
+| 12.8 | Focus Visible | Focus Ring 2px accent, offset 2px, immer sichtbar bei Tastatur, nicht bei Maus | ✅ (S5.15 verifiziert: globale :focus-visible-Regel + Test S5.15b) |
 | 12.9 | Farbblind | Nicht nur Farbe, auch Icon + Text + Position, Stromrichtung Pfeil + Farbe, Probe Typ V/A/W + Farbe + Symbol | ✅ |
 | 12.10 | Zoom 200% | Bei 200% Browser Zoom noch bedienbar, kein Overflow, Scrollbar, Mobile BottomSheet noch 44px | ✅ |
 
@@ -189,18 +189,18 @@
 | 13.4 | PNG | Canvas als PNG via canvas.toBlob, gleiche Rendering Pipeline | ✅ |
 | 13.5 | Probe CSV | ProbeTable Export, Zeit,Volt, etc, für Excel | ✅ |
 
-## 14. Noch offen – nach diesem Audit
+## 14. Noch offen – nach diesem Audit (S5.15 aufgearbeitet, 2026-10-05)
 
-- [ ] Wire Edit Handles: Selektiertes Wire zeigt Quadrate an Punkten, Drag verschiebt Punkt
-- [ ] Wire Hover Highlight: Dicker + Farbe bei Hover
-- [ ] Library Keyboard Navigation ↑↓ Enter + Undo Toast
-- [ ] Canvas Tokens: Alle hardcoded Hex auf CSS Variablen umstellen (drawProbe/drawInstance)
-- [ ] Feedback Vereinheitlichung: 100ms Pulse + Toast für alle Aktionen
-- [ ] Reduced Motion Media Query
-- [ ] Focus Visible Ring
-- [ ] Screenreader Live Regions für Logs
-- [ ] E2E Tests auf realen Geräten (iPhone, iPad, Android)
-- [ ] Performance: 1000 Bauteile, 500 Leitungen, 60fps?
+- [x] Wire Edit Handles: Selektiertes Wire zeigt Quadrate an Punkten, Drag verschiebt Punkt (verifiziert: Canvas.tsx-Griffe + hitWireHandle-Drag)
+- [x] Wire Hover Highlight: Dicker + Farbe bei Hover (verifiziert: hoveredWireId-Netz-Highlight + Griff-Wachstum)
+- [x] Library Keyboard Navigation ↑↓ Enter + Undo Toast (Tasten verifiziert; Undo/Redo-Toast mit Gegenaktion neu in S5.15)
+- [x] Canvas Tokens: Alle hardcoded Hex auf CSS Variablen umstellen (S5.15: Motor/Griffe/Flow-Grau/ERC-Badges/Sonden-Badge tokenisiert; Rest = dokumentierte Hardware-Ausnahme, Lint S5.15a)
+- [x] Feedback-Kanon (statt „Toast für alles“): Toast = flüchtige Bestätigung mit optionaler Aktion (5-s-Auto-Dismiss, S5.15); Log = Protokoll (aria-live); Save-Chip = persistenter Zustand
+- [x] Reduced Motion Media Query (verifiziert: globals.css-Block, Test S5.15b)
+- [x] Focus Visible Ring (verifiziert: globale 2-px-Regel, Test S5.15b)
+- [x] Screenreader Live Regions für Logs (verifiziert: role=log aria-live=polite + th scope=col)
+- [ ] E2E Tests auf realen Geräten (iPhone, iPad, Android) — nur Nutzer: Parcours wie S5.12-iPad (Zoom/Pan/Platzieren/Verdrahten/Menüs), plus TalkBack/VoiceOver-Stichprobe
+- [x] Performance Solver-Seite: 1001 Bauteile/1000 Knoten → OP 42 ms, Katalog 2 ms, Strom-Sweep 2 ms (`scripts/s515perf.ts`, Sandbox-Maschine); Canvas-60-fps nur im Browser messbar → Nutzer-Parcours (großer Plan, Zoomen/Schwenken ruckelfrei?)
 
 ## 15. Gesamtbewertung
 

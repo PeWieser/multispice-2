@@ -13,13 +13,15 @@ import {
   setActiveDesktopFilePath,
   type BrowserFileHandle,
 } from "@/lib/storage";
-import { fromLtspiceAsc, fromSpiceNetlist, isLtspiceAsc } from "./importers";
+import { fromKicadSch, fromLtspiceAsc, fromSpiceNetlist, isKicadSch, isLtspiceAsc } from "./importers";
+import type { CustomPartSpec } from "@/lib/library/customParts";
 
 interface ProjectEnvelope {
   name?: string;
   doc?: unknown;
   instruments?: unknown[];
   savedAt?: string;
+  customParts?: CustomPartSpec[];
 }
 
 export function loadTextContentInEditor(
@@ -37,6 +39,7 @@ export function loadTextContentInEditor(
           throw new Error("Die Datei sieht nicht wie ein Multispice-Projekt aus (JSON-Struktur unbekannt).");
         }
         st.setDoc(normalizeProjectDoc(env.doc));
+        st.restoreProjectCustomParts(env.customParts);
         if (Array.isArray(env.instruments)) {
           useEditor.setState({ instruments: env.instruments as InstrumentWindow[] });
         }
@@ -80,6 +83,16 @@ export async function openFileInEditor(file: File, fileHandle?: BrowserFileHandl
  * geöffnete .msx.json-Dateien automatisch an das laufende Datei-Auto-Save).
  * Gibt `true` zurück, wenn der Dialog über die Desktop-Bridge abgewickelt wurde.
  */
+/**
+ * WDA-2: Fordert den Datei-Öffnen-Dialog an. Die Menüleiste hält das versteckte
+ * <input> (Web-Fallback); Workbench feuert das Event, wenn kein nativer Dialog
+ * verfügbar ist — vorher war Strg+O im Web tot (preventDefault ohne Fallback).
+ */
+export const REQUEST_OPEN_FILE_EVENT = "multispice-open-file";
+export function requestOpenFileDialog(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(REQUEST_OPEN_FILE_EVENT));
+}
+
 export async function openProjectViaNativeDialogIfAvailable(): Promise<boolean> {
   if (typeof window !== "undefined" && window.multispiceDesktop?.openFile) {
     const res = await window.multispiceDesktop.openFile({

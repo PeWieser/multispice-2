@@ -1,51 +1,34 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PART_MAP, SymbolPrim, formatValue, getPartSymbol } from "@/lib/library/catalog";
-import { resolveSymbolStyle } from "@/lib/settings";
-import {
-  GRID,
-  Instance,
-  MeasurementProbe,
-  ProbeKind,
-  SchematicDoc,
-  instanceBounds,
-  pinPosition,
-  rotatePoint,
-} from "@/lib/schematic/model";
-import {
-  findNetTarget,
-  finishNetDraft,
-  nearestWireFoot,
-  netClick,
-  previewNetPath,
-  type NetDraft,
-  type NetPathOptions,
-  type NetTarget,
-} from "@/lib/schematic/netdraw";
-import { engine, hitTestInstance, inferWireAngleAt, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
-import { LEGACY_PROBE_COLORS, PROBE_CSSVAR, PROBE_HEX } from "@/lib/probe-style";
-import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
+import { INSTRUMENT_PART_KIND, PART_MAP, formatValue, partPins } from "@/lib/library/catalog";
+import { GRID, Instance, MeasurementProbe, SchematicDoc, instanceBounds, pinPosition, rotatePoint } from "@/lib/schematic/model";
+import { findNetTarget, finishNetDraft, netClick, previewNetPath, type NetDraft, type NetPathOptions, type NetTarget } from "@/lib/schematic/netdraw";
+import { computeFlowLinks, type FlowLink } from "@/lib/schematic/flowviz";
+import { engine, hitTestInstance, useEditor, useHud, wireJunctionCandidates } from "@/state/editor";
+import { estimateFrequency } from "@/lib/sim/realtime";
 import { loadHoverConfig } from "@/lib/settings";
 import { parseSpiceValue } from "@/lib/schematic/importers";
 import { click } from "./oszi2/sound";
 import ShortcutSheet from "./ShortcutSheet";
-import EmptyCanvas from "./EmptyCanvas";
 import InlineEditor, { type InlineEdit } from "./InlineEditor";
+import NoteEditor, { resolveNoteCommit } from "./NoteEditor";
 import ContextMenu, { type CtxTarget } from "./CanvasContextMenu";
 import ZoomButtons from "./ZoomButtons";
-import { canvasColor } from "@/lib/canvas-theme";
+import { canvasColor, inkOn, isDarkCanvas } from "@/lib/canvas-theme";
 import { openFileInEditor } from "@/lib/schematic/openFile";
 import { adaptShortcut, useIsApple } from "@/lib/platform";
 import { ERASER_CURSOR, PEN_CURSOR } from "@/components/cursors";
-
-interface Pt { x: number; y: number; }
-
-let wireIdSeq = 0;
-function makeWireId(): string {
-  wireIdSeq += 1;
-  return `w_${Date.now().toString(36)}_${wireIdSeq.toString(36)}`;
-}
+import { PLACE_ARROW_SHIFT_FACTOR, resolveEscape } from "@/lib/keyboard";
+import { summarizeCircuit } from "@/lib/a11y";
+import { type Pt, makeWireId, roundRect, snap, toScreen } from "./Canvas/geometry";
+import { dipLeverAt, findInstanceByValueLabel, findPinInfo, findPotSliderAt, getNetObstacles, getNetPinPoints, getNoteBounds, hitTestLabel, hitTestNote, hitTestProbe, hitTestProbeAnchor, hitWire, hitWireHandle, hitWireSegment, instanceLocalPoint, nearestNetName, probeTarget } from "./Canvas/hitTest";
+import { potSliderPosFromLocalY, switchToggle } from "@/lib/interactive/switches";
+import { NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, nearestFontStep, noteFirstBaseline, noteLineH, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
+import { DIVIDER_JOKE, dividerJokeNoteIds } from "@/lib/notes/easteregg";
+import { drawInstance, drawProbe } from "./Canvas/render";
+import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
+import { FlipHorizontal2, RotateCcw, RotateCw, X } from "lucide-react";
 
 
 /** Mini-Wellenform im Hover-Tooltip: der Oszilloskop-Blick ohne Klick. */
@@ -86,63 +69,39 @@ function Sparkline({ data }: { data: number[] }) {
   return <canvas ref={ref} width={132} height={34} className="mt-1 rounded" style={{ background: "rgba(0,0,0,0.28)" }} aria-hidden="true" />;
 }
 
-function getNetObstacles(doc: SchematicDoc): Array<{ x: number; y: number; w: number; h: number }> {
-  return doc.instances.map((inst) => {
-    const b = instanceBounds(inst);
-    return { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 };
+
+// S5.24: R/C/L + U/I-Quellen fragen nach dem Platzieren sofort nach dem Wert —
+// wie ein Doppelklick auf den Wert, nur ohne den Doppelklick (Standard
+// vorausgewählt). Modul-Ebene: reiner Helfer, damit Handler Handler bleiben
+// (der Purity-Lint stuft Komponenten-Helfer sonst als Render ein).
+function openPlacedValueEditor(
+  instId: string,
+  sx: number,
+  sy: number,
+  setEditing: (e: InlineEdit | null) => void,
+  editingDone: { current: boolean },
+  editingOpenedAt: { current: number },
+) {
+  const st = useEditor.getState();
+  const inst = st.doc.instances.find((i) => i.id === instId);
+  const part = inst ? PART_MAP[inst.partId] : undefined;
+  const main = part?.params[0];
+  const wantsValue =
+    !!part && !!main && main.type === "number" &&
+    ["resistor", "capacitor", "inductor", "vdc", "idc", "vac"].includes(part.id);
+  if (!inst || !main || !wantsValue) return;
+  const rawVal = Number(inst.params[main.key] ?? main.def);
+  editingDone.current = false;
+  editingOpenedAt.current = performance.now();
+  setEditing({
+    kind: "value",
+    instId: inst.id,
+    x: inst.x,
+    y: inst.y,
+    sx,
+    sy: sy + 18,
+    initial: Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : "",
   });
-}
-
-function hitTestLabel(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").NetLabel | null {
-  for (let i = doc.labels.length - 1; i >= 0; i--) {
-    const l = doc.labels[i];
-    const w = Math.max(28, (l.name?.length ?? 3) * 7 + 14);
-    if (
-      (Math.hypot(p.x - l.x, p.y - l.y) <= 8) ||
-      (p.x >= l.x + 6 && p.x <= l.x + 8 + w && p.y >= l.y - 22 && p.y <= l.y - 2)
-    ) {
-      return l;
-    }
-  }
-  return null;
-}
-
-function getNoteBounds(n: import("@/lib/schematic/model").TextNote): { x: number; y: number; w: number; h: number } {
-  const sz = n.size ?? 11;
-  const raw = n.text && n.text.trim().length > 0 ? n.text : "Notiz";
-  const lines = raw.split(/\r?\n/);
-  const maxChars = Math.max(6, ...lines.map((l) => l.length));
-  const lineH = sz + 5;
-  const w = Math.max(96, Math.ceil(maxChars * (sz * 0.58) + 26));
-  const h = 18 + lines.length * lineH + 8;
-  return { x: n.x, y: n.y - 18, w, h };
-}
-
-function hitTestNote(doc: SchematicDoc, p: Pt): import("@/lib/schematic/model").TextNote | null {
-  for (let i = doc.notes.length - 1; i >= 0; i--) {
-    const n = doc.notes[i];
-    const b = getNoteBounds(n);
-    if (p.x >= b.x - 4 && p.x <= b.x + b.w + 4 && p.y >= b.y - 4 && p.y <= b.y + b.h + 4) {
-      return n;
-    }
-  }
-  return null;
-}
-
-function hitTestInstanceValueLabel(inst: Instance, p: Pt): boolean {
-  const b = instanceBounds(inst);
-  const cx = inst.x;
-  const topY = b.y + b.h + 4;
-  const botY = b.y + b.h + 34;
-  return Math.abs(p.x - cx) <= Math.max(28, b.w * 0.55) && p.y >= topY && p.y <= botY;
-}
-
-function findInstanceByValueLabel(doc: SchematicDoc, p: Pt): Instance | null {
-  for (let i = doc.instances.length - 1; i >= 0; i--) {
-    const inst = doc.instances[i];
-    if (hitTestInstanceValueLabel(inst, p)) return inst;
-  }
-  return null;
 }
 
 export default function Canvas() {
@@ -154,12 +113,22 @@ export default function Canvas() {
   const [cursor, setCursor] = useState<Pt>({ x: 0, y: 0 });
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[]; spark?: number[] | null } | null>(null);
   const [editing, setEditing] = useState<InlineEdit | null>(null);
+  // S5.22: Notiz-Direkteditor (Overlay auf der Karte, null = geschlossen).
+  const [editingNote, setEditingNote] = useState<{ id: string; isNew: boolean; caret?: { x: number; y: number }; scroll?: number } | null>(null);
+  // S5.27: Aktuelle Editor-Notiz für den Unmount-Commit (stale Closure sieht sie nicht).
+  // S5.23: Scrollstände der Zettel (der Canvas zeichnet jeden Frame neu — kein State nötig).
+  const noteScrollRef = useRef<Map<string, number>>(new Map());
+  const noteMaxScrollRef = useRef<Map<string, number>>(new Map());
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; wx: number; wy: number; target: CtxTarget } | null>(null);
   const [isTouchActive, setIsTouchActive] = useState(false);
   const lastTouchTimeRef = useRef<number>(0);
   const lastTouchTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const editingDone = useRef(false);
   const spaceDown = useRef(false);
+  // S5.14: Taster-Haltezustand — per Taste gedrückt (Taste → Instanz-IDs),
+  // per Maus gedrückt (IDs). Loslassen öffnet nur, wenn keine Quelle hält.
+  const pressedByKey = useRef<Record<string, string[]>>({});
+  const mousePressed = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!editing) return;
@@ -182,6 +151,8 @@ export default function Canvas() {
     netHover: null as null | NetTarget,
     lastMouse: { x: 0, y: 0 },
     duplicated: false,
+    // S5.26: Poti-Schieber in Arbeit (eine Undo-Stufe pro Zug).
+    potDrag: null as null | { id: string; value: number; changed: boolean },
   });
 
   const syncNetDraft = useCallback((draft: NetDraft | null) => {
@@ -206,75 +177,6 @@ export default function Canvas() {
     return { x: x / view.zoom + view.x, y: y / view.zoom + view.y };
   }, []);
 
-  const snap = useCallback((p: Pt): Pt => {
-    const { snap: doSnap } = useEditor.getState();
-    if (!doSnap) return p;
-    return { x: Math.round(p.x / GRID) * GRID, y: Math.round(p.y / GRID) * GRID };
-  }, []);
-
-  const toScreen = useCallback((p: Pt): { x: number; y: number } => {
-    const { view } = useEditor.getState();
-    return { x: (p.x - view.x) * view.zoom, y: (p.y - view.y) * view.zoom };
-  }, []);
-
-  const findPinInfo = useCallback((doc: SchematicDoc, p: Pt, r = 12): { inst: Instance; pinIdx: number; pos: Pt; pinName: string; net?: string } | null => {
-    const st = useEditor.getState();
-    for (const inst of doc.instances) {
-      const part = PART_MAP[inst.partId];
-      if (!part) continue;
-      for (let idx = 0; idx < part.pins.length; idx++) {
-        const pos = pinPosition(inst, idx);
-        if (Math.hypot(pos.x - p.x, pos.y - p.y) < r) {
-          const pinName = part.pins[idx].name ?? `Pin ${idx}`;
-          const net = st.netResult.pinNets[`${inst.id}:${idx}`];
-          return { inst, pinIdx: idx, pos, pinName, net };
-        }
-      }
-    }
-    return null;
-  }, []);
-
-  const hitTestProbe = useCallback((doc: SchematicDoc, p: Pt, radius?: number): MeasurementProbe | null => {
-    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    const zoom = useEditor.getState().view.zoom;
-    const iz = 1 / Math.max(zoom, 0.25);
-    const r = (radius ?? (isMobile ? 24 : 14)) * iz;
-    for (let i = doc.probes.length - 1; i >= 0; i--) {
-      const pr = doc.probes[i];
-      // W87/W93: Trifft das gesamte vergrößerte Multisim-Anzeigekästchen (ab pr.x nach rechts,
-      // vertikal zentriert um pr.y) sowie den Bereich direkt um (pr.x, pr.y).
-      const boxW = 158 * iz;
-      const boxH = 58 * iz;
-      if (
-        p.x >= pr.x - 8 * iz &&
-        p.x <= pr.x + boxW + 6 * iz &&
-        p.y >= pr.y - boxH / 2 - 6 * iz &&
-        p.y <= pr.y + boxH / 2 + 6 * iz
-      ) {
-        return pr;
-      }
-      if ((pr.x - p.x) ** 2 + (pr.y - p.y) ** 2 <= r * r) {
-        return pr;
-      }
-    }
-    return null;
-  }, []);
-
-  const hitTestProbeAnchor = useCallback((doc: SchematicDoc, p: Pt, touchExpand = false): MeasurementProbe | null => {
-    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-    const zoom = useEditor.getState().view.zoom;
-    const iz = 1 / Math.max(zoom, 0.25);
-    const hitR = (touchExpand || isMobile ? 18 : 11) * iz;
-    for (let i = doc.probes.length - 1; i >= 0; i--) {
-      const pr = doc.probes[i];
-      const ax = pr.anchorX ?? pr.x;
-      const ay = pr.anchorY ?? pr.y;
-      if (Math.hypot(ax - p.x, ay - p.y) <= hitR) {
-        return pr;
-      }
-    }
-    return null;
-  }, []);
 
   // ---- drawing ----
   const draw = useCallback(() => {
@@ -375,11 +277,11 @@ export default function Canvas() {
         if (!part) continue;
         const devCurrent = live.currents[inst.label] ?? 0;
         if (Math.abs(devCurrent) < 1e-12) continue;
-        part.pins.forEach((_, idx) => {
+        partPins(part, inst.params).forEach((_, idx) => {
           const net = netResult.pinNets[`${inst.id}:${idx}`];
           if (!net || net === "0") return;
           const prev = netCurrentMap.get(net) ?? 0;
-          netCurrentMap.set(net, prev + devCurrent / part.pins.length);
+          netCurrentMap.set(net, prev + devCurrent / partPins(part, inst.params).length);
         });
       }
     }
@@ -388,18 +290,21 @@ export default function Canvas() {
     // ── W1 / W105–W107: Physikalisch konsistente, sprungfreie Stromanimation ──
     // 1. Konstante Ladungsträgerdichte im Leiter (fester Punktabstand SPACING = 22 px);
     //    die Stromstärke I bestimmt die Driftgeschwindigkeit v(I).
-    // 2. Kontinuierliche Phasen-Integration pro Leitung (phase_k+1 = phase_k + v * dt):
-    //    kehrt sich der Stromfluss um, wechselt nur das Vorzeichen von v * dt —
-    //    die Elektronen bremsen ab und laufen ohne jeden Sprung zurück!
+    // 2. Kontinuierliche Phasen-Integration pro TEILSTÜCK (Kettenglied zwischen zwei
+    //    Knoten): phase_k+1 = phase_k + v * dt — bei Stromumkehr wechselt nur das
+    //    Vorzeichen von v * dt, die Perlen bremsen ab und laufen ohne Sprung zurück.
+    //    Pro Draht wäre falsch: ein Draht mit T-Abzweig führt links/rechts des
+    //    Abzweigs verschiedene (ggf. gegenläufige) Ströme (NE555-Astabil: R1↔R2
+    //    mit DIS-Abzweig — der Mittelwert zeigte eine Hälfte rückwärts an).
     // 3. T-Abzweige und Mehrpol-Bauteile (NE555, OPV, BJT, MOSFET) werden über
     //    Segment-Splitting und KCL-Bilanz vollständig berücksichtigt.
     const FLOW_SPACING = 22;
-    const flowByWire = new Map<string, { dir: number; mag: number; phase: number }>();
     const flowState = stateRef.current as any;
-    if (!flowState._wirePhases) {
-      flowState._wirePhases = new Map<string, number>();
+    if (!flowState._linkPhases) {
+      flowState._linkPhases = new Map<string, number>();
     }
-    const wirePhases: Map<string, number> = flowState._wirePhases;
+    const linkPhases: Map<string, number> = flowState._linkPhases;
+    let flowLinks: FlowLink[] = [];
     const flowLive = showCurrentFlow && live && (sim.running || live.time > 0);
     if (flowLive) {
       const dtms = sim.running && flowState._flowLast ? Math.min(Math.max(now - flowState._flowLast, 0), 80) : 0;
@@ -425,7 +330,7 @@ export default function Canvas() {
         for (const inst of doc.instances) {
           const part = PART_MAP[inst.partId];
           if (!part) continue;
-          for (let idx = 0; idx < part.pins.length; idx++) {
+          for (let idx = 0; idx < partPins(part, inst.params).length; idx++) {
             const pos = pinPosition(inst, idx);
             regPt(pos.x, pos.y);
           }
@@ -500,11 +405,11 @@ export default function Canvas() {
       for (const inst of doc.instances) {
         const part = PART_MAP[inst.partId];
         if (!part) continue;
-        if (inst.partId === "gnd" || part.pins.length === 1) {
+        if (inst.partId === "gnd" || partPins(part, inst.params).length === 1) {
           const pos = pinPosition(inst, 0);
           const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
           pushPin({ key: k, entering: 0, kind: "gnd" });
-        } else if (part.pins.length === 2) {
+        } else if (partPins(part, inst.params).length === 2) {
           const I = live.currents[inst.label] ?? 0;
           if (!Number.isFinite(I)) continue;
           for (let idx = 0; idx < 2; idx++) {
@@ -517,7 +422,7 @@ export default function Canvas() {
           }
         } else {
           const dev = engine.netlist.devices.find((d) => d.id === inst.label);
-          for (let idx = 0; idx < part.pins.length; idx++) {
+          for (let idx = 0; idx < partPins(part, inst.params).length; idx++) {
             const pos = pinPosition(inst, idx);
             const k = `${Math.round(pos.x)},${Math.round(pos.y)}`;
             let pinEnter = 0;
@@ -622,39 +527,16 @@ export default function Canvas() {
 
       const electron = st.currentFlowDirection !== "conventional";
       const timeScaleFactor = Math.max(0.25, Math.min(3.5, Math.pow(sim.timeScale || 1, 0.35)));
-      // W114: Erst ab 10 µA (1e-5 A) Stromfluss animieren – unterdrückt Sperr-/Leckströme
-      // (z. B. an gesperrter LED bei ausgeschaltetem 555-Ausgang oder hochohmigen Eingängen).
-      const MIN_FLOW_CURRENT = 1e-5;
-      for (const w of doc.wires) {
-        const chain = wireChains.get(w.id);
-        if (!chain || chain.length === 0) continue;
-        let weightedCurrent = 0;
-        let totalLen = 0;
-        for (const seg of chain) {
-          const pa = phi.get(seg.a);
-          const pb = phi.get(seg.b);
-          if (pa === undefined || pb === undefined) continue;
-          // Technischer Zweigstrom von seg.a nach seg.b ist (pa - pb) in Ampere
-          weightedCurrent += (pa - pb) * seg.len;
-          totalLen += seg.len;
-        }
-        if (totalLen < 1) continue;
-        const iWire = weightedCurrent / totalLen;
-        const mag = Math.abs(iWire);
-        if (mag < MIN_FLOW_CURRENT) continue;
-        const convDir = iWire > 0 ? 1 : -1;
-        const dir = electron ? -convDir : convDir;
-        // Gedämpfte logarithmische Driftgeschwindigkeit (px/s):
-        // ~20 px/s bei 10 µA, ~56 px/s bei 1 mA, ~80 px/s bei 10 mA, max 110 px/s
-        const speedPxPerSec =
-          Math.min(110, Math.max(18, 20 + Math.max(0, Math.log10(mag / MIN_FLOW_CURRENT)) * 18)) * timeScaleFactor;
-        const prevPhase = wirePhases.get(w.id) ?? 0;
-        const nextPhase = sim.running
-          ? (((prevPhase + dir * speedPxPerSec * dtSec) % FLOW_SPACING) + FLOW_SPACING) % FLOW_SPACING
-          : prevPhase;
-        wirePhases.set(w.id, nextPhase);
-        flowByWire.set(w.id, { dir, mag, phase: nextPhase });
-      }
+      // Richtung/Stärke/Phase pro TEILSTÜCK aus der Kirchhoff-Lösung (lib/flowviz).
+      const computed = computeFlowLinks(doc.wires, wireChains, phi, linkPhases, {
+        spacing: FLOW_SPACING,
+        electron,
+        timeScaleFactor,
+        running: sim.running,
+        dtSec,
+      });
+      flowLinks = computed.flows;
+      flowState._linkPhases = computed.nextPhases;
     }
 
     const wireColor = canvasColor("--wire");
@@ -691,7 +573,7 @@ export default function Canvas() {
         for (const inst of doc.instances) {
           const part = (PART_MAP as any)[inst.partId];
           if (!part) continue;
-          for (let idx=0; idx<part.pins.length; idx++) {
+          for (let idx=0; idx<partPins(part, inst.params).length; idx++) {
             const pos = pinPosition(inst, idx);
             if (Math.hypot(pos.x - cur.x, pos.y - cur.y) < 12) {
               return { inst, pinIdx: idx, pos };
@@ -727,11 +609,21 @@ export default function Canvas() {
       // W13: Keine Glow-Konturen – Auswahl/Hover zeigen sich allein über
       // Farbe und Strichstärke (professionell, nicht dekorativ).
       ctx.strokeStyle = color;
-      ctx.lineWidth = (isSel ? 3.0 : isHovered ? 2.8 : 1.9) / Math.max(view.zoom, 0.4);
+      // S3.1: Busse sind dick (Bündel) + tragen ihren Deklarationsnamen.
+      ctx.lineWidth = (isSel ? 3.0 : isHovered ? 2.8 : isBus ? 3.6 : 1.9) / Math.max(view.zoom, 0.4);
       ctx.lineJoin = "round"; ctx.lineCap = "round";
       ctx.beginPath();
       wire.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
       ctx.stroke();
+      if (isBus && wire.busName && view.zoom > 0.42 && wire.points.length > 1) {
+        const mid = wire.points[Math.floor(wire.points.length / 2)];
+        ctx.save();
+        ctx.font = "600 10px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.fillStyle = canvasColor("--violet");
+        ctx.fillText(wire.busWidth ? `${wire.busName}[0..${wire.busWidth - 1}]` : wire.busName, mid.x, mid.y - 8);
+        ctx.restore();
+      }
 
       // If selected, show GENIAL handles – Steve Jobs: editing must be obvious + delightful
       if (isSel) {
@@ -753,7 +645,7 @@ export default function Canvas() {
           ctx.fill();
           ctx.restore();
           // fill
-          ctx.fillStyle = isHoveredHandle ? "#ffffff" : canvasColor("--surface");
+          ctx.fillStyle = isHoveredHandle ? canvasColor("--accent-ink") : canvasColor("--surface");
           ctx.strokeStyle = isHoveredHandle ? canvasColor("--accent") : isEnd ? canvasColor("--ok") : canvasColor("--accent");
           ctx.lineWidth = (isHoveredHandle ? 2.2 : 1.5) * iz;
           ctx.beginPath();
@@ -803,7 +695,7 @@ export default function Canvas() {
           if (!showAlways && !isHoveredMid && !isHovered) continue;
           const msz = (isHoveredMid ? 10 : 6) * iz;
           ctx.save();
-          ctx.fillStyle = isHoveredMid ? "#ffffff" : "rgba(255,255,255,0.75)";
+          ctx.fillStyle = isHoveredMid ? canvasColor("--accent-ink") : "rgba(255,255,255,0.75)";
           ctx.strokeStyle = isHoveredMid ? canvasColor("--teal") : canvasColor("--ink-3");
           ctx.lineWidth = 1.2 * iz;
           ctx.beginPath();
@@ -831,34 +723,36 @@ export default function Canvas() {
         // W13: Der Endpunkt-Marker genügt – kein Glow-Streifen.
       }
 
-      // W15 / W105–W107 / W113: Dezentere, sprungfreie Ladungsträger-Perlen
-      // mit konstantem Abstand (FLOW_SPACING = 22 px) und kontinuierlich
-      // integrierter Phase pro Leitung.
-      const flow = flowByWire.get(wire.id);
-      if (flow && flow.mag >= 1e-5 && wire.points.length > 1) {
-        const totalLen = polyLength(wire.points);
-        if (totalLen >= 6) {
-          const iz = 1 / Math.max(view.zoom, 0.45);
-          // Dezente Deckkraft (0.32 bei 10 µA bis max. 0.68 ab 10 mA)
-          const intensity = Math.min(0.68, Math.max(0.32, 0.32 + (Math.log10(flow.mag / 1e-5) / 3) * 0.36));
-          const rDot = 2.0 * iz;
-          const isElectron = st.currentFlowDirection !== "conventional";
-          ctx.save();
-          ctx.globalAlpha = intensity;
-          ctx.fillStyle = isElectron ? "#f59e0b" : "#cbd5e1";
-          ctx.strokeStyle = "rgba(15, 23, 42, 0.45)";
-          ctx.lineWidth = 0.85 * iz;
-          for (let pos = flow.phase; pos <= totalLen; pos += FLOW_SPACING) {
-            const pt = pointAtLength(wire.points, pos);
-            if (!pt) continue;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, rDot, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          }
-          ctx.restore();
+    }
+
+    // W15 / W105–W107 / W113: Dezentere, sprungfreie Ladungsträger-Perlen
+    // mit konstantem Abstand (FLOW_SPACING = 22 px), kontinuierlich integrierter
+    // Phase — und Richtung pro TEILSTÜCK: jede Kante des Draht-Graphen trägt
+    // ihren eigenen Kirchhoff-Strom (gegenläufige Hälften am T-Abzweig laufen
+    // korrekt auseinander statt gemittelt rückwärts).
+    // S5.28: Etwas präsenter (größer, deckender, Theme-Kontrastkontur).
+    if (flowLinks.length > 0) {
+      const iz = 1 / Math.max(view.zoom, 0.45);
+      const rDot = 2.4 * iz;
+      const isElectron = st.currentFlowDirection !== "conventional";
+      ctx.save();
+      ctx.fillStyle = isElectron ? "#f59e0b" : canvasColor("--ink-3"); // S5.15: Fix-Amber = Signal, Grau = Token
+      ctx.strokeStyle = isDarkCanvas() ? "rgba(255, 255, 255, 0.55)" : "rgba(15, 23, 42, 0.45)";
+      ctx.lineWidth = 0.85 * iz;
+      for (const link of flowLinks) {
+        // Deckkraft (0.40 bei 10 µA bis max. 0.78 ab 10 mA)
+        const intensity = Math.min(0.78, Math.max(0.40, 0.40 + (Math.log10(link.mag / 1e-5) / 3) * 0.38));
+        ctx.globalAlpha = intensity;
+        const dx = (link.bx - link.ax) / link.len;
+        const dy = (link.by - link.ay) / link.len;
+        for (let s = link.phase; s <= link.len; s += FLOW_SPACING) {
+          ctx.beginPath();
+          ctx.arc(link.ax + dx * s, link.ay + dy * s, rDot, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
         }
       }
+      ctx.restore();
     }
 
     // Alignment guides when dragging wire point or instances – delightful snap feedback (Figma/Multisim)
@@ -1016,13 +910,13 @@ export default function Canvas() {
         }
         // Draw red error marker
         ctx.fillStyle = canvasColor("--err");
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = inkOn(canvasColor("--err")); // S5.15: Weiß wäre auf hellem Badge unsichtbar
         ctx.lineWidth = 1.5*iz;
         ctx.beginPath();
         ctx.arc(mx, my, 8*iz, 0, Math.PI*2);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = inkOn(canvasColor("--err"));
         ctx.font = `bold ${10*iz}px ui-sans-serif`;
         ctx.textAlign = "center";
         ctx.fillText("!", mx, my + 3.5*iz);
@@ -1044,13 +938,13 @@ export default function Canvas() {
           }
         }
         ctx.fillStyle = canvasColor("--warn");
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = inkOn(canvasColor("--warn")); // S5.15: s. Fehler-Badge
         ctx.lineWidth = 1.2*iz;
         ctx.beginPath();
         ctx.arc(mx, my, 6*iz, 0, Math.PI*2);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = inkOn(canvasColor("--warn"));
         ctx.font = `bold ${8*iz}px ui-sans-serif`;
         ctx.textAlign = "center";
         ctx.fillText("!", mx, my + 2.5*iz);
@@ -1125,76 +1019,182 @@ export default function Canvas() {
     }
 
     ctx.font = "600 11px ui-sans-serif, system-ui";
+    // S5.22: Gleichnamige Labels sind virtuell verbunden (Multisim) — bei
+    // Auswahl leuchten die Geschwister mit, die Verbindung erklärt sich selbst.
+    const selLbl = selection.length === 1 ? doc.labels.find((l) => l.id === selection[0]) : undefined;
+    const selNet = selLbl?.name.trim().toUpperCase() || null;
     for (const label of doc.labels) {
       // W91: Der vom Nutzer vergebene Name hat immer Vorrang vor einem generischen Netznamen
       const txt = label.name || netResult.pointNets[`${Math.round(label.x)},${Math.round(label.y)}`] || "NET";
       const tw = ctx.measureText(txt).width;
       const isSel = selection.includes(label.id);
+      const isLinked = !isSel && !!selNet && !!label.name.trim() && label.name.trim().toUpperCase() === selNet;
       ctx.fillStyle = canvasColor("--surface-2");
       roundRect(ctx, label.x + 8, label.y - 20, tw + 12, 16, 4); ctx.fill();
-      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
-      ctx.lineWidth = (isSel ? 1.8 : 1) / view.zoom;
+      ctx.strokeStyle = isSel || isLinked ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
+      ctx.lineWidth = (isSel ? 1.8 : isLinked ? 1.4 : 1) / view.zoom;
       ctx.stroke();
-      ctx.fillStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--teal");
+      ctx.fillStyle = isSel || isLinked ? canvasColor("--wire-sel") : canvasColor("--teal");
       ctx.textAlign = "left";
       ctx.fillText(txt, label.x + 14, label.y - 8);
       ctx.beginPath(); ctx.arc(label.x, label.y, 2.5, 0, Math.PI * 2); ctx.fill();
     }
 
-    // W117: Edle Laborbuch-Notizkarten (Callout-Cards mit warmem Bernstein-Akzentstreifen)
+    // S5.23: Echte Klebezettel — Einheitskarte, Text scrollt innen, drei Schriften.
     ctx.textAlign = "left";
-    for (const note of doc.notes) {
-      const sz = note.size ?? 11;
-      const isSel = selection.includes(note.id);
-      const lines = (note.text || "Notiz").split(/\r?\n/);
-      const lineH = sz + 5;
-      ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
-      let maxTw = 48;
-      for (const ln of lines) {
-        const wLn = ctx.measureText(ln).width;
-        if (wLn > maxTw) maxTw = wLn;
+    const runFont = (r: NoteRun, sz: number) => `${r.i ? "italic " : ""}${r.b ? "700" : "500"} ${sz}px ${NOTE_FONT_STACK}`;
+    // Scrollstände gelöschter Zettel aufräumen.
+    for (const id of [...noteScrollRef.current.keys()]) {
+      if (!doc.notes.some((n) => n.id === id)) {
+        noteScrollRef.current.delete(id);
+        noteMaxScrollRef.current.delete(id);
       }
-      const cardX = note.x;
-      const cardY = note.y - 18;
-      const cardW = Math.max(96, Math.ceil(maxTw + 24));
-      const cardH = 18 + lines.length * lineH + 8;
+    }
+    // Schwebt der Zeiger über einem Zettel? (betont dessen Scroll-Leiste)
+    let hoverNoteId: string | null = null;
+    for (let i = doc.notes.length - 1; i >= 0; i--) {
+      const b = getNoteBounds(doc.notes[i]);
+      if (cursor.x >= b.x && cursor.x <= b.x + b.w && cursor.y >= b.y && cursor.y <= b.y + b.h) {
+        hoverNoteId = doc.notes[i].id;
+        break;
+      }
+    }
+    // S5.30: Easter-Egg — Notizen mit Stempel (nur bei laufender Simulation).
+    const jokeNotes = sim.running ? dividerJokeNoteIds(doc) : [];
+    for (const note of doc.notes) {
+      if (editingNote?.id === note.id) continue; // Direkteditor-Overlay zeigt sie
+      const sz = nearestFontStep(note.size ?? NOTE_FONT_DEFAULT);
+      // S5.25: Beim Verschieben kein Auswahlrahmen (er kehrt beim Loslassen zurück).
+      const isSel = selection.includes(note.id) && !(stateRef.current as unknown as { dragging?: boolean }).dragging;
+      const raw = note.text && note.text.trim() ? note.text : "";
+      const lineH = noteLineH(sz);
+      const padX = NOTE_PAD_X;
+      const topPad = NOTE_TOP_PAD;
+      const nb = getNoteBounds(note);
+      const cardX = nb.x;
+      const cardY = nb.y;
+      const cardW = nb.w;
+      const cardH = nb.h;
+      // Umbruch: Wörter mit Stil auf die Kartenbreite.
+      const wrapped: NoteRun[][] = [];
+      for (const runs of parseNoteRuns(raw)) {
+        let cur: NoteRun[] = [];
+        let curW = 0;
+        const pushWord = (word: NoteRun) => {
+          ctx.font = runFont(word, sz);
+          const ww = ctx.measureText(word.t).width;
+          ctx.font = runFont({ t: " ", b: false, i: false, u: false }, sz);
+          const sp = cur.length ? ctx.measureText(" ").width : 0;
+          if (cur.length && curW + sp + ww > cardW - padX * 2) {
+            wrapped.push(cur);
+            cur = [];
+            curW = 0;
+          }
+          if (cur.length) {
+            const last = cur[cur.length - 1];
+            if (last.b === word.b && last.i === word.i && last.u === word.u) {
+              last.t += ` ${word.t}`;
+              curW += sp + ww;
+              return;
+            }
+            cur.push({ t: " ", b: false, i: false, u: false });
+            curW += sp;
+          }
+          cur.push({ ...word });
+          curW += ww;
+        };
+        for (const r of runs) {
+          const words = r.t.split(/\s+/).filter(Boolean);
+          if (!words.length && !cur.length) continue;
+          for (const w of words) pushWord({ t: w, b: r.b, i: r.i, u: r.u });
+        }
+        wrapped.push(cur);
+      }
+      if (!wrapped.length) wrapped.push([]);
+      const viewH = cardH - topPad - 7;
+      const contentH = wrapped.length * lineH;
+      const maxScroll = Math.max(0, contentH - viewH);
+      noteMaxScrollRef.current.set(note.id, maxScroll);
+      const scrollY = clampNoteScroll(noteScrollRef.current.get(note.id) ?? 0, contentH, viewH);
+      noteScrollRef.current.set(note.id, scrollY);
 
       ctx.save();
-      // Sanfter Kartenschatten
-      ctx.fillStyle = "rgba(0, 0, 0, 0.24)";
-      roundRect(ctx, cardX + 1.5, cardY + 2, cardW, cardH, 6);
+      // Papier: warmer Verlauf + weicher Schatten (ein Zettel bleibt gelb,
+      // auch im dunklen Theme — wie angeklebt über dem Schaltplan).
+      ctx.shadowColor = "rgba(60, 40, 0, 0.28)";
+      ctx.shadowBlur = 7 / Math.max(view.zoom, 0.4);
+      ctx.shadowOffsetY = 2 / Math.max(view.zoom, 0.4);
+      const paper = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
+      paper.addColorStop(0, "#FFFADE");
+      paper.addColorStop(0.55, "#FFF6C4");
+      paper.addColorStop(1, "#FFEFA8");
+      ctx.fillStyle = paper;
+      roundRect(ctx, cardX, cardY, cardW, cardH, 3);
       ctx.fill();
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      // Lichtkante oben, warme Kontur (blau bei Auswahl).
+      ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+      ctx.fillRect(cardX + 3, cardY + 0.75, cardW - 6, 1);
+      // S5.27: Während des Ziehens gar kein Rahmen — weder blau noch braun.
+      if (!(stateRef.current as unknown as { dragging?: boolean }).dragging) {
+        ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : "rgba(133, 100, 4, 0.42)";
+        ctx.lineWidth = (isSel ? 1.8 : 1) / Math.max(view.zoom, 0.35);
+        roundRect(ctx, cardX, cardY, cardW, cardH, 3);
+        ctx.stroke();
+      }
 
-      // Kartenkörper
-      ctx.fillStyle = canvasColor("--surface");
-      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
-      ctx.fill();
-
-      // Linker Akzentstreifen (3.5 px)
+      // Text: geclippt + gescrollt (kein „…" mehr).
       ctx.save();
       ctx.beginPath();
-      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+      roundRect(ctx, cardX, cardY, cardW, cardH, 3);
       ctx.clip();
-      ctx.fillStyle = canvasColor("--wire-sel");
-      ctx.fillRect(cardX, cardY, 3.5, cardH);
+      const ink = "#3B2F04";
+      wrapped.forEach((ln, li) => {
+        const baseline = cardY + noteFirstBaseline(sz) + li * lineH - scrollY;
+        if (baseline < cardY - lineH || baseline > cardY + cardH + lineH) return;
+        let rx = cardX + padX;
+        for (const r of ln) {
+          ctx.font = runFont(r, sz);
+          ctx.fillStyle = ink;
+          ctx.fillText(r.t, rx, baseline);
+          const rw = ctx.measureText(r.t).width;
+          if (r.u) ctx.fillRect(rx, baseline + 2, rw, Math.max(1, sz / 11));
+          rx += rw;
+        }
+      });
       ctx.restore();
 
-      // Rahmen (hervorgehoben bei Auswahl)
-      ctx.strokeStyle = isSel ? canvasColor("--wire-sel") : canvasColor("--hairline-strong");
-      ctx.lineWidth = (isSel ? 1.8 : 1.1) / Math.max(view.zoom, 0.35);
-      roundRect(ctx, cardX, cardY, cardW, cardH, 6);
-      ctx.stroke();
-
-      // Kopfzeile "NOTIZ"
-      ctx.font = "700 8px ui-monospace, monospace";
-      ctx.fillStyle = canvasColor("--wire-sel");
-      ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
-
-      // Notiztext (ein- oder mehrzeilig)
-      ctx.font = `500 ${sz}px ui-sans-serif, system-ui`;
-      ctx.fillStyle = canvasColor("--ink");
-      for (let li = 0; li < lines.length; li++) {
-        ctx.fillText(lines[li], cardX + 10, cardY + 16 + (li + 1) * lineH - 4);
+      // Scroll-Leiste bei Überlauf (dezent, kräftiger bei Auswahl/Schweben).
+      if (maxScroll > 0) {
+        const emph = isSel || hoverNoteId === note.id;
+        const trackX = cardX + cardW - 7;
+        const trackY = cardY + 6;
+        const trackH = cardH - 12;
+        const thumbH = Math.max(14, (viewH / contentH) * trackH);
+        const thumbY = trackY + (scrollY / maxScroll) * (trackH - thumbH);
+        ctx.fillStyle = emph ? "rgba(120, 90, 10, 0.30)" : "rgba(120, 90, 10, 0.16)";
+        roundRect(ctx, trackX, trackY, 4, trackH, 2);
+        ctx.fill();
+        ctx.fillStyle = emph ? "rgba(120, 90, 10, 0.75)" : "rgba(120, 90, 10, 0.45)";
+        roundRect(ctx, trackX, thumbY, 4, thumbH, 2);
+        ctx.fill();
+      }
+      // S5.30: Easter-Egg-Stempel über die Karte (Text darunter bleibt).
+      if (jokeNotes.includes(note.id)) {
+        ctx.save();
+        ctx.translate(cardX + cardW / 2, cardY + cardH / 2);
+        ctx.rotate((-8 * Math.PI) / 180);
+        ctx.font = "italic 700 15px ui-sans-serif, system-ui";
+        const maxW = cardW - 24;
+        const w0 = ctx.measureText(DIVIDER_JOKE).width;
+        if (w0 > maxW) ctx.scale(maxW / w0, maxW / w0);
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = canvasColor("--err"); // Zettelpapier ist immer gelb → Theme-Rot trägt in beiden Themes
+        ctx.fillText(DIVIDER_JOKE, 0, 0);
+        ctx.restore();
       }
       ctx.restore();
     }
@@ -1210,7 +1210,8 @@ export default function Canvas() {
     const measuredNets = new Set(doc.probes.map((pr) => pr.net).filter(Boolean));
     for (const probeName of st.probes) {
       if (measuredNets.has(probeName)) continue;
-      const net = netResult.nets.find((n) => n.name === probeName);
+      // Blätter Stufe B: Marker zur aktiven Seite (gleichnamige Netze gibt es pro Seite).
+      const net = netResult.nets.find((n) => n.name === probeName && (n.page === undefined || n.page === doc.activePageId));
       if (!net || !net.points.length) continue;
       const p = net.points[0];
       ctx.strokeStyle = canvasColor("--violet"); ctx.lineWidth = 1.6 / view.zoom;
@@ -1245,8 +1246,8 @@ export default function Canvas() {
         preferDir: draft.corners.length === 0 ? draft.preferDir : undefined,
         flipBend: draft.flipBend,
         obstacles: getNetObstacles(doc),
+        pinPoints: getNetPinPoints(doc),
       };
-      const preview = previewNetPath(draft.anchor, draft.corners, magnetHit ?? { x: cursor.x, y: cursor.y }, pathOpts);
       const zLine = 2 / Math.max(view.zoom, 0.3);
       // fester Teil (Anker + gesetzte Ecken)
       ctx.strokeStyle = canvasColor("--wire-sel"); ctx.lineWidth = zLine;
@@ -1254,11 +1255,28 @@ export default function Canvas() {
       ctx.moveTo(draft.anchor.x, draft.anchor.y);
       for (const c of draft.corners) ctx.lineTo(c.x, c.y);
       ctx.stroke();
-      // Vorschau ab dem letzten festen Punkt
+      // S5.25: Nur das lose Ende läuft gestrichelt — ab der letzten festen Ecke
+      // frisch gerechnet (vorher lief die Schleife ab preview[1] zurück über alle
+      // Ecken und malte ab der zweiten Ecke Diagonalen). Knickfolge wie beim
+      // Klick: waagrecht angekommen → senkrecht weiter und umgekehrt.
+      const prevFixed = draft.corners.length > 1
+        ? draft.corners[draft.corners.length - 2]
+        : draft.corners.length === 1
+          ? draft.anchor
+          : null;
+      const contDir = prevFixed
+        ? prevFixed.y === ref.y && prevFixed.x !== ref.x
+          ? "v"
+          : prevFixed.x === ref.x && prevFixed.y !== ref.y
+            ? "h"
+            : undefined
+        : pathOpts.preferDir;
+      const target = magnetHit ?? { x: cursor.x, y: cursor.y };
+      const tail = previewNetPath(ref, [], target, { ...pathOpts, preferDir: contDir });
       ctx.setLineDash([5, 4]); ctx.lineWidth = zLine * 0.9;
       ctx.beginPath();
-      ctx.moveTo(ref.x, ref.y);
-      for (let i = 1; i < preview.length; i++) ctx.lineTo(preview[i].x, preview[i].y);
+      ctx.moveTo(tail[0].x, tail[0].y);
+      for (let i = 1; i < tail.length; i++) ctx.lineTo(tail[i].x, tail[i].y);
       ctx.stroke(); ctx.setLineDash([]);
       // Anker- und Eckpunkte sichtbar machen
       ctx.fillStyle = canvasColor("--wire-sel");
@@ -1365,7 +1383,7 @@ export default function Canvas() {
     }
 
     // W91: Live-Vorschau beim Platzieren eines Netznamens (label) oder einer Notiz (text)
-    if ((st.tool === "label" || st.tool === "text") && !editing) {
+    if ((st.tool === "label" || st.tool === "text") && !editing && !editingNote) {
       ctx.save();
       ctx.globalAlpha = 0.78;
       if (st.tool === "label") {
@@ -1388,27 +1406,48 @@ export default function Canvas() {
         ctx.arc(lx, ly, 3.2, 0, Math.PI * 2);
         ctx.fill();
       } else {
+        // S5.25: Die Einheitskarte als Vorschau — leer, wie sie entsteht.
         const cardX = cursor.x;
         const cardY = cursor.y - 18;
-        const cardW = 136;
-        const cardH = 42;
-        ctx.fillStyle = canvasColor("--surface");
-        roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+        const paperGhost = ctx.createLinearGradient(0, cardY, 0, cardY + NOTE_H);
+        paperGhost.addColorStop(0, "#FFFADE");
+        paperGhost.addColorStop(0.55, "#FFF6C4");
+        paperGhost.addColorStop(1, "#FFEFA8");
+        ctx.fillStyle = paperGhost;
+        roundRect(ctx, cardX, cardY, NOTE_W, NOTE_H, 3);
         ctx.fill();
-        ctx.fillStyle = canvasColor("--wire-sel");
-        ctx.fillRect(cardX, cardY + 3, 3.5, cardH - 6);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+        ctx.fillRect(cardX + 3, cardY + 0.75, NOTE_W - 6, 1);
         ctx.strokeStyle = canvasColor("--wire-sel");
-        ctx.lineWidth = 1.3 / Math.max(view.zoom, 0.35);
-        roundRect(ctx, cardX, cardY, cardW, cardH, 6);
+        ctx.lineWidth = 1.4 / Math.max(view.zoom, 0.35);
+        roundRect(ctx, cardX, cardY, NOTE_W, NOTE_H, 3);
         ctx.stroke();
-        ctx.font = "700 8px ui-monospace, monospace";
-        ctx.fillStyle = canvasColor("--wire-sel");
-        ctx.textAlign = "left";
-        ctx.fillText("NOTIZ", cardX + 10, cardY + 11);
-        ctx.font = "500 11px ui-sans-serif, system-ui";
-        ctx.fillStyle = canvasColor("--ink");
-        ctx.fillText("Notiz platzieren …", cardX + 10, cardY + 30);
       }
+      ctx.restore();
+    }
+
+    // ── S2.2: Problem-Marker (pulsierender Ring + Netzname, Welt-Raum) ──
+    if (st.spotlight) {
+      const sp = st.spotlight;
+      const pulse = 0.5 + 0.5 * Math.sin(now / 280);
+      const r = (14 + 7 * pulse) / Math.max(view.zoom, 0.3);
+      ctx.save();
+      ctx.strokeStyle = canvasColor("--err");
+      ctx.globalAlpha = 0.55 + 0.45 * pulse;
+      ctx.lineWidth = 2.4 / Math.max(view.zoom, 0.3);
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.font = "700 11px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      const label = "⚠ " + sp.label;
+      const tw = ctx.measureText(label).width + 12;
+      ctx.fillStyle = canvasColor("--err");
+      roundRect(ctx, sp.x - tw / 2, sp.y + r + 6, tw, 18, 5);
+      ctx.fill();
+      ctx.fillStyle = inkOn(canvasColor("--err")); // S5.15: s. Fehler-Badge
+      ctx.fillText(label, sp.x, sp.y + r + 19);
       ctx.restore();
     }
 
@@ -1467,7 +1506,7 @@ export default function Canvas() {
       ctx.strokeStyle = canvasColor("--hairline");
       ctx.strokeRect(0.5, 0.5, R - 1, R - 1);
     }
-  }, [cursor, snap, editing]);
+  }, [cursor, editing, editingNote]);
 
   useEffect(() => {
     let raf = 0, last = performance.now(), frames = 0, fpsTime = last;
@@ -1506,6 +1545,17 @@ export default function Canvas() {
     const st = useEditor.getState();
     const rect = canvasRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    // S5.23: Rad über einem überlaufenden Zettel scrollt ihn (statt zu zoomen).
+    if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const hit = hitTestNote(st.doc, { x: mx / st.view.zoom + st.view.x, y: my / st.view.zoom + st.view.y });
+      const max = hit ? (noteMaxScrollRef.current.get(hit.id) ?? 0) : 0;
+      if (hit && max > 0) {
+        const cur = noteScrollRef.current.get(hit.id) ?? 0;
+        const next = Math.min(max, Math.max(0, cur + e.deltaY));
+        if (next !== cur) noteScrollRef.current.set(hit.id, next);
+        return;
+      }
+    }
     if (e.shiftKey && !e.ctrlKey && !e.metaKey) {
       st.setView({ x: st.view.x + e.deltaY / st.view.zoom, y: st.view.y + e.deltaX / st.view.zoom });
       return;
@@ -1567,6 +1617,9 @@ export default function Canvas() {
     if (touchState.current?.pinching) return;
 
     const st = useEditor.getState();
+    if (st.spotlight) st.clearSpotlight();
+    // S5.6d: Lehrer-Modus — nur Schwenken/Zoomen (Ansicht), kein Editieren.
+    if (st.teacher.locked && st.tool !== "pan") return;
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;
@@ -1640,27 +1693,23 @@ export default function Canvas() {
           initial: "",
         });
       } else {
+        // S5.22: Direkt auf dem Zettel schreiben (kein separates Feld).
         const existingNote = hitTestNote(st.doc, world);
-        if (existingNote) {
-          setEditing({
-            kind: "text",
-            itemId: existingNote.id,
-            x: existingNote.x,
-            y: existingNote.y,
-            sx: e.clientX - (rect?.left ?? 0),
-            sy: e.clientY - (rect?.top ?? 0),
-            initial: existingNote.text,
-          });
+        // S5.28: Offener Editor + Klick ins Leere beendet nur (keine neue Notiz).
+        if (editingNote && !existingNote) {
+          setEditingNote(null);
+          st.setTool("select");
           return;
         }
-        setEditing({
-          kind: "text",
-          x: sp.x,
-          y: sp.y,
-          sx: e.clientX - (rect?.left ?? 0),
-          sy: e.clientY - (rect?.top ?? 0),
-          initial: "",
-        });
+        if (existingNote) {
+          st.setSelection([existingNote.id]);
+          setEditingNote({ id: existingNote.id, isNew: false, caret: { x: e.clientX, y: e.clientY }, scroll: noteScrollRef.current.get(existingNote.id) ?? 0 });
+          return;
+        }
+        const nid = "n_" + Math.random().toString(36).slice(2, 8);
+        st.commit((d) => d.notes.push({ id: nid, x: sp.x, y: sp.y, text: "" }));
+        st.setSelection([nid]);
+        setEditingNote({ id: nid, isNew: true, caret: { x: e.clientX, y: e.clientY }, scroll: 0 });
       }
       return;
     }
@@ -1710,6 +1759,7 @@ export default function Canvas() {
         allowStartOnEmpty: st.tool === "wire",
         startOnWire: st.tool === "wire",
         obstacles: getNetObstacles(st.doc),
+        pinPoints: getNetPinPoints(st.doc),
       });
       if (res) {
         if (res.kind === "start") {
@@ -1819,11 +1869,15 @@ export default function Canvas() {
     // nahe Pins orthogonal in einem einzigen Undo-Schritt.
     if (st.tool === "place" && st.placingPartId) {
       if (e.button === 0) {
-        st.addInstance(st.placingPartId, sp.x, sp.y, {
+        const placedId = st.addInstance(st.placingPartId, sp.x, sp.y, {
           rot: st.placingRot,
           mirror: st.placingMirror,
           autoWire: true,
         });
+        if (placedId) {
+          const scr = toScreen(sp);
+          openPlacedValueEditor(placedId, scr.x, scr.y, setEditing, editingDone, editingOpenedAt);
+        }
         if (!e.shiftKey) st.setPlacing(null);
       } else {
         st.setPlacing(null);
@@ -1863,7 +1917,8 @@ export default function Canvas() {
 
     const labelHit = hitTestLabel(st.doc, world);
     const noteHit = !labelHit ? hitTestNote(st.doc, world) : null;
-    const hit = hitTestInstance(st.doc, world.x, world.y) ?? findInstanceByValueLabel(st.doc, world);
+    // S5.26: Der Poti-Schieber liegt außerhalb der Symbol-Bbox — eigener Hit davor.
+    const hit = hitTestInstance(st.doc, world.x, world.y) ?? findPotSliderAt(st.doc, world) ?? findInstanceByValueLabel(st.doc, world);
 
     if (st.tool === "erase") {
       if (hit) { st.setSelection([hit.id]); st.deleteSelection(); }
@@ -1898,19 +1953,53 @@ export default function Canvas() {
       return;
     }
 
+    // S5.26: Poti-Schieber greifen — steht UND läuft (ist Param-Editor, keine
+    // Sim-Steuerung). Radierer/sonstige Tools sind oben schon zurückgekehrt.
+    if (hit && PART_MAP[hit.partId]?.interactive === "pot" && findPotSliderAt(st.doc, world)?.id === hit.id) {
+      const v = potSliderPosFromLocalY(instanceLocalPoint(hit, world).y);
+      st.setSelection([hit.id]);
+      const cur = engine.controls[hit.id] ?? engine.controls[hit.label] ?? Number(hit.params.pos ?? 0.5);
+      if (Math.abs(v - cur) > 1e-4) {
+        st.beginGesture();
+        sr.potDrag = { id: hit.id, value: v, changed: true };
+        if (st.sim.running) engine.setControl(hit.id, v);
+        else st.setParam(hit.id, "pos", v);
+      } else {
+        sr.potDrag = { id: hit.id, value: cur, changed: false };
+      }
+      return;
+    }
+
     if (hit && st.sim.running) {
       const part = PART_MAP[hit.partId];
-      if (part?.interactive === "switch" || part?.interactive === "button" || part?.interactive === "dip") {
-        const cur = engine.controls[hit.label] ?? (hit.params.closed ? 1 : 0);
-        engine.setControl(hit.label, cur > 0.5 ? 0 : 1);
-        st.log("info", `${hit.label} ${cur > 0.5 ? "geöffnet" : "geschlossen"}`); return;
+      // S5.14: Controls sind per Instanz-ID geschlüsselt (Solver liest die
+      // Geräte-ID = Instanz-ID; Label wäre wirkungslos, nur Deko).
+      // S5.26: Typ-bewusstes Schalten — Wechsler legen um, Dreh schaltet weiter,
+      // DIP-Hebel einzeln (eine Wahrheit: switchToggle).
+      if (part?.interactive === "switch" || part?.interactive === "dip") {
+        const dip = part && part.id.startsWith("switch_dip_") ? dipLeverAt(part.id, hit, world) : null;
+        const t = part ? switchToggle(part.id, hit, engine.controls, dip ?? undefined) : null;
+        if (t) {
+          for (const [cid, v] of Object.entries(t.targets)) engine.setControl(cid, v);
+          st.log("info", `${hit.label} ${t.log}`); return;
+        }
       }
-      if (part?.interactive === "pot") {
-        const cur = engine.controls[hit.label] ?? Number(hit.params.pos ?? 0.5);
-        const next = Math.min(0.99, Math.max(0.01, cur + (e.shiftKey ? -0.05 : 0.05)));
-        engine.setControl(hit.label, next);
-        st.log("info", `${hit.label} ${(next*100).toFixed(0)}%`); return;
+      if (part?.interactive === "button") {
+        // S5.14: Taster tastet — schließen bei Drücken, öffnen bei Loslassen.
+        engine.setControl(hit.id, 1);
+        mousePressed.current.add(hit.id);
+        const id = hit.id;
+        const release = () => {
+          mousePressed.current.delete(id);
+          window.removeEventListener("mouseup", release);
+          const held = Object.values(pressedByKey.current).some((ids) => ids.includes(id));
+          if (!held) engine.setControl(id, 0);
+        };
+        window.addEventListener("mouseup", release);
+        st.log("info", `${hit.label} gedrückt`); return;
       }
+      // S5.26: Unsichtbares ±5-%-Klicken ersatzlos gestrichen — der Schieber
+      // neben dem Poti ist die Steuerung (Tastatur-Feinstellung bleibt).
     }
 
     if (hit) {
@@ -1965,12 +2054,23 @@ export default function Canvas() {
 
   const commitEditing = (text: string | null) => {
     if (editingDone.current) return; editingDone.current = true;
-    const st = useEditor.getState(); const cur = editing; setEditing(null); st.setTool("select");
+    const st = useEditor.getState(); const cur = editing; setEditing(null);
+    // S5.24: Bei laufender Serienplatzierung (⇧) geht's nach dem Wert weiter.
+    if (!st.placingPartId) st.setTool("select");
     if (cur && text && text.trim()) {
       const clean = text.trim();
       if (cur.kind === "value" && cur.instId) {
         const inst0 = st.doc.instances.find((i) => i.id === cur.instId);
-        const key = inst0 ? PART_MAP[inst0.partId]?.params[0]?.key : undefined;
+        const main0 = inst0 ? PART_MAP[inst0.partId]?.params[0] : undefined;
+        const key = main0?.key;
+        if (inst0 && key && main0?.type === "text") {
+          st.commit((d) => {
+            const ins = d.instances.find((i) => i.id === cur.instId);
+            if (ins) ins.params[key] = clean;
+          });
+          st.log("ok", `${inst0.label} = „${clean}“`);
+          return;
+        }
         const v = parseSpiceValue(clean);
         if (inst0 && key && Number.isFinite(v)) {
           st.commit((d) => {
@@ -1983,24 +2083,37 @@ export default function Canvas() {
         }
         return;
       }
-      if (cur.kind === "label") {
-        if (cur.itemId) {
-          st.updateLabel(cur.itemId, clean);
-          st.log("ok", `Netzname geändert in „${clean}“`);
-        } else {
-          st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, name: clean }));
-          st.log("ok", `Netzname „${clean}“`);
-        }
+      // S5.22: Nur noch Label (Notizen laufen über den Direkteditor/commitNote).
+      if (cur.itemId) {
+        st.updateLabel(cur.itemId, clean);
+        st.log("ok", `Netzname geändert in „${clean}“`);
       } else {
-        if (cur.itemId) {
-          st.updateNote(cur.itemId, clean);
-          st.log("ok", "Notiz aktualisiert");
-        } else {
-          st.commit((d) => d.notes.push({ id: "n_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, text: clean }));
-          st.log("ok", "Notiz");
-        }
+        st.commit((d) => d.labels.push({ id: "l_" + Math.random().toString(36).slice(2, 8), x: cur.x, y: cur.y, name: clean }));
+        st.log("ok", `Netzname „${clean}“`);
       }
     }
+  };
+
+  // S5.22: Direkteditor-Übernahme — neue leere Notiz wird still verworfen.
+  // S5.31: Entscheidung aus resolveNoteCommit (eine Wahrheit, testbar).
+  const commitNote = (markup: string | null, wasNew: boolean, size?: number) => {
+    const st = useEditor.getState();
+    const id = editingNote?.id;
+    // S5.27: Nur schließen, wenn dieser Zettel noch offen ist — beim
+    // Zettelwechsel committed der alte, ohne den neuen zuzumachen.
+    setEditingNote((prev) => (prev && prev.id === id ? null : prev));
+    st.setTool("select");
+    const action = id ? resolveNoteCommit(markup, wasNew) : null;
+    if (!id || !action) return;
+    if (action.kind === "discard") {
+      st.commit((d) => {
+        d.notes = d.notes.filter((n) => n.id !== id);
+      });
+      st.setSelection([]);
+      return;
+    }
+    st.updateNote(id, action.text, size);
+    st.log("ok", wasNew ? "Notiz" : "Notiz aktualisiert");
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -2022,6 +2135,22 @@ export default function Canvas() {
     const world = toWorld(e.clientX, e.clientY);
     const sp = snap(world);
     const sr = stateRef.current;
+    // S5.26: Poti-Schieber ziehen — live bei laufender Sim, sonst als (eine) Param-Änderung.
+    if (sr.potDrag) {
+      const pd = sr.potDrag;
+      const inst = st.doc.instances.find((i) => i.id === pd.id);
+      if (!inst) sr.potDrag = null;
+      else {
+        const v = potSliderPosFromLocalY(instanceLocalPoint(inst, world).y);
+        if (Math.abs(v - pd.value) > 1e-4) {
+          if (!pd.changed) { st.beginGesture(); pd.changed = true; }
+          pd.value = v;
+          if (st.sim.running) engine.setControl(pd.id, v);
+          else st.setParam(pd.id, "pos", v);
+        }
+      }
+      return;
+    }
     setCursor(sp); useHud.setState({ cursor: sp });
 
     // Track hovered wire handle for delightful UX – show larger handle + tooltip
@@ -2113,7 +2242,7 @@ export default function Canvas() {
         for (const inst of doc.instances) {
           const part = (PART_MAP as any)[inst.partId];
           if (!part) continue;
-          for (let idx = 0; idx < part.pins.length; idx++) {
+          for (let idx = 0; idx < partPins(part, inst.params).length; idx++) {
             const p = pinPosition(inst, idx);
             if (Math.abs(p.x - sp.x) < threshold) guideX = Math.round(p.x / GRID) * GRID;
             if (Math.abs(p.y - sp.y) < threshold) guideY = Math.round(p.y / GRID) * GRID;
@@ -2309,9 +2438,9 @@ export default function Canvas() {
             if (!part) continue;
             const devCurrent = engine.lastState.currents[inst.label] ?? 0;
             if (Math.abs(devCurrent) < 1e-12) continue;
-            part.pins.forEach((_, idx) => {
+            partPins(part, inst.params).forEach((_, idx) => {
               const pn = st.netResult.pinNets[`${inst.id}:${idx}`];
-              if (pn === net) netCurrent += devCurrent / part.pins.length;
+              if (pn === net) netCurrent += devCurrent / partPins(part, inst.params).length;
             });
           }
         } catch {}
@@ -2386,6 +2515,18 @@ export default function Canvas() {
       touchState.current = null;
     }
     const st = useEditor.getState(); const sr = stateRef.current;
+    // S5.26: Poti-Schieber loslassen — Zielwert einmalig committen (eine Undo-Stufe).
+    if (sr.potDrag) {
+      const pd = sr.potDrag;
+      sr.potDrag = null;
+      if (pd.changed) {
+        st.setParam(pd.id, "pos", pd.value);
+        const inst = st.doc.instances.find((i) => i.id === pd.id);
+        st.log("info", `${inst?.label ?? "Poti"} ${(pd.value * 100).toFixed(0)}%`);
+      }
+      st.endGesture();
+      return;
+    }
     const wasMoved = sr.moved;
     st.endGesture();
 
@@ -2404,6 +2545,7 @@ export default function Canvas() {
         allowStartOnEmpty: false,
         startOnWire: true,
         obstacles: getNetObstacles(st.doc),
+        pinPoints: getNetPinPoints(st.doc),
       });
       if (resUp && resUp.kind === "finish") {
         st.addWire({ id: makeWireId(), points: resUp.points });
@@ -2493,6 +2635,7 @@ export default function Canvas() {
         preferDir: sr.netDraft.corners.length === 0 ? sr.netDraft.preferDir : undefined,
         flipBend: sr.netDraft.flipBend,
         obstacles: getNetObstacles(st.doc),
+        pinPoints: getNetPinPoints(st.doc),
       });
       if (pts) {
         st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: pts });
@@ -2513,9 +2656,8 @@ export default function Canvas() {
     }
     const noteHit = hitTestNote(st.doc, world);
     if (noteHit) {
-      const scr = toScreen({ x: noteHit.x, y: noteHit.y });
-      editingDone.current = false;
-      setEditing({ kind: "text", itemId: noteHit.id, x: noteHit.x, y: noteHit.y, sx: scr.x, sy: scr.y, initial: noteHit.text });
+      st.setSelection([noteHit.id]);
+      setEditingNote({ id: noteHit.id, isNew: false, caret: { x: e.clientX, y: e.clientY }, scroll: noteScrollRef.current.get(noteHit.id) ?? 0 });
       return;
     }
 
@@ -2538,22 +2680,24 @@ export default function Canvas() {
     if (hit) {
       st.setSelection([hit.id]);
       const part = PART_MAP[hit.partId];
-      if (part?.id === "oscilloscope") {
-        useEditor.getState().openInstrument("scope", { instanceId: hit.id, title: `Oszilloskop ${hit.label}` });
-        return;
-      }
-      if (part?.id === "funcgen") {
-        useEditor.getState().openInstrument("funcgen", { instanceId: hit.id, title: `Funktionsgenerator ${hit.label}` });
+      // 6er-Batch, Punkt 6: Jedes Geräte-Schaltzeichen öffnet per Doppelklick sein
+      // gebundenes Fenster (eine Map statt je-Gerät-Sonderfällen).
+      const instKind = part ? INSTRUMENT_PART_KIND[part.id] : undefined;
+      if (part && instKind) {
+        const short = part.name.split(" (")[0];
+        useEditor.getState().openInstrument(instKind, { instanceId: hit.id, title: `${short} ${hit.label}` });
         return;
       }
       const main = part?.params[0];
       // W125: Nur ein Doppelklick gezielt auf den Wert/Bezeichner unter dem Bauteil
       // (valueLabelHit) öffnet das Inline-Wertefeld; ein Doppelklick auf das Bauteil
       // selbst (bodyHit) öffnet den Inspector.
-      if (valueLabelHit && main && main.type === "number" && !e.shiftKey) {
+      if (valueLabelHit && main && (main.type === "number" || main.type === "text") && !e.shiftKey) {
         const scr = toScreen({ x: hit.x, y: hit.y });
         const rawVal = Number(hit.params[main.key] ?? main.def);
-        const formatted = Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : String(hit.params[main.key] ?? "");
+        const formatted = main.type === "text"
+          ? String(hit.params[main.key] ?? main.def ?? "")
+          : Number.isFinite(rawVal) ? formatValue(rawVal, "").trim() : String(hit.params[main.key] ?? "");
         editingDone.current = false;
         editingOpenedAt.current = performance.now();
         setEditing({
@@ -2604,20 +2748,17 @@ export default function Canvas() {
   };
 
   // W133: Echtes Klicken, gedrückt halten und Ziehen eines Bauteils aus
-  // LibraryPalette, ComponentStrip oder DeviceBar direkt auf den Schaltplan:
+  // LibraryPalette, ComponentStrip oder DeviceBar direkt auf den Schaltplan.
+  // S5.29: Weltkoordinaten über toWorld (exakte Umkehr von toScreen) — die
+  // alte Inline-Formel (view vor dem Zoom abgezogen) landete bei
+  // gepanntem/gezoomtem Canvas weit neben dem Cursor.
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const dragPartId = useHud.getState().dragPart;
       if (!dragPartId) return;
       const el = canvasRef.current;
       if (!el) return;
-      const r = el.getBoundingClientRect();
-      const st = useEditor.getState();
-      const world = {
-        x: (e.clientX - r.left - st.view.x) / st.view.zoom,
-        y: (e.clientY - r.top - st.view.y) / st.view.zoom,
-      };
-      const sp = snap(world);
+      const sp = snap(toWorld(e.clientX, e.clientY));
       setCursor(sp);
       useHud.setState({ cursor: sp });
     };
@@ -2630,17 +2771,14 @@ export default function Canvas() {
       const r = el.getBoundingClientRect();
       if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
         const st = useEditor.getState();
-        const world = {
-          x: (e.clientX - r.left - st.view.x) / st.view.zoom,
-          y: (e.clientY - r.top - st.view.y) / st.view.zoom,
-        };
-        const sp = snap(world);
+        const sp = snap(toWorld(e.clientX, e.clientY));
         const newId = st.addInstance(dragPartId, sp.x, sp.y, {
           rot: st.placingRot,
           mirror: st.placingMirror,
           autoWire: true,
         });
         if (newId) st.setSelection([newId]);
+        if (newId) openPlacedValueEditor(newId, e.clientX - r.left, e.clientY - r.top, setEditing, editingDone, editingOpenedAt);
         if (!e.shiftKey) st.setPlacing(null);
       }
     };
@@ -2650,7 +2788,7 @@ export default function Canvas() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [snap]);
+  }, [toWorld]);
 
   // keyboard
   useEffect(() => {
@@ -2659,6 +2797,8 @@ export default function Canvas() {
       const st = useEditor.getState();
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // S5.22: Im Notiz-Direkteditor (contentEditable) keine Canvas-Kürzel.
+      if ((e.target as HTMLElement)?.isContentEditable) return;
       // Leertaste auf fokussiertem Button/Link = native Aktivierung, nicht Sim-Toggle
       if (e.key === " " && (tag === "BUTTON" || tag === "A")) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -2669,6 +2809,34 @@ export default function Canvas() {
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") { e.preventDefault(); st.pasteClipboard(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); st.duplicateSelection(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); st.selectAll(); }
+      // S5.14: belegte Bauteil-Tasten gewinnen bei laufender Simulation gegen
+      // Editor-Kürzel (Multisim-Verhalten). Unbelegte Tasten fallen durch.
+      else if (!e.ctrlKey && !e.metaKey && !e.altKey && st.sim.running && resolveBoundControls(st.doc.instances, e.key).length > 0) {
+        e.preventDefault();
+        for (const id of resolveBoundControls(st.doc.instances, e.key)) {
+          const inst = st.doc.instances.find((i) => i.id === id);
+          const kind = PART_MAP[inst?.partId ?? ""]?.interactive;
+          if (kind === "switch" || kind === "dip") {
+            if (e.repeat) continue;
+            // S5.26: Taste schaltet typ-bewusst (Dreh springt weiter, DIP alle Hebel).
+            const t = inst ? switchToggle(inst.partId, inst, engine.controls) : null;
+            if (!t) continue;
+            for (const [cid, v] of Object.entries(t.targets)) engine.setControl(cid, v);
+            st.log("info", `${inst?.label} ${t.log}`);
+          } else if (kind === "button") {
+            if (e.repeat) continue;
+            engine.setControl(id, 1);
+            const k = normalizeControlKey(e.key) ?? "";
+            pressedByKey.current[k] = [...(pressedByKey.current[k] ?? []), id];
+            st.log("info", `${inst?.label} gedrückt`);
+          } else if (kind === "pot") {
+            const cur = engine.controls[id] ?? Number(inst?.params.pos ?? 0.5);
+            const next = Math.min(0.99, Math.max(0.01, cur + (e.shiftKey ? -0.05 : 0.05)));
+            engine.setControl(id, next);
+            if (!e.repeat) st.log("info", `${inst?.label} ${(next * 100).toFixed(0)}%`);
+          }
+        }
+      }
       // Multisim-Muskelgedächtnis: Strg/⌘+R rotiert, statt den Tab zu reloaden
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") { e.preventDefault(); st.rotateSelection(e.shiftKey ? -1 : 1); }
       else if (e.key === "Delete" || e.key === "Backspace") st.deleteSelection();
@@ -2677,19 +2845,58 @@ export default function Canvas() {
       else if (e.key.toLowerCase() === "w") st.setTool("wire");
       else if (e.key.toLowerCase() === "j") st.setTool("junction");
       else if (e.key === "Escape") {
-        // W66: Esc verlässt jeden Modus. Die angefangene Leitung wird verworfen.
+        // S5.3: Definierte Esc-Kette Overlay → Messleitung → Auswahl → Werkzeug
+        // (löst den W66-Nuke ab — ein Tastendruck = eine Ebene).
         const sr = stateRef.current;
-        syncNetDraft(null);
-        sr.marquee = null; (sr as any).wireSegDrag = null; (sr as any).wirePointDrag = null;
-        st.endGesture();
-        useEditor.getState().setLeadArmed(null);
-        st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null); setCtxMenu(null);
-      } else if (e.key.toLowerCase() === "v") {
+        const action = resolveEscape({
+          overlay: ctxMenu !== null,
+          lead: st.leadArmed !== null,
+          selection: st.selection.length > 0,
+          tool: st.tool !== "select" || st.placingPartId !== null || st.placingProbeKind !== null
+            || sr.netDraft !== null || sr.marquee !== null,
+        });
+        if (action === "close-overlay") setCtxMenu(null);
+        else if (action === "disarm-lead") st.setLeadArmed(null);
+        else if (action === "clear-selection") st.setSelection([]);
+        else if (action === "reset-tool") {
+          syncNetDraft(null);
+          sr.marquee = null; (sr as any).wireSegDrag = null; (sr as any).wirePointDrag = null;
+          st.endGesture();
+          st.setTool("select"); st.setPlacing(null); st.setPlacingProbe(null);
+        }
+        // „none" (Leerlauf) tut nichts — auch im Bauteile-Editor: Esc schließt nie
+        // (exakt wie Hauptfenster); Schließen nur per Knopf „Editor schließen".
+      } else if (e.key.startsWith("Arrow") && st.tool === "place" && st.placingPartId) {
+        // S5.3: Ghost per Pfeile bewegen (Raster, mit ⇧ 5-fach).
+        e.preventDefault();
+        const g = useHud.getState().cursor ?? { x: 0, y: 0 };
+        const step = GRID * (e.shiftKey ? PLACE_ARROW_SHIFT_FACTOR : 1);
+        const np = snap({
+          x: g.x + (e.key === "ArrowRight" ? step : e.key === "ArrowLeft" ? -step : 0),
+          y: g.y + (e.key === "ArrowDown" ? step : e.key === "ArrowUp" ? -step : 0),
+        });
+        setCursor(np); useHud.setState({ cursor: np });
+      } else if (e.key === "Enter" && st.tool === "place" && st.placingPartId) {
+        // S5.3: Enter platziert an der Ghost-Position (⇧ = weiter platzieren).
+        e.preventDefault();
+        const g = useHud.getState().cursor ?? { x: 0, y: 0 };
+        const sp = snap(g);
+        const placedId = st.addInstance(st.placingPartId, sp.x, sp.y, {
+          rot: st.placingRot,
+          mirror: st.placingMirror,
+          autoWire: true,
+        });
+        if (placedId) {
+          const scr = toScreen(sp);
+          openPlacedValueEditor(placedId, scr.x, scr.y, setEditing, editingDone, editingOpenedAt);
+        }
+        if (!e.shiftKey) st.setPlacing(null);
+      } else if (e.key.toLowerCase() === "v" && !st.partEditor.open) { // S6.2: keine Sonden im Bauteil.
         // W90: V schaltet konsistent zu A die Spannungs-Probe (Volt) ein/aus;
         // für das Auswahl-Werkzeug dient Esc.
         syncNetDraft(null);
         st.setPlacingProbe(st.placingProbeKind === "voltage" ? null : "voltage");
-      } else if (e.key.toLowerCase() === "a") {
+      } else if (e.key.toLowerCase() === "a" && !st.partEditor.open) { // S6.2
         syncNetDraft(null);
         st.setPlacingProbe(st.placingProbeKind === "current" ? null : "current");
       }
@@ -2710,17 +2917,48 @@ export default function Canvas() {
         const sr = stateRef.current;
         if (sr.netDraft) {
           sr.netDraft = { ...sr.netDraft, flipBend: !sr.netDraft.flipBend };
-        } else {
+        } else if (!st.partEditor.open) { // S6.2: keine Simulation im Bauteil.
           if (st.sim.running) st.pauseSim(); else st.startSim();
         }
       }
       else if (e.key === "f") st.fitView();
     };
-    const onKeyUp = (e: KeyboardEvent) => { (window as any)._lastShift = e.shiftKey; if (e.code === "Space") spaceDown.current = false; };
+    const onKeyUp = (e: KeyboardEvent) => {
+      (window as any)._lastShift = e.shiftKey;
+      if (e.code === "Space") spaceDown.current = false;
+      // S5.14: per Taste gedrückte Taster beim Loslassen öffnen.
+      const k = normalizeControlKey(e.key);
+      if (k && pressedByKey.current[k]?.length) {
+        for (const id of pressedByKey.current[k]) {
+          if (!mousePressed.current.has(id)) engine.setControl(id, 0);
+        }
+        delete pressedByKey.current[k];
+      }
+    };
+    // S5.14: Fenster verliert Fokus → alle gehaltenen Taster öffnen
+    // (hängende Kontakte vermeiden, z. B. Alt-Tab bei gedrückter Taste).
+    const onBlur = () => {
+      for (const ids of Object.values(pressedByKey.current)) for (const id of ids) engine.setControl(id, 0);
+      for (const id of mousePressed.current) engine.setControl(id, 0);
+      pressedByKey.current = {};
+      mousePressed.current.clear();
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
-    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); };
-  }, [syncNetDraft]);
+    window.addEventListener("blur", onBlur);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("blur", onBlur); };
+  }, [syncNetDraft, ctxMenu]);
+
+  const simRunning = useEditor((s) => s.sim.running);
+  // S5.14: Sim-Stopp/Pause öffnet alle gehaltenen Taster (keine hängenden Kontakte).
+  useEffect(() => {
+    if (!simRunning) {
+      for (const ids of Object.values(pressedByKey.current)) for (const id of ids) engine.setControl(id, 0);
+      for (const id of mousePressed.current) engine.setControl(id, 0);
+      pressedByKey.current = {};
+      mousePressed.current.clear();
+    }
+  }, [simRunning]);
 
   useEffect(() => { const t = setTimeout(() => useEditor.getState().fitView(), 120); return () => clearTimeout(t); }, []);
 
@@ -2731,6 +2969,8 @@ export default function Canvas() {
   const selection = useEditor((s) => s.selection);
   const netDrawing = useHud((s) => s.netDrawing);
   const selDoc = useEditor((s) => s.doc);
+  const view = useEditor((s) => s.view); // S5.22: Notiz-Overlay folgt Zoom/Pan
+  const selNetResult = useEditor((s) => s.netResult);
   const selId0 = selection[0];
   const selInst0 = selection.length === 1 ? selDoc.instances.find((i) => i.id === selId0) : undefined;
   const selProbe0 = selection.length === 1 ? selDoc.probes.find((p) => p.id === selId0) : undefined;
@@ -2741,7 +2981,7 @@ export default function Canvas() {
       (selProbe0.kind === "current" || selProbe0.kind === "power" || selProbe0.kind === "voltage_current"),
   );
   const mainParam0 = selInst0 ? PART_MAP[selInst0.partId]?.params[0] : undefined;
-  const canInlineEdit0 = Boolean((selInst0 && mainParam0?.type === "number") || selLabel0 || selNote0);
+  const canInlineEdit0 = Boolean((selInst0 && (mainParam0?.type === "number" || mainParam0?.type === "text")) || selLabel0 || selNote0);
 
   // W66: Werkzeugwechsel beendet ein angefangenes Netz – kein Zustand, der
   // unsichtbar weiterläuft, wenn der Nutzer z. B. auf „Auswahl" umschaltet.
@@ -2773,20 +3013,14 @@ export default function Canvas() {
 
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden" role="application" aria-label={adaptShortcut("Schaltplan Canvas – Bauteile platzieren, Leitungen ziehen, Probes setzen. Shortcuts: R Drehen, W Wire, F Fit, Leertaste Start, ⌘K Bibliothek, ? Hilfe", apple)}>
-      {selDoc.instances.length === 0 && selDoc.wires.length === 0 && !placingPartId && !placingProbeKind && (
-        <EmptyCanvas
-          onPlaceResistor={() => useEditor.getState().setPlacing("resistor")}
-          onOpenLibrary={() => useEditor.getState().toggleLibrary()}
-          onShowShortcuts={() => setShowHelp(true)}
-        />
-      )}
+      {/* Leeres Dokument: bewusst keine Begrüßungskarte — blanker Canvas. */}
       <canvas
         id="schematic-canvas"
         ref={canvasRef}
         className="block h-full w-full touch-none"
-        aria-label="Schaltplan Zeichenfläche"
+        aria-label={`Schaltplan: ${summarizeCircuit(selDoc.instances, selNetResult.nets, selNetResult.errors, selNetResult.warnings)}`}
         tabIndex={0}
-        style={{ cursor: tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default" }}
+        style={{ cursor: tool === "pan" ? "grab" : tool === "wire" ? PEN_CURSOR : tool === "erase" ? ERASER_CURSOR : tool === "label" || tool === "text" ? "text" : "default", background: "var(--canvas)" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -2919,13 +3153,41 @@ export default function Canvas() {
           <InlineEditor
             key={`${editing.kind}_${editing.instId ?? editing.itemId ?? `${editing.x}_${editing.y}`}`}
             editing={editing}
-            badge={editing.kind === "value" ? (editInst?.label ?? "WERT") : editing.kind === "label" ? "NET" : "NOTIZ"}
-            caption={editing.kind === "value" ? (editMainParam?.label ?? "Wert") : editing.kind === "label" ? "Netzname" : "Schaltplan-Notiz"}
+            caption={editing.kind === "value" ? (editMainParam?.label ?? "Wert") : "Netzname"}
             unit={editing.kind === "value" ? (editMainParam?.unit ?? "") : ""}
             viewport={useHud.getState().viewport}
             inputRef={editInputRef}
             openedAt={editingOpenedAt}
             onCommit={commitEditing}
+            placeholder={editing.kind === "value" && editMainParam?.type === "text" ? "z. B. VCC, NET_A" : undefined}
+            wheelMode={
+              editing.kind === "value" && editMainParam?.type === "number"
+                ? editInst?.partId === "resistor"
+                  ? "e-series"
+                  : "percent"
+                : undefined
+            }
+          />
+        );
+      })()}
+      {editingNote && (() => {
+        const note = selDoc.notes.find((n) => n.id === editingNote.id);
+        if (!note) return null;
+        const b = getNoteBounds(note);
+        const tl = toScreen({ x: b.x, y: b.y });
+        return (
+          <NoteEditor
+            key={note.id}
+            note={note}
+            selected={useEditor.getState().selection.includes(note.id)}
+            caret={editingNote.caret ?? null}
+            scroll={editingNote.scroll ?? 0}
+            rect={{ x: tl.x, y: tl.y, w: b.w * view.zoom, h: b.h * view.zoom }}
+            fontStep={nearestFontStep(note.size ?? NOTE_FONT_DEFAULT)}
+            zoom={view.zoom}
+            viewport={useHud.getState().viewport}
+            isNew={editingNote.isNew}
+            onCommit={commitNote}
           />
         );
       })()}
@@ -2938,6 +3200,7 @@ export default function Canvas() {
             editingOpenedAt.current = performance.now();
             setEditing(item);
           }}
+          onEditNote={(id) => setEditingNote({ id, isNew: false, scroll: noteScrollRef.current.get(id) ?? 0 })}
         />
       )}
       {showHelp && <ShortcutSheet onClose={() => setShowHelp(false)} />}
@@ -2958,7 +3221,7 @@ export default function Canvas() {
           />
           <span
             className="absolute left-0 top-3 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 py-[1px] text-[9.5px] font-bold"
-            style={{ background: leadArmed.color ?? "var(--accent)", color: "#101010" }}
+            style={{ background: leadArmed.color ?? "var(--accent)", color: leadArmed.color ? inkOn(leadArmed.color) : "var(--accent-ink)" }} // S5.15: Kontrast auf Buchsenfarbe
           >
             {leadArmed.name ?? "Messleitung"}
           </span>
@@ -2974,7 +3237,7 @@ export default function Canvas() {
           tool === "wire" ||
           selection.length > 0) && (
           <div
-            className="absolute bottom-3 left-1/2 z-30 flex max-w-[calc(100vw-110px)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto no-scrollbar rounded-xl border px-2 py-1.5 text-[11.5px] font-medium shadow-xl backdrop-blur-md"
+            className="absolute bottom-3 left-1/2 z-30 flex max-w-[calc(100vw-110px)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto no-scrollbar rounded-xl border border-hairline px-2 py-1.5 text-[11.5px] font-medium shadow-xl backdrop-blur-md"
             style={{
               background: "color-mix(in srgb, var(--surface) 94%, transparent)",
               borderColor: "var(--hairline-strong)",
@@ -2989,21 +3252,21 @@ export default function Canvas() {
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().rotateSelection(1)}
                 >
-                  ↻ 90°
+                  <RotateCw size={13} /> 90°
                 </button>
                 <button
                   type="button"
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().rotateSelection(-1)}
                 >
-                  ↺ -90°
+                  <RotateCcw size={13} /> −90°
                 </button>
                 <button
                   type="button"
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().mirrorSelection()}
                 >
-                  ⇆ Spiegeln
+                  <FlipHorizontal2 size={13} /> Spiegeln
                 </button>
                 <button
                   type="button"
@@ -3011,7 +3274,7 @@ export default function Canvas() {
                   style={{ color: "var(--err)" }}
                   onClick={() => useEditor.getState().setPlacing(null)}
                 >
-                  ✕ Abbrechen
+                  <X size={13} /> Abbrechen
                 </button>
               </>
             ) : tool.startsWith("probe") && placingProbeKind ? (
@@ -3022,7 +3285,7 @@ export default function Canvas() {
                   className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                   onClick={() => useEditor.getState().setPlacingProbe(null)}
                 >
-                  ✕ Fertig
+                  <X size={13} /> Fertig
                 </button>
               </>
             ) : netDrawing || tool === "wire" ? (
@@ -3053,6 +3316,7 @@ export default function Canvas() {
                             preferDir: sr.netDraft.corners.length === 0 ? sr.netDraft.preferDir : undefined,
                             flipBend: sr.netDraft.flipBend,
                             obstacles: getNetObstacles(st.doc),
+        pinPoints: getNetPinPoints(st.doc),
                           });
                           if (pts) {
                             st.addWire({ id: "w_" + Math.random().toString(36).slice(2, 9), points: pts });
@@ -3077,7 +3341,7 @@ export default function Canvas() {
                     useEditor.getState().setTool("select");
                   }}
                 >
-                  ✕ Abbrechen
+                  <X size={13} /> Abbrechen
                 </button>
               </>
             ) : (
@@ -3089,14 +3353,14 @@ export default function Canvas() {
                       className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                       onClick={() => useEditor.getState().rotateSelection(1)}
                     >
-                      ↻ 90°
+                      <RotateCw size={13} /> 90°
                     </button>
                     <button
                       type="button"
                       className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
                       onClick={() => useEditor.getState().mirrorSelection()}
                     >
-                      ⇆ Spiegeln
+                      <FlipHorizontal2 size={13} /> Spiegeln
                     </button>
                   </>
                 )}
@@ -3123,9 +3387,11 @@ export default function Canvas() {
                       if (selInst0 && mainParam0) {
                         const scr = toScreen({ x: selInst0.x, y: selInst0.y });
                         const rawVal = Number(selInst0.params[mainParam0.key] ?? mainParam0.def);
-                        const formatted = Number.isFinite(rawVal)
-                          ? formatValue(rawVal, "").trim()
-                          : String(selInst0.params[mainParam0.key] ?? "");
+                        const formatted = mainParam0.type === "text"
+                          ? String(selInst0.params[mainParam0.key] ?? mainParam0.def ?? "")
+                          : Number.isFinite(rawVal)
+                            ? formatValue(rawVal, "").trim()
+                            : String(selInst0.params[mainParam0.key] ?? "");
                         setEditing({
                           kind: "value",
                           instId: selInst0.id,
@@ -3147,20 +3413,31 @@ export default function Canvas() {
                           initial: selLabel0.name,
                         });
                       } else if (selNote0) {
-                        const scr = toScreen({ x: selNote0.x, y: selNote0.y });
-                        setEditing({
-                          kind: "text",
-                          itemId: selNote0.id,
-                          x: selNote0.x,
-                          y: selNote0.y,
-                          sx: scr.x,
-                          sy: scr.y,
-                          initial: selNote0.text,
-                        });
+                        // S5.22: Notiz direkt auf dem Zettel bearbeiten.
+                        setEditingNote({ id: selNote0.id, isNew: false, scroll: noteScrollRef.current.get(selNote0.id) ?? 0 });
                       }
                     }}
                   >
-                    ✎ Wert
+                    {selInst0 && mainParam0?.type === "text" ? "✎ Name" : "✎ Wert"}
+                  </button>
+                )}
+                {selNote0 && (
+                  <button
+                    type="button"
+                    className="btn h-8 shrink-0 px-2.5 text-[11.5px]"
+                    title="Blattgröße wechseln (M → L → S)"
+                    onClick={() => {
+                      const st = useEditor.getState();
+                      const id = selNote0.id;
+                      const cur = st.doc.notes.find((n) => n.id === id)?.card ?? "m";
+                      const next = cur === "m" ? "l" : cur === "l" ? "s" : "m";
+                      st.commit((d) => {
+                        const n = d.notes.find((x) => x.id === id);
+                        if (n) n.card = next;
+                      });
+                    }}
+                  >
+                    {`Karte: ${(selNote0.card ?? "m").toUpperCase()}`}
                   </button>
                 )}
                 <button
@@ -3191,7 +3468,7 @@ export default function Canvas() {
                   onClick={() => useEditor.getState().setSelection([])}
                   title="Auswahl aufheben" aria-label="Auswahl aufheben"
                 >
-                  ✕
+                  <X size={13} />
                 </button>
               </>
             )}
@@ -3206,740 +3483,5 @@ export default function Canvas() {
   );
 }
 
-function polyLength(pts: Pt[]): number {
-  let l = 0; for (let i = 1; i < pts.length; i++) l += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y); return l;
-}
-function pointAtLength(pts: Pt[], len: number): Pt | null {
-  if (!pts.length) return null; if (len <= 0) return pts[0];
-  let acc = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i-1], b = pts[i]; const seg = Math.hypot(b.x-a.x, b.y-a.y);
-    if (acc+seg >= len) { const t = (len-acc)/Math.max(seg,1e-9); return { x: a.x+(b.x-a.x)*t, y: a.y+(b.y-a.y)*t }; }
-    acc+=seg;
-  }
-  return pts[pts.length-1];
-}
-function tangentAtLength(pts: Pt[], len: number): Pt | null {
-  if (pts.length<2) return null; let acc=0;
-  for (let i=1;i<pts.length;i++) {
-    const a=pts[i-1], b=pts[i]; const seg=Math.hypot(b.x-a.x,b.y-a.y);
-    if (acc+seg>=len) return { x:b.x-a.x, y:b.y-a.y };
-    acc+=seg;
-  }
-  const a=pts[pts.length-2], b=pts[pts.length-1]; return { x:b.x-a.x, y:b.y-a.y };
-}
-function roundRect(ctx: CanvasRenderingContext2D, x:number,y:number,w:number,h:number,r:number) {
-  ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
-}
-/** W54: nächstes Leitungssegment unter dem Zeiger (für das Segment-Ziehen). */
-function hitWireSegment(doc: SchematicDoc, x: number, y: number, tol = 8): { wireId: string; segIdx: number; dist: number } | null {
-  let best: { wireId: string; segIdx: number; dist: number } | null = null;
-  for (const w of doc.wires) {
-    for (let i = 0; i + 1 < w.points.length; i++) {
-      const a = w.points[i];
-      const b = w.points[i + 1];
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len2 = dx * dx + dy * dy || 1;
-      let t = ((x - a.x) * dx + (y - a.y) * dy) / len2;
-      t = Math.max(0, Math.min(1, t));
-      const d = Math.hypot(a.x + t * dx - x, a.y + t * dy - y);
-      if (d <= tol && (!best || d < best.dist)) best = { wireId: w.id, segIdx: i, dist: d };
-    }
-  }
-  return best;
-}
 
-function hitWire(doc: SchematicDoc, p: Pt, tol = 6): string | null {
-  const tol2 = tol * tol;
-  for (const w of doc.wires) for (let i=0;i+1<w.points.length;i++) {
-    const a=w.points[i], b=w.points[i+1]; const dx=b.x-a.x, dy=b.y-a.y; const len2=dx*dx+dy*dy||1;
-    let t=((p.x-a.x)*dx+(p.y-a.y)*dy)/len2; t=Math.max(0,Math.min(1,t));
-    const cx=a.x+t*dx, cy=a.y+t*dy;
-    if ((cx-p.x)**2+(cy-p.y)**2 < tol2) return w.id;
-  }
-  return null;
-}
-/** Runde 17 (W32c): Anschlusspunkt für die Messleitung – Bauteil-Pin zuerst,
- *  sonst Leitungsende (verbindet sicheres Raster) bzw. Projektion aufs Segment. */
-function probeTarget(doc: SchematicDoc, p: Pt): Pt | null {
-  let best: Pt | null = null;
-  let bestD = 144; // 12 px
-  for (const inst of doc.instances) {
-    const part = PART_MAP[inst.partId];
-    if (!part) continue;
-    for (let idx = 0; idx < part.pins.length; idx++) {
-      const pos = pinPosition(inst, idx);
-      const d = (pos.x - p.x) ** 2 + (pos.y - p.y) ** 2;
-      if (d < bestD) { bestD = d; best = pos; }
-    }
-  }
-  if (best) return best;
-  let segBest: { x: number; y: number; d: number } | null = null;
-  let endBest: { x: number; y: number; d: number } | null = null;
-  for (const w of doc.wires) {
-    for (let i = 0; i + 1 < w.points.length; i++) {
-      const a = w.points[i], b = w.points[i + 1];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const len2 = dx * dx + dy * dy || 1;
-      let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
-      t = Math.max(0, Math.min(1, t));
-      const cx = a.x + t * dx, cy = a.y + t * dy;
-      const d = Math.hypot(cx - p.x, cy - p.y);
-      if (d < 6 && (!segBest || d < segBest.d)) segBest = { x: cx, y: cy, d };
-    }
-    for (const pt of w.points) {
-      const d = Math.hypot(pt.x - p.x, pt.y - p.y);
-      if (d < 10 && (!endBest || d < endBest.d)) endBest = { x: pt.x, y: pt.y, d };
-    }
-  }
-  if (endBest) return { x: endBest.x, y: endBest.y };
-  return segBest ? { x: segBest.x, y: segBest.y } : null;
-}
-function hitWireHandle(doc: SchematicDoc, p: Pt, zoom: number, onlySelected = true, baseRadius = 12): { wireId: string; pointIdx: number; isMid?: boolean; segIdx?: number; dist: number } | null {
-  const st = useEditor.getState();
-  const sel = onlySelected ? st.selection : doc.wires.map(w=>w.id);
-  const hitRadius = baseRadius / Math.max(zoom, 0.3); // generous hit for delightful grabbing
-  const midBase = Math.max(10, baseRadius - 2);
-  let best: any = null;
-  let bestDist = Infinity;
-  for (const wireId of sel) {
-    const wire = doc.wires.find(w=>w.id===wireId);
-    if (!wire) continue;
-    // point handles
-    for (let idx=0; idx<wire.points.length; idx++) {
-      const pt = wire.points[idx];
-      const d = Math.hypot(pt.x - p.x, pt.y - p.y);
-      if (d < hitRadius && d < bestDist) {
-        bestDist = d;
-        best = { wireId, pointIdx: idx, dist: d };
-      }
-    }
-    // mid handles
-    for (let s=0; s<wire.points.length-1; s++) {
-      const a = wire.points[s];
-      const b = wire.points[s+1];
-      const mx = Math.round(((a.x + b.x)/2) / GRID) * GRID;
-      const my = Math.round(((a.y + b.y)/2) / GRID) * GRID;
-      const d = Math.hypot(mx - p.x, my - p.y);
-      const midRadius = midBase / Math.max(zoom, 0.3);
-      if (d < midRadius && d < bestDist) {
-        bestDist = d;
-        best = { wireId, pointIdx: s+1, isMid: true, segIdx: s, dist: d };
-      }
-    }
-  }
-  // If no selected hit, try all wires for mid handles when hovered (for discoverability)
-  if (!best && !onlySelected) {
-    for (const wire of doc.wires) {
-      for (let s=0; s<wire.points.length-1; s++) {
-        const a = wire.points[s];
-        const b = wire.points[s+1];
-        const mx = Math.round(((a.x + b.x)/2) / GRID) * GRID;
-        const my = Math.round(((a.y + b.y)/2) / GRID) * GRID;
-        const d = Math.hypot(mx - p.x, my - p.y);
-        const midRadius = midBase / Math.max(zoom, 0.3);
-        if (d < midRadius && d < bestDist) {
-          bestDist = d;
-          best = { wireId: wire.id, pointIdx: s+1, isMid: true, segIdx: s, dist: d };
-        }
-      }
-    }
-  }
-  return best;
-}
-function nearestNetName(p: Pt, radius=14): string | null {
-  const st=useEditor.getState(); let best:string|null=null, bestD=radius*radius;
-  for (const net of st.netResult.nets) for (const pt of net.points) {
-    const d=(pt.x-p.x)**2+(pt.y-p.y)**2; if (d<bestD){ bestD=d; best=net.name; }
-  }
-  const foot = nearestWireFoot(st.doc, p, radius);
-  if (foot && foot.dist * foot.dist <= bestD) {
-    const w = st.doc.wires.find((x) => x.id === foot.wireId);
-    const a = w?.points[foot.segIdx];
-    if (a) {
-      const segNet = st.netResult.pointNets[`${Math.round(a.x)},${Math.round(a.y)}`];
-      if (segNet) return segNet;
-    }
-  }
-  if (best) return best;
-  const wireId=hitWire(st.doc,p);
-  if (wireId) {
-    const wire=st.doc.wires.find(w=>w.id===wireId);
-    if (wire?.points.length) return st.netResult.pointNets[`${Math.round(wire.points[0].x)},${Math.round(wire.points[0].y)}`] ?? null;
-  }
-  return null;
-}
-function drawProbe(ctx: CanvasRenderingContext2D, probe: MeasurementProbe, selected:boolean, zoom:number, live:any, netResult:any, netCurrentMap:Map<string,number>) {
-  // W85: NI-Multisim-Stil für Messpunkte (Probes).
-  // Jede Sonde besitzt:
-  //  1. Messspitze / Kontaktpunkt (ax, ay) auf der Leitung oder am Bauteil-Pin
-  //     (bei Strom-/Leistungssonde zusätzlich einen Richtungspfeil entlang der Leitung).
-  //  2. Ein permanent sichtbares Anzeigekästchen bei (bx, by) mit farbigem
-  //     Header (Typ-Badge + Name + Netz) und den Messwerten (im Live-Betrieb
-  //     echte Messwerte, vor Simulationsstart ruhige Bereitschaftsanzeige).
-  //  3. Eine durchgehende Führungs-Linie (Leader) vom nächstgelegenen Randpunkt
-  //     des Anzeigekästchens exakt zur Messspitze (ax, ay).
-  const col = (probe.color && !LEGACY_PROBE_COLORS.has(probe.color as string))
-    ? (probe.color as string)
-    : canvasColor(PROBE_CSSVAR[probe.kind] ?? "--warn");
-  const ax = probe.anchorX ?? probe.x;
-  const ay = probe.anchorY ?? probe.y;
-  const bx = probe.x;
-  const by = probe.y;
-  const iz = 1 / Math.max(zoom, 0.2);
-
-  const st = useEditor.getState();
-  const autoWireDeg = inferWireAngleAt(st.doc, ax, ay);
-  const baseDeg = probe.rotation !== undefined ? probe.rotation : autoWireDeg;
-  const dir = probe.direction ?? 0;
-  const effectiveDeg = (((baseDeg + (dir ? 180 : 0)) % 360) + 360) % 360;
-  const effectiveRad = (effectiveDeg * Math.PI) / 180;
-  const dirArrow =
-    effectiveDeg === 90 ? "↓" : effectiveDeg === 180 ? "←" : effectiveDeg === 270 ? "↑" : "→";
-
-  const netName = probe.net ?? nearestNetName({ x: ax, y: ay }, 20);
-  let refNetName: string | null = null;
-  if (probe.ref) {
-    if (probe.ref.startsWith("pr_")) {
-      const rp = st.doc.probes.find((p) => p.id === probe.ref);
-      refNetName = rp?.net ?? rp?.ref ?? null;
-    } else {
-      refNetName = probe.ref;
-    }
-  }
-
-  const v = live && netName ? (live.nets[netName] ?? 0) : 0;
-  const refV = live && refNetName ? (live.nets[refNetName] ?? 0) : 0;
-
-  // W99: Gerichteter Zweigstrom in Pfeilrichtung (effectiveRad) am Messpunkt (ax, ay)
-  // nach dem Kirchhoffschen Knotensatz (KCL). Für 2-polige Bauteile fließt
-  // live.currents[inst.label] von Pin 0 (Senke aus dem Netz) nach Pin 1 (Quelle in das Netz).
-  let i = 0;
-  if (live && netName) {
-    const ux = Math.cos(effectiveRad);
-    const uy = Math.sin(effectiveRad);
-    let forwardSinkSum = 0;
-    let backwardSinkSum = 0;
-    let forwardCount = 0;
-    let backwardCount = 0;
-    for (const inst of st.doc.instances) {
-      const part = PART_MAP[inst.partId];
-      if (!part) continue;
-      const devCurrent = live.currents[inst.label] ?? 0;
-      for (let pIdx = 0; pIdx < part.pins.length; pIdx++) {
-        const pNet = netResult.pinNets[`${inst.id}:${pIdx}`];
-        if (pNet !== netName) continue;
-        const pos = pinPosition(inst, pIdx);
-        const dot = (pos.x - ax) * ux + (pos.y - ay) * uy;
-        // Wie viel Strom nimmt dieser Pin aus dem Netz auf?
-        let pinSink = 0;
-        if (part.pins.length === 2) {
-          pinSink = pIdx === 0 ? devCurrent : -devCurrent;
-        } else {
-          pinSink = pIdx === 0 ? devCurrent : -devCurrent / Math.max(1, part.pins.length - 1);
-        }
-        if (dot >= 0) {
-          forwardSinkSum += pinSink;
-          forwardCount++;
-        } else {
-          backwardSinkSum += pinSink;
-          backwardCount++;
-        }
-      }
-    }
-    if (forwardCount > 0 && backwardCount > 0) {
-      i = forwardSinkSum;
-    } else if (forwardCount > 0) {
-      i = forwardSinkSum;
-    } else if (backwardCount > 0) {
-      i = -backwardSinkSum;
-    }
-    if (Math.abs(i) < 1e-12) {
-      const fallbackMag = netCurrentMap.get(netName) ?? 0;
-      i = dir ? -fallbackMag : fallbackMag;
-    }
-  }
-
-  let vrms = 0, vpp = 0, vavg = 0, irms = 0, ipp = 0, freq = 0;
-  if (live && probe.periodic && netName) {
-    try {
-      const ch = engine.channel(netName, 2048);
-      if (ch.v.length > 8) {
-        vavg = mean(ch.v);
-        vrms = rms(ch.v);
-        vpp = peakToPeak(ch.v);
-        freq = estimateFrequency(ch.t, ch.v);
-        irms = Math.abs(i) * 0.707;
-        ipp = Math.abs(i) * 2;
-      }
-    } catch {}
-  }
-
-  const show = probe.show ?? { vdc: true, idc: true, power: true };
-  const glyphMap: Record<string, string> = {
-    voltage: "V",
-    current: "I",
-    voltage_current: "V/I",
-    power: "W",
-    diff: "ΔV",
-    ref: "REF",
-    digital: "D",
-  };
-  const glyph = glyphMap[probe.kind] ?? "V";
-  const hasCurrentDir =
-    probe.kind === "current" || probe.kind === "power" || probe.kind === "voltage_current";
-  const titleName = probe.name || glyph;
-  const headerText = `${titleName}${hasCurrentDir ? ` ${dirArrow}` : ""}  ${netName ? `(${netName})` : "(—)"}`;
-
-  const valueLines: string[] = [];
-  let digCol: string | null = null;
-  if (!netName) {
-    valueLines.push("Nicht verbunden");
-  } else if (!live) {
-    if (probe.kind === "voltage") valueLines.push("V(dc): — V");
-    else if (probe.kind === "current") valueLines.push(`I(${dirArrow}): — A`);
-    else if (probe.kind === "voltage_current") valueLines.push(`V: — V · I(${dirArrow}): — A`);
-    else if (probe.kind === "power") valueLines.push(`P(${dirArrow}): — W`);
-    else if (probe.kind === "diff") valueLines.push("ΔV: — V");
-    else if (probe.kind === "ref") valueLines.push(`Bezug: ${netName}`);
-    else if (probe.kind === "digital") valueLines.push("Logik: —");
-  } else {
-    if (probe.kind === "voltage") {
-      const dv = refNetName ? v - refV : v;
-      if (show.vdc !== false) valueLines.push(`V(dc): ${formatValue(dv, "V")}`);
-      if (probe.periodic) {
-        if (show.vrms) valueLines.push(`V(rms): ${formatValue(vrms, "V")}`);
-        if (show.vpp) valueLines.push(`V(p-p): ${formatValue(vpp, "V")}`);
-        if (show.vavg) valueLines.push(`V(avg): ${formatValue(vavg, "V")}`);
-        if (show.freq) valueLines.push(`f: ${freq.toFixed(1)} Hz`);
-      }
-      if (refNetName && refNetName !== "0") valueLines.push(`Ref ${refNetName}: ${formatValue(refV, "V")}`);
-    } else if (probe.kind === "current") {
-      if (show.idc !== false) valueLines.push(`I(${dirArrow}): ${formatValue(i, "A")}`);
-      if (probe.periodic) {
-        if (show.irms) valueLines.push(`I(rms): ${formatValue(irms, "A")}`);
-        if (show.ipp) valueLines.push(`I(p-p): ${formatValue(ipp, "A")}`);
-      }
-    } else if (probe.kind === "voltage_current") {
-      const dv = refNetName ? v - refV : v;
-      valueLines.push(`V: ${formatValue(dv, "V")}`);
-      valueLines.push(`I(${dirArrow}): ${formatValue(i, "A")}`);
-      if (probe.periodic && show.vrms) valueLines.push(`Vrms ${formatValue(vrms, "V")} · Irms ${formatValue(irms, "A")}`);
-    } else if (probe.kind === "power") {
-      const dv = refNetName ? v - refV : v;
-      const pwr = dv * i;
-      valueLines.push(`P: ${formatValue(pwr, "W")}`);
-      if (show.vdc !== false) valueLines.push(`${formatValue(dv, "V")} · I(${dirArrow}) ${formatValue(i, "A")}`);
-    } else if (probe.kind === "diff") {
-      const dv = v - refV;
-      valueLines.push(`ΔV: ${formatValue(dv, "V")}`);
-      if (probe.periodic) valueLines.push(`${formatValue(v, "V")} − ${formatValue(refV, "V")}`);
-    } else if (probe.kind === "ref") {
-      valueLines.push(`REF: ${formatValue(v, "V")}`);
-    } else if (probe.kind === "digital") {
-      const low = probe.thresholds?.low ?? 0.8;
-      const high = probe.thresholds?.high ?? 2.0;
-      const lvl = v > high ? "HIGH (1)" : v < low ? "LOW (0)" : "UNDEF (X)";
-      digCol = v > high ? canvasColor("--ok") : v < low ? canvasColor("--err") : canvasColor("--warn");
-      valueLines.push(`${lvl} · ${formatValue(v, "V")}`);
-    }
-  }
-  if (!valueLines.length) valueLines.push(formatValue(v, "V"));
-
-  ctx.save();
-
-  // ---- 1. Kästchen-Maße in Screen-Einheiten (* iz in Welt-Einheiten) berechnen (W93: groß & klar lesbar!) ----
-  ctx.font = `700 12px ui-monospace, monospace`;
-  const headerW = ctx.measureText(headerText).width + 38;
-  ctx.font = `600 13px ui-monospace, monospace`;
-  const maxValW = Math.max(...valueLines.map((l) => ctx.measureText(l).width));
-  const padX = 11;
-  const headerH = 24;
-  const lineH = 18;
-  const boxScreenW = Math.max(132, Math.ceil(Math.max(headerW, maxValW + padX * 2)));
-  const boxScreenH = headerH + valueLines.length * lineH + 9;
-
-  const boxW = boxScreenW * iz;
-  const boxH = boxScreenH * iz;
-  const boxX0 = bx;
-  const boxY0 = by - boxH / 2;
-
-  // ---- 2. Gestrichelte Referenzlinie für Diff-/Ref-Sonden ----
-  if (probe.kind === "diff" || (probe.kind === "voltage" && probe.ref && probe.ref !== "0")) {
-    let refX = 0, refY = 0, hasRef = false;
-    if (probe.ref && probe.ref.startsWith("pr_")) {
-      const refProbe = st.doc.probes.find((p) => p.id === probe.ref);
-      if (refProbe) {
-        refX = refProbe.anchorX ?? refProbe.x;
-        refY = refProbe.anchorY ?? refProbe.y;
-        hasRef = true;
-      }
-    } else if (probe.ref && probe.ref !== "0") {
-      const refNet = st.netResult.nets.find((n) => n.name === probe.ref);
-      if (refNet && refNet.points.length) {
-        refX = refNet.points[0].x;
-        refY = refNet.points[0].y;
-        hasRef = true;
-      }
-    }
-    if (hasRef) {
-      ctx.save();
-      ctx.strokeStyle = col + "88";
-      ctx.setLineDash([4 * iz, 3 * iz]);
-      ctx.lineWidth = 1.1 * iz;
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(refX, refY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-    }
-  }
-
-  // ---- 3. Durchgehende Leader-Linie vom nächsten Rand des Kästchens zur Messspitze (ax, ay) ----
-  const attachX = Math.max(boxX0, Math.min(boxX0 + boxW, ax));
-  const attachY = Math.max(boxY0, Math.min(boxY0 + boxH, ay));
-  const distToAnchor = Math.hypot(ax - attachX, ay - attachY);
-
-  if (distToAnchor > 2 * iz) {
-    const angle = Math.atan2(ay - attachY, ax - attachX);
-    ctx.save();
-    ctx.strokeStyle = selected ? canvasColor("--wire-sel") : col;
-    ctx.lineWidth = (selected ? 1.5 : 1.15) * iz;
-    if (!netName || probe.leader === "magnifier") {
-      ctx.setLineDash([3.5 * iz, 2.5 * iz]);
-    }
-    ctx.beginPath();
-    ctx.moveTo(attachX, attachY);
-    ctx.lineTo(ax, ay);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Pfeilspitze am Messpunkt (ax, ay)
-    ctx.save();
-    ctx.translate(ax, ay);
-    ctx.rotate(angle);
-    ctx.fillStyle = selected ? canvasColor("--wire-sel") : col;
-    const as = 5.5 * iz;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(-as, -as * 0.52);
-    ctx.lineTo(-as, as * 0.52);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-    ctx.restore();
-  }
-
-  // ---- 4. Messspitze / Kontaktpunkt auf der Leitung (ax, ay) + W99 Stromzange & Richtungspfeil ----
-  ctx.save();
-  ctx.translate(ax, ay);
-  ctx.scale(iz, iz);
-
-  if (hasCurrentDir) {
-    const strokeCol = selected ? canvasColor("--wire-sel") : col;
-    ctx.save();
-    ctx.rotate(effectiveRad);
-
-    // 4a) Stromzangen-Hülse (Current Clamp Ring) um die Leitung bei (0, 0)
-    ctx.fillStyle = canvasColor("--surface");
-    ctx.strokeStyle = strokeCol;
-    ctx.lineWidth = selected ? 2.2 : 1.7;
-    roundRect(ctx, -4.5, -7.5, 9, 15, 4);
-    ctx.fill();
-    ctx.stroke();
-
-    // 4b) Kontrastreiches Richtungs-Pfeil-Schild ("I ━━▶") parallel zur Leitung
-    const badgeY = -18;
-    ctx.fillStyle = canvasColor("--surface");
-    ctx.strokeStyle = strokeCol;
-    ctx.lineWidth = selected ? 2.0 : 1.5;
-    roundRect(ctx, -18, badgeY - 7.5, 36, 15, 7.5);
-    ctx.fill();
-    ctx.stroke();
-
-    // Kräftiger Richtungspfeil im Schild + direkt auf der Leitung
-    ctx.strokeStyle = strokeCol;
-    ctx.fillStyle = strokeCol;
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(-11, badgeY);
-    ctx.lineTo(6, badgeY);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(13, badgeY);
-    ctx.lineTo(4.5, badgeY - 4.5);
-    ctx.lineTo(4.5, badgeY + 4.5);
-    ctx.closePath();
-    ctx.fill();
-
-    // Zusätzlich direkter Richtungspfeil unmittelbar auf der Leitung vor der Stromzange
-    ctx.beginPath();
-    ctx.moveTo(13, 0);
-    ctx.lineTo(5.5, -4.5);
-    ctx.lineTo(5.5, 4.5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // Kontaktpunkt auf der Leitung
-  ctx.fillStyle = canvasColor("--surface");
-  ctx.strokeStyle = selected ? canvasColor("--wire-sel") : col;
-  ctx.lineWidth = selected ? 1.8 : 1.4;
-  ctx.beginPath();
-  ctx.arc(0, 0, selected ? 4.2 : 3.2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = selected ? canvasColor("--wire-sel") : col;
-  ctx.beginPath();
-  ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  // ---- 5. Permanentes Multisim-Anzeigekästchen bei (boxX0, boxY0) (W93: groß & kontrastreich) ----
-  ctx.save();
-  ctx.translate(boxX0, boxY0);
-  ctx.scale(iz, iz);
-
-  // Kästchen-Hintergrund & Rahmen
-  ctx.fillStyle = canvasColor("--surface");
-  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
-  ctx.fill();
-
-  // Farbige Kopfzeile im Kästchen
-  ctx.save();
-  roundRect(ctx, 0, 0, boxScreenW, headerH, 7);
-  ctx.clip();
-  ctx.fillStyle = col + "28";
-  ctx.fillRect(0, 0, boxScreenW, headerH);
-  ctx.restore();
-
-  // Trennlinie unter dem Header
-  ctx.strokeStyle = col + "55";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, headerH);
-  ctx.lineTo(boxScreenW, headerH);
-  ctx.stroke();
-
-  // Außenrahmen (hervorgehoben bei Auswahl)
-  ctx.strokeStyle = selected ? canvasColor("--wire-sel") : col;
-  ctx.lineWidth = selected ? 2.2 : 1.4;
-  roundRect(ctx, 0, 0, boxScreenW, boxScreenH, 7);
-  ctx.stroke();
-
-  // Typ-Badge + Header-Text
-  ctx.fillStyle = col;
-  roundRect(ctx, 6, 4, 22, 16, 4);
-  ctx.fill();
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `700 10.5px ui-monospace, monospace`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(glyph.slice(0, 2), 17, 12.2);
-
-  ctx.fillStyle = canvasColor("--ink");
-  ctx.font = `700 12px ui-monospace, monospace`;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText(headerText, 34, 12.2);
-
-  if (digCol) {
-    ctx.fillStyle = digCol;
-    ctx.beginPath();
-    ctx.arc(boxScreenW - 11, 12, 4.2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Messwert-Zeilen
-  ctx.font = `600 13px ui-monospace, monospace`;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-  ctx.fillStyle = !netName || !live ? canvasColor("--ink-3") : canvasColor("--ink");
-  valueLines.forEach((ln, idx) => {
-    ctx.fillText(ln, padX, headerH + 5 + idx * lineH);
-  });
-
-  ctx.restore();
-  ctx.restore();
-}
-
-function drawInstance(ctx: CanvasRenderingContext2D, inst: Instance, selected:boolean, zoom:number, live:any) {
-  const part=PART_MAP[inst.partId]; if (!part) return;
-  // ISO/ANSI symbol style – auto by browser locale (DE -> IEC rectangle, US -> ANSI zigzag)
-  let sym = part.symbol;
-  try {
-    const pref = (typeof window !== "undefined" ? (localStorage.getItem("multispice.symbolStyle") as any) : null) || "auto";
-    const resolved = resolveSymbolStyle(pref);
-    sym = getPartSymbol(part, resolved);
-  } catch {}
-  ctx.save(); ctx.translate(inst.x, inst.y); ctx.rotate((inst.rot*Math.PI)/180); if (inst.mirror) ctx.scale(-1,1);
-  const stroke=selected?canvasColor("--wire-sel"):canvasColor("--symbol");
-  ctx.strokeStyle=stroke; ctx.fillStyle=stroke; ctx.lineWidth=1.3; ctx.lineJoin="round"; ctx.lineCap="round"; // W27: dünnere Tinte wie die Referenz
-  if (live && (part.interactive==="led" || part.interactive==="lamp")) {
-    const i=Math.abs(live.currents[inst.label]??0); const bright=Math.min(1,i/0.015);
-    if (bright>0.02) {
-      const colorMap: Record<string,string> = { red:"#ff4d4f", green:"#4ade80", blue:"#60a5fa", yellow:"#fde047", white:"#f8fafc" };
-      const c=colorMap[String(inst.params.color??"red")]??"#ff4d4f";
-      const g=ctx.createRadialGradient(0,0,1,0,0,part.interactive==="lamp" ? 48 : 34); g.addColorStop(0,hexAlpha(c,0.85*bright)); g.addColorStop(1,hexAlpha(c,0));
-      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,part.interactive==="lamp" ? 48 : 34,0,Math.PI*2); ctx.fill(); ctx.fillStyle=stroke;
-      if (part.interactive==="lamp") {
-        // Filament glow
-        ctx.strokeStyle = hexAlpha(c, 0.6*bright);
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-6,-4); ctx.lineTo(-2,4); ctx.lineTo(2,-4); ctx.lineTo(6,4);
-        ctx.stroke();
-      }
-    }
-  }
-  // 7-seg display – animated, shows number based on digital engine or voltage
-  if (part.interactive==="sevenseg") {
-    let val = 0;
-    try {
-      const ctrl = engine.controls[inst.label];
-      if (ctrl !== undefined) val = Math.floor(ctrl) % 16;
-      else if (live) {
-        // Try digital engine first – real digital state
-        const dig = (engine as any).digitalStates?.[inst.label] ?? (engine as any).digitalStates?.[inst.id];
-        if (dig !== undefined) val = Math.floor(dig) % 16;
-        else {
-          // Try connected net voltage – use first net voltage found
-          const netVals = Object.values(live.nets);
-          if (netVals.length) {
-            // Use max voltage as heuristic for BCD
-            const maxV = Math.max(...netVals.filter(v=> typeof v === "number") as number[]);
-            if (maxV > 0.5) val = Math.floor(maxV) % 16;
-            else val = Math.floor((live.time / 1.2) % 10);
-          } else {
-            val = Math.floor((live.time / 1.2) % 10);
-          }
-        }
-      }
-    } catch {}
-    const segOn = [
-      [1,1,1,1,1,1,0], //0
-      [0,1,1,0,0,0,0], //1
-      [1,1,0,1,1,0,1], //2
-      [1,1,1,1,0,0,1], //3
-      [0,1,1,0,0,1,1], //4
-      [1,0,1,1,0,1,1], //5
-      [1,0,1,1,1,1,1], //6
-      [1,1,1,0,0,0,0], //7
-      [1,1,1,1,1,1,1], //8
-      [1,1,1,1,0,1,1], //9
-    ][val] || [0,0,0,0,0,0,0];
-    const segPos = [
-      {x:0,y:-12,w:14,h:3}, //a top
-      {x:9,y:-6,w:3,h:12}, //b top right
-      {x:9,y:8,w:3,h:12}, //c bottom right
-      {x:0,y:20,w:14,h:3}, //d bottom
-      {x:-9,y:8,w:3,h:12}, //e bottom left
-      {x:-9,y:-6,w:3,h:12}, //f top left
-      {x:0,y:2,w:14,h:3}, //g middle
-    ];
-    ctx.save();
-    segPos.forEach((sp,i)=>{
-      ctx.fillStyle = segOn[i] ? "#ff4d4f" : "rgba(255,255,255,0.08)";
-      if (segOn[i]) {
-        ctx.shadowColor = "#ff4d4f";
-        ctx.shadowBlur = 6;
-      }
-      ctx.fillRect(sp.x - sp.w/2, sp.y - sp.h/2, sp.w, sp.h);
-      ctx.shadowBlur = 0;
-    });
-    ctx.restore();
-  }
-  // Motor – spins when current flows
-  if (part.interactive==="motor" && live) {
-    const i = Math.abs(live.currents[inst.label]??0);
-    if (i > 0.001) {
-      const ang = (live.time * 3600 * i) % 360;
-      ctx.save();
-      ctx.rotate(ang * Math.PI/180);
-      ctx.strokeStyle = "#60a5fa";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0,0); ctx.lineTo(12,0);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-  for (const prim of sym) drawPrim(ctx, prim);
-  ctx.fillStyle=canvasColor("--pin");
-  for (const pin of part.pins){ ctx.beginPath(); ctx.arc(pin.x,pin.y,1.5,0,Math.PI*2); ctx.fill(); } // W27: dezente Pin-Punkte
-  if (part.interactive==="switch" || part.interactive==="button") {
-    // W27: Ref-2-Schalter – dünner Hebel, gefüllte Lagerpunkte, neutrale Tinte
-    const closed=(engine.controls[inst.label] ?? (inst.params.closed?1:0))>0.5;
-    ctx.strokeStyle=canvasColor("--symbol"); ctx.lineWidth=1.3; ctx.lineCap="round";
-    ctx.beginPath();
-    if (closed){ ctx.moveTo(-14,0); ctx.lineTo(14,0); }
-    else { ctx.moveTo(-14,0); ctx.lineTo(11,-10); }
-    ctx.stroke();
-    ctx.fillStyle=canvasColor("--symbol");
-    ctx.beginPath(); ctx.arc(-14,0,1.8,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(14,0,1.8,0,Math.PI*2); ctx.fill();
-  }
-  if (part.interactive==="pot") {
-    const pos=engine.controls[inst.label] ?? Number(inst.params.pos??0.5);
-    ctx.fillStyle=canvasColor("--teal"); ctx.fillRect(-20+40*pos-1,-12,2,8);
-  }
-  // Fault visualization
-  if ((inst as any).fault && (inst as any).fault !== "none") {
-    ctx.save();
-    const fault = (inst as any).fault;
-      ctx.strokeStyle = fault === "open" ? canvasColor("--warn") : fault === "short" ? canvasColor("--err") : canvasColor("--violet");
-      ctx.lineWidth = 1.4;
-    ctx.setLineDash([3,3]);
-    const b = { x: -20, y: -14, w: 40, h: 28 };
-    ctx.strokeRect(b.x, b.y, b.w, b.h);
-    ctx.setLineDash([]);
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.font = "bold 8px ui-sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(fault.toUpperCase(), 0, -18);
-    ctx.restore();
-  }
-  ctx.restore();
-  if (zoom>0.42 && part.mount!=="virtual") {
-    ctx.save(); ctx.translate(inst.x, inst.y);
-    const b=instanceBounds(inst); const dy=b.y+b.h-inst.y+14;
-    ctx.font="600 10.5px ui-sans-serif, system-ui"; ctx.textAlign="center";
-    ctx.fillStyle=selected?canvasColor("--wire-sel"):canvasColor("--ink-2");
-    ctx.fillText(inst.label,0,dy);
-    const main=part.params[0];
-    if (main && main.type==="number"){
-      const val=Number(inst.params[main.key]??main.def);
-      // W92: Wenn das Bauteil ausgewählt ist, wird auch sein Wert darunter
-      // optisch in der Auswahlfarbe (--wire-sel) hervorgehoben!
-      ctx.fillStyle=selected?canvasColor("--wire-sel"):canvasColor("--ink-3");
-      ctx.font=selected?"600 10.5px ui-monospace, monospace":"10px ui-monospace, monospace";
-      ctx.fillText(formatValue(val,main.unit??""),0,dy+12);
-    }
-    ctx.restore();
-  }
-  if (selected){
-    const b=instanceBounds(inst);
-    const hasValueLabel = zoom>0.42 && part.mount!=="virtual";
-    const main=part.params[0];
-    const extraBottom = hasValueLabel ? (main && main.type==="number" ? 30 : 18) : 6;
-    ctx.strokeStyle=canvasColor("--wire-sel");
-    ctx.setLineDash([4,3]);
-    ctx.lineWidth=1.1;
-    ctx.strokeRect(b.x-6, b.y-6, b.w+12, b.h+6+extraBottom);
-    ctx.setLineDash([]);
-  }
-}
-function drawPrim(ctx: CanvasRenderingContext2D, prim: SymbolPrim) {
-  switch(prim.t){
-    case "line": ctx.beginPath(); for(let i=0;i<prim.pts.length;i+=2){ if(i===0) ctx.moveTo(prim.pts[0],prim.pts[1]); else ctx.lineTo(prim.pts[i],prim.pts[i+1]); } ctx.stroke(); break;
-    case "rect": roundRect(ctx,prim.x,prim.y,prim.w,prim.h,prim.r??0); if(prim.fill) ctx.fill(); else ctx.stroke(); break;
-    case "circle": ctx.beginPath(); ctx.arc(prim.x,prim.y,prim.r,0,Math.PI*2); if(prim.fill) ctx.fill(); else ctx.stroke(); break;
-    case "arc": ctx.beginPath(); ctx.arc(prim.x,prim.y,prim.r,prim.a0,prim.a1); ctx.stroke(); break;
-    case "text": { ctx.save(); ctx.font=`600 ${prim.size??9}px ui-sans-serif, system-ui`; ctx.textAlign=prim.align??"center"; ctx.fillText(prim.s,prim.x,prim.y); ctx.restore(); break; }
-  }
-}
-function hexAlpha(hex:string,a:number):string { const h=hex.replace("#",""); const r=parseInt(h.slice(0,2),16), g=parseInt(h.slice(2,4),16), b=parseInt(h.slice(4,6),16); return `rgba(${r},${g},${b},${a})`; }
 export { rotatePoint };

@@ -13,6 +13,7 @@ import {
   attachWireEnd,
   buildNets,
   cleanWirePoints,
+  emptyDoc,
   instanceBounds,
   pinPosition,
   snapWiresToPins,
@@ -70,6 +71,58 @@ const orth = (pts: Array<{ x: number; y: number }>) => pts.every((p, i) => i ===
   });
   check("W50 mit Hindernis: umgeht die BBox", !cuts, JSON.stringify(r2));
   check("W50 auf dem Raster: unverändert gerade", routeOrthogonal({ x: 100, y: 100 }, { x: 300, y: 100 }, []).length === 2);
+}
+
+/* ---------------- Routing meidet Pins (Okt 26) ---------------- */
+{
+  const avoids = (pts: Array<{ x: number; y: number }>, pins: Array<{ x: number; y: number }>) => {
+    const s = pts[0];
+    const e = pts[pts.length - 1];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      for (let t = 0; t <= 1.0001; t += 0.05) {
+        const x = a.x + (b.x - a.x) * t;
+        const y = a.y + (b.y - a.y) * t;
+        if (Math.hypot(x - s.x, y - s.y) < 6 || Math.hypot(x - e.x, y - e.y) < 6) continue;
+        for (const q of pins) if (Math.hypot(x - q.x, y - q.y) < 3) return false;
+      }
+    }
+    return true;
+  };
+  // A*: fremder Pin mitten auf der Strecke → Umweg, orthogonal, exakt am Ziel.
+  const pins = [{ x: 200, y: 100 }];
+  const r = routeOrthogonal({ x: 100, y: 100 }, { x: 300, y: 100 }, [], 10, pins);
+  check("Route meidet den Pin", avoids(r, pins), JSON.stringify(r));
+  check("Route mit Pin: orthogonal", orth(r), JSON.stringify(r));
+  check("Route mit Pin: Ende exakt", r[r.length - 1].x === 300 && r[r.length - 1].y === 100);
+  // Verlauf: ein L-Knick über Pin → Alternativ-Knick (kurz, frei).
+  const p2 = buildNetPath({ x: 100, y: 100 }, [], { x: 200, y: 200 }, { pinPoints: [{ x: 150, y: 100 }] });
+  check("Verlauf weicht auf freien Knick aus", avoids(p2, [{ x: 150, y: 100 }]), JSON.stringify(p2));
+  check("Verlauf endet exakt", p2[p2.length - 1].x === 200 && p2[p2.length - 1].y === 200);
+  // Verlauf: beide Knicks über Pins → A* ab letztem Punkt.
+  const pins3 = [{ x: 150, y: 100 }, { x: 100, y: 150 }];
+  const p3 = buildNetPath({ x: 100, y: 100 }, [], { x: 200, y: 200 }, { pinPoints: pins3 });
+  check("Verlauf routet um beide Pins", avoids(p3, pins3), JSON.stringify(p3));
+  check("Verlauf (A*) endet exakt", p3[p3.length - 1].x === 200 && p3[p3.length - 1].y === 200);
+  // Eigener Start-/Zielpin löst kein Ausweichen aus (gerade Strecke).
+  const p4 = buildNetPath({ x: 100, y: 100 }, [], { x: 300, y: 100 }, { pinPoints: [{ x: 100, y: 100 }, { x: 300, y: 100 }] });
+  check("Start-/Zielpin bleiben direkt", p4.length === 2, JSON.stringify(p4));
+  // Manuelle Ecke bleibt Fixpunkt (Route läuft durch sie), Rest wird ab dort geroutet.
+  const pins5 = [{ x: 230, y: 100 }, { x: 200, y: 140 }];
+  const p5 = buildNetPath({ x: 100, y: 100 }, [{ x: 200, y: 100 }], { x: 260, y: 180 }, { pinPoints: pins5 });
+  const through = (pts: Array<{ x: number; y: number }>, q: { x: number; y: number }) =>
+    pts.some((p) => Math.hypot(p.x - q.x, p.y - q.y) < 0.5) ||
+    pts.some((p, i) => {
+      if (i === 0) return false;
+      const a = pts[i - 1];
+      const cross = Math.abs((q.x - a.x) * (p.y - a.y) - (q.y - a.y) * (p.x - a.x)) < 0.5;
+      const inBox = q.x >= Math.min(a.x, p.x) - 0.5 && q.x <= Math.max(a.x, p.x) + 0.5 && q.y >= Math.min(a.y, p.y) - 0.5 && q.y <= Math.max(a.y, p.y) + 0.5;
+      return cross && inBox;
+    });
+  check("Manuelle Ecke bleibt Fixpunkt", through(p5, { x: 200, y: 100 }), JSON.stringify(p5));
+  check("Rest wird ab Ecke geroutet", avoids(p5, pins5), JSON.stringify(p5));
+  check("Gerouteter Rest endet exakt", p5[p5.length - 1].x === 260 && p5[p5.length - 1].y === 180);
 }
 
 /* ---------------- Beispiele sind elektrisch verbunden (W49) ---------------- */
@@ -1029,6 +1082,71 @@ console.log("\n=== 21) W98–W99: Runde 31 (Vorlagen-Simulation, Tab-Drag, Strom
   );
 }
 
+
+/* ---------------- S5.22a · Netzlabels verbinden virtuell (Multisim) ---------------- */
+{
+  const mkR = (id: string, x: number, y: number) => ({ id, partId: "resistor", x, y, rot: 0 as const, label: id.toUpperCase(), params: {} });
+  const doc = emptyDoc("labels");
+  const r1 = mkR("r1", 200, 200), r2 = mkR("r2", 600, 200), r3 = mkR("r3", 1000, 200);
+  doc.instances.push(r1 as never, r2 as never, r3 as never);
+  const p1 = pinPosition(r1 as never, 0), p2 = pinPosition(r2 as never, 0), p3 = pinPosition(r3 as never, 0);
+  doc.labels.push(
+    { id: "l1", x: p1.x, y: p1.y, name: "VCC" },
+    { id: "l2", x: p2.x, y: p2.y, name: "vcc" },
+    { id: "l3", x: p3.x, y: p3.y, name: "GND_SENSE" },
+  );
+  const n = buildNets(doc);
+  check("gleichnamige Labels vereinen Netze", n.pinNets["r1:0"] === n.pinNets["r2:0"], n.pinNets["r1:0"]);
+  check("Schreibweise: erste gewinnt", n.pinNets["r1:0"] === "VCC");
+  check("fremdes Label bleibt getrennt", n.pinNets["r3:0"] === "GND_SENSE" && n.pinNets["r3:0"] !== n.pinNets["r1:0"]);
+}
+{
+  // Leere Namen vereinen nichts (jeder Blanko bleibt solo).
+  const mkR = (id: string, x: number, y: number) => ({ id, partId: "resistor", x, y, rot: 0 as const, label: id.toUpperCase(), params: {} });
+  const doc = emptyDoc("blanks");
+  const r1 = mkR("r1", 200, 200), r2 = mkR("r2", 600, 200);
+  doc.instances.push(r1 as never, r2 as never);
+  const p1 = pinPosition(r1 as never, 0), p2 = pinPosition(r2 as never, 0);
+  doc.labels.push({ id: "l1", x: p1.x, y: p1.y, name: "" }, { id: "l2", x: p2.x, y: p2.y, name: "  " });
+  const n = buildNets(doc);
+  check("leere Labels vereinen nicht", n.pinNets["r1:0"] !== n.pinNets["r2:0"]);
+}
+{
+  // Label + Verbinder gleichen Namens: ein Mechanismus, ein Netz.
+  const doc = emptyDoc("mixed");
+  const r1 = { id: "r1", partId: "resistor", x: 200, y: 200, rot: 0 as const, label: "R1", params: {} };
+  const c1 = { id: "c1", partId: "onpage_connector", x: 600, y: 200, rot: 0 as const, label: "X1", params: { name: "sig" } };
+  doc.instances.push(r1 as never, c1 as never);
+  const p1 = pinPosition(r1 as never, 0);
+  doc.labels.push({ id: "l1", x: p1.x, y: p1.y, name: "SIG" });
+  const n = buildNets(doc);
+  check("Label≡Verbinder gleichen Namens vereint", n.pinNets["r1:0"] === n.pinNets["c1:0"], n.pinNets["r1:0"]);
+}
+
+/* ---------------- S5.25 · Vorschau-Schweif = Suffix des Klick-Pfads ---------------- */
+{
+  // Treppen-Entwurf: Der Canvas rechnet den Schweif ab der letzten festen Ecke
+  // frisch (statt ab preview[1] zurückzulaufen — das malte Diagonalen).
+  // Der Schweif muss exakt das Suffix dessen sein, was ein Klick verlegt.
+  const same = (a: Array<{ x: number; y: number }>, b: Array<{ x: number; y: number }>) =>
+    a.length === b.length && a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
+  const anchor = { x: 0, y: 0 };
+  const corners = [{ x: 100, y: 0 }, { x: 100, y: 100 }];
+  const ref = corners[corners.length - 1];
+  // Geradeaus: letztes Segment senkrecht → waagrecht weiter (preferDir "h").
+  const t1 = { x: 200, y: 100 };
+  const full1 = buildNetPath(anchor, corners, t1);
+  const tail1 = buildNetPath(ref, [], t1, { preferDir: "h" });
+  check("Schweif gerade = Klick-Suffix", same(tail1, full1.slice(-tail1.length)), JSON.stringify(tail1));
+  // Mit Knick: Schweif trägt denselben Knick wie der Klick-Pfad.
+  const t2 = { x: 200, y: 150 };
+  const full2 = buildNetPath(anchor, corners, t2);
+  const tail2 = buildNetPath(ref, [], t2, { preferDir: "h" });
+  check("Schweif mit Knick = Klick-Suffix", same(tail2, full2.slice(-tail2.length)), JSON.stringify(tail2));
+  // Orthogonal-Garantie: kein Segment des Schweifs ist diagonal.
+  const orth = (pts: Array<{ x: number; y: number }>) => pts.every((p, i) => i === 0 || p.x === pts[i - 1].x || p.y === pts[i - 1].y);
+  check("Schweif immer orthogonal", orth(tail1) && orth(tail2));
+}
 
 console.log(failed === 0 ? "\nLeitungs-/Anordnungs-Prüfungen: alle bestanden." : `\nLeitungs-/Anordnungs-Prüfungen: ${failed} FEHLER`);
 if (failed) process.exit(1);

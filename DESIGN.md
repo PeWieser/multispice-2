@@ -3,6 +3,73 @@
 > Jedes Feature mit: Befund → Maßnahme → Status.
 > Grundlage: Design-Manifest §1–§5.
 > Update 2026-09-24: Settings UI, MenuBar Tooltips, Skeuomorphes Oszilloskop, Accessibility AA, Herz-und-Nieren Testmatrix.
+> Update 2026-10-03 (Sprint 1 – Vertrauen): TF/Sensitivität/PZ/S-Parameter echt, Network Analyzer ehrlich, On-Page-Verbinder als Bauteil, Gerber-Fiktion gestrichen, Nicht-Ziele dokumentiert.
+> Update 2026-10-04 (Sprint 2 – Gefühl): Analysen im Web Worker (Fortschritt + Abbrechen), gestaltete Konvergenzfehler mit Problemknoten-Marker, First-Run-Spotlight (einmalig), ehrlicher Echtzeitfaktor + adaptive Zeitschrittweite, Beispiel-Galerie, Canvas-Boot-Ton.
+> Update 2026-10-04 (Sprint 3 – Struktur): echte Busse (Tap/Splitter, Namensbindung, Deklarationsprüfung), Auswahl-Extraktion als Bauteil, Re-Annotate, elektrische Pin-Typen + ERC-Regeln E1–E4, KiCad-Import, SPICE-Abdeckung (E/G/F/H/J), Entwurf-Rückschreibung, W61-Knick-Warnung.
+> Update 2026-10-04 (Sprint 4 – Modelle): OPV transient (GBW-Pol + Slew), D/Q/M-Temperatur (IS/BF/VTO/KP), gradierte Sperrschichten + Meyer-Caps, MC/Worst-Case Halbleiter-Streuung, Relais-Hysterese + Sicherungs-I²t, Trafo-Verluste/-Sättigung, Übertragungsleitung (Bergeron).
+
+## Neu 2026-10-04 – Sprint 4 (Modelle)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| OPV transient | GBW + Slew existierten nur in AC; TRAN war statisch | Boyle-Stil: Pol auf linearem Fehler (τ = A0/2π·GBW, Backward-Euler, Zustand `vi`/`ve` in `extra`, Commit in `acceptTimestep`, Windup-Clamp ±2·Span), Sättigung danach, Slew-Clamp \|ΔVe\| ≤ SR·dt (Chord-Jacobian); OP hinterlegt vi/ve-Startwerte (Schritt-1-Clamp); DC/OP/COMPARATOR statisch; Katalog: `slew` + TL07x-Einzelteile | ✅ Done |
+| D/Q-Temperatur | IS/BF temperaturunabhängig | SPICE-2G: IS·(T/Tnom)^(XTI/N)·exp(−EG/N·(1/Vt−1/Vt0)) (/N entscheidend: −2.03 statt −5 mV/K), BF/BR·(T/Tnom)^XTB (Engine-Default 0, Katalog 1.5); AC teilt Helfer mit DC-Kern | ✅ Done |
+| Sperrschichten D/Q | Fixe cjo/cje/cjc, TT ungenutzt | Gradierte Depletion mit FC-Grenze (MJ = 0 → fix) + TT/TF/TR-Diffusion (Kapazitäts-Chord statt Ladung — dokumentiert); Katalog: MJ/VJ/FC/TT bzw. MJE/VJE/MJC/VJC/FC/TF/TR/XTI/EG/TNOM | ✅ Done |
+| MOSFET-Temperatur + Meyer | VTO/KP temperaturunabhängig, fixe CGS/CGD | VTO − TCV·ΔT, KP·(T/Tnom)^−BEX (Engine-Defaults 0 = SPICE L1, Katalog TCV 2.5m/BEX 1.5); Meyer intrinsisch aus TOX (Cutoff 0, linear Cox/2, Sättigung 2Cox/3, reversibel) + CGSO/CGDO-Überlapp; fixe CGS/CGD bleiben (Katalog-Leistungsteile behalten gefittete Werte); JFET ohne Temp (dokumentiert) | ✅ Done |
+| MC/Worst-Case | Nur R/C/L (+BF); D/M ohne Streuung | SCATTER_KEYS: Q→BF+IS, D-Familie→IS, M→VTO+KP, J→BETA+VTO; ein Faktor pro Device/Run (Prozess-Ecke, korreliert — dokumentiert); WC-Sensitivität pro Device (Keys gemeinsam); Katalog-`tol` (Halbleiter 10 %) | ✅ Done |
+| Relais | Verifiziert, aber voff teils hartkodiert (lief vpull Änderung nicht nach) | voff = vpull·0.5 in allen 7 Relais-Einträgen; Hysterese per TRAN verifiziert (Anzug 4.01 V, Abfall 1.99 V) | ✅ Done |
+| Sicherung | Reiner Widerstand (irated ungenutzt) | Joule-Integral dw/dt = i² − w/τ, Schmelzen bei w ≥ I²t (rastend, roff); i2t = 0 → auto (2·IN)²·τ (hält Nennstrom ewig, 10× in ≈ 40 ms); nur TRAN (DC = Nennwiderstand — dokumentiert); R konstant bis zum Schmelzen (kein PTC — dokumentiert) | ✅ Done |
+| Trafo | Ideal (lp/ratio/k), kein R, keine Sättigung | rp/rs seriell (DC = Wicklungs-R), rcore parallel primär (0 = aus), Sättigungsknie Lp(i) = Lp/(1+\|ip\|/isat) als Chord über Lp/Ls/M gemeinsam (sonst k > 1; Sekundär-Gegenkompensation fehlt — dokumentiert); AC linear/ungesättigt (dokumentiert) | ✅ Done |
+| Übertragungsleitung | Kein T-Element | TLINE neu (Bergeron, verlustlos): Z0 + td (direkt oder len/vf), interpolierte Delay-Line aus akzeptierten Wellengrößen (`outputs[]`, Retry-sicher), Start relaxiert (dokumentiert); OP = durchverbunden; AC exakte Y-Matrix (θ = ω·td, \|sinθ\| geklemmt); Katalogteil „Übertragungsleitung" | ✅ Done |
+| Tests | Keine Modell-Regression | `scripts/sprint4test.ts` (31 Checks, in `npm test` verdrahtet): OPV-Ecke/Slew, Vf-Drift, BF-/VTO-Temp, Meyer, MC-σ + Seed-Repro, WC-Sensitivitäten, Relais-Hysterese, Fuse-Trip/Latch, Trafo-Knie, TLINE-Laufzeit/Phase | ✅ Done |
+
+## Neu 2026-10-04 – Sprint 3 (Struktur)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Busse | `isBus` war reine Farbe; Bits hatten kein Modell | Bus-Tap + Bus-Splitter (2/4/8/16 Bit, dynamische Pins) binden per Name (`D[3]`); Bus-Draht = dickes Bündel + Deklaration (Name × Breite), leitet nicht; Breiten-/Deklarationsprüfung in `buildNets` | ✅ Done |
+| Auswahl-Extraktion | Nur Gesamtplan-Heuristik (Labels→Ports, Rest still gedroppt) | „Auswahl als Bauteil…" mit exakter Abbildung: Ports = Netze mit Außenberührung, Innennetze privat, GND global; nicht abbildbare Bauteile = Fehler; gedroppte Parameter = Warnung; kein Nesting | ✅ Done |
+| Re-Annotate | Referenzen nur vergeben, nie neu nummeriert | „Referenzen neu nummerieren" (Bearbeiten-Menü): pro Präfix in Leserichtung ab 1, freie Namen bleiben, Undo-fähig | ✅ Done |
+| ERC E1–E4 | Keine elektrische Prüfung (Kurzschlüsse, schwebende Eingänge still) | Pin-Typen (`passive/input/output/power_in/power_out`, Default passiv) + Regeln: E1 Ausgänge kurzgeschlossen, E2 Netz nur an Eingängen, E3 Versorgung ohne Quelle, E4 unverbundener Eingang (Versorgung nur bei eigenen Bauteilen — eingebaute Makros haben dokumentierte Defaults). Kalibriert: MCU-Pins = GPIO/passiv (Richtung SW-definiert); Vorlagen ERC-still (555-CTRL 10n→GND, Zähler-RST→GND, W98d) | ✅ Done |
+
+| KiCad-Import | Nur SPICE/LTspice lesbar | `.kicad_sch`-Minimal-Parser (S-Expr): R/C/L, D-Familie, BJT/FET, Poti, Quarz, Sicherung, NE555, Einzel-OPV, VDC/Batterie, GND/Power-Symbole, Drähte, Dots, Labels, Texte; Drehungs-Suche + Pin-Snap + Pin-auf-Pin-Brücken; Busse/Unterschaltpläne/Logik-ICs = ehrlicher Hinweis im Plan (Annahmen: Y-nach-unten, Pin-(at)=Anschluss, CW-Drehung, Diode Pin 1 = K) | ✅ Done |
+| SPICE-Abdeckung | E/G/F/H/J fielen still unter „übersprungen" | SPICE_MAP += E→vcvs, G→vccs, F→cccs, H→ccvs, J→jfet_2n3819 (+ Modell-Heuristiken D/Q/M); Router-Fix: keine geteilten Knicke zwischen Netzen (behebt stillen Kurzschluss über Ketten-Union) | ✅ Done |
+| Abhängige Quellen | Als Teile vorhanden, unverifiziert | Abbildung vcvs/vccs/ccvs/cccs → Devices E/G/F/H verifiziert; E-Folger 1 V → 2 V im OP-Test; F-Reihen-Gebrauch (gsense über CTRL) dokumentiert | ✅ Done |
+| Entwürfe (Reiter) | „＋" verlor Änderungen seit dem letzten Wechsel (keine Rückschreibung bei gelisteter ID — Datenverlust!) | `newDocument` schreibt den aktuellen Entwurf in seinen Reiter zurück (wie `openSheet`); Regression in `sprint3test` (S3.2) | ✅ Done |
+| W61-Lücke (Known Limit) | Zwei Drähte mit exakt geteiltem Knick werden verbunden (Ketten-Union), ohne sichtbaren Dot | Warnung „Leitungen teilen einen Knick …" in `buildNets` (Verhalten unverändert; T-Stöße per Ende-auf-Segment bleiben still); Import-Router meidet geteilte Knicke aktiv; echte Behebung (Ketten-Union nur an Anschlüssen) = Sprint-5-Kandidat | ✅ Done |
+| Tests | Keine Prüfung für Bus/Entwürfe/ERC/Importe | `scripts/sprint3test.ts` (41 Checks, in `npm test` verdrahtet) + `scripts/kicad-divider.kicad_sch` als Fixture | ✅ Done |
+
+## Neu 2026-10-04 – Sprint 2 (Gefühl)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Analyse-Worker | Kernel blockierte den Main-Thread (UI fror bei Monte-Carlo/Sweeps ein); kein Fortschritt, kein Abbrechen | Web Worker (`analysis.worker.ts`) + Client mit synchronem Fallback; Fortschrittsbalken + Abbrechen-Button im Grapher; eine Analyse zur Zeit (alte wird terminiert) | ✅ Done |
+| Konvergenzfehler | Roter Rohtext (`✕ …`) bzw. leere Diagramme (`.ok` ungeprüft); keine Verdächtigen | Fehlerkarte mit Titel je Klasse, Erklärung, Verdächtigen-Chips und „Problemknoten zeigen" (pulsierender Canvas-Marker, Auto-Clear); Kern liefert `failure` + `suspects` (Null-Diagonalen / Newton-Updates) | ✅ Done |
+| First-Run | Kein Hinweis auf ▶ beim Erstkontakt | Spotlight: Puls-Ring + Chip mit ×, strikt einmalig — kein Nudge im Sinne des Manifests (non-modal, non-blockierend, kein Timer, weg bei Start/Klick/Esc) | ✅ Done |
+| Echtzeit-Überlast | Überlast wurde still verworfen (Clamp + Reset ohne Zähler); Faktor nur als Exponential-Debugzeile | StatusBar-Chip `×1,0` (rot bei Überlast, `~` bei Adaption, Tooltip mit Rate + verworfenen Sekunden); adaptive Zeitschrittweite (halbieren bis 5 kHz, Hysterese zurück); Inspector in ×-Format | ✅ Done |
+| Beispiel-Galerie | 8 Vorlagen nur als Text-Menüs | Galerie-Dialog mit echten SVG-Vorschaubildern (Export-Renderer), Beschreibung, Laden per Klick; Einstieg in Menü + Palette | ✅ Done |
+| Boot | Canvas blitzte im App-Ton auf (keine Bitmap bis zum ersten Draw) | Canvas-Element mit `--canvas`-Hintergrund (kein Skeleton nötig: Seite prerendert vollständig) | ✅ Done |
+| Tests | Keine Prüfung für Diagnose/Fortschritt/Überlast | `scripts/sprint2test.ts` (18 Checks, in `npm test` verdrahtet) | ✅ Done |
+
+## Neu 2026-10-03 – Sprint 1 (Vertrauen)
+
+| Feature | Befund | Maßnahme | Status |
+|---------|--------|----------|--------|
+| Transferfunktion | Rin/Rout waren hartcodierte Dummies (1 kΩ / 50 Ω) | Testquellen-Methode im Kleinsignal-Arbeitspunkt (Eingang stromlos schalten, Ausgang kurzschließen); Hinweis „Kleinsignal im DC-Arbeitspunkt" im Dialog; eigene TF-Karte im Grapher | ✅ Done |
+| Sensitivität AC | AC-Modus ignorierte die Anregung, gab DC-Werte aus | Echte AC-Sensitivität an wählbarer Testfrequenz; falls keine AC-Quelle existiert, wird automatisch `ac=1` an der Eingangsquelle gesetzt und als Warnung offengelegt; Tabellen-Renderer im Grapher | ✅ Done |
+| Pol-/Nullstellen | Pole/Nullstellen waren erfundene Dummies | Levy-Anpassung an echten AC-Sweep + Güte (max. dB-Abweichung), Nullstellen aus Zähler-Fit (DC-augmentiert), Überordnung wird beschnitten und als Warnung offengelegt, Wurzeln außerhalb des Sweep-Bands gezählt; PN-Karte + Liste im Grapher | ✅ Done |
+| AC-Matrix | F/H/JFET/SCR/TRIAC/VSWITCH fehlten in der AC-Matrix (stumm falsch) | Alle sechs linearisiert (F: Serien-Sense-Element; VSWITCH/SCR/TRIAC: Ron/Roff aus OP; JFET: gm/gds); nicht-linearisierbare Bausteine (Digital etc.) erzeugen ehrliche Warnungen statt stiller Fehler | ✅ Done |
+| Network Analyzer | Zeigte erfundene S-Parameter (theoretische RC-Formel) | Echte S-Parameter-Analyse (Z₀, S11/S21, Port-Impedanzen) über lineares AC-System mit Port-Terminierung; Instrument konfiguriert Ports/Z₀/Sweep ehrlich | ✅ Done |
+| On-Page-Verbinder | Kein Verbinder-Bauteil; Tabs sind unabhängige Entwürfe, keine Blätter | Virtuelles Bauteil `onpage_connector` (Bibliothek → Verbinder): gleiche Namen = gleiches Netz (nur innerhalb eines Tabs); Inline-Umbenennung per Doppelklick; keine Blatt-Behauptung mehr in der Doku | ✅ Done |
+| Ehrlichkeit | DESIGN.md behauptete Gerber-Export (✅) ohne eine Zeile Code | Anspruch gestrichen, Nicht-Ziele dokumentiert (s. u.); Doku-Archiv `docs/archiv/` für überholte Pläne | ✅ Done |
+| Tests | Keine analytische Prüfung der Analyse-Ergebnisse | `scripts/sprint1test.ts` (41 Checks gegen analytische Werte, in `npm test` verdrahtet); `simtest.ts` meldet jetzt Exit-Code 1 bei Fehlern | ✅ Done |
+
+## Nicht-Ziele (bewusst, Sprint 1)
+
+- **PCB-Layout/Transfer, Gerber-Export:** ohne Board-Editor wäre jede Datei Fiktion.
+- **Multisim-Binärimport** (`.ms*`, proprietär).
+- **3D-Bauteile/3D-Breadboard, Ladder-Diagramme, Agilent/Tek-Nachbauten, LabVIEW-VIs, ELVIS-Hardware.**
+- **Blattübergreifende Simulation:** Tabs sind unabhängige Entwürfe (entschieden 2026-10-04, UI umbenannt, kein Off-Page-Bauteil).
 
 ## Neu 2026-09-24 – Steve Jobs Erstkontakt Audit
 
@@ -11,7 +78,7 @@
 | Settings Page UI | Probe Hover Config nur in Datei, keine UI | SettingsDialog.tsx 4 Tabs Probe/Library/Canvas/Allgemein, loadHoverConfig/saveHoverConfig, localStorage, erklärt jede Option, Human Design mit lucide Icons, 560px wide | ✅ Done |
 | MenuBar Tooltips | Menü Items hatten nur title, kein Tooltip mit Erklärung | Menu + MenuItem Tooltip prop, jedes Menü + Item hat Tooltip: Datei → Neuer Schaltplan löscht aktuellen (Undo), Lokal speichern localStorage Auto-Save 2s, Import .json/.cir, Export SPICE für LTspice, BOM für Mouser/DigiKey, etc. Topbar Buttons Undo/Redo/Start/Stop/Strom/Farben/⌘K/⚙️ alle mit Tooltip + Shortcut + Erklärung | ✅ Done |
 | Oszilloskop skeuomorph | Flaches Design, kein CRT, keine Knöpfe | Komplett neu: CRT radial #0e1a14→#04080a, Phosphor Grid 10x8 DIV grün, Vignette, Scanlines, Glow shadowBlur 14px, Metall-Panel linear-gradient #2e323e→#1a1d26, Schrauben, SkeuKnob 42-56px mit conic-gradient Metall + Tick Marks + Glow Pointer, vertikal ziehen, TactileButton mit inset shadow + Glow wenn aktiv, Trigger Dreieck gelb draggable am Rand, Cursors lila dashed draggable ΔT/ΔV + 1/ΔT, Messwerte Vpp/Vmax/Vmin/Vrms/Freq phosphor mono, 4 Kanäle #4ade80/#38bdf8/#fbbf24/#f472b6, YT/XY/FFT/MATH, Timebase 5ns-2s, V/div 1mV-50V, Trigger Source CH1-4 farbig, Edge Rise/Fall, Auto/Normal, Intensity/Focus, RUN/STOP | ✅ Done |
-| Testmatrix zu klein | Nur 35 Checks, keine First-Use Flows | TEST_MATRIX_HERZ_UND_NIEREN.md 150+ Cases: First-Use 0-60s, Bauteile suchen/verstehen (Suche r 10k, NE555, Kategorie, Detail 96px, Datasheet, Favorit, Grid/List, Icons), Platzieren/Editieren (R, drehen R, spiegeln, Text Label/Value Doppelklick, Inspector, löschen, kopieren, duplizieren, alles auswählen), Verdrahten (W, Punkte, andocken 5px Stub, Hover Highlight, Handles), Schalter bedienen im Run, Probes (Leader Pfeil, permanentes Fenster, Tabelle, Alt+Hover, REF, Reverse, farbcodiert), Oszi (CRT, 4 Kanäle, Knobs, Trigger, Messwerte, Cursors, YT/XY/FFT/MATH), weitere Geräte, Responsive Mobile/Tablet, MenuBar Tooltips, Settings, Accessibility, Export | ✅ Done |
+| Testmatrix zu klein | Nur 35 Checks, keine First-Use Flows | TEST_MATRIX.md 150+ Cases (ältere Fassung im Archiv: docs/archiv/TEST_MATRIX_HERZ_UND_NIEREN.md): First-Use 0-60s, Bauteile suchen/verstehen (Suche r 10k, NE555, Kategorie, Detail 96px, Datasheet, Favorit, Grid/List, Icons), Platzieren/Editieren (R, drehen R, spiegeln, Text Label/Value Doppelklick, Inspector, löschen, kopieren, duplizieren, alles auswählen), Verdrahten (W, Punkte, andocken 5px Stub, Hover Highlight, Handles), Schalter bedienen im Run, Probes (Leader Pfeil, permanentes Fenster, Tabelle, Alt+Hover, REF, Reverse, farbcodiert), Oszi (CRT, 4 Kanäle, Knobs, Trigger, Messwerte, Cursors, YT/XY/FFT/MATH), weitere Geräte, Responsive Mobile/Tablet, MenuBar Tooltips, Settings, Accessibility, Export | ✅ Done |
 | Accessibility AA | Kein Audit, fehlte reduced-motion, focus-visible, aria | ACCESSIBILITY_AUDIT.md: Kontrast 15.8:1 primary, 7.2:1 muted AAA, Touch 44px Mobile 52px Probe Hit, Keyboard alle Shortcuts Tab/Esc/Enter/Pfeile, ARIA roles dialog/menu/tooltip/button aria-label, Canvas role=application, Logs role=log aria-live polite, ProbeTable caption sr-only, Reduced Motion Media Query + auto-disable Stromfluss, Focus Visible 2px accent, sr-only class, Farbblind Icon+Text+Position, Zoom 200% ok, lang=de, Skip Link TODO, Landmarks TODO | ✅ 80% → 95% nach CSS Fixes |
 | Wire Edit Handles | Selektiertes Wire zeigt keine Handles | TODO – Quadrate an Punkten, Drag verschiebt Punkt | 🔄 Offen |
 | Reduced Motion + Focus | Fehlte | globals.css: @media prefers-reduced-motion reduce animation none, :focus-visible outline 2px accent, :focus:not(:focus-visible) none, .sr-only | ✅ Done |
@@ -107,7 +174,7 @@
 | SPICE-Export | Menü → Datei → Export | — | ✅ |
 | JSON-Export | Menü → Datei → Export | — | ✅ |
 | CSV-Export (BOM) | Menü → Datei → Export | — | ✅ |
-| Gerber-Export | Menü → Datei → Export | — | ✅ |
+| Gerber-Export | — (Nicht-Ziel, kein Board-Editor) | — | ❌ gestrichen (Sprint 1) |
 | PDF-Druck | Menü → Datei → Drucken | Strg+P | ✅ |
 | Oszilloskop | Geräte-Dock → Scope | — | ✅ |
 | Multimeter | Geräte-Dock → DMM | — | ✅ |
@@ -133,7 +200,7 @@
 - **SPICE:** `.cir` Datei, ngspice-kompatibel
 - **JSON:** Volles Projekt (Schaltplan + Parameter + Layout)
 - **CSV (BOM):** Referenz;Bauteil;Wert;Footprint;Montage;Menge
-- **Gerber:** RS-274X Platzhalter (korrekte Layer-Struktur)
+- **Gerber:** bewusst kein Export — ohne Board-Editor wäre jede Datei Fiktion (Nicht-Ziel, s. u.)
 - **PDF:** `window.print()` mit Print-CSS (Chrome → Toolbar ausgeblendet)
 
 ### Undo/Redo (§3)

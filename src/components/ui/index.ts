@@ -5,3 +5,4 @@ export { ToolButton, ToolGroup } from "./ToolButton";
 export { Dialog, DialogHeader, ModalShell, useFocusTrap } from "./Dialog";
 export { FieldLabel, TextField, NumberField, SelectField, NetsField } from "./Field";
 export { Menu, MenuItem, MenuSeparator } from "./Menu";
+export { WINDOW_SHELL, WindowTitleBar } from "./WindowChrome";

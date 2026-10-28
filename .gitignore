@@ -35,3 +35,8 @@ next-env.d.ts
 
 # cloudflare
 .wrangler/
+
+# playwright e2e
+test-results/
+playwright-report/
+playwright/.auth/

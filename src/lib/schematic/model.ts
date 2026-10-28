@@ -3,8 +3,9 @@
  * SPICE netlist generation and import.
  */
 
-import { PART_MAP, PartDef, PartInstanceLike, formatValue } from "@/lib/library/catalog";
+import { PART_MAP, PartDef, PartInstanceLike, PinElectrical, formatValue, partPins, partSymbol, pinElectrical, splitterWidth } from "@/lib/library/catalog";
 import { Device, Netlist } from "@/lib/sim/engine";
+import { POT_SLIDER } from "@/lib/interactive/switches";
 
 export const GRID = 10;
 
@@ -60,6 +61,8 @@ export interface TextNote {
   y: number;
   text: string;
   size?: number;
+  /** S5.28: Blattgröße s/m/l (Standard m = bisheriger Zettel). */
+  card?: "s" | "m" | "l";
 }
 
 export type ProbeKind = "voltage" | "current" | "power" | "diff" | "ref" | "digital" | "voltage_current";
@@ -104,6 +107,23 @@ export interface MeasurementProbe {
   leader?: "arrow" | "line" | "magnifier";
 }
 
+/* ---------------- Blätter Stufe B · Seiten ----------------
+ * Ein Entwurf kann mehrere Seiten haben. Die flachen Arrays von SchematicDoc
+ * sind IMMER der aktuelle Inhalt der aktiven Seite (der Editor arbeitet
+ * unverändert darauf); `pages` trägt alle Seiten (inkl. Ablage der aktiven),
+ * `activePageId` sagt, welche flach liegt. Altbestand ohne `pages` verhält
+ * sich exakt wie bisher (eine Seite). */
+export interface SchematicPage {
+  id: string;
+  name: string;
+  instances: Instance[];
+  wires: Wire[];
+  labels: NetLabel[];
+  notes: TextNote[];
+  probes: MeasurementProbe[];
+  junctions?: Junction[];
+}
+
 export interface SchematicDoc {
   id: string;
   name: string;
@@ -114,9 +134,15 @@ export interface SchematicDoc {
   probes: MeasurementProbe[];
   /** W61: ausdrücklich gesetzte Verbindungspunkte (Kreuzungen verbinden). */
   junctions?: Junction[];
+  /** Blätter Stufe B: Seitenfächer (Altbestand: leer — alles liegt flach). */
+  pages?: SchematicPage[];
+  /** Blätter Stufe B: aktive Seite (flache Arrays sind ihr aktueller Inhalt). */
+  activePageId?: string;
+  /** Druckbögen: Schriftfeld-Daten des Entwurfs (ISO 7200-Felder, projektweit). */
+  titleBlock?: TitleBlockData;
 }
 
-// Das allererste Blatt bekommt eine feste ID, damit Server-HTML (statischer
+// Der allererste Entwurf bekommt eine feste ID, damit Server-HTML (statischer
 // Export) und Client-Hydration übereinstimmen. Alle weiteren sind zufällig.
 let firstDoc = true;
 
@@ -124,6 +150,140 @@ export function emptyDoc(name = "Neue Schaltung"): SchematicDoc {
   const id = firstDoc ? "sch_initial" : "sch_" + Math.random().toString(36).slice(2, 9);
   firstDoc = false;
   return { id, name, instances: [], wires: [], labels: [], notes: [], probes: [], junctions: [] };
+}
+
+export function newPageId(): string {
+  return "pg_" + Math.random().toString(36).slice(2, 9);
+}
+
+export function activePageIndex(doc: SchematicDoc): number {
+  if (!doc.pages || !doc.pages.length) return -1;
+  const i = doc.pages.findIndex((pg) => pg.id === doc.activePageId);
+  return i < 0 ? 0 : i;
+}
+
+/** Blätter Stufe B: legt das Seitenfach an (Altbestand → „Seite 1" aus den
+ * flachen Arrays, per Referenz — kein Klon). Mutiert doc. */
+export function ensurePages(doc: SchematicDoc): SchematicPage[] {
+  if (!doc.pages || !doc.pages.length) {
+    const pg: SchematicPage = {
+      id: newPageId(),
+      name: "Seite 1",
+      instances: doc.instances,
+      wires: doc.wires,
+      labels: doc.labels,
+      notes: doc.notes,
+      probes: doc.probes,
+      junctions: doc.junctions,
+    };
+    doc.pages = [pg];
+    doc.activePageId = pg.id;
+  } else if (!doc.pages.some((pg) => pg.id === doc.activePageId)) {
+    doc.activePageId = doc.pages[0].id;
+  }
+  return doc.pages;
+}
+
+function orderedPageInstances(doc: SchematicDoc): Array<{ inst: Instance; order: number }> {
+  if (!doc.pages || !doc.pages.length) return doc.instances.map((inst) => ({ inst, order: 0 }));
+  const ap = activePageIndex(doc);
+  const out: Array<{ inst: Instance; order: number }> = [];
+  doc.pages.forEach((pg, i) => {
+    // Aktive Seite aus den flachen Arrays (Quelle der Wahrheit), Rest aus Fächern.
+    const arr = i === ap ? doc.instances : pg.instances;
+    for (const inst of arr) out.push({ inst, order: i });
+  });
+  return out;
+}
+
+/** Alle Bauteile des Entwurfs (alle Seiten). Für BOM/Nummerierung/Suche. */
+export function pageInstances(doc: SchematicDoc): Instance[] {
+  return orderedPageInstances(doc).map((e) => e.inst);
+}
+
+/** Off-Page-Netze des Entwurfs (Navigator): Name → Schreibweise + Trefferseiten. */
+export function offpageGroups(
+  doc: SchematicDoc,
+): Array<{ upper: string; display: string; hits: Array<{ pageId: string; pageName: string }> }> {
+  const groups = new Map<string, { display: string; hits: Array<{ pageId: string; pageName: string }> }>();
+  const visit = (arr: Instance[], pg: { id: string; name: string }) => {
+    for (const inst of arr) {
+      if (inst.partId !== "offpage_connector") continue;
+      const txt = String(inst.params.name ?? "NET_A").trim() || "NET_A";
+      const u = txt.toUpperCase();
+      let g = groups.get(u);
+      if (!g) {
+        g = { display: txt, hits: [] };
+        groups.set(u, g);
+      }
+      if (!g.hits.some((h) => h.pageId === pg.id)) g.hits.push({ pageId: pg.id, pageName: pg.name });
+    }
+  };
+  if (!doc.pages || !doc.pages.length) {
+    visit(doc.instances, { id: "", name: "Seite 1" });
+  } else {
+    const ap = activePageIndex(doc);
+    doc.pages.forEach((pg, i) => visit(i === ap ? doc.instances : pg.instances, pg));
+  }
+  return [...groups.entries()]
+    .map(([upper, g]) => ({ upper, ...g }))
+    .sort((a, b) => a.display.localeCompare(b.display));
+}
+
+/* ---------------- Druckbögen · Schriftfeld (ISO 7200) ---------------- */
+export type PrintFormat = "a4p" | "a4l" | "a3l";
+
+/** Druckbögen: Anzeigenamen der Papierformate (Dialog, Deckblatt — eine Quelle). */
+export const PRINT_FORMAT_LABELS: Record<PrintFormat, string> = {
+  a4p: "A4 hoch",
+  a4l: "A4 quer",
+  a3l: "A3 quer",
+};
+
+/** Schriftfeld-Daten pro Entwurf (alle Felder optional — Leeres druckt „—"). */
+export interface TitleBlockData {
+  title: string; // Benennung
+  docNo: string; // Sachnummer
+  owner: string; // Firma (gesetzlicher Eigentümer)
+  drawnBy: string; // Erstellt: Name
+  drawnDate: string; // Erstellt: Datum (ISO, Anzeige lokalisiert)
+  approvedBy: string; // Genehmigt: Name
+  approvedDate: string; // Genehmigt: Datum (ISO)
+  docType: string; // Dokumentenart
+}
+
+/** Wiederverwendbare Vorgaben (Name/Firma/Dokumentenart, rechnerweit). */
+export interface TitleDefaults {
+  owner: string;
+  drawnBy: string;
+  docType: string;
+}
+
+/** Vollständiger Schriftfeld-Satz: Entwurf schlägt Vorgaben, Reste sinnvoll. */
+export function resolveTitleBlock(doc: SchematicDoc, defaults: TitleDefaults): Required<TitleBlockData> {
+  const tb = doc.titleBlock ?? ({} as Partial<TitleBlockData>);
+  const clean = (v: string | undefined, fb = "") => (v ?? "").trim() || fb;
+  return {
+    title: clean(tb.title, doc.name || ""),
+    docNo: clean(tb.docNo),
+    owner: clean(tb.owner, defaults.owner),
+    drawnBy: clean(tb.drawnBy, defaults.drawnBy),
+    drawnDate: clean(tb.drawnDate, new Date().toISOString().slice(0, 10)),
+    approvedBy: clean(tb.approvedBy),
+    approvedDate: clean(tb.approvedDate),
+    docType: clean(tb.docType, defaults.docType || "Stromlaufplan"),
+  };
+}
+
+/** Querverweise eines Blatts: Off-Page-Netz → Partnerseiten (ohne das Blatt selbst). */
+export function sheetCrossRefs(doc: SchematicDoc, pageId: string): Array<{ net: string; pages: string[] }> {
+  return offpageGroups(doc)
+    .filter((g) => g.hits.some((h) => h.pageId === pageId))
+    .map((g) => ({
+      net: g.display,
+      pages: g.hits.filter((h) => h.pageId !== pageId).map((h) => h.pageName),
+    }))
+    .filter((r) => r.pages.length > 0);
 }
 
 /* ----------------------------- geometry ----------------------------- */
@@ -144,7 +304,7 @@ export function rotatePoint(x: number, y: number, rot: Rotation, mirror = false)
 
 export function pinPosition(inst: Instance, pinIndex: number): { x: number; y: number } {
   const part = PART_MAP[inst.partId];
-  const pin = part?.pins[pinIndex];
+  const pin = part ? partPins(part, inst.params)[pinIndex] : undefined;
   if (!pin) return { x: inst.x, y: inst.y };
   const r = rotatePoint(pin.x, pin.y, inst.rot, inst.mirror);
   return { x: inst.x + r.x, y: inst.y + r.y };
@@ -301,7 +461,7 @@ export function snapWiresToPins(doc: SchematicDoc, tol = 15): SnapReport {
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) continue;
-    for (let i = 0; i < part.pins.length; i++) pinPts.push(pinPosition(inst, i));
+    for (let i = 0; i < partPins(part, inst.params).length; i++) pinPts.push(pinPosition(inst, i));
   }
   const nearestPin = (p: WPt) => {
     let best: WPt | null = null;
@@ -343,7 +503,7 @@ export function instanceBounds(inst: Instance): { x: number; y: number; w: numbe
     minY = Math.min(minY, r.y);
     maxY = Math.max(maxY, r.y);
   };
-  for (const prim of part.symbol) {
+  for (const prim of partSymbol(part, inst.params)) {
     if (prim.t === "line") for (let i = 0; i < prim.pts.length; i += 2) consider(prim.pts[i], prim.pts[i + 1]);
     else if (prim.t === "rect") {
       consider(prim.x, prim.y);
@@ -353,7 +513,13 @@ export function instanceBounds(inst: Instance): { x: number; y: number; w: numbe
       consider(prim.x + prim.r, prim.y + prim.r);
     } else consider(prim.x, prim.y);
   }
-  for (const pin of part.pins) consider(pin.x, pin.y);
+  for (const pin of partPins(part, inst.params)) consider(pin.x, pin.y);
+  // S5.26: Der Poti-Schieber liegt neben dem Symbol und gehört zur Greifzone
+  // (Selektion, Routing-Hindernis, Fit-View) — Rotation löst consider auf.
+  if (part.interactive === "pot") {
+    consider(POT_SLIDER.x - POT_SLIDER.knobW / 2, POT_SLIDER.yTop);
+    consider(POT_SLIDER.x + POT_SLIDER.knobW / 2, POT_SLIDER.yBot);
+  }
   if (!Number.isFinite(minX)) return { x: inst.x - 20, y: inst.y - 20, w: 40, h: 40 };
   return { x: inst.x + minX, y: inst.y + minY, w: maxX - minX, h: maxY - minY };
 }
@@ -397,6 +563,8 @@ export interface NetInfo {
   name: string;
   points: Array<{ x: number; y: number }>;
   pins: Array<{ instanceId: string; pinIndex: number; pinName: string }>;
+  /** Blätter Stufe B: Herkunftsseite (nur im Mehrseiten-Aufbau belegt). */
+  page?: string;
 }
 
 export interface NetlistBuildResult {
@@ -414,27 +582,208 @@ export interface NetlistBuildResult {
   junctions: Array<{ x: number; y: number }>;
 }
 
+/**
+ * S3.3: Re-Annotate — nummeriert alle Schema-Labels (`R5`, `C12`, …) pro
+ * Bauteil-Präfix in Leserichtung (oben→unten, links→rechts) neu ab 1.
+ * Freie Namen (`R_SENSE`) bleiben unangetastet. Mutiert das Draft-Dokument.
+ */
+export function reannotateLabels(doc: SchematicDoc): { renumbered: number; kept: string[] } {
+  const SCHEME = /^[A-Z]{1,3}\d+$/;
+  const kept: string[] = [];
+  const groups = new Map<string, Array<{ inst: Instance; order: number }>>();
+  // Blätter Stufe B: seitenübergreifend (Seitenreihenfolge, dann Leserichtung).
+  for (const { inst, order } of orderedPageInstances(doc)) {
+    const part = PART_MAP[inst.partId];
+    if (!part || !SCHEME.test(inst.label || "")) {
+      if (inst.label) kept.push(inst.label);
+      continue;
+    }
+    const arr = groups.get(part.ref) ?? [];
+    arr.push({ inst, order });
+    groups.set(part.ref, arr);
+  }
+  let renumbered = 0;
+  for (const [prefix, arr] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    arr.sort((a, b) => a.order - b.order || a.inst.y - b.inst.y || a.inst.x - b.inst.x);
+    arr.forEach(({ inst }, k) => {
+      const next = `${prefix}${k + 1}`;
+      if (inst.label !== next) {
+        inst.label = next;
+        renumbered++;
+      }
+    });
+  }
+  return { renumbered, kept };
+}
+
+/* ---------------- Blätter Stufe B · seitenübergreifendes Netlisting ----------------
+ * pages.length > 1: jede Seite wird einzeln aufgebaut (On-Page-Verbinder und
+ * Labels bleiben seitenlokal), danach werden Off-Page-Verbinder gleichen
+ * Namens plus die Masse „0" seitenübergreifend vereint. Lokale Netze heißen
+ * `S<seite>:<name>` (kollisionsfrei), globale tragen ihren Off-Page-Namen.
+ * Geometrie (pointNets/openEnds/junctions) gehört IMMER nur der aktiven Seite
+ * (der Canvas zeigt nur sie); Fehler/Warnungen aller Seiten werden mit
+ * Seiten-Präfix gemeldet. NetInfo.page markiert die Herkunft (Hit-Tests). */
+function buildNetsMulti(doc: SchematicDoc): NetlistBuildResult {
+  const pages = doc.pages!;
+  let active = pages.findIndex((pg) => pg.id === doc.activePageId);
+  if (active < 0) active = 0;
+  // Die aktive Seite gilt aus den FLACHEN Arrays (Quelle der Wahrheit im Editor).
+  const flat: SchematicPage = {
+    id: pages[active].id,
+    name: pages[active].name,
+    instances: doc.instances,
+    wires: doc.wires,
+    labels: doc.labels,
+    notes: doc.notes,
+    probes: doc.probes,
+    junctions: doc.junctions,
+  };
+  const per = pages.map((pg, i) => {
+    const src = i === active ? flat : pg;
+    return buildNets({
+      id: pg.id,
+      name: pg.name,
+      instances: src.instances,
+      wires: src.wires,
+      labels: src.labels,
+      notes: src.notes,
+      probes: src.probes ?? [],
+      junctions: src.junctions,
+    });
+  });
+  // Off-Page-Namen einsammeln (erste Schreibweise gewinnt, Seitenreihenfolge).
+  const offDisplay = new Map<string, string>();
+  const pageOffLocal = pages.map((pg, i) => {
+    const src = i === active ? flat : pg;
+    const m = new Map<string, string>();
+    for (const inst of src.instances) {
+      if (inst.partId !== "offpage_connector") continue;
+      const txt = String(inst.params.name ?? "NET_A").trim() || "NET_A";
+      const u = txt.toUpperCase();
+      if (!offDisplay.has(u)) offDisplay.set(u, txt);
+      const local = per[i].pinNets[`${inst.id}:0`];
+      if (local) m.set(local, u);
+    }
+    return m;
+  });
+  const globalize = (pageIdx: number, local: string): string => {
+    if (local === "0") return "0";
+    const u = pageOffLocal[pageIdx].get(local);
+    if (u) return offDisplay.get(u) ?? u;
+    return `S${pageIdx + 1}:${local}`;
+  };
+  const devices: Device[] = [];
+  const nets: NetInfo[] = [];
+  const pinNets: Record<string, string> = {};
+  const seenDev = new Set<string>();
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  per.forEach((b, i) => {
+    const tag = `[${pages[i].name}] `;
+    for (const d of b.netlist.devices) {
+      const nodes = d.nodes.map((n) => globalize(i, n ?? "0"));
+      let id = d.id;
+      if (seenDev.has(id)) {
+        // Doppelte Kürzel über Seiten: ID + id-abgeleitete Knoten (_int, _seg0)
+        // folgen der Folgeseite (sonst Kurzschluss/Matrixkollision im Kernel).
+        let nid = `${id}~S${i + 1}`;
+        for (let k = 2; seenDev.has(nid); k++) nid = `${id}~S${i + 1}~${k}`;
+        for (let j = 0; j < nodes.length; j++) {
+          const n = nodes[j];
+          if (n === id) nodes[j] = nid;
+          else if (n.startsWith(id + "_")) nodes[j] = nid + n.slice(id.length);
+        }
+        id = nid;
+      }
+      seenDev.add(id);
+      devices.push({ ...d, id, nodes });
+    }
+    for (const n of b.nets) nets.push({ ...n, name: globalize(i, n.name), page: pages[i].id });
+    for (const [k, v] of Object.entries(b.pinNets)) pinNets[k] = globalize(i, v);
+    for (const e of b.errors) errors.push(tag + e);
+    for (const w of b.warnings) {
+      // Masse-/Bauteil-Warnungen gelten entwurfsweit (einmal, unten).
+      if (w.startsWith("Kein Massebezug") || w.startsWith("Keine simulierbaren Bauteile")) continue;
+      warnings.push(tag + w);
+    }
+    if (i !== active && b.openEnds.length) {
+      warnings.push(`${tag}${b.openEnds.length} offene Leitungsenden (Markierung nur auf der aktiven Seite)`);
+    }
+  });
+  // Doppelte Bauteil-Kürzel über Seiten melden (Referenzen wirken entwurfsweit).
+  const labelPage = new Map<string, { id: string; name: string }>();
+  pages.forEach((pg, i) => {
+    const src = i === active ? flat : pg;
+    for (const inst of src.instances) {
+      if (!inst.label) continue;
+      const first = labelPage.get(inst.label);
+      if (!first) labelPage.set(inst.label, { id: pg.id, name: pg.name });
+      else if (first.id !== pg.id) {
+        warnings.push(
+          `[${pg.name}] Doppeltes Kürzel „${inst.label}“ (auch auf ${first.name}) — bitte seitenübergreifend neu nummerieren`,
+        );
+        labelPage.set(inst.label, { id: pg.id, name: pg.name });
+      }
+    }
+  });
+  const hasGnd = pages.some((pg, i) =>
+    (i === active ? flat : pg).instances.some((x) => x.partId === "gnd"),
+  );
+  if (!hasGnd) {
+    warnings.push(`Kein Massebezug (GND) im Entwurf (alle ${pages.length} Seiten) — Simulation kann singulär werden.`);
+  }
+  if (!devices.length) warnings.push("Keine simulierbaren Bauteile platziert.");
+  const pointNets: Record<string, string> = {};
+  for (const [k, v] of Object.entries(per[active].pointNets)) pointNets[k] = globalize(active, v);
+  return {
+    netlist: { devices },
+    nets,
+    pinNets,
+    pointNets,
+    errors,
+    warnings,
+    openEnds: per[active].openEnds,
+    junctions: per[active].junctions,
+  };
+}
+
 export function buildNets(doc: SchematicDoc): NetlistBuildResult {
+  // Blätter Stufe B: mehrere Seiten → seitenübergreifend (Off-Page + GND global).
+  if (doc.pages && doc.pages.length > 1) return buildNetsMulti(doc);
   const uf = new UnionFind();
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // wire segments
+  // wire segments (S3.1: Bus-Drähte leiten NICHT — sie sind Bündel + Deklaration)
   const segments: Array<[number, number, number, number]> = [];
   const segOwner: string[] = [];
+  const busSegments: Array<[number, number, number, number]> = [];
+  // S5.9 (W61-Fix): jede Leitung genau EIN Schlüssel — keine Ketten-Union mehr.
+  const wireKey = new Map<string, string>();
+  const docJunctions = doc.junctions ?? [];
+  const junctionKeys = new Set(docJunctions.map((j) => key(j.x, j.y)));
   for (const w of doc.wires) {
     for (let i = 0; i + 1 < w.points.length; i++) {
       const a = w.points[i];
       const b = w.points[i + 1];
+      if (w.isBus) {
+        busSegments.push([a.x, a.y, b.x, b.y]);
+        continue;
+      }
       segments.push([a.x, a.y, b.x, b.y]);
       segOwner.push(w.id);
-      uf.union(key(a.x, a.y), key(b.x, b.y));
+    }
+    if (!w.isBus) {
+      const wk = `W:${w.id}`;
+      wireKey.set(w.id, wk);
+      uf.find(wk);
     }
   }
 
   // pins snap onto wires (also mid-segment T connections) + fault handling
   const pinPoints: Array<{ instanceId: string; pinIndex: number; pinName: string; x: number; y: number }> = [];
-  const faultShortGroups: Array<string[]> = [];
+  const pinKey = (instanceId: string, pinIndex: number) => `P:${instanceId}:${pinIndex}`;
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) {
@@ -450,11 +799,11 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       warnings.push(`${inst.label}: Fault SHORT – Pins werden kurzgeschlossen`);
       // Collect pin keys to short together
       const keys: string[] = [];
-      part.pins.forEach((pin, idx) => {
+      partPins(part, inst.params).forEach((pin, idx) => {
         const pos = pinPosition(inst, idx);
-        keys.push(key(pos.x, pos.y));
+        keys.push(pinKey(inst.id, idx));
         pinPoints.push({ instanceId: inst.id, pinIndex: idx, pinName: pin.name, x: pos.x, y: pos.y });
-        uf.find(key(pos.x, pos.y));
+        uf.find(pinKey(inst.id, idx));
       });
       if (keys.length > 1) {
         for (let i=1; i<keys.length; i++) uf.union(keys[0], keys[i]);
@@ -464,25 +813,63 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     if (fault === "leakage") {
       warnings.push(`${inst.label}: Fault LEAKAGE – 10k Leckwiderstand wird hinzugefügt (vereinfacht)`);
     }
-    part.pins.forEach((pin, idx) => {
+    partPins(part, inst.params).forEach((pin, idx) => {
       const pos = pinPosition(inst, idx);
       pinPoints.push({ instanceId: inst.id, pinIndex: idx, pinName: pin.name, x: pos.x, y: pos.y });
-      uf.find(key(pos.x, pos.y));
+      uf.find(pinKey(inst.id, idx));
     });
   }
 
-  /* W61: Multisim-Regel – nur echte Anschlussstellen verbinden.
-   * Kandidaten sind Leitungsenden, Pins, Netzlabels und gesetzte
-   * Verbindungspunkte. Ein Knick mitten in einer Leitung ist KEINE
-   * Anschlussstelle: kreuzen sich zwei Leitungen dort, bleiben die Netze
-   * getrennt (im Bild auch kein Punkt), bis der Nutzer einen Verbindungspunkt
-   * setzt. Vorher zählte jeder Leitungs-Stützpunkt, dadurch waren Kreuzungen an
-   * Knicks unbemerkt leitend. */
-  const docJunctions = doc.junctions ?? [];
-  const junctionKeys = new Set(docJunctions.map((j) => key(j.x, j.y)));
+  /* S5.9 (W61-Fix): Verbunden wird nur noch an echten Anschlussstellen —
+   * Leitungsende auf fremdem Segment, Pin auf Segment, gesetzter Punkt auf
+   * Segment. Geteilte Knicke (Stützpunkt auf Stützpunkt, beidseitig mitten in
+   * der Leitung) verbinden NICHTS mehr; vorher waren sie über den globalen
+   * Ketten-Schlüssel unbemerkt leitend. Altbestände bleiben erhalten:
+   * migrateDoc trägt an solchen Stellen Dots nach. */
+  const pinsAtCoord = new Map<string, string[]>();
+  for (const p of pinPoints) {
+    const k = key(p.x, p.y);
+    const arr = pinsAtCoord.get(k) ?? [];
+    arr.push(pinKey(p.instanceId, p.pinIndex));
+    pinsAtCoord.set(k, arr);
+  }
+  for (const arr of pinsAtCoord.values()) {
+    for (let i = 1; i < arr.length; i++) uf.union(arr[0], arr[i]);
+  }
+  const wiresAt = (x: number, y: number, exclude?: string): string[] => {
+    const out: string[] = [];
+    for (let si = 0; si < segments.length; si++) {
+      if (exclude !== undefined && segOwner[si] === exclude) continue;
+      const [ax, ay, bx, by] = segments[si];
+      if (!pointOnSegment(x, y, ax, ay, bx, by)) continue;
+      const wk = wireKey.get(segOwner[si]);
+      if (wk && !out.includes(wk)) out.push(wk);
+    }
+    return out;
+  };
+  // Pins auf Leitungen (auch T-Kontakte mitten im Segment)
+  for (const p of pinPoints) {
+    for (const wk of wiresAt(p.x, p.y)) uf.union(pinKey(p.instanceId, p.pinIndex), wk);
+  }
+  // Leitungsenden auf fremden Segmenten (T-Kontakt/Stoß)
+  for (const w of doc.wires) {
+    if (w.isBus || w.points.length < 2) continue;
+    const wk = wireKey.get(w.id);
+    if (!wk) continue;
+    for (const e of [w.points[0], w.points[w.points.length - 1]]) {
+      for (const fk of wiresAt(e.x, e.y, w.id)) uf.union(wk, fk);
+    }
+  }
+  // Ausdrückliche Verbindungspunkte
+  for (const j of docJunctions) {
+    const jk = `J:${key(j.x, j.y)}`;
+    uf.find(jk);
+    for (const wk of wiresAt(j.x, j.y)) uf.union(jk, wk);
+    for (const pk of pinsAtCoord.get(key(j.x, j.y)) ?? []) uf.union(jk, pk);
+  }
   const allPoints = new Set<string>(junctionKeys);
   for (const w of doc.wires) {
-    if (w.points.length < 2) continue;
+    if (w.points.length < 2 || w.isBus) continue;
     const a = w.points[0];
     const b = w.points[w.points.length - 1];
     allPoints.add(key(a.x, a.y));
@@ -491,36 +878,80 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   for (const p of pinPoints) allPoints.add(key(p.x, p.y));
   for (const l of doc.labels) allPoints.add(key(l.x, l.y));
 
-  // connect points that lie on a wire segment
-  for (const pk of allPoints) {
+  // Koordinate -> Union-Schlüssel (Pin zuerst, dann Leitung, dann Punkt,
+  // sonst eigener Freipunkt). An echten Kreuzungen unverbundener Leitungen ist
+  // die Koordinate mehrdeutig — gemeldet wird die erste Leitung (nur Anzeige).
+  const freePoint = new Map<string, string>();
+  const coordKey = (x: number, y: number): string => {
+    const k = key(x, y);
+    const pins = pinsAtCoord.get(k);
+    if (pins?.length) return pins[0];
+    const wk = wiresAt(x, y)[0];
+    if (wk) return wk;
+    if (junctionKeys.has(k)) return `J:${k}`;
+    let q = freePoint.get(k);
+    if (!q) { q = `Q:${k}`; uf.find(q); freePoint.set(k, q); }
+    return q;
+  };
+  const rootOf = (pk: string): string => {
     const [px, py] = pk.split(",").map(Number);
-    for (const [ax, ay, bx, by] of segments) {
-      if (pointOnSegment(px, py, ax, ay, bx, by)) uf.union(pk, key(ax, ay));
-    }
-  }
+    return uf.find(coordKey(px, py));
+  };
 
   // group
   const groups = new Map<string, string[]>();
-  for (const pk of allPoints) {
-    const root = uf.find(pk);
-    const arr = groups.get(root) ?? [];
-    arr.push(pk);
-    groups.set(root, arr);
-  }
+  const regroup = () => {
+    groups.clear();
+    for (const pk of allPoints) {
+      const root = rootOf(pk);
+      const arr = groups.get(root) ?? [];
+      arr.push(pk);
+      groups.set(root, arr);
+    }
+  };
+  regroup();
 
-  // on-page / off-page connectors: same name = same net (virtual connection)
-  const connectorGroups = new Map<string, string[]>(); // name -> root[]
+  // On-Page-Verbinder + Netzlabels: gleicher Name = gleiches Netz (virtuelle
+  // Verbindung wie in Multisim, pro Entwurf — keine Blätter, kein Off-Page).
+  // S5.22: Labels nehmen am selben Mechanismus teil; der Vergleich ist
+  // groß-/klein-unabhängig (SPICE-Knotennamen sind es auch), angezeigt wird
+  // die zuerst vorkommende Schreibweise (Verbinder- vor Label-Schreibung).
+  const connectorGroups = new Map<string, string[]>(); // UPPER(name) -> root[]
+  const displayName = new Map<string, string>(); // UPPER(name) -> erste Schreibweise
+  const bindName = (name: string, x: number, y: number) => {
+    const t = name.trim();
+    if (!t) return;
+    const k = t.toUpperCase();
+    const arr = connectorGroups.get(k) ?? [];
+    arr.push(uf.find(coordKey(x, y)));
+    connectorGroups.set(k, arr);
+    if (!displayName.has(k)) displayName.set(k, t);
+  };
   for (const inst of doc.instances) {
-    if (inst.partId === "onpage_connector" || inst.partId === "offpage_connector") {
+    if (inst.partId === "onpage_connector") {
       const name = String(inst.params.name ?? "NET_A").trim() || "NET_A";
       const pos = pinPosition(inst, 0);
-      const root = uf.find(key(pos.x, pos.y));
-      const arr = connectorGroups.get(name) ?? [];
-      arr.push(root);
-      connectorGroups.set(name, arr);
+      bindName(name, pos.x, pos.y);
+    } else if (inst.partId === "bus_tap") {
+      // S3.1: Tap bindet Pin 0 an BUS[bit] (Namensbindung, kein Geometrie-Raten).
+      const bus = String(inst.params.bus ?? "D").trim() || "D";
+      const bit = Math.max(0, Math.floor(Number(inst.params.bit ?? 0)));
+      const pos = pinPosition(inst, 0);
+      bindName(`${bus}[${bit}]`, pos.x, pos.y);
+    } else if (inst.partId === "bus_splitter") {
+      // S3.1: Splitter bindet Bit-Pin i (Pin 0 = BUS-Anker/NC) an BUS[i].
+      const bus = String(inst.params.bus ?? "D").trim() || "D";
+      const width = splitterWidth(inst.params);
+      for (let i = 0; i < width; i++) {
+        const pos = pinPosition(inst, 1 + i);
+        bindName(`${bus}[${i}]`, pos.x, pos.y);
+      }
     }
   }
-  for (const [name, roots] of connectorGroups) {
+  // S5.22: Netzlabels verbinden virtuell (Multisim) — auch untereinander
+  // und mit gleichnamigen Verbindern (der Mechanismus ist einer).
+  for (const l of doc.labels) bindName(l.name, l.x, l.y);
+  for (const roots of connectorGroups.values()) {
     if (roots.length > 1) {
       const first = roots[0];
       for (let i=1; i<roots.length; i++) {
@@ -528,32 +959,60 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       }
     }
   }
-  // Rebuild groups after connector union
-  groups.clear();
-  for (const pk of allPoints) {
-    const root = uf.find(pk);
-    const arr = groups.get(root) ?? [];
-    arr.push(pk);
-    groups.set(root, arr);
+  // S3.1: Bus-Deklarationen validieren (Bus-Leitung = Bündel + Deklaration;
+  // ohne Deklaration funktionieren Taps trotzdem — dann ohne Prüfung).
+  const busDecl = new Map<string, number[]>();
+  for (const w of doc.wires) {
+    if (!w.isBus || !w.busName?.trim()) continue;
+    const arr = busDecl.get(w.busName.trim()) ?? [];
+    arr.push(w.busWidth ?? 0);
+    busDecl.set(w.busName.trim(), arr);
   }
+  for (const [name, widths] of busDecl) {
+    const distinct = [...new Set(widths.filter((v) => v > 0))];
+    if (distinct.length > 1) warnings.push(`Bus ${name}: widersprüchliche Breiten deklariert (${distinct.join(" vs ")})`);
+  }
+  const bitUse = new Map<string, Set<number>>();
+  const markBit = (bus: string, bit: number) => {
+    const set = bitUse.get(bus) ?? new Set<number>();
+    set.add(bit);
+    bitUse.set(bus, set);
+  };
+  for (const inst of doc.instances) {
+    if (inst.partId === "bus_tap") {
+      markBit(String(inst.params.bus ?? "D").trim() || "D", Math.max(0, Math.floor(Number(inst.params.bit ?? 0))));
+    } else if (inst.partId === "bus_splitter") {
+      const bus = String(inst.params.bus ?? "D").trim() || "D";
+      for (let i = 0; i < splitterWidth(inst.params); i++) markBit(bus, i);
+    }
+  }
+  for (const [bus, bits] of bitUse) {
+    const decl = busDecl.get(bus)?.find((v) => v > 0);
+    if (!decl) continue;
+    for (const b of [...bits].sort((a, z) => a - z)) {
+      if (b >= decl) warnings.push(`Bus ${bus}[${b}]: Bit übersteigt die deklarierte Breite ${decl}`);
+    }
+  }
+  // Rebuild groups after connector union
+  regroup();
 
-  // naming: ground first, then labels, then auto, then onpage/offpage names
+  // naming: ground first, then labels, then auto, then connector names
   const rootName = new Map<string, string>();
   for (const inst of doc.instances) {
     if (inst.partId === "gnd") {
-      const pos = pinPosition(inst, 0);
-      rootName.set(uf.find(key(pos.x, pos.y)), "0");
+      rootName.set(uf.find(pinKey(inst.id, 0)), "0");
     }
   }
   for (const l of doc.labels) {
-    const root = uf.find(key(l.x, l.y));
-    if (rootName.get(root) !== "0") rootName.set(root, l.name.trim() || rootName.get(root) || "");
+    const root = uf.find(coordKey(l.x, l.y));
+    // S5.22: erste Schreibweise gewinnt (virtuell vereinte Labels teilen ein Netz).
+    if (rootName.get(root) !== "0" && !rootName.get(root)) rootName.set(root, l.name.trim());
   }
-  // onpage/offpage names have priority over auto
-  for (const [name, roots] of connectorGroups) {
+  // connector names have priority over auto (und über Label-Schreibweisen)
+  for (const [upper, roots] of connectorGroups) {
     if (roots.length) {
       const root = uf.find(roots[0]);
-      if (rootName.get(root) !== "0") rootName.set(root, name);
+      if (rootName.get(root) !== "0") rootName.set(root, displayName.get(upper) ?? upper);
     }
   }
   let counter = 1;
@@ -565,22 +1024,28 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   // macro models (op-amp supplies, 555 CTRL, ...) can fall back to their defaults
   const pinsPerRoot = new Map<string, number>();
   for (const p of pinPoints) {
-    const r = uf.find(key(p.x, p.y));
+    const r = uf.find(pinKey(p.instanceId, p.pinIndex));
     pinsPerRoot.set(r, (pinsPerRoot.get(r) ?? 0) + 1);
   }
+  // S3.1: Namensgebundene Netze (On-Page/Tap/Splitter) behalten ihren Namen —
+  // der Name IST die Verbindung, auch solo (nc gilt nur echten Freiläufern).
+  const connectorRoots = new Set<string>();
+  for (const roots of connectorGroups.values()) {
+    for (const r of roots) connectorRoots.add(uf.find(r));
+  }
   for (const p of pinPoints) {
-    const r = uf.find(key(p.x, p.y));
+    const r = uf.find(pinKey(p.instanceId, p.pinIndex));
     const group = groups.get(r) ?? [];
-    if ((pinsPerRoot.get(r) ?? 0) === 1 && group.length === 1 && rootName.get(r) !== "0") {
+    if ((pinsPerRoot.get(r) ?? 0) === 1 && group.length === 1 && rootName.get(r) !== "0" && !connectorRoots.has(r)) {
       rootName.set(r, `${p.instanceId}_nc${p.pinIndex}`);
     }
   }
 
   const pinNets: Record<string, string> = {};
-  for (const p of pinPoints) pinNets[`${p.instanceId}:${p.pinIndex}`] = rootName.get(uf.find(key(p.x, p.y))) ?? "0";
+  for (const p of pinPoints) pinNets[`${p.instanceId}:${p.pinIndex}`] = rootName.get(uf.find(pinKey(p.instanceId, p.pinIndex))) ?? "0";
 
   const pointNets: Record<string, string> = {};
-  for (const pk of allPoints) pointNets[pk] = rootName.get(uf.find(pk)) ?? "";
+  for (const pk of allPoints) pointNets[pk] = rootName.get(rootOf(pk)) ?? "";
 
   const nets: NetInfo[] = [];
   for (const [root, pts] of groups) {
@@ -591,7 +1056,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
         const [x, y] = pk.split(",").map(Number);
         return { x, y };
       }),
-      pins: pinPoints.filter((p) => uf.find(key(p.x, p.y)) === root).map((p) => ({ instanceId: p.instanceId, pinIndex: p.pinIndex, pinName: p.pinName })),
+      pins: pinPoints.filter((p) => uf.find(pinKey(p.instanceId, p.pinIndex)) === root).map((p) => ({ instanceId: p.instanceId, pinIndex: p.pinIndex, pinName: p.pinName })),
     });
   }
 
@@ -605,7 +1070,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       // Skip device – open circuit
       continue;
     }
-    const nodes = part.pins.map((_, idx) => pinNets[`${inst.id}:${idx}`] ?? `${inst.id}_nc${idx}`);
+    const nodes = partPins(part, inst.params).map((_, idx) => pinNets[`${inst.id}:${idx}`] ?? `${inst.id}_nc${idx}`);
     const like: PartInstanceLike = { id: inst.label || inst.id, partId: inst.partId, params: inst.params, text: inst.text };
     try {
       const devs = part.toDevices(like, nodes);
@@ -647,7 +1112,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   for (const inst of doc.instances) {
     const part = PART_MAP[inst.partId];
     if (!part) continue;
-    for (let i = 0; i < part.pins.length; i++) {
+    for (let i = 0; i < partPins(part, inst.params).length; i++) {
       const pos = pinPosition(inst, i);
       pinKeys.add(key(pos.x, pos.y));
     }
@@ -657,7 +1122,7 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
   const endCount = new Map<string, number>();
   const wireEnds: Array<{ x: number; y: number }> = [];
   for (const w of doc.wires) {
-    if (w.points.length < 2) continue;
+    if (w.points.length < 2 || w.isBus) continue;
     for (const p of [w.points[0], w.points[w.points.length - 1]]) {
       wireEnds.push({ x: p.x, y: p.y });
       endCount.set(key(p.x, p.y), (endCount.get(key(p.x, p.y)) ?? 0) + 1);
@@ -675,6 +1140,8 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       warnWire(`Leitung ohne Länge bei (${Math.round(w.points[0].x)}, ${Math.round(w.points[0].y)}) – doppelter Stützpunkt`);
       continue;
     }
+    // S3.1: Bus-Enden hängen per Design in der Luft (kein offenes Ende).
+    if (w.isBus) continue;
     for (const idx of [0, w.points.length - 1]) {
       const p = w.points[idx];
       const k = key(p.x, p.y);
@@ -689,6 +1156,27 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
       if (onForeignSegment) continue;
       openEnds.push({ x: p.x, y: p.y });
       warnWire(`Leitungsende ohne Anschluss bei (${Math.round(p.x)}, ${Math.round(p.y)}) – hängt in der Luft`);
+    }
+  }
+
+  // S5.9: Geteilte Knicke verbinden nichts mehr (W61-Fix, siehe oben) — die
+  // S3.5-Warnung ist damit obsolet. (Absichtlich keine Still-Meldung: Eine
+  // Kreuzung an Knicks ist jetzt so harmlos wie jede andere Kreuzung.)
+
+  // S3.1: Geometrisches Antippen eines Busses verbindet nichts — nur Tap/Splitter.
+  if (busSegments.length) {
+    const onBus = (x: number, y: number) => busSegments.some(([ax, ay, bx, by]) => pointOnSegment(x, y, ax, ay, bx, by));
+    for (const w of doc.wires) {
+      if (w.isBus || w.points.length < 2) continue;
+      for (const idx of [0, w.points.length - 1]) {
+        const p = w.points[idx];
+        const k = key(p.x, p.y);
+        if (pinKeys.has(k) || labelKeys.has(k)) continue;
+        if (onBus(p.x, p.y)) warnWire(`Leitungsende auf Bus-Leitung bei (${Math.round(p.x)}, ${Math.round(p.y)}) – Busse verbinden nur per Bus-Tap/Splitter`);
+      }
+    }
+    for (const j of docJunctions) {
+      if (onBus(j.x, j.y)) warnWire(`Verbindungspunkt auf Bus-Leitung bei (${Math.round(j.x)}, ${Math.round(j.y)}) – wirkungslos, Busse verbinden nur per Bus-Tap/Splitter`);
     }
   }
 
@@ -761,6 +1249,63 @@ export function buildNets(doc: SchematicDoc): NetlistBuildResult {
     if (junctionDegree(k) < 2) warnWire(`Verbindungspunkt ohne Leitung bei (${Math.round(j.x)}, ${Math.round(j.y)}) – sitzt auf keiner Leitung`);
     if (!junctions.some((q) => Math.abs(q.x - j.x) < 0.01 && Math.abs(q.y - j.y) < 0.01)) junctions.push({ x: j.x, y: j.y });
   }
+
+  // S3.4: ERC — elektrische Pin-Typen prüfen (Regeln E1–E4, siehe DESIGN.md).
+  const ercWarn: string[] = [];
+  let hiddenErc = 0;
+  const warnErc = (msg: string) => {
+    if (ercWarn.length < 12) ercWarn.push(msg);
+    else hiddenErc++;
+  };
+  const instById = new Map(doc.instances.map((i) => [i.id, i]));
+  interface ErcPin { inst: string; label: string; pin: string; type: PinElectrical; custom: boolean; solo: boolean }
+  const ercByRoot = new Map<string, ErcPin[]>();
+  for (const p of pinPoints) {
+    const inst = instById.get(p.instanceId);
+    const part = inst ? PART_MAP[inst.partId] : undefined;
+    const r = uf.find(pinKey(p.instanceId, p.pinIndex));
+    const arr = ercByRoot.get(r) ?? [];
+    arr.push({
+      inst: p.instanceId,
+      label: inst?.label || p.instanceId,
+      pin: p.pinName,
+      type: part && inst ? pinElectrical(part, inst.params, p.pinIndex) : "passive",
+      custom: !!part?.tags?.includes("custom"),
+      solo: (pinsPerRoot.get(r) ?? 0) === 1 && (groups.get(r) ?? []).length === 1,
+    });
+    ercByRoot.set(r, arr);
+  }
+  for (const [root, pins] of ercByRoot) {
+    const net = rootName.get(root) ?? "?";
+    const tag = (e: ErcPin) => `${e.label}:${e.pin}`;
+    const drivers = pins.filter((e) => e.type === "output" || e.type === "power_out");
+    // E1: Treiberausgänge verschiedener Instanzen auf einem Netz.
+    // Gleiche Instanz = erlaubt (herstellerseitig verbundene Pins/Brücken).
+    if (new Set(drivers.map((e) => e.inst)).size > 1) {
+      warnErc(`ERC E1: Netz „${net}“ – Ausgänge kurzgeschlossen (${drivers.slice(0, 4).map(tag).join(", ")})`);
+      continue;
+    }
+    const types = new Set(pins.map((e) => e.type));
+    // E2: Netz nur an Eingängen – kein Treiber.
+    if (pins.length > 1 && types.size === 1 && types.has("input")) {
+      warnErc(`ERC E2: Netz „${net}“ hängt nur an Eingängen, kein Treiber (${pins.slice(0, 4).map(tag).join(", ")})`);
+      continue;
+    }
+    // E3: Versorgungseingang ohne Quelle (passiv = mögliche RC-Speisung, still).
+    if (pins.length > 1 && types.has("power_in") && !types.has("power_out") && !types.has("output") && !types.has("passive")) {
+      warnErc(`ERC E3: Netz „${net}“ versorgt ohne Quelle (${pins.slice(0, 4).map(tag).join(", ")})`);
+      continue;
+    }
+    // E4: Unverbundene Eingänge; Versorgung nur bei eigenen Bauteilen
+    // (eingebaute Makros haben dokumentierte Standardwerte).
+    if (pins.length === 1 && pins[0].solo && pins[0].type === "input") {
+      warnErc(`ERC E4: ${tag(pins[0])} (Eingang) ist unverbunden`);
+    } else if (pins.length === 1 && pins[0].solo && pins[0].type === "power_in" && pins[0].custom) {
+      warnErc(`ERC E4: ${tag(pins[0])} (Versorgung, eigenes Bauteil) ist unverbunden`);
+    }
+  }
+  if (hiddenErc > 0) ercWarn.push(`… und ${hiddenErc} weitere ERC-Hinweise`);
+  warnings.push(...ercWarn);
 
   return { netlist: { devices, title: doc.name }, nets, pinNets, pointNets, errors, warnings, openEnds, junctions };
 }
@@ -898,7 +1443,8 @@ export interface BomRow {
 
 export function buildBom(doc: SchematicDoc): BomRow[] {
   const rows = new Map<string, BomRow>();
-  for (const inst of doc.instances) {
+  // Blätter Stufe B: Stückliste umfasst alle Seiten.
+  for (const inst of pageInstances(doc)) {
     const part: PartDef | undefined = PART_MAP[inst.partId];
     if (!part || part.mount === "virtual") continue;
     const main = part.params[0];

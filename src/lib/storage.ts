@@ -11,8 +11,10 @@
  */
 
 import { SchematicDoc, Junction, pointOnSegment } from "./schematic/model";
+import type { CustomPartSpec } from "./library/customParts";
 
 const PROJECT_KEY = "multispice.project.v1";
+const PROJECT_PREV_KEY = "multispice.project.prev.v1";
 const LIBRARY_KEY = "multispice.library.v1";
 
 export interface StoredProject {
@@ -23,6 +25,10 @@ export interface StoredProject {
   instruments?: unknown[];
   /** Unter Windows ggf. zuletzt gebundener Dateipfad für nahtloses Auto-Save. */
   filePath?: string | null;
+  /** S5.11: true, wenn diese Kopie aus der Vorgängergeneration stammt. */
+  fromBackup?: boolean;
+  /** S6.4: Eigene Bauteile, die das Projekt verwendet (reist mit der Datei). */
+  customParts?: CustomPartSpec[];
 }
 
 export interface StoredLibrary {
@@ -86,15 +92,18 @@ function safeFileName(name: string): string {
   return (name || "schaltplan").trim().replace(/\s+/g, "_").replace(/[^\wäöüÄÖÜß.-]+/g, "-") || "schaltplan";
 }
 
-export function buildProjectEnvelopeJson(doc: SchematicDoc, instruments?: unknown[]): string {
-  const envelope = {
+export function buildProjectEnvelopeJson(doc: SchematicDoc, instruments?: unknown[], customParts?: CustomPartSpec[]): string {
+  const envelope: Record<string, unknown> = {
     format: "multispice-project",
     version: 2,
     name: doc.name,
     savedAt: new Date().toISOString(),
     doc,
     instruments: instruments ?? [],
+    customParts: undefined,
   };
+  if (customParts && customParts.length > 0) envelope.customParts = customParts;
+  else delete envelope.customParts;
   return JSON.stringify(envelope, null, 2);
 }
 
@@ -109,8 +118,9 @@ export async function saveProjectToFile(
   doc: SchematicDoc,
   instruments?: unknown[],
   opts: { saveAs?: boolean } = {},
-): Promise<{ ok: boolean; canceled?: boolean; targetName?: string; error?: string }> {
-  const json = buildProjectEnvelopeJson(doc, instruments);
+  customParts?: CustomPartSpec[],
+): Promise<{ ok: boolean; canceled?: boolean; targetName?: string; error?: string; viaDownload?: boolean }> {
+  const json = buildProjectEnvelopeJson(doc, instruments, customParts);
   const suggestedName = `${safeFileName(doc.name)}.msx.json`;
 
   // 1. Windows Desktop App (Electron IPC)
@@ -181,7 +191,8 @@ export async function saveProjectToFile(
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 1500);
-      return { ok: true, targetName: suggestedName };
+      // S5.11: Download bindet nicht — Aufrufer werten viaDownload ehrlich aus.
+      return { ok: true, targetName: suggestedName, viaDownload: true };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
@@ -195,9 +206,9 @@ export async function saveProjectToFile(
  * das erste Mal gespeichert (oder geöffnet) hat, wird jede Änderung automatisch
  * im Hintergrund direkt in diese Datei geschrieben.
  */
-export async function autoSaveToBoundFile(doc: SchematicDoc, instruments?: unknown[]): Promise<boolean> {
+export async function autoSaveToBoundFile(doc: SchematicDoc, instruments?: unknown[], customParts?: CustomPartSpec[]): Promise<boolean> {
   if (!hasActiveSaveTarget()) return false;
-  const json = buildProjectEnvelopeJson(doc, instruments);
+  const json = buildProjectEnvelopeJson(doc, instruments, customParts);
 
   if (typeof window !== "undefined" && window.multispiceDesktop?.saveFile && activeDesktopFilePath) {
     try {
@@ -292,8 +303,53 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === "string");
 }
 
+/** S5.11: Minimaler Storage-Zugriff — window.localStorage oder Test-Fake. */
+export interface KeyValueStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+/**
+ * S5.11: Rohwert (JSON-Text oder AppData-Objekt) → geprüftes, migriertes
+ * Projekt. null bei Korruption/Fremdformat — nie werfen.
+ */
+export function parseStoredProject(value: unknown): StoredProject | null {
+  try {
+    const parsed = (typeof value === "string" ? JSON.parse(value) : value) as StoredProject;
+    if (!parsed || typeof parsed !== "object" || typeof parsed.name !== "string" || !isDoc(parsed.doc)) {
+      return null;
+    }
+    parsed.doc = migrateDoc(parsed.doc);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * S5.11: Aktuelle Kopie oder — wenn sie korrupt ist — die Vorgänger­genera­tion.
+ * Aus dem Backup stammende Projekte tragen `fromBackup` (UI meldet das).
+ */
+export function pickStoredProject(current: unknown, prev: unknown): StoredProject | null {
+  const cur = parseStoredProject(current);
+  if (cur) return cur;
+  const prv = parseStoredProject(prev);
+  if (!prv) return null;
+  return { ...prv, fromBackup: true };
+}
+
+/** S5.11: Aktuelle Kopie → Vorgänger (Best-Effort, nie werfen). */
+export function rotateProjectBackup(store: KeyValueStore): void {
+  try {
+    const cur = store.getItem(PROJECT_KEY);
+    if (cur) store.setItem(PROJECT_PREV_KEY, cur);
+  } catch {
+    /* Speicher klemmt — Hauptkopie bleibt trotzdem schreibbar */
+  }
+}
+
 /** Speichert das aktuelle Projekt in localStorage UND unter Windows in AppData. */
-export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[]): { ok: boolean; bytes: number } {
+export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[], customParts?: CustomPartSpec[]): { ok: boolean; bytes: number } {
   if (!canStore()) return { ok: false, bytes: 0 };
   const stored: StoredProject = {
     name: doc.name,
@@ -302,10 +358,17 @@ export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[]): { 
     instruments: instruments ?? [],
     filePath: activeDesktopFilePath,
   };
+  if (customParts && customParts.length > 0) stored.customParts = customParts;
   try {
     const raw = JSON.stringify(stored);
+    // S5.11: Erst rotieren, dann schreiben (Crash dazwischen → Vorgänger intakt).
+    rotateProjectBackup(window.localStorage);
     window.localStorage.setItem(PROJECT_KEY, raw);
     if (window.multispiceDesktop?.saveAppData) {
+      try {
+        const old = window.multispiceDesktop.loadAppDataSync?.(PROJECT_KEY) as StoredProject | null;
+        if (old && typeof old === "object") window.multispiceDesktop.saveAppData(PROJECT_PREV_KEY, old);
+      } catch {}
       window.multispiceDesktop.saveAppData(PROJECT_KEY, stored);
     }
     return { ok: true, bytes: raw.length };
@@ -324,20 +387,37 @@ export function saveProjectLocal(doc: SchematicDoc, instruments?: unknown[]): { 
 export function loadProjectLocal(): StoredProject | null {
   if (!canStore()) return null;
   try {
-    let parsed: StoredProject | null = null;
+    let picked: StoredProject | null = null;
     const raw = window.localStorage.getItem(PROJECT_KEY);
     if (raw) {
-      parsed = JSON.parse(raw) as StoredProject;
-    } else if (window.multispiceDesktop?.loadAppDataSync) {
-      const fromAppData = window.multispiceDesktop.loadAppDataSync(PROJECT_KEY) as StoredProject | null;
-      if (fromAppData && typeof fromAppData === "object") {
-        parsed = fromAppData;
-      }
+      let prevRaw: string | null = null;
+      try {
+        prevRaw = window.localStorage.getItem(PROJECT_PREV_KEY);
+      } catch {}
+      picked = pickStoredProject(raw, prevRaw);
     }
-    if (!parsed || typeof parsed?.name !== "string" || !isDoc(parsed?.doc)) return null;
-    parsed.doc = migrateDoc(parsed.doc);
+    // S5.11: Kein else-if mehr — AppData gilt auch, wenn localStorage korrupt
+    // ist (bisher: still null = Totalverlust trotz intakter AppData-Kopie).
+    if (!picked && window.multispiceDesktop?.loadAppDataSync) {
+      try {
+        picked = pickStoredProject(
+          window.multispiceDesktop.loadAppDataSync(PROJECT_KEY),
+          window.multispiceDesktop.loadAppDataSync(PROJECT_PREV_KEY),
+        );
+      } catch {}
+    }
+    if (!picked) return null;
+    const parsed = picked;
     if (parsed.filePath && typeof parsed.filePath === "string") {
       activeDesktopFilePath = parsed.filePath;
+    } else if (window.multispiceDesktop?.loadAppDataSync) {
+      // WDA-4: "activeFilePath" wurde bisher nur geschrieben, nie gelesen —
+      // Datei-Bindung geht sonst nach Neustart verloren, sobald der Blob
+      // keinen Pfad trägt (z. B. altes Format ohne filePath).
+      try {
+        const bound = window.multispiceDesktop.loadAppDataSync("activeFilePath") as string | null;
+        if (bound && typeof bound === "string") activeDesktopFilePath = bound;
+      } catch {}
     }
     return parsed;
   } catch {
@@ -423,7 +503,7 @@ export function listProjectSlots(): ProjectSlot[] {
   return readSlots().sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
 }
 
-export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string, instruments?: unknown[]): { ok: boolean; id: string } {
+export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string, instruments?: unknown[], customParts?: CustomPartSpec[]): { ok: boolean; id: string } {
   const slots = readSlots();
   const slotId = id ?? "p_" + Math.random().toString(36).slice(2, 9);
   const slot: ProjectSlot = {
@@ -433,6 +513,9 @@ export function saveProjectSlot(name: string, doc: SchematicDoc, id?: string, in
     savedAt: new Date().toISOString(),
     instruments: JSON.parse(JSON.stringify(instruments ?? [])) as unknown[],
   };
+  if (customParts && customParts.length > 0) {
+    slot.customParts = JSON.parse(JSON.stringify(customParts)) as CustomPartSpec[];
+  }
   const i = slots.findIndex((s) => s.id === slotId);
   if (i >= 0) slots[i] = slot;
   else slots.push(slot);

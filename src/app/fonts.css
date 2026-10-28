@@ -1,0 +1,7 @@
+/* Schriften (vendored): Bei Netz einmal `npm run fonts` ausführen —
+ * BunnyFonts primär, Google Fonts Backup. Ohne Schriftdateien greift
+ * nahtlos der System-Fallback aus globals.css. Wird vom Skript neu erzeugt. */
+:root {
+  --font-inter: "Inter";
+  --font-jetbrains: "JetBrains Mono";
+}

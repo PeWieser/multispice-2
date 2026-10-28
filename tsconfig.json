@@ -38,6 +38,9 @@
   ],
   "exclude": [
     "node_modules",
+    "out",
+    "test-results",
+    "playwright-report",
     "reference",
     "reference 2",
     "oszi v2",

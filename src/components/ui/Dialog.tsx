@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
 import { cx } from "./cx";
-import { IconButton } from "./Button";
+import { WINDOW_SHELL, WindowTitleBar } from "./WindowChrome";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -83,7 +82,7 @@ export function ModalShell({
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className={cx("rise flex max-h-[86vh] w-full flex-col overflow-hidden rounded-window bg-surface shadow-3 outline-none", className)}
+        className={cx(`rise max-h-[86vh] w-full outline-none ${WINDOW_SHELL}`, className)}
         style={{ maxWidth }}
       >
         {children}
@@ -93,17 +92,7 @@ export function ModalShell({
 }
 
 export function DialogHeader({ title, onClose, children }: { title: string; onClose: () => void; children?: React.ReactNode }) {
-  return (
-    <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-hairline pl-4 pr-2">
-      <h2 className="truncate text-sm font-semibold text-ink">{title}</h2>
-      <div className="flex items-center gap-1">
-        {children}
-        <IconButton aria-label="Schließen (Esc)" onClick={onClose}>
-          <X />
-        </IconButton>
-      </div>
-    </div>
-  );
+  return <WindowTitleBar title={title} onClose={onClose} closeLabel="Schließen (Esc)" actions={children} />;
 }
 
 export function Dialog({

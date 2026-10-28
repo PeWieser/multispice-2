@@ -8,6 +8,7 @@ import { cx } from "./cx";
 export function Menu({
   label,
   open,
+  instant,
   onOpenChange,
   onHoverOpen,
   onNavigate,
@@ -15,6 +16,8 @@ export function Menu({
 }: {
   label: string;
   open: boolean;
+  /** Kein Einblenden beim Wechsel zwischen offenen Menüs (gegen Flackern). */
+  instant?: boolean;
   onOpenChange: (open: boolean) => void;
   /** Menüleiste-Modus: wenn IRGENDEIN Menü offen ist, öffnet Hover dieses sofort (nativ). */
   onHoverOpen?: () => void;
@@ -71,7 +74,10 @@ export function Menu({
         <div
           role="menu"
           aria-label={label}
-          className="rise absolute left-0 top-[calc(100%+6px)] z-popover w-max min-w-[232px] rounded-panel bg-overlay p-1 shadow-3 backdrop-blur-xl backdrop-saturate-150"
+          className={cx(
+            "absolute left-0 top-[calc(100%+6px)] z-popover w-max min-w-[232px] rounded-panel bg-overlay p-1 shadow-3 backdrop-blur-xl backdrop-saturate-150",
+            !instant && "rise",
+          )}
           onClick={() => onOpenChange(false)}
         >
           {children}

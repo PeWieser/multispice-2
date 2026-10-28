@@ -1,10 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
-const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
+import "./fonts.css";
 
 const DESCRIPTION =
   "Multispice: moderner EDA-Arbeitsplatz mit SPICE-Simulationskern – Schaltplan-Editor, Echtzeitsimulation, virtuelle Messgeräte, Monte-Carlo- und Rauschanalyse. Komplett im Browser, ohne Server.";
@@ -68,7 +65,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="de" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+    <html lang="de" suppressHydrationWarning>
       <body className="h-full antialiased">{children}</body>
     </html>
   );

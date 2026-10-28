@@ -20,6 +20,7 @@ import { CH_COLORS, clamp, defaultSettings, type ChannelSettings, type Env, type
 import { PLUG_CURSOR } from "@/components/cursors";
 import { engine as simEngine, useEditor, type InstrumentWindow } from "@/state/editor";
 import { DeviceFit, useReportNatural } from "./DeviceFit";
+import { setLeadArmedSynced } from "@/lib/desktopSync";
 import { BENCH_PAD } from "@/lib/windows/geometry";
 import { LeadBanner } from "./LeadBanner";
 
@@ -177,12 +178,12 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
       const st = useEditor.getState();
       const cur = st.leadArmed;
       if (cur && cur.instanceId === instId && cur.pinIndex === k) {
-        st.setLeadArmed(null); // zurück auf die BNC → Messung laut Verdrahtung
+        setLeadArmedSynced(null); // zurück auf die BNC → Messung laut Verdrahtung
         return;
       }
       setParked((p) => p.map((v, i) => (i === k ? null : v))); // von ⎍/⏚ abziehen
       click('plug');
-      st.setLeadArmed({ instanceId: instId, pinIndex: k, name: `CH${k + 1}`, color: CH_COLORS[k] });
+      setLeadArmedSynced({ instanceId: instId, pinIndex: k, name: `CH${k + 1}`, color: CH_COLORS[k] });
     },
     [win.instanceId],
   );
@@ -193,7 +194,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
       if (!cur || cur.instanceId !== win.instanceId || (id !== "comp" && id !== "gnd")) return;
       setParked((p) => p.map((v, i) => (i === cur.pinIndex ? id : v)));
       click('plug');
-      st.setLeadArmed(null);
+      setLeadArmedSynced(null);
     },
     [win.instanceId],
   );
@@ -242,10 +243,11 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
   // W31d: zweistufiger Lookup – Fast-Tier (≈40 kSa/s, ~0,41 s), sonst
   // Langzeit-Tier (≈3,3 kSa/s, ~2,5 s); vor Sim-Start 0 V, verjüngte Historie
   // = Hold am Rand.
-  const bufCache = useRef<{ frame: number; fast: Map<string, Buf | null>; slow: Map<string, Buf | null> }>({
+  const bufCache = useRef<{ frame: number; fast: Map<string, Buf | null>; slow: Map<string, Buf | null>; arch: Map<string, Buf | null> }>({
     frame: -1,
     fast: new Map(),
     slow: new Map(),
+    arch: new Map(),
   });
   const sampler = useCallback((net: string, t: number): number => {
     if (!simEngine.running) return 0;
@@ -255,6 +257,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
       c.frame = frame;
       c.fast.clear();
       c.slow.clear();
+      c.arch.clear();
     }
     let f = c.fast.get(net);
     if (f === undefined) {
@@ -267,9 +270,17 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
       s = simEngine.channelSlow(net, 8192);
       c.slow.set(net, s);
     }
-    if (!s || s.t.length === 0) return 0;
-    if (t >= s.t[0]) return interpAt(s, t);
-    return t < 0 ? 0 : s.v[0];
+    // S5.20: dritte Stufe — Archiv (≈298 s) für langsame Zeitbasen.
+    // Erst danach greift der ehrliche Rand-Hold (keine Historie = flach).
+    if (s && s.t.length > 0 && t >= s.t[0]) return interpAt(s, t);
+    let a = c.arch.get(net);
+    if (a === undefined) {
+      a = simEngine.channelArchive(net, 16384);
+      c.arch.set(net, a);
+    }
+    if (!a || a.t.length === 0) return 0;
+    if (t >= a.t[0]) return interpAt(a, t);
+    return t < 0 ? 0 : a.v[0];
   }, []);
 
   const envRef = useRef<Env>({ probes, gndRef, sampler });
@@ -290,7 +301,7 @@ export default function OsziScope({ win }: { win: InstrumentWindow }) {
           color={CH_COLORS[held]}
           title={`Tastkopf CH${held + 1} in der Hand –`}
           hint="klicke auf eine Leitung oder einen Pin im Schaltplan (die Messleitung wird hingelegt), auf die Klemmen ⎍/⏚ am Gerät oder zurück auf die BNC-Buchse."
-          onCancel={() => useEditor.getState().setLeadArmed(null)}
+          onCancel={() => setLeadArmedSynced(null)}
         />
       )}
       <div

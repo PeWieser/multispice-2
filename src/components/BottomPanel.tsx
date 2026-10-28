@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, FlaskConical, ListTree, Radio, Table2, Terminal } from "lucide-react";
 import { buildBom, toSpiceNetlist } from "@/lib/schematic/model";
-import { fromLtspiceAsc, fromSpiceNetlist, isLtspiceAsc } from "@/lib/schematic/importers";
+import { fromKicadSch, fromLtspiceAsc, fromSpiceNetlist, isKicadSch, isLtspiceAsc } from "@/lib/schematic/importers";
 import { formatValue } from "@/lib/library/catalog";
 import { engine, useEditor } from "@/state/editor";
 import dynamic from "next/dynamic";
@@ -82,7 +82,7 @@ export default function BottomPanel() {
 
       <div className="min-h-0 flex-1 overflow-hidden">
           {bottomTab === "console" && (
-            <div ref={logRef} className="mono h-full overflow-y-auto px-3 py-2 text-2xs leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
+            <div ref={logRef} className="mono selectable h-full overflow-y-auto px-3 py-2 text-2xs leading-[1.6]" role="log" aria-live="polite" aria-label="Konsolenausgaben – Simulation Logs, live aktualisiert">
               {logs.map((l) => (
                 <div key={l.id} className="flex gap-2">
                   <span className="text-ink-3">{l.time}</span>
@@ -108,7 +108,7 @@ export default function BottomPanel() {
                 <span className="text-2xs text-ink-3">SPICE3/ngspice-kompatibel — Import überschreibt den Schaltplan</span>
                 <div className="flex-1" />
                 <button
-                  className="btn py-1 text-2xs"
+                  className="btn"
                   onClick={() => {
                     navigator.clipboard?.writeText(netlistText);
                     log("ok", "Netzliste in die Zwischenablage kopiert");
@@ -117,7 +117,7 @@ export default function BottomPanel() {
                   Kopieren
                 </button>
                 <button
-                  className="btn py-1 text-2xs"
+                  className="btn"
                   onClick={() => {
                     const text = (document.getElementById("netlist-editor") as HTMLTextAreaElement)?.value ?? "";
                     const imported = isLtspiceAsc(text) ? fromLtspiceAsc(text) : fromSpiceNetlist(text);
@@ -153,7 +153,7 @@ export default function BottomPanel() {
                             break;
                           }
                         }
-                      }}>Zoom to error</button>
+                      }}>Zum Fehler</button>
                     </li>
                   ))}
                   {netResult.warnings.map((w, i) => (
@@ -168,7 +168,7 @@ export default function BottomPanel() {
                             break;
                           }
                         }
-                      }}>Zoom</button>
+                      }}>Zeigen</button>
                     </li>
                   ))}
                 </ul>
@@ -229,7 +229,8 @@ function LiveStrip() {
   const probes = useEditor((s) => s.probes);
   const docProbes = useEditor((s) => s.doc.probes);
   const netResult = useEditor((s) => s.netResult);
-  const nets = useMemo(() => netResult.nets.map((n) => n.name).filter((n) => n !== "0"), [netResult.nets]);
+  // Blätter Stufe B: globale Netze stehen pro Seite drin — Namen eindeutig zeigen.
+  const nets = useMemo(() => [...new Set(netResult.nets.map((n) => n.name))].filter((n) => n !== "0"), [netResult.nets]);
   // Multisim-like: show measurement probes + legacy probes
   const shownNets = useMemo(()=>{
     const mpNets = docProbes.map(p=> ({ net: p.net ?? "", probe: p })).filter(x=> x.net && x.net!=="0");

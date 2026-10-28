@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import BottomPanel from "./BottomPanel";
 import Canvas from "./Canvas";
 import MenuBar from "./MenuBar";
 import StatusBar from "./StatusBar";
+import SheetTabs from "./SheetTabs";
 import ComponentStrip from "./ComponentStrip";
 import DrawingTools from "./DrawingTools";
 import LibraryPalette from "./LibraryPalette";
 import Inspector from "./Inspector";
+import ScreenReaderStatus from "./ScreenReaderStatus";
 import { engine, useEditor, ThemePref } from "@/state/editor";
 import { useIsMobile, useIsTablet, useIsPortrait, useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import { Menu, X, Library, Settings, SlidersHorizontal, Play, Pause, Undo2, Redo2 } from "lucide-react";
@@ -20,70 +21,22 @@ import { Button, IconButton } from "./ui";
 // der Erststart bezahlt nur noch Canvas, Menü und Statusleiste.
 const AnalysisDialog = dynamic(() => import("./AnalysisDialog"), { ssr: false });
 const SettingsDialog = dynamic(() => import("./SettingsDialog"), { ssr: false });
+const ReferenceDialog = dynamic(() => import("./ReferenceDialog"), { ssr: false });
 const WizardsDialog = dynamic(() => import("./WizardsDialog"), { ssr: false });
 const ProjectsDialog = dynamic(() => import("./ProjectsDialog"), { ssr: false });
-const PartEditorDialog = dynamic(() => import("./PartEditorDialog"), { ssr: false });
+const PartEditorShell = dynamic(() => import("./partEditor/PartEditorShell"), { ssr: false });
+const ExtractPartDialog = dynamic(() => import("./ExtractPartDialog"), { ssr: false });
+const SpecConflictDialog = dynamic(() => import("./SpecConflictDialog"), { ssr: false });
+const PrintDialog = dynamic(() => import("./PrintDialog"), { ssr: false });
 const InstrumentLayer = dynamic(() => import("./Instruments").then((m) => m.InstrumentLayer), { ssr: false });
 const DeviceBar = dynamic(() => import("./Instruments").then((m) => m.DeviceBar), { ssr: false });
 const StandaloneInstrumentView = dynamic(() => import("./Instruments").then((m) => m.StandaloneInstrumentView), { ssr: false });
 import { loadCustomParts } from "@/lib/library/customParts";
-import { docToSvg, printSchematicSheet } from "@/lib/export/sheet";
-import { openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
+import PrintSheet from "./print/PrintSheet";
+import { loadTextContentInEditor, openProjectViaNativeDialogIfAvailable, requestOpenFileDialog } from "@/lib/schematic/openFile";
+import { decodeSharePayload, parseShareHash } from "@/lib/share";
 import DesktopTitleBar, { isDesktopApp, useDesktopMultiWindowSync } from "./DesktopTitleBar";
 import type { InstrumentKind } from "@/state/editor";
-
-/** R8 & W131: Echtes Vektor-Schaltblatt für window.print() – Rahmen, Kopf, Stempel.
- *  Rendert das papierweiße Vektor-SVG aus docToSvg(doc, { frame: false }) direkt
- *  synchron im DOM, sodass sowohl „Drucken …" als auch Strg+P sofort ein
- *  gestochen scharfes Schaltblatt ohne dunklen Hintergrund drucken. */
-function PrintSheet() {
-  const doc = useEditor((s) => s.doc);
-  const nets = useEditor((s) => s.netResult.nets);
-  const mounted = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
-  if (!mounted) return null;
-  const svgMarkup = docToSvg(doc, { frame: false, paperColor: "#ffffff" });
-  return createPortal(
-    <div className="print-sheet">
-      <div className="sheet-frame">
-        <div className="sheet-head">
-          <span className="sheet-title">{doc.name || "Unbenanntes Projekt"}</span>
-          <span className="sheet-meta">MultiSpice – Schaltplan</span>
-        </div>
-        <div
-          className="sheet-img"
-          dangerouslySetInnerHTML={{ __html: svgMarkup }}
-        />
-        <div className="sheet-stamp">
-          <div>
-            <span className="stamp-label">Bauteile</span>
-            {doc.instances.length}
-          </div>
-          <div>
-            <span className="stamp-label">Leitungen</span>
-            {doc.wires.length}
-          </div>
-          <div>
-            <span className="stamp-label">Netze</span>
-            {nets.length}
-          </div>
-          <div>
-            <span className="stamp-label">Blatt</span>
-            1 / 1
-          </div>
-          <div>
-            <span className="stamp-label">Datum</span>
-            {new Date().toLocaleDateString("de-DE")}
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
 
 function resolveTheme(pref: ThemePref, systemDark: boolean): "dark" | "light" {
   if (pref === "system") return systemDark ? "dark" : "light";
@@ -139,6 +92,7 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
         style={{ background: simRunning ? "var(--warn)" : "var(--ok)" }}
         onClick={() => (simRunning ? pauseSim() : startSim())}
         aria-label={simRunning ? "Simulation pausieren" : "Simulation starten"}
+        data-spot="start-sim"
       >
         {simRunning ? <Pause size={16} /> : <Play size={16} />}
       </button>
@@ -147,6 +101,13 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
 }
 
 function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; height?: string }) {
+  // S5.16: Esc schließt (wie ModalShell) — BottomSheet ist eigenes Chrom.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-modal flex flex-col justify-end" role="dialog" aria-modal="true" aria-label={title}>
@@ -171,6 +132,12 @@ function BottomSheet({ open, onClose, title, children, height = "70vh" }: { open
 function UndoToast() {
   const toast = useEditor((s) => s.toast);
   const clear = useEditor((s) => s.clearToast);
+  // S5.15: Hinweise schließen sich nach 5 s selbst (Undo-Spam klebt nicht).
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => useEditor.getState().clearToast(), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
   if (!toast) return null;
   return (
     <div role="status" aria-live="polite" className="rise fixed bottom-12 left-1/2 z-toast flex -translate-x-1/2 items-center gap-2 rounded-panel bg-overlay py-1.5 pl-4 pr-1.5 text-sm shadow-3 backdrop-blur-xl backdrop-saturate-150">
@@ -195,21 +162,14 @@ export default function Workbench() {
   const [dialogKind, setDialogKind] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [referenceOpen, setReferenceOpen] = useState(false);
   const [wizardsOpen, setWizardsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
-  const [partEditorOpen, setPartEditorOpen] = useState(false);
-  const [partEditorInitialId, setPartEditorInitialId] = useState<string | undefined>(undefined);
+  const [printOpen, setPrintOpen] = useState(false);
+  const editorOpen = useEditor((s) => s.partEditor.open);
   const docName = useEditor((s) => s.doc.name);
-
-  useEffect(() => {
-    const onOpenStudio = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ partId?: string }>).detail;
-      setPartEditorInitialId(detail?.partId);
-      setPartEditorOpen(true);
-    };
-    window.addEventListener("multispice-open-part-studio", onOpenStudio);
-    return () => window.removeEventListener("multispice-open-part-studio", onOpenStudio);
-  }, []);
+  const titleSavePending = useEditor((s) => s.savePending);
+  const titleSaveHealth = useEditor((s) => s.saveHealth);
 
   const desktopParams = useSyncExternalStore(
     () => () => {},
@@ -275,15 +235,52 @@ export default function Workbench() {
     } catch {}
   }, []);
 
+  // S5.12: UI-Schriftgröße aus localStorage (Kompakt/Standard/Groß).
+  useEffect(() => {
+    try {
+      const f = localStorage.getItem("multispice.uiFontSize");
+      if (f === "compact" || f === "standard" || f === "large") {
+        useEditor.getState().setUiFontSize(f);
+      }
+    } catch {}
+  }, []);
+
   const resolved = resolveTheme(themePref, systemDark);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", resolved);
   }, [resolved]);
 
+  // S5.12: UI-Schriftgröße — Root-px steuern alle rem-Maße der UI.
+  const uiFontSize = useEditor((s) => s.uiFontSize);
+  useEffect(() => {
+    const px = uiFontSize === "compact" ? 14 : uiFontSize === "large" ? 18 : 16;
+    document.documentElement.style.fontSize = `${px}px`;
+  }, [uiFontSize]);
+
+  // S5.11: Browser-Tab trägt Entwurfsname + Ungespeichert-Punkt (Desktop:
+  // DesktopTitleBar besitzt den Titel; Kindfenster haben eigene Titel).
+  useEffect(() => {
+    if (isDesktopRuntime) return;
+    if (typeof window === "undefined" || window.location.search.includes("desktopWindow=")) return;
+    const dirty = titleSavePending || titleSaveHealth.local === "error" || titleSaveHealth.file === "stale";
+    document.title = `${dirty ? "• " : ""}${docName || "Unbenannt"} – MultiSpice`;
+  }, [isDesktopRuntime, docName, titleSavePending, titleSaveHealth]);
+
   useEffect(() => {
     loadCustomParts();
-    useEditor.getState().restoreLocalProject();
+    // S5.5: Share-Link im Hash gewinnt gegen das lokale Auto-Save.
+    const payload = typeof window !== "undefined" ? parseShareHash(window.location.hash) : null;
+    if (payload) {
+      try {
+        loadTextContentInEditor(decodeSharePayload(payload), "link.msx.json");
+      } catch (e) {
+        useEditor.getState().log("error", `Share-Link ungültig: ${(e as Error).message}`);
+        useEditor.getState().restoreLocalProject();
+      }
+    } else {
+      useEditor.getState().restoreLocalProject();
+    }
   }, []);
 
   useEffect(() => {
@@ -297,17 +294,22 @@ export default function Workbench() {
         e.preventDefault();
         useEditor.getState().toggleInspector();
       }
-      // W130: Strg+O / ⌘O öffnet den Datei-Dialog
+      // W130: Strg+O / ⌘O öffnet den Datei-Dialog (WDA-2: im Web per Event an die Menüleiste)
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
         e.preventDefault();
-        void openProjectViaNativeDialogIfAvailable();
+        void openProjectViaNativeDialogIfAvailable().then((handled) => {
+          if (!handled) requestOpenFileDialog();
+        });
       }
-      // W131: Strg+P / ⌘P druckt das Schaltblatt
+      // Druckbögen: Strg+P / ⌘P öffnet den Druck-Dialog (statt Browser-Default).
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
-        if (window.multispiceDesktop?.printSvg) {
-          e.preventDefault();
-          void printSchematicSheet(useEditor.getState().doc);
-        }
+        e.preventDefault();
+        setPrintOpen(true);
+      }
+      // Neuer Entwurf: Strg+Alt+N (Tabs über dem Canvas)
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        useEditor.getState().newDocument();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -348,9 +350,10 @@ export default function Workbench() {
           compact
         />
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <LibraryPalette standalone onPartEditor={() => setPartEditorOpen(true)} />
+          <LibraryPalette standalone />
         </div>
-        {partEditorOpen && <PartEditorDialog onClose={() => setPartEditorOpen(false)} />}
+        <ExtractPartDialog />
+        <SpecConflictDialog />
       </div>
     );
   }
@@ -359,15 +362,17 @@ export default function Workbench() {
   if (isMobile) {
     return (
       <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-app">
+        <ScreenReaderStatus />
         <MobileTopBar onMenu={() => setMobileMenuOpen(true)} onSettings={() => setSettingsOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1 flex-col">
+          <SheetTabs />
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <Canvas />
+            {!editorOpen && <Canvas />}
             <InstrumentLayer />
             {/* Library as bottom sheet on mobile */}
             <BottomSheet open={libraryOpen} onClose={() => useEditor.getState().toggleLibrary()} title="Bibliothek" height="80vh">
-              <LibraryPalette onPartEditor={() => setPartEditorOpen(true)} />
+              <LibraryPalette fill onPartEditor={() => useEditor.getState().openPartEditor()} />
             </BottomSheet>
             <BottomSheet open={rightOpen} onClose={() => useEditor.getState().toggleRight()} title="Inspector" height="70vh">
               <Inspector />
@@ -383,7 +388,7 @@ export default function Workbench() {
                       <X size={14} />
                     </button>
                   </div>
-                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => setPartEditorOpen(true)} isMobile />
+                  <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} onPrint={() => setPrintOpen(true)} isMobile />
                 </div>
               </div>
             )}
@@ -397,17 +402,13 @@ export default function Workbench() {
         <StatusBar isMobile />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        {printOpen && <PrintDialog onClose={() => setPrintOpen(false)} />}
+        {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-        {partEditorOpen && (
-          <PartEditorDialog
-            initialPartId={partEditorInitialId}
-            onClose={() => {
-              setPartEditorOpen(false);
-              setPartEditorInitialId(undefined);
-            }}
-          />
-        )}
+        {editorOpen && <PartEditorShell />}
+        <ExtractPartDialog />
+        <SpecConflictDialog />
         <UndoToast />
       <PrintSheet />
       </div>
@@ -418,14 +419,15 @@ export default function Workbench() {
   if (isTablet) {
     return (
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-app">
-          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
+          <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} onPrint={() => setPrintOpen(true)} />
         <ComponentStrip tools={<DrawingTools />} />
         <div className="relative flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
+            <SheetTabs />
             <div className="relative min-h-0 flex-1 overflow-hidden">
-              <Canvas />
+              {!editorOpen && <Canvas />}
               <InstrumentLayer />
-              <LibraryPalette onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
+              <LibraryPalette onPartEditor={() => useEditor.getState().openPartEditor()} />
               <DeviceBar />
             </div>
             <BottomPanel />
@@ -434,17 +436,13 @@ export default function Workbench() {
         <StatusBar />
         {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+        {printOpen && <PrintDialog onClose={() => setPrintOpen(false)} />}
+        {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
         {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-        {partEditorOpen && (
-          <PartEditorDialog
-            initialPartId={partEditorInitialId}
-            onClose={() => {
-              setPartEditorOpen(false);
-              setPartEditorInitialId(undefined);
-            }}
-          />
-        )}
+        {editorOpen && <PartEditorShell />}
+        <ExtractPartDialog />
+        <SpecConflictDialog />
         <UndoToast />
       <PrintSheet />
       </div>
@@ -460,37 +458,37 @@ export default function Workbench() {
       >
         Zum Schaltplan springen
       </a>
-      {isDesktopRuntime && <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} />}
+      <ScreenReaderStatus />
+      {isDesktopRuntime && (
+        <DesktopTitleBar title={docName ? `${docName} – MultiSpice` : "MultiSpice"} showSaveState />
+      )}
       <header className="contents">
-      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
+      <MenuBar onAnalysis={setDialogKind} onSettings={() => setSettingsOpen(true)} onWizards={() => setWizardsOpen(true)} onProjects={() => setProjectsOpen(true)} onPartEditor={() => useEditor.getState().openPartEditor()} onReference={() => setReferenceOpen(true)} onPrint={() => setPrintOpen(true)} />
       <ComponentStrip tools={<DrawingTools />} />
       </header>
       <main id="workspace" tabIndex={-1} className="relative flex min-h-0 flex-1 outline-none">
         <div className="relative flex min-w-0 flex-1 flex-col">
+          <SheetTabs />
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <Canvas />
+            {!editorOpen && <Canvas />}
             <InstrumentLayer />
-            <LibraryPalette onPartEditor={() => { setPartEditorInitialId(undefined); setPartEditorOpen(true); }} />
+            <LibraryPalette onPartEditor={() => useEditor.getState().openPartEditor()} />
             <DeviceBar />
           </div>
           <BottomPanel />
         </div>
       </main>
-      {/* W96: Eine einzige schlanke Fußleiste (links geöffnete Blätter, rechts Prüfung & Sim-Zeit). */}
+      {/* W96: Eine einzige schlanke Fußleiste (links geöffnete Entwürfe, rechts Prüfung & Sim-Zeit). */}
       <StatusBar />
       {dialogKind && <AnalysisDialog kind={dialogKind} onClose={() => setDialogKind(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {printOpen && <PrintDialog onClose={() => setPrintOpen(false)} />}
+        {referenceOpen && <ReferenceDialog onClose={() => setReferenceOpen(false)} />}
       {wizardsOpen && <WizardsDialog onClose={() => setWizardsOpen(false)} />}
       {projectsOpen && <ProjectsDialog onClose={() => setProjectsOpen(false)} />}
-      {partEditorOpen && (
-        <PartEditorDialog
-          initialPartId={partEditorInitialId}
-          onClose={() => {
-            setPartEditorOpen(false);
-            setPartEditorInitialId(undefined);
-          }}
-        />
-      )}
+      {editorOpen && <PartEditorShell />}
+      <ExtractPartDialog />
+      <SpecConflictDialog />
       <UndoToast />
       <PrintSheet />
     </div>

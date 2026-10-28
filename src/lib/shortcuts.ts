@@ -44,6 +44,14 @@ export const SHORTCUTS: ShortcutGroup[] = [
     ],
   },
   {
+    title: "Entwürfe",
+    items: [
+      { label: "Neuer Entwurf", keys: ["⌘⌥N"] },
+      { label: "Umbenennen", keys: ["2× Klick"], note: "auf den Reiter" },
+      { label: "Duplizieren / Schließen", keys: ["Rechtsklick"], note: "Kontextmenü am Reiter" },
+    ],
+  },
+  {
     title: "Ansicht & Simulation",
     items: [
       { label: "Bibliothek", keys: ["⌘K"] },
@@ -52,6 +60,24 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { label: "Zoomen / Schwenken", keys: ["Rad", "⇧Rad"] },
       { label: "Simulation starten / pausieren", keys: ["Leertaste"] },
       { label: "Kurzbefehle", keys: ["?"] },
+    ],
+  },
+  {
+    title: "Platzieren & Esc-Kette",
+    items: [
+      { label: "Ghost bewegen", keys: ["←", "→", "↑", "↓"], note: "mit ⇧ 5-fach" },
+      { label: "Bauteil platzieren", keys: ["Enter"], note: "mit ⇧ weiter platzieren" },
+      { label: "Esc-Kette", keys: ["Esc"], note: "Overlay → Messleitung → Auswahl → Werkzeug" },
+    ],
+  },
+  {
+    title: "Bauteil-Steuerung (Simulation läuft)",
+    items: [
+      { label: "Schalter umlegen", keys: [], note: "anklicken oder belegte Taste" },
+      { label: "Taster drücken", keys: [], note: "gedrückt halten (Maus oder Taste)" },
+      { label: "Poti ±5 %", keys: [], note: "Klick / ⇧Klick oder Taste / ⇧Taste (halten = laufen)" },
+      { label: "Poti-Schieber", keys: [], note: "Inspector, wirkt live ohne Neustart" },
+      { label: "Taste belegen", keys: [], note: "Inspector → Taste, z. B. A — steht dann am Bauteil" },
     ],
   },
   {

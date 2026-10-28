@@ -55,7 +55,7 @@ const TOOL_CAPSULES: Array<{
     id: "annotation",
     label: "Beschriftung",
     items: [
-      { tool: "label", label: "Netzname", hint: "Netznamen auf eine Leitung setzen", key: TOOL_KEYS.label, Icon: Tag },
+      { tool: "label", label: "Netzname", hint: "Netznamen auf eine Leitung setzen — gleicher Name verbindet (wie Multisim)", key: TOOL_KEYS.label, Icon: Tag },
       { tool: "text", label: "Notiz", hint: "Notiz in den Schaltplan schreiben", key: TOOL_KEYS.text, Icon: StickyNote },
     ],
   },

@@ -1,17 +1,21 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pause, Play, Settings as SettingsIcon, Square, Undo2, Redo2 } from "lucide-react";
 import { PRESETS } from "@/lib/schematic/tools";
 import { ANALYSIS_DEFS } from "@/lib/sim/analysis_defs";
 import { toSpiceNetlist } from "@/lib/schematic/model";
 import { InstrumentKind, useEditor } from "@/state/editor";
-import { exportSvg, exportPng, exportPdf, printSchematicSheet } from "@/lib/export/sheet";
+import { exportSvg, exportPng, exportPdf } from "@/lib/export/sheet";
 import { Menu, MenuItem, MenuSeparator, Tooltip } from "./ui";
-import { downloadText, safeName } from "@/lib/download";
-import { openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
+import PresetGallery from "./PresetGallery";
+import { copyTextToClipboard, downloadText, safeName } from "@/lib/download";
+import { buildProjectEnvelopeJson } from "@/lib/storage";
+import { collectUsedCustomSpecs } from "@/lib/library/customParts";
+import { SHARE_HASH_KEY, SHARE_URL_LIMIT, buildShareUrl, encodeSharePayload } from "@/lib/share";
+import { REQUEST_OPEN_FILE_EVENT, openFileInEditor, openProjectViaNativeDialogIfAvailable } from "@/lib/schematic/openFile";
 
-const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete"] as const;
+const MENU_IDS = ["datei", "bearbeiten", "ansicht", "vorlagen", "analysen", "geraete", "hilfe"] as const;
 
 const INSTRUMENT_ITEMS: Array<[InstrumentKind, string]> = [
   ["dmm", "Digitalmultimeter"],
@@ -35,6 +39,8 @@ export default function MenuBar({
   onWizards,
   onProjects,
   onPartEditor,
+  onReference,
+  onPrint,
   isMobile = false,
 }: {
   onAnalysis: (kind: string) => void;
@@ -42,6 +48,8 @@ export default function MenuBar({
   onWizards?: () => void;
   onProjects?: () => void;
   onPartEditor?: () => void;
+  onReference?: () => void;
+  onPrint?: () => void;
   isMobile?: boolean;
 }) {
   const docName = useEditor((s) => s.doc.name);
@@ -51,6 +59,7 @@ export default function MenuBar({
   const hasSelection = useEditor((s) => s.selection.length > 0);
   const hasWireSelection = useEditor((s) => s.selection.some((id) => s.doc.wires.some((w) => w.id === id)));
   const hasClipboard = useEditor((s) => !!s.clipboard);
+  const locked = useEditor((s) => s.teacher.locked);
   const running = useEditor((s) => s.sim.running);
   const showCurrentFlow = useEditor((s) => s.showCurrentFlow);
   const showVoltageColors = useEditor((s) => s.showVoltageColors);
@@ -59,16 +68,29 @@ export default function MenuBar({
   const st = useEditor.getState;
 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const navMenu = (dir: -1 | 1) =>
-    setOpenMenu((m) => {
-      if (!m) return m;
-      const i = MENU_IDS.indexOf(m as (typeof MENU_IDS)[number]);
-      return MENU_IDS[(i + dir + MENU_IDS.length) % MENU_IDS.length];
-    });
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  // Wechsel zwischen offenen Menüs (Hover/Pfeil/Klick) blendet nicht ein —
+  // die .rise-Animation spielte sonst bei jedem Wechsel neu (Flackern).
+  const [menuInstant, setMenuInstant] = useState(false);
+  const navMenu = (dir: -1 | 1) => {
+    if (!openMenu) return;
+    setMenuInstant(true);
+    const i = MENU_IDS.indexOf(openMenu as (typeof MENU_IDS)[number]);
+    setOpenMenu(MENU_IDS[(i + dir + MENU_IDS.length) % MENU_IDS.length]);
+  };
   const menuProps = (id: string) => ({
     open: openMenu === id,
-    onOpenChange: (o: boolean) => setOpenMenu(o ? id : null),
-    onHoverOpen: () => setOpenMenu((m) => (m ? id : m)),
+    instant: menuInstant,
+    onOpenChange: (o: boolean) => {
+      setMenuInstant(o && openMenu !== null && openMenu !== id);
+      setOpenMenu(o ? id : null);
+    },
+    onHoverOpen: () => {
+      if (openMenu && openMenu !== id) {
+        setMenuInstant(true);
+        setOpenMenu(id);
+      }
+    },
     onNavigate: navMenu,
   });
 
@@ -79,10 +101,9 @@ export default function MenuBar({
     st().log("ok", "SPICE-Netzliste exportiert (.cir)");
   };
 
+  // Druckbögen: Menü öffnet den zentralen Druck-Dialog (Workbench).
   const printSheet = () => {
-    void printSchematicSheet(st().doc).then((ok) => {
-      if (ok) st().log("ok", "Druckansicht geöffnet");
-    });
+    onPrint?.();
   };
 
   const triggerOpenFile = () => {
@@ -91,8 +112,39 @@ export default function MenuBar({
     });
   };
 
+  // WDA-2: Strg+O aus Workbench erreicht das versteckte <input> per Event.
+  useEffect(() => {
+    const onReq = () => triggerOpenFile();
+    window.addEventListener(REQUEST_OPEN_FILE_EVENT, onReq);
+    return () => window.removeEventListener(REQUEST_OPEN_FILE_EVENT, onReq);
+  }, []);
+
   const exportJson = () => {
     void st().saveProject(undefined, { saveAs: true });
+  };
+
+  // S5.5: Link-Teilen — komprimierte Schaltung in die Zwischenablage;
+  // über ~100 kB ehrlich Datei statt Link.
+  const shareLink = () => {
+    const json = buildProjectEnvelopeJson(st().doc, st().instruments, collectUsedCustomSpecs(st().doc));
+    const payload = encodeSharePayload(json);
+    if (payload.length > SHARE_URL_LIMIT) {
+      downloadText(`${base}.msx.json`, json, "application/json");
+      st().setToast({ message: `Zu groß für einen Link (${Math.round(payload.length / 1024)} kB) – Datei gespeichert.` });
+      st().log("warn", `Link-Teilen: ${payload.length} Zeichen > Limit ${SHARE_URL_LIMIT} – Datei exportiert.`);
+      return;
+    }
+    const url = buildShareUrl(window.location.origin + window.location.pathname, payload);
+    void copyTextToClipboard(url).then((ok) => {
+      if (ok) {
+        st().setToast({ message: "Link in Zwischenablage kopiert." });
+        st().log("ok", `Link geteilt (${payload.length} Zeichen im Hash).`);
+      } else {
+        // Fallback: Hash setzen, damit der Link aus der Adressleiste kopierbar ist.
+        window.location.hash = `${SHARE_HASH_KEY}=${payload}`;
+        st().setToast({ message: "Kopieren fehlgeschlagen – Link steht in der Adressleiste." });
+      }
+    });
   };
 
   const importFile = (file: File) => {
@@ -109,8 +161,8 @@ export default function MenuBar({
       <div className="flex flex-col gap-3">
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Datei</div>
-          <button className="btn w-full justify-start" onClick={() => st().newDocument()}>Neuer Schaltplan</button>
-          <button className="btn w-full justify-start" onClick={triggerOpenFile}>Öffnen / Importieren …</button>
+          <button className="btn w-full justify-start" disabled={locked} onClick={() => st().newDocument()}>Neuer Schaltplan</button>
+          <button className="btn w-full justify-start" disabled={locked} onClick={triggerOpenFile}>Öffnen / Importieren …</button>
           <button className="btn w-full justify-start" onClick={() => void st().saveProject()}>Speichern</button>
           <button className="btn w-full justify-start" onClick={() => void st().saveProject(undefined, { saveAs: true })}>Speichern unter …</button>
           <button className="btn w-full justify-start" onClick={() => onProjects?.()}>Projekte …</button>
@@ -120,24 +172,29 @@ export default function MenuBar({
           <button className="btn w-full justify-start" onClick={exportSpice}>Export SPICE (.cir)</button>
           <button className="btn w-full justify-start" onClick={exportJson}>Export JSON</button>
           <button className="btn w-full justify-start" onClick={printSheet}>Drucken / PDF …</button>
+          <button className="btn w-full justify-start" onClick={shareLink}>Link teilen …</button>
         </div>
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Bearbeiten</div>
           <button className="btn w-full justify-start" disabled={!hasSelection} onClick={() => st().copySelection()}>Kopieren</button>
-          <button className="btn w-full justify-start" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</button>
-          <button className="btn w-full justify-start" disabled={!hasSelection} onClick={() => st().duplicateSelection()}>Duplizieren</button>
-          <button className="btn w-full justify-start" disabled={!hasWireSelection} onClick={() => st().straightenSelection()}>Leitungen begradigen</button>
+          <button className="btn w-full justify-start" disabled={!hasClipboard || locked} onClick={() => st().pasteClipboard()}>Einfügen</button>
+          <button className="btn w-full justify-start" disabled={!hasSelection || locked} onClick={() => st().duplicateSelection()}>Duplizieren</button>
+          <button className="btn w-full justify-start" disabled={!hasWireSelection || locked} onClick={() => st().straightenSelection()}>Leitungen begradigen</button>
         </div>
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Ansicht</div>
           <button className="btn w-full justify-start" onClick={() => st().fitView()}>Schaltplan einpassen</button>
           <button className="btn w-full justify-start" onClick={() => st().toggleBottom()}>Auswertung &amp; Konsole</button>
           <button className="btn w-full justify-start" onClick={() => onSettings?.()}>Einstellungen …</button>
+          <button className="btn w-full justify-start" onClick={() => onReference?.()}>Referenz …</button>
         </div>
         <div className="space-y-1">
           <div className="px-2 text-2xs uppercase tracking-wide text-ink-3">Vorlagen</div>
+          <button className="btn w-full justify-start text-2xs" onClick={() => setGalleryOpen(true)}>
+            Galerie mit Vorschau …
+          </button>
           {PRESETS.map((p) => (
-            <button key={p.id} className="btn w-full justify-start text-2xs" onClick={() => st().loadPreset(p.id)}>
+            <button key={p.id} className="btn w-full justify-start text-2xs" disabled={locked} onClick={() => st().loadPreset(p.id)}>
               {p.name}
             </button>
           ))}
@@ -176,7 +233,7 @@ export default function MenuBar({
         <input
           ref={fileRef}
           type="file"
-          accept=".json,.cir,.net,.sp,.txt,.asc"
+          accept=".json,.cir,.net,.sp,.txt,.asc,.kicad_sch"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -184,6 +241,7 @@ export default function MenuBar({
             e.target.value = "";
           }}
         />
+        {galleryOpen && <PresetGallery onClose={() => setGalleryOpen(false)} />}
       </div>
     );
   }
@@ -193,8 +251,8 @@ export default function MenuBar({
       className="flex h-9 shrink-0 items-center gap-0.5 px-2.5 text-xs bg-surface border-b border-hairline"
     >
       <Menu label="Datei" {...menuProps("datei")}>
-        <MenuItem onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
-        <MenuItem hint="⌘O" onClick={triggerOpenFile}>Öffnen / Importieren …</MenuItem>
+        <MenuItem disabled={locked} onClick={() => st().newDocument()}>Neuer Schaltplan</MenuItem>
+        <MenuItem hint="⌘O" disabled={locked} onClick={triggerOpenFile}>Öffnen / Importieren …</MenuItem>
         <MenuItem hint="⌘S" onClick={() => void st().saveProject()}>Speichern</MenuItem>
         <MenuItem hint="⇧⌘S" onClick={() => void st().saveProject(undefined, { saveAs: true })}>Speichern unter …</MenuItem>
         <MenuItem onClick={() => onProjects?.()}>Projekte …</MenuItem>
@@ -207,8 +265,8 @@ export default function MenuBar({
         <MenuSeparator />
         <MenuItem onClick={exportSpice}>Export SPICE (.cir)</MenuItem>
         <MenuItem onClick={exportJson}>Export JSON</MenuItem>
-        <MenuItem onClick={() => { void exportSvg(st().doc).then((ok) => { if (ok) st().log("ok", "Schaltblatt als SVG exportiert"); }); }}>Export SVG</MenuItem>
-        <MenuItem onClick={() => { exportPng(st().doc); st().log("ok", "Schaltblatt als PNG exportiert"); }}>Export PNG</MenuItem>
+        <MenuItem onClick={() => { void exportSvg(st().doc).then((ok) => { if (ok) st().log("ok", "Entwurf als SVG exportiert"); }); }}>Export SVG</MenuItem>
+        <MenuItem onClick={() => { exportPng(st().doc); st().log("ok", "Entwurf als PNG exportiert"); }}>Export PNG</MenuItem>
         <MenuItem
           onClick={() => {
             void exportPdf(st().doc).then((ok) => {
@@ -220,24 +278,27 @@ export default function MenuBar({
         </MenuItem>
         <MenuSeparator />
         <MenuItem hint="⌘P" onClick={printSheet}>Drucken …</MenuItem>
+        <MenuSeparator />
+        <MenuItem onClick={shareLink}>Link teilen …</MenuItem>
       </Menu>
 
       {/* W108: Aufgeräumtes Bearbeiten-Menü ohne die 8 Ausrichtungs-Einzelzeilen */}
       <Menu label="Bearbeiten" {...menuProps("bearbeiten")}>
-        <MenuItem hint="⌘Z" disabled={!canUndo} onClick={() => st().undo()}>Rückgängig</MenuItem>
-        <MenuItem hint="⇧⌘Z" disabled={!canRedo} onClick={() => st().redo()}>Wiederholen</MenuItem>
+        <MenuItem hint="⌘Z" disabled={!canUndo || locked} onClick={() => st().undo()}>Rückgängig</MenuItem>
+        <MenuItem hint="⇧⌘Z" disabled={!canRedo || locked} onClick={() => st().redo()}>Wiederholen</MenuItem>
         <MenuSeparator />
         <MenuItem hint="⌘C" disabled={!hasSelection} onClick={() => st().copySelection()}>Kopieren</MenuItem>
-        <MenuItem hint="⌘V" disabled={!hasClipboard} onClick={() => st().pasteClipboard()}>Einfügen</MenuItem>
-        <MenuItem hint="⌘D" disabled={!hasSelection} onClick={() => st().duplicateSelection()}>Duplizieren</MenuItem>
+        <MenuItem hint="⌘V" disabled={!hasClipboard || locked} onClick={() => st().pasteClipboard()}>Einfügen</MenuItem>
+        <MenuItem hint="⌘D" disabled={!hasSelection || locked} onClick={() => st().duplicateSelection()}>Duplizieren</MenuItem>
         <MenuItem hint="⌘A" onClick={() => st().selectAll()}>Alles auswählen</MenuItem>
         <MenuSeparator />
-        <MenuItem hint="R" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().rotateSelection(1)}>Drehen (+90°)</MenuItem>
-        <MenuItem hint="⇧R" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().rotateSelection(-1)}>Drehen (−90°)</MenuItem>
-        <MenuItem hint="M" disabled={!hasSelection && st().tool !== "place"} onClick={() => st().mirrorSelection()}>Spiegeln</MenuItem>
-        <MenuItem hint="⇧L" disabled={!hasWireSelection} disabledReason="Leitung(en) auswählen" onClick={() => st().straightenSelection()}>Leitungen begradigen</MenuItem>
+        <MenuItem hint="R" disabled={locked || (!hasSelection && st().tool !== "place")} onClick={() => st().rotateSelection(1)}>Drehen (+90°)</MenuItem>
+        <MenuItem hint="⇧R" disabled={locked || (!hasSelection && st().tool !== "place")} onClick={() => st().rotateSelection(-1)}>Drehen (−90°)</MenuItem>
+        <MenuItem hint="M" disabled={locked || (!hasSelection && st().tool !== "place")} onClick={() => st().mirrorSelection()}>Spiegeln</MenuItem>
+        <MenuItem hint="⇧L" disabled={!hasWireSelection || locked} disabledReason="Leitung(en) auswählen" onClick={() => st().straightenSelection()}>Leitungen begradigen</MenuItem>
+        <MenuItem disabled={locked} onClick={() => st().reannotate()}>Referenzen neu nummerieren</MenuItem>
         <MenuSeparator />
-        <MenuItem hint="⌫" danger disabled={!hasSelection} onClick={() => st().deleteSelection()}>Löschen</MenuItem>
+        <MenuItem hint="⌫" danger disabled={!hasSelection || locked} onClick={() => st().deleteSelection()}>Löschen</MenuItem>
       </Menu>
 
       {/* W108: Schlankes Ansicht-Menü; Grundeinstellungen (Stromrichtung, Theme, Symbole, Lineale) liegen in Einstellungen */}
@@ -255,8 +316,10 @@ export default function MenuBar({
       </Menu>
 
       <Menu label="Vorlagen" {...menuProps("vorlagen")}>
+        <MenuItem onClick={() => setGalleryOpen(true)}>Galerie mit Vorschau …</MenuItem>
+        <MenuSeparator />
         {PRESETS.map((p) => (
-          <MenuItem key={p.id} onClick={() => st().loadPreset(p.id)}>{p.name}</MenuItem>
+          <MenuItem key={p.id} disabled={locked} onClick={() => st().loadPreset(p.id)}>{p.name}</MenuItem>
         ))}
         {onWizards && (
           <>
@@ -291,17 +354,20 @@ export default function MenuBar({
           </MenuItem>
         ))}
       </Menu>
+      <Menu label="Hilfe" {...menuProps("hilfe")}>
+        <MenuItem onClick={() => onReference?.()}>Referenz …</MenuItem>
+      </Menu>
 
       <div className="mx-2 h-4 w-px bg-hairline" />
 
       <div className="flex items-center gap-0.5">
         <Tooltip content="Rückgängig (⌘Z)" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().undo()} disabled={!canUndo}>
+          <button className="btn h-6 min-h-[24px] px-1.5" onClick={() => st().undo()} disabled={!canUndo} aria-label="Rückgängig">
             <Undo2 size={13} />
           </button>
         </Tooltip>
         <Tooltip content="Wiederholen (⇧⌘Z)" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().redo()} disabled={!canRedo}>
+          <button className="btn h-6 min-h-[24px] px-1.5" onClick={() => st().redo()} disabled={!canRedo} aria-label="Wiederholen">
             <Redo2 size={13} />
           </button>
         </Tooltip>
@@ -312,15 +378,16 @@ export default function MenuBar({
       <div className="flex items-center gap-1">
         <Tooltip content={running ? "Pause (Leertaste)" : "Start (Leertaste)"} side="bottom">
           <button
-            className={running ? "btn h-6 px-2" : "btn btn-primary h-6 px-2.5"}
+            className={running ? "btn h-6 min-h-[24px] px-2" : "btn btn-primary h-6 min-h-[24px] px-2.5"}
             onClick={() => (running ? st().pauseSim() : st().startSim())}
+            data-spot="start-sim"
           >
             {running ? <Pause size={12} /> : <Play size={12} />}
             <span className="ml-1 hidden sm:inline text-2xs">{running ? "Pause" : "Start"}</span>
           </button>
         </Tooltip>
         <Tooltip content="Stoppen" side="bottom">
-          <button className="btn h-6 px-1.5" onClick={() => st().stopSim()}>
+          <button className="btn h-6 min-h-[24px] min-w-[24px] px-2" onClick={() => st().stopSim()} aria-label="Stoppen">
             <Square size={11} />
           </button>
         </Tooltip>
@@ -329,7 +396,7 @@ export default function MenuBar({
       <div className="flex-1" />
 
       <Tooltip content="Einstellungen" side="bottom">
-        <button className="btn h-6 px-2" onClick={() => onSettings?.()} aria-label="Einstellungen">
+        <button className="btn h-6 min-h-[24px] px-2" onClick={() => onSettings?.()} aria-label="Einstellungen">
           <SettingsIcon size={13} />
         </button>
       </Tooltip>
@@ -337,7 +404,7 @@ export default function MenuBar({
       <input
         ref={fileRef}
         type="file"
-        accept=".json,.cir,.net,.sp,.txt,.asc"
+        accept=".json,.cir,.net,.sp,.txt,.asc,.kicad_sch"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -345,6 +412,7 @@ export default function MenuBar({
           e.target.value = "";
         }}
       />
+      {galleryOpen && <PresetGallery onClose={() => setGalleryOpen(false)} />}
     </header>
   );
 }

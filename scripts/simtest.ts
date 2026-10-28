@@ -6,8 +6,10 @@ function nl(devices: Netlist["devices"]): Netlist {
   return { devices };
 }
 
+let failed = 0;
 function check(name: string, actual: number, expected: number, tol: number) {
   const ok = Math.abs(actual - expected) <= tol;
+  if (!ok) failed++;
   console.log(`${ok ? "PASS" : "FAIL"} ${name}: got ${actual.toPrecision(6)} expected ~${expected}`);
 }
 
@@ -96,3 +98,9 @@ const t = runTransient(t555, {}, { stopTime: 0.2, stepTime: 2e-5 }, ["out", "thr
 const outs = t.signals["out"];
 const hi = outs.filter((v) => v > 4).length;
 console.log(`555 transient steps=${t.steps} highRatio=${(hi / outs.length).toFixed(2)} ok=${t.ok}`);
+
+if (failed) {
+  console.log(`\nKernel-Smoke-Tests: ${failed} FEHLSCHLÄGE.`);
+  process.exit(1);
+}
+console.log("\nKernel-Smoke-Tests: alle bestanden.");
