@@ -79,6 +79,12 @@ export interface LiveState {
 export class RealtimeEngine {
   sim: Simulator | null = null;
   netlist: Netlist = { devices: [] };
+  /**
+   * Okt-28: ID des Entwurfs, aus dem `netlist`/`sim` gebaut wurden.
+   * Tab-Wechsel setzt die Sim ohne Rebuild fort, wenn sie noch passt —
+   * sonst (fremder Entwurf, Bauteile-Test) wird neu aufgebaut.
+   */
+  builtDocId: string | null = null;
   buffers = new Map<string, RingBuffer>();
   /** Runde 16 (W31d): Langzeit-Tier für das Oszilloskop – ~3,3 kSa/s
    *  (jedes 12. Fast-Sample), 8192 Samples ≈ 2,5 s Historie, damit langsame
@@ -118,6 +124,7 @@ export class RealtimeEngine {
 
   /** (Re)build the simulator from the schematic. Keeps interactive control state. */
   rebuild(doc: SchematicDoc): void {
+    this.builtDocId = doc.id;
     const built = buildNets(doc);
     this.errors = built.errors;
     this.warnings = built.warnings;

@@ -7,7 +7,7 @@ import { LEGACY_PROBE_COLORS, PROBE_CSSVAR } from "@/lib/probe-style";
 import { rms, mean, peakToPeak, estimateFrequency } from "@/lib/sim/realtime";
 import { canvasColor, inkOn } from "@/lib/canvas-theme";
 import { hexAlpha, roundRect } from "./geometry";
-import { normalizeControlKey } from "@/lib/sim/controls";
+import { controlKeyOf, normalizeControlKey } from "@/lib/sim/controls";
 import { resolveLiveText } from "@/lib/descbox";
 import { nearestNetName } from "./hitTest";
 
@@ -580,7 +580,7 @@ function drawRelayOverlay(ctx: CanvasRenderingContext2D, part: { id: string }, i
 /* S5.26: Großer Schieberegler direkt neben dem Poti — Ersatz für das unsichtbare
    ±5-%-Klicken. Geometrie aus POT_SLIDER (gleiche Quelle wie der Hit-Test). */
 function drawPotSlider(ctx: CanvasRenderingContext2D, inst: Instance): void {
-  const pos = engine.controls[inst.id] ?? engine.controls[inst.label] ?? Number(inst.params.pos ?? 0.5);
+  const pos = engine.controls[controlKeyOf(inst)] ?? engine.controls[inst.id] ?? Number(inst.params.pos ?? 0.5);
   const ky = potSliderYFromPos(pos);
   const { x, yTop, yBot, knobW, knobH } = POT_SLIDER;
   ctx.save();

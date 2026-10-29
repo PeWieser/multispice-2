@@ -19,7 +19,9 @@ import {
 import { readFileSync } from "node:fs";
 import { showPinLabel } from "../src/components/Canvas/render";
 import { dipLeverAt, findPotSliderAt, instanceLocalPoint } from "../src/components/Canvas/hitTest";
-import { instanceBounds, rotatePoint } from "../src/lib/schematic/model";
+import { emptyDoc, instanceBounds, rotatePoint, type SchematicDoc } from "../src/lib/schematic/model";
+import { controlKeyOf } from "../src/lib/sim/controls";
+import { RealtimeEngine } from "../src/lib/sim/realtime";
 
 let failed = 0;
 function check(name: string, ok: boolean, info = "") {
@@ -272,6 +274,59 @@ const res = (id: string, p: string, m: string, r: number): Netlist["devices"][nu
   check("Drop: W133 nutzt toWorld (exakte Umkehr von toScreen)",
     !canvasSrc.includes("(e.clientX - r.left - st.view.x)")
     && (canvasSrc.match(/snap\(toWorld\(e\.clientX, e\.clientY\)\)/g) ?? []).length >= 4);
+}
+
+/* 10 · Okt-28-Regression: Steuer-Schlüssel = Geräte-ID (Label), nicht Instanz-ID.
+ * Der Solver liest controls[d.id] mit d.id = label (buildNets) — Klicks mit
+ * Instanz-ID liefen ins Leere (Hebel zuckte, Schaltung stumm). id ≠ label! */
+{
+  check("controlKeyOf: Label gewinnt", controlKeyOf({ id: "inst_x7", label: "S1" }) === "S1");
+  check("controlKeyOf: ohne Label die ID", controlKeyOf({ id: "inst_x7", label: "" }) === "inst_x7");
+  const inst2 = (partId: string, params: Record<string, unknown>) =>
+    ({ id: "inst_x7", label: "S1", partId, params, x: 0, y: 0 }) as never;
+  const u1 = switchToggle("switch_spst", inst2("switch_spst", { closed: false }), {});
+  check("SPST-Ziel ist Label", u1 !== null && JSON.stringify(u1.targets) === JSON.stringify({ S1: 1 }));
+  const u2 = switchToggle("switch_spdt", inst2("switch_spdt", { closed: false }), {});
+  check("SPDT-Ziele sind Label (+_nc)",
+    u2 !== null && JSON.stringify(u2.targets) === JSON.stringify({ S1: 1, S1_nc: 0 }));
+  const u3 = switchToggle("switch_rotary_3", inst2("switch_rotary_3", { pos: 1 }), {});
+  check("Dreh-Ziele sind Label (_tK)",
+    u3 !== null && (u3.targets as Record<string, number>).S1_t2 === 1 && !("inst_x7_t2" in u3.targets));
+  const u4 = switchToggle("switch_dip_4", inst2("switch_dip_4", {}), {}, 3);
+  check("DIP-Ziel ist Label (_swK)",
+    u4 !== null && JSON.stringify(u4.targets) === JSON.stringify({ S1_sw3: 1 }));
+  check("Lesung kanonisch", switchReadClosed(inst2("switch_spst", {}), { S1: 1 }) === true);
+  check("Lesung Legacy-Instanz-ID", switchReadClosed(inst2("switch_spst", {}), { inst_x7: 1 }) === true);
+
+  // Elektrisch: 8 V — S1 — R(1k) — GND. Klick-Ablauf wie im Canvas.
+  const doc: SchematicDoc = emptyDoc("switch-live");
+  doc.instances.push(
+    { id: "v1", partId: "vdc", x: 200, y: 300, rot: 0, label: "V1", params: { dc: 8 } },
+    { id: "inst_s1", partId: "switch_spst", x: 320, y: 270, rot: 0, label: "S1", params: {} },
+    { id: "r1", partId: "resistor", x: 430, y: 270, rot: 0, label: "R1", params: { r: 1000 } },
+    { id: "g1", partId: "gnd", x: 200, y: 400, rot: 0, label: "GND1", params: {} },
+    { id: "g2", partId: "gnd", x: 460, y: 400, rot: 0, label: "GND2", params: {} },
+  );
+  const w = (id: string, pts: number[]) => {
+    const p: { x: number; y: number }[] = [];
+    for (let i = 0; i < pts.length; i += 2) p.push({ x: pts[i], y: pts[i + 1] });
+    doc.wires.push({ id, points: p });
+  };
+  w("w1", [200, 270, 290, 270]);
+  w("w2", [350, 270, 400, 270]);
+  w("w3", [460, 270, 460, 386]);
+  w("w4", [200, 330, 200, 386]);
+  doc.labels.push({ id: "l1", x: 375, y: 270, name: "SW" });
+  const eng = new RealtimeEngine();
+  eng.rebuild(doc);
+  eng.running = true;
+  for (let i = 0; i < 10; i++) eng.tick(0.016);
+  checkNear("offen: SW ≈ 0 V", eng.lastState.nets["SW"] ?? NaN, 0, 0.5);
+  const s1 = doc.instances.find((i) => i.id === "inst_s1")!;
+  const tg = switchToggle(s1.partId, s1, eng.controls)!;
+  for (const [cid, v] of Object.entries(tg.targets)) eng.setControl(cid, v);
+  for (let i = 0; i < 10; i++) eng.tick(0.016);
+  checkNear("Klick schließt: SW ≈ 8 V", eng.lastState.nets["SW"] ?? NaN, 8, 0.5);
 }
 
 console.log(failed === 0 ? "\nSchalter-Prüfungen: alle bestanden." : `\nSchalter-Prüfungen: ${failed} FEHLER`);

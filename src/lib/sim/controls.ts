@@ -36,6 +36,21 @@ export type KeyedInstance = {
   params: Record<string, number | string | boolean | undefined>;
 };
 
+/**
+ * Kanonischer Live-Steuer-Schlüssel einer Instanz.
+ *
+ * EINE WAHRHEIT (Okt-28-Fix „Schalter funktionieren nicht“): Der Solver liest
+ * Steuerwerte unter der GERÄTE-ID (`controls[d.id]` in engine.ts /
+ * analyses.ts), und buildNets (model.ts) bildet die Geräte-ID aus
+ * `inst.label || inst.id`. Alle Schreiber (Canvas-Klick/Taste,
+ * Inspektor-live, Param-Cleanup) MÜSSEN exakt diesen Schlüssel nutzen —
+ * Instanz-ID allein greift daneben (id „inst_x7“ ≠ Label „S1“), der Hebel
+ * zuckte, die Schaltung reagierte nicht.
+ */
+export function controlKeyOf(inst: { id: string; label?: string }): string {
+  return inst.label || inst.id;
+}
+
 /** Liefert die Instanz-IDs, deren params.key auf das Tastatur-Event passt. */
 export function resolveBoundControls(
   instances: KeyedInstance[],

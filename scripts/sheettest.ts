@@ -1,6 +1,6 @@
 /* Blätter Stufe A: Entwurfs-Tabs (Neu/Wechseln/Umbenennen/Duplizieren/Schließen/Sortieren).
  * Store-Logik ohne DOM. Fehlschlag -> Exit 1. */
-import { sheets, useEditor } from "../src/state/editor";
+import { engine, sheets, useEditor } from "../src/state/editor";
 
 let failed = 0;
 function checkTrue(name: string, cond: boolean, extra = "") {
@@ -71,6 +71,42 @@ checkTrue("closeSheet(anderes) übrig 1", sheets.length === 1, `sheets=${sheets.
 const last = st().doc.id;
 st().closeSheet(last);
 checkTrue("letztes Blatt geschützt", sheets.length === 1 && st().doc.id === last);
+
+/* 9 · Okt-28: nur eine Simulation gleichzeitig (Lauf-Flag gehört der Datei) */
+const idA9 = st().doc.id;
+st().startSim();
+checkTrue("startSim läuft", st().sim.running && engine.running);
+checkTrue("startSim setzt Eigen-Flag", sheets.find((s) => s.id === idA9)?.simRunning === true);
+st().newDocument();
+const idB9 = st().doc.id;
+checkTrue("Wechsel hält Engine an", !engine.running && !st().sim.running);
+checkTrue("altes Blatt behält Flag", sheets.find((s) => s.id === idA9)?.simRunning === true);
+checkTrue("neues Blatt ohne Flag", sheets.find((s) => s.id === idB9)?.simRunning !== true);
+st().startSim();
+checkTrue(
+  "Start räumt Fremd-Flags ab (ein Eigentümer)",
+  sheets.find((s) => s.id === idB9)?.simRunning === true &&
+    sheets.find((s) => s.id === idA9)?.simRunning !== true,
+);
+st().openSheet(idA9);
+checkTrue("Rückkehr ohne Flag bleibt stehen", !engine.running && !st().sim.running);
+checkTrue("Hintergrund-Blatt behält Flag", sheets.find((s) => s.id === idB9)?.simRunning === true);
+// Rebuild-Zähler: Fortsetzung ohne Neuaufbau prüfen.
+let rebuilds = 0;
+const origRebuild = engine.rebuild.bind(engine);
+engine.rebuild = ((...a: Parameters<typeof engine.rebuild>) => {
+  rebuilds++;
+  return origRebuild(...a);
+}) as typeof engine.rebuild;
+st().openSheet(idB9);
+checkTrue("Rückkehr mit Flag setzt fort", st().sim.running && engine.running);
+checkTrue("Fortsetzung ohne Rebuild", rebuilds === 0, `rebuilds=${rebuilds}`);
+engine.rebuild = origRebuild;
+st().pauseSim();
+checkTrue("Pause löscht alle Flags", sheets.every((s) => !s.simRunning));
+st().startSim();
+st().stopSim();
+checkTrue("Stopp löscht alle Flags", sheets.every((s) => !s.simRunning) && !engine.running);
 
 if (failed > 0) {
   console.error(`sheettest: ${failed} FEHLER`);

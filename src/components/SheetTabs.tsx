@@ -26,6 +26,8 @@ export default function SheetTabs() {
   const editorOpen = useEditor((s) => s.partEditor.open);
   const tick = useEditor((s) => s.sim.tick);
   void tick;
+  // Okt-28: Lauf-Badge — tick löst das Neuzeichnen bei Start/Pause/Stopp aus.
+  const running = useEditor((s) => s.sim.running);
 
   const [dragSheetId, setDragSheetId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -35,7 +37,7 @@ export default function SheetTabs() {
   const renameRef = useRef<HTMLInputElement | null>(null);
 
   // Geöffnete Entwürfe (der aktuelle Entwurf steht immer in der Liste).
-  const current = sheets.find((s) => s.id === docId) ?? { id: docId, name: docName, doc: null as never };
+  const current = sheets.find((s) => s.id === docId) ?? { id: docId, name: docName, doc: null as never, simRunning: false };
   const list = sheets.some((s) => s.id === docId) ? sheets : [current, ...sheets];
   const benannt = (id: string, name: string) => (id === docId ? docName || name : name);
 
@@ -101,6 +103,9 @@ export default function SheetTabs() {
         const isDragOver = dragOverId === s.id && dragSheetId !== s.id;
         const name = benannt(s.id, s.name);
         const renaming = renamingId === s.id;
+        // Okt-28: nur der Eigentümer des Lauf-Flags trägt den Punkt (Hintergrund-Reiter
+        // ist angehalten, nicht laufend — kein falscher Doppel-Lauf-Eindruck).
+        const simLive = (s.simRunning ?? false) || (active && running);
         return (
           <div
             key={s.id}
@@ -152,6 +157,14 @@ export default function SheetTabs() {
             }}
             title={active ? `${name} (aktiv)` : `${name} (öffnen, zum Verschieben ziehen)`}
           >
+            {simLive && !renaming && (
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+                title="Simulation läuft"
+                aria-label="Simulation läuft"
+                role="status"
+              />
+            )}
             {renaming ? (
               <input
                 ref={renameRef}

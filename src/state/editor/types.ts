@@ -356,7 +356,7 @@ export interface EditorState {
   loadPreset: (id: string) => void;
   newDocument: () => void;
   /** W72: Entwurf aus der Dateileiste öffnen. */
-  openSheet: (id: string) => void;
+  openSheet: (id: string, opts?: { stashCurrent?: boolean }) => void;
   /** W72: Entwurfsname in der Dateileiste nachführen (Umbenennen im Inspector). */
   renameSheet: (id: string, name: string) => void;
   /** W98c: Reihenfolge der Entwürfe in der Dateileiste per Drag & Drop ändern. */
@@ -421,6 +421,12 @@ export interface SheetEntry {
   id: string;
   name: string;
   doc: SchematicDoc;
+  /**
+   * Okt-28 („nur eine Simulation gleichzeitig“): Lauf-Flag DIESER Datei.
+   * Höchstens ein Eintrag trägt true; die Engine tickt nur, wenn der aktive
+   * Entwurf der laufende ist (Tab-Wechsel pausiert, Rückkehr setzt fort).
+   */
+  simRunning?: boolean;
 }
 
 /** Runde 20 (W40): Ein Fenstermanager für alle Instrumente. Je Art stehen hier

@@ -4,7 +4,8 @@
 
 import type { EditorState } from "../types";
 import type { StoreApi } from "zustand";
-import { engine } from "../shared";export function createSimSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "startSim" | "pauseSim" | "stopSim" | "setSimOption" | "bumpTick"> {
+import { engine } from "../shared";
+import { sheets } from "../docUtils";export function createSimSlice(set: StoreApi<EditorState>["setState"], get: StoreApi<EditorState>["getState"]): Pick<EditorState, "startSim" | "pauseSim" | "stopSim" | "setSimOption" | "bumpTick"> {
   return {
       startSim: () => {
         const { doc, sim } = get();
@@ -15,7 +16,12 @@ import { engine } from "../shared";export function createSimSlice(set: StoreApi<
         engine.options.temperature = sim.temperature;
         engine.rebuild(doc);
         engine.running = true;
-        set((s) => ({ sim: { ...s.sim, running: true } }));
+        // Okt-28 (nur eine Simulation gleichzeitig): genau ein Reiter ist
+        // Eigentümer des Lauf-Flags; alle übrigen werden abgeräumt.
+        for (const s2 of sheets) s2.simRunning = s2.id === doc.id;
+        const self = sheets.find((s2) => s2.id === doc.id);
+        if (self) self.doc = doc;
+        set((s) => ({ sim: { ...s.sim, running: true, tick: s.sim.tick + 1 } }));
         const st = engine.lastState;
         if (!st.ok) {
           get().log("error", `Arbeitspunkt: ${st.message ?? "keine Konvergenz"}`);
@@ -30,7 +36,9 @@ import { engine } from "../shared";export function createSimSlice(set: StoreApi<
 
       pauseSim: () => {
         engine.running = false;
-        set((s) => ({ sim: { ...s.sim, running: false } }));
+        // Okt-28: Pause löscht das Lauf-Flag (kein Eigentümer mehr), Badge folgt via tick.
+        for (const s2 of sheets) s2.simRunning = false;
+        set((s) => ({ sim: { ...s.sim, running: false, tick: s.sim.tick + 1 } }));
         get().log("info", "Simulation pausiert");
       },
 
@@ -38,6 +46,8 @@ import { engine } from "../shared";export function createSimSlice(set: StoreApi<
         engine.running = false;
         engine.reset(get().doc);
         engine.running = false;
+        // Okt-28: Stopp löscht das Lauf-Flag (kein Eigentümer mehr).
+        for (const s2 of sheets) s2.simRunning = false;
         set((s) => ({ sim: { ...s.sim, running: false, tick: s.sim.tick + 1 } }));
         get().log("info", "Simulation gestoppt und zurückgesetzt");
       },

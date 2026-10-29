@@ -4,29 +4,32 @@
    anlegt (`<instanz>_<suffix>`). Wer hier ändert, ändert überall konsistent. */
 import type { Instance } from "../schematic/model";
 import type { PartDef, SymbolPrim } from "../library/catalog";
+import { controlKeyOf } from "../sim/controls";
 
 export type ControlMap = Record<string, number>;
 
 /**
  * Param-Änderung → Geräte-Controls. `key` ist der Param-Schlüssel ("closed",
- * "pos", "closedK"), `value` der neue Wert (0/1 bzw. Stellung). Gibt null für
- * Bauteile ohne Schalter-Fan-out (z. B. Poti — dort 1:1).
+ * "pos", "closedK"), `value` der neue Wert (0/1 bzw. Stellung). `baseId` ist
+ * der kanonische Steuer-Schlüssel (`controlKeyOf`, Geräte-ID = Label), NICHT
+ * die Instanz-ID. Gibt null für Bauteile ohne Schalter-Fan-out
+ * (z. B. Poti — dort 1:1).
  */
 export function switchControlTargets(
-  partId: string, instId: string, key: string, value: number,
+  partId: string, baseId: string, key: string, value: number,
 ): ControlMap | null {
   const b = value > 0.5 ? 1 : 0;
   if (key === "closed") {
     switch (partId) {
       case "switch_spst":
       case "pushbutton":
-        return { [instId]: b };
+        return { [baseId]: b };
       case "switch_spdt":
-        return { [instId]: b, [`${instId}_nc`]: 1 - b };
+        return { [baseId]: b, [`${baseId}_nc`]: 1 - b };
       case "switch_dpst":
-        return { [instId]: b, [`${instId}_p2`]: b };
+        return { [baseId]: b, [`${baseId}_p2`]: b };
       case "switch_dpdt":
-        return { [instId]: b, [`${instId}_p1nc`]: 1 - b, [`${instId}_p2`]: b, [`${instId}_p2nc`]: 1 - b };
+        return { [baseId]: b, [`${baseId}_p1nc`]: 1 - b, [`${baseId}_p2`]: b, [`${baseId}_p2nc`]: 1 - b };
       default:
         break;
     }
@@ -35,42 +38,46 @@ export function switchControlTargets(
     const n = Number(partId.split("_").pop()) || 0;
     if (!n) return null;
     const out: ControlMap = {};
-    for (let k = 1; k <= n; k++) out[`${instId}_t${k}`] = Math.round(value) === k ? 1 : 0;
+    for (let k = 1; k <= n; k++) out[`${baseId}_t${k}`] = Math.round(value) === k ? 1 : 0;
     return out;
   }
   if (partId.startsWith("switch_dip_")) {
     const m = /^closed(\d+)$/.exec(key);
     if (!m) return null;
-    return { [`${instId}_sw${m[1]}`]: b };
+    return { [`${baseId}_sw${m[1]}`]: b };
   }
   return null;
 }
 
-/** Haupt-`closed` inkl. Legacy-Label-Fallback (exakt die alte Lesart). */
+/** Haupt-`closed`: kanonischer Schlüssel zuerst, Legacy-Instanz-ID als Fallback. */
 export function switchReadClosed(inst: Instance, controls: ControlMap): boolean {
-  return (controls[inst.id] ?? controls[inst.label] ?? (inst.params.closed ? 1 : 0)) > 0.5;
+  const base = controlKeyOf(inst);
+  return (controls[base] ?? controls[inst.id] ?? (inst.params.closed ? 1 : 0)) > 0.5;
 }
 
 /** Drehschalter-Stellung 1..N (aus den Geräte-Controls, sonst Param). */
 export function switchReadPos(partId: string, inst: Instance, controls: ControlMap): number {
   const n = Number(partId.split("_").pop()) || 1;
   const paramPos = Math.min(n, Math.max(1, Math.round(Number(inst.params.pos ?? 1))));
+  const base = controlKeyOf(inst);
+  const tap = (k: number) => controls[`${base}_t${k}`] ?? controls[`${inst.id}_t${k}`];
   // Live-Controls (falls vorhanden) schlagen den Param als Ganzes — kein
   // Mischen pro Abgriff, sonst gewänne Stellung 1 immer (Param-Fallback).
   let anyControl = false;
   for (let k = 1; k <= n; k++) {
-    if (controls[`${inst.id}_t${k}`] !== undefined) { anyControl = true; break; }
+    if (tap(k) !== undefined) { anyControl = true; break; }
   }
   if (!anyControl) return paramPos;
   for (let k = 1; k <= n; k++) {
-    if ((controls[`${inst.id}_t${k}`] ?? 0) > 0.5) return k;
+    if ((tap(k) ?? 0) > 0.5) return k;
   }
   return paramPos;
 }
 
 /** DIP-Hebel k (1-basiert). */
 export function switchReadDip(inst: Instance, controls: ControlMap, k: number): boolean {
-  return (controls[`${inst.id}_sw${k}`] ?? (inst.params[`closed${k}`] ? 1 : 0)) > 0.5;
+  const base = controlKeyOf(inst);
+  return (controls[`${base}_sw${k}`] ?? controls[`${inst.id}_sw${k}`] ?? (inst.params[`closed${k}`] ? 1 : 0)) > 0.5;
 }
 
 export interface SwitchToggle {
@@ -86,12 +93,15 @@ export interface SwitchToggle {
 export function switchToggle(
   partId: string, inst: Instance, controls: ControlMap, dipIndex?: number,
 ): SwitchToggle | null {
+  // Okt-28: Ziele sind Geräte-IDs (Label), nicht Instanz-IDs — sonst liest der
+  // Solver sie nie (buildNets: id = label || id).
+  const base = controlKeyOf(inst);
   if (
     partId === "switch_spst" || partId === "pushbutton"
     || partId === "switch_spdt" || partId === "switch_dpst" || partId === "switch_dpdt"
   ) {
     const next = switchReadClosed(inst, controls) ? 0 : 1;
-    const targets = switchControlTargets(partId, inst.id, "closed", next)!;
+    const targets = switchControlTargets(partId, base, "closed", next)!;
     const changeover = partId === "switch_spdt" || partId === "switch_dpdt";
     const log = changeover
       ? (next ? "auf NO umgelegt" : "auf NC umgelegt")
@@ -102,7 +112,7 @@ export function switchToggle(
     const n = Number(partId.split("_").pop()) || 0;
     if (!n) return null;
     const next = (switchReadPos(partId, inst, controls) % n) + 1;
-    return { targets: switchControlTargets(partId, inst.id, "pos", next)!, log: `Stellung ${next}` };
+    return { targets: switchControlTargets(partId, base, "pos", next)!, log: `Stellung ${next}` };
   }
   if (partId.startsWith("switch_dip_")) {
     const n = Number(partId.split("_").pop()) || 0;
@@ -112,12 +122,12 @@ export function switchToggle(
       const allClosed = Array.from({ length: n }, (_, i) => switchReadDip(inst, controls, i + 1)).every(Boolean);
       const next = allClosed ? 0 : 1;
       const targets: ControlMap = {};
-      for (let k = 1; k <= n; k++) targets[`${inst.id}_sw${k}`] = next;
+      for (let k = 1; k <= n; k++) targets[`${base}_sw${k}`] = next;
       return { targets, log: next ? "alle geschlossen" : "alle geöffnet" };
     }
     const next = switchReadDip(inst, controls, dipIndex) ? 0 : 1;
     return {
-      targets: switchControlTargets(partId, inst.id, `closed${dipIndex}`, next)!,
+      targets: switchControlTargets(partId, base, `closed${dipIndex}`, next)!,
       log: `Schalter ${dipIndex} ${next ? "geschlossen" : "geöffnet"}`,
     };
   }

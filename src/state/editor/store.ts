@@ -78,13 +78,14 @@ export function scheduleAutosave() {
   }, 1500);
 }
 
-/** W72: einen Entwurf in den Bearbeitungszustand bringen (inkl. Netzprüfung, Simulation, Geräte). */
+/**
+ * W72: einen Entwurf in den Bearbeitungszustand bringen (inkl. Netzprüfung,
+ * Geräte). Okt-28: fasst den Lauf-Zustand NICHT an — „nur eine Simulation
+ * gleichzeitig“ orchestrieren die Aufrufer (openSheet pausiert/setzt fort,
+ * newDocument hält an). Blinder Weiterlauf + Rebuild entfällt.
+ */
 export function applyDoc(doc: SchematicDoc, opts: { pushHistory?: boolean } = {}): void {
-  const st = useEditor.getState();
-  const wasRunning = st.sim.running;
-  st.setDoc(doc, opts.pushHistory ?? true);
-  engine.running = wasRunning;
-  if (wasRunning) engine.rebuild(doc);
+  useEditor.getState().setDoc(doc, opts.pushHistory ?? true);
   useEditor.setState({ instruments: [] });
   useEditor.getState().refreshNets();
 }

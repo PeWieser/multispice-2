@@ -17,7 +17,11 @@ import { expectProbeVdc, placeVoltageProbe, wizardDivider } from "../flows";
 import { attachShot } from "./helpers";
 
 function controlsOf(page: Page, id: string): Promise<number> {
-  return msEval<number>(page, `(s, ms) => ms.engine.controls[${JSON.stringify(id)}] ?? -1`);
+  // Okt-28: Steuer-Schlüssel ist die Geräte-ID (Label), nicht die Instanz-ID.
+  return msEval<number>(
+    page,
+    `(s, ms) => { const i = s.doc.instances.find((x) => x.id === ${JSON.stringify(id)}); return ms.engine.controls[i?.label || ${JSON.stringify(id)}] ?? -1; }`,
+  );
 }
 
 async function dragWire(page: Page, x1: number, y1: number, x2: number, y2: number): Promise<void> {

@@ -27,7 +27,7 @@ import { potSliderPosFromLocalY, switchToggle } from "@/lib/interactive/switches
 import { NOTE_FONT_DEFAULT, NOTE_FONT_STACK, NOTE_H, NOTE_PAD_X, NOTE_TOP_PAD, NOTE_W, clampNoteScroll, nearestFontStep, noteFirstBaseline, noteLineH, parseNoteRuns, type NoteRun } from "@/lib/notes/markup";
 import { DIVIDER_JOKE, dividerJokeNoteIds } from "@/lib/notes/easteregg";
 import { drawInstance, drawProbe } from "./Canvas/render";
-import { normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
+import { controlKeyOf, normalizeControlKey, resolveBoundControls } from "@/lib/sim/controls";
 import { FlipHorizontal2, RotateCcw, RotateCw, X } from "lucide-react";
 
 
@@ -1958,11 +1958,11 @@ export default function Canvas() {
     if (hit && PART_MAP[hit.partId]?.interactive === "pot" && findPotSliderAt(st.doc, world)?.id === hit.id) {
       const v = potSliderPosFromLocalY(instanceLocalPoint(hit, world).y);
       st.setSelection([hit.id]);
-      const cur = engine.controls[hit.id] ?? engine.controls[hit.label] ?? Number(hit.params.pos ?? 0.5);
+      const cur = engine.controls[controlKeyOf(hit)] ?? engine.controls[hit.id] ?? Number(hit.params.pos ?? 0.5);
       if (Math.abs(v - cur) > 1e-4) {
         st.beginGesture();
         sr.potDrag = { id: hit.id, value: v, changed: true };
-        if (st.sim.running) engine.setControl(hit.id, v);
+        if (st.sim.running) engine.setControl(controlKeyOf(hit), v);
         else st.setParam(hit.id, "pos", v);
       } else {
         sr.potDrag = { id: hit.id, value: cur, changed: false };
@@ -1986,9 +1986,11 @@ export default function Canvas() {
       }
       if (part?.interactive === "button") {
         // S5.14: Taster tastet — schließen bei Drücken, öffnen bei Loslassen.
-        engine.setControl(hit.id, 1);
-        mousePressed.current.add(hit.id);
-        const id = hit.id;
+        // Gehalten wird der Steuer-Schlüssel (Label), nicht die Instanz-ID.
+        const ck = controlKeyOf(hit);
+        engine.setControl(ck, 1);
+        mousePressed.current.add(ck);
+        const id = ck;
         const release = () => {
           mousePressed.current.delete(id);
           window.removeEventListener("mouseup", release);
@@ -2145,7 +2147,8 @@ export default function Canvas() {
         if (Math.abs(v - pd.value) > 1e-4) {
           if (!pd.changed) { st.beginGesture(); pd.changed = true; }
           pd.value = v;
-          if (st.sim.running) engine.setControl(pd.id, v);
+          // Okt-28: Steuer-Schlüssel ist die Geräte-ID (Label), pd.id bleibt Instanz-ID für Lookup/Params.
+          if (st.sim.running) engine.setControl(controlKeyOf(inst), v);
           else st.setParam(pd.id, "pos", v);
         }
       }
@@ -2824,15 +2827,18 @@ export default function Canvas() {
             for (const [cid, v] of Object.entries(t.targets)) engine.setControl(cid, v);
             st.log("info", `${inst?.label} ${t.log}`);
           } else if (kind === "button") {
-            if (e.repeat) continue;
-            engine.setControl(id, 1);
+            if (e.repeat || !inst) continue;
+            const ck = controlKeyOf(inst);
+            engine.setControl(ck, 1);
             const k = normalizeControlKey(e.key) ?? "";
-            pressedByKey.current[k] = [...(pressedByKey.current[k] ?? []), id];
+            pressedByKey.current[k] = [...(pressedByKey.current[k] ?? []), ck];
             st.log("info", `${inst?.label} gedrückt`);
           } else if (kind === "pot") {
-            const cur = engine.controls[id] ?? Number(inst?.params.pos ?? 0.5);
+            if (!inst) continue;
+            const ck = controlKeyOf(inst);
+            const cur = engine.controls[ck] ?? engine.controls[id] ?? Number(inst?.params.pos ?? 0.5);
             const next = Math.min(0.99, Math.max(0.01, cur + (e.shiftKey ? -0.05 : 0.05)));
-            engine.setControl(id, next);
+            engine.setControl(ck, next);
             if (!e.repeat) st.log("info", `${inst?.label} ${(next * 100).toFixed(0)}%`);
           }
         }
