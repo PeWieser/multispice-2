@@ -1,12 +1,14 @@
 # E2E-Testmatrix — MultiSpice im Browser (Playwright)
 
-Stand: 2026-10-11. Strategie: **echte UI-Interaktionen** (Menüs, Tastatur, Maus auf Canvas),
+Stand: 2026-10-11; Ergänzungen F13/F14 und A09/A10: 2026-10-31. Strategie: **echte UI-Interaktionen** (Menüs, Tastatur, Maus auf Canvas),
 Assertions über sichtbare UI (Canvas-`aria-label`, Konsole, Sonden-Tabelle, Statusleiste, Dialoge)
 plus Lesezugriff auf den Store via `window.__multispice` (Setup/Präzisions-Assertions).
 Runner: GitHub Actions (`e2e`-Job, Chromium, statischer Export aus `out/`).
 
-Legende Prio: **P0** = Smoke/kritische Pfade (jetzt implementiert), **P1** = wichtig (als Nächstes),
-**P2** = Abdeckung/Edge-Cases (später). „Spec“ = Playwright-Datei + Kurztitel.
+Legende Prio: **P0** = Smoke/kritische Pfade, **P1** = wichtig, **P2** =
+Abdeckung/Edge-Cases. Dies ist eine **Zielmatrix**, keine Liste bereits
+implementierter Tests: Spec-Namen können Planungen bezeichnen. Die tatsächlich
+ausführbaren Fälle zeigt `npx playwright test --list`.
 
 ## A — App-Start & Shell
 
@@ -20,6 +22,8 @@ Legende Prio: **P0** = Smoke/kritische Pfade (jetzt implementiert), **P1** = wic
 | A06 | Tastatur-Hilfe (?) | Shortcut-Übersicht öffnet | P2 | shell/shortcuts |
 | A07 | Neuer Schaltplan | Leeres Doc, Summary „keine Bauteile“, Undo-Verlauf zurückgesetzt | P1 | shell/new-doc |
 | A08 | Fokusfallen in Dialogen | Tab bleibt im Modal, Esc schließt | P2 | a11y/focus-trap |
+| A09 | Mobiler Drawer mit Dialog | Esc schließt zuerst den Dialog, dann das Menü | P1 | steve/s09-responsive: Mobil Esc |
+| A10 | Mobile Touchflächen | TopBar-Buttons bleiben bei 390 und 320 px mindestens 36 × 36 px und im Viewport | P1 | steve/s09-responsive: S9.4 |
 
 ## B — Vorlagen (alle 8 Presets)
 
@@ -92,7 +96,7 @@ Legende Prio: **P0** = Smoke/kritische Pfade (jetzt implementiert), **P1** = wic
 |----|----------|-----------|------|------|
 | F01 | Start/Pause/Stop | Leertaste + Buttons; Status „läuft/pausiert“; Sim-Zeit läuft/stoppt | P0 | sim/run-stop |
 | F02 | Konsolen-Log beim Start | „Simulation gestartet — N Bauteile, M Knoten“ in Konsole | P0 | sim/run-stop |
-| F03 | Spannungsteiler: DC-Werte | Vdc-Spalte/OUT ≈ 6,667 V (10 V, 1k/2k) | P0 | sim/divider |
+| F03 | Spannungsteiler: DC-Werte | Vdc-Spalte/OUT ≈ 2,5 V (Assistent-Default: 5 V, 10 kΩ/10 kΩ) | P0 | sim/divider |
 | F04 | Leerer Plan starten | Startet ehrlich mit „0 Bauteile“ im Log, kein Absturz | P0 | sim/empty |
 | F05 | Singulärer Plan (V kurz) | Start verweigert mit Fehlermeldung im Log | P1 | sim/singular |
 | F06 | Spannungsfarben toggeln | Menü Ansicht → Leitungen färben sich (Canvas rendert, kein Fehler) | P0 | sim/volt-colors |
@@ -102,16 +106,18 @@ Legende Prio: **P0** = Smoke/kritische Pfade (jetzt implementiert), **P1** = wic
 | F10 | Editieren während Sim läuft | Änderung stoppt/pausiert oder startet neu (definiert + geloggt) | P1 | sim/edit-while-run |
 | F11 | Preset-Sims laufen | Alle 8 Presets: Start ohne Fehler, Sim-Zeit läuft | P1 | sim/all-presets |
 | F12 | 555 blinkt (Oszillation) | OUT-Knoten wechselt Pegel über Zeit (Sonde/Store-Samples) | P1 | sim/oscillation |
+| F13 | Schalter mit unterschiedlicher Instanz-ID/Referenz | Echte Canvas-Klicks ändern die Schaltungsspannung 0 V → 8 V → 0 V | P0 | sim-regressions: Schalterklick |
+| F14 | Sim-Eigentümerschaft über Entwurfswechsel | Nur ein Entwurf läuft; Wechsel pausiert/fortsetzt, fremder Start übernimmt | P0 | sim-regressions: aktiver Entwurfs-Tab |
 
 ## G — Sonden & Messwerte
 
 | ID | Szenario | Erwartung | Prio | Spec |
 |----|----------|-----------|------|------|
 | G01 | V-Sonde platzieren | Klick auf Netz → Sonde im Doc + Sonden-Tab-Zeile | P0 | probes/place |
-| G02 | Vdc-Ablesung Teiler | Sonden-Tab Vdc ≈ 6,667 V nach Start | P0 | sim/divider |
-| G03 | Strom-Sonde (A) | Zweigstrom ≈ 3,333 mA am Teiler | P1 | probes/current |
-| G04 | Leistungs-Sonde (W) | P ≈ 33,3 mW an R2 | P2 | probes/power |
-| G05 | Differenz-Sonde ΔV | V(R1) ≈ 3,333 V | P2 | probes/diff |
+| G02 | Vdc-Ablesung Teiler | Sonden-Tab Vdc ≈ 2,5 V nach Start (Assistent-Default) | P0 | sim/divider |
+| G03 | Strom-Sonde (A) | Zweigstrom ≈ 3,333 mA bei 10 V und 1 kΩ/2 kΩ | P1 | probes/current |
+| G04 | Leistungs-Sonde (W) | P ≈ 22,22 mW an R2 bei 10 V und 1 kΩ/2 kΩ | P2 | probes/power |
+| G05 | Differenz-Sonde ΔV | V(R1) ≈ 3,333 V bei 10 V und 1 kΩ/2 kΩ | P2 | probes/diff |
 | G06 | REF-Sonde | Referenzknoten setzt Messbezug, Werte relativ | P2 | probes/ref |
 | G07 | Digital-Sonde (D) | Pegel H/L am 555-OUT/Zähler | P1 | probes/digital |
 | G08 | Sonde löschen/umbenennen | Kontextmenü/Inspector, Tabelle aktualisiert | P1 | probes/manage |
@@ -121,13 +127,13 @@ Legende Prio: **P0** = Smoke/kritische Pfade (jetzt implementiert), **P1** = wic
 | ID | Szenario | Erwartung | Prio | Spec |
 |----|----------|-----------|------|------|
 | H01 | Alle öffnen ohne Absturz | dmm/scope/funcgen/counter/bode/logic/logicconv/watt/iv/spectrum/pattern/distortion/network rendern + schließen | P0 | instruments/open-all |
-| H02 | DMM misst Teiler-OUT | ≈ 6,667 V DC (nach Start) | P0 | instruments/dmm |
+| H02 | DMM misst Teiler-OUT | ≈ 2,5 V DC (Assistent-Default, nach Start) | P0 | instruments/dmm |
 | H03 | Oszi als Bauteil platzieren | Geräte→Oszilloskop startet Platziermodus, Instanz „oscilloscope“ | P1 | instruments/scope-place |
 | H04 | FuncGen als Bauteil | Platziermodus + Instanz „funcgen“ | P1 | instruments/funcgen |
 | H05 | Frequenzzähler am 555 | ≈ erwartete Blinkfrequenz (± Toleranz) | P2 | instruments/counter |
 | H06 | Bode-Plotter am Tiefpass | Kurve rendert, −3 dB-Punkt plausibel | P2 | instruments/bode |
 | H07 | Logikanalysator am Zähler | Kanäle zeigen Zählfolge | P2 | instruments/logic |
-| H08 | Wattmeter an Last | P ≈ 33,3 mW (Teiler-R2) | P2 | instruments/watt |
+| H08 | Wattmeter an Last | P ≈ 22,22 mW an R2 bei 10 V und 1 kΩ/2 kΩ | P2 | instruments/watt |
 | H09 | IV-Analyzer (Diode) | Kennlinie rendert | P2 | instruments/iv |
 | H10 | Spektrumanalysator | Linie bei Grundfrequenz | P2 | instruments/spectrum |
 | H11 | Mustergenerator | Muster takten sichtbar | P2 | instruments/pattern |
@@ -141,7 +147,7 @@ Legende Prio: **P0** = Smoke/kritische Pfade (jetzt implementiert), **P1** = wic
 |----|----------|-----------|------|------|
 | I01 | Dialog öffnet je Analyse | Titel + Felder + Abbrechen/Start-Buttons vorhanden (alle 19) | P1 | analysis/dialogs |
 | I02 | Validierung schlägt an | Leerer Ausgangsknoten → Fehlermeldung, kein Start | P0 | analysis/validation |
-| I03 | OP (DC-Arbeitspunkt) | Teiler OUT = 6,667 V im Ergebnis; Konsole meldet Abschluss | P0 | analysis/op |
+| I03 | OP (DC-Arbeitspunkt) | Teiler OUT = 2,5 V (Assistent-Default); Konsole meldet Abschluss | P0 | analysis/op |
 | I04 | TRAN am Tiefpass | Ergebnisse-Tab zeigt Kurven (OUT e-Funktion), Punkte > 0 | P0 | analysis/tran |
 | I05 | AC am Tiefpass | Bode-Kurve, −3 dB ≈ 1/(2πRC) | P0 | analysis/ac |
 | I06 | DC-Sweep V1 0→12 V | OUT Gerade 0→8 V, linear | P1 | analysis/dc |
@@ -269,5 +275,7 @@ Legende Prio: **P0** = Smoke/kritische Pfade (jetzt implementiert), **P1** = wic
 | Q06 | Leitungsfarben manuell | Kontextmenü setzt Farbe, bleibt nach Reload | P2 | view/wirecolor |
 | Q07 | Schriftgrößen/UI-Skala | Einstellung wirkt auf UI | P2 | view/uiscale |
 | Q08 | Vollbild-Modus | Falls vorhanden: toggelt | P2 | — |
-| Q09 | Statusleisten-Werte | Sim-Zeit/Lev
-...[truncated 2544 chars]
+| Q09 | Statusleisten-Werte | Die ursprüngliche Erwartung ist unvollständig und muss neu festgelegt werden | P2 | — |
+
+> Der Schluss der ursprünglichen Matrix enthielt bereits einen Trunkierungsmarker;
+> fehlende Inhalte sind aus der vorhandenen Repository-Historie nicht rekonstruierbar.

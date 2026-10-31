@@ -9,6 +9,7 @@ import {
   menuClick,
   openBottomTab,
 } from "../helpers";
+import { placeVoltageProbe, wizardDivider } from "../flows";
 
 async function downloadText(page: Page, trigger: () => Promise<void>): Promise<{ name: string; text: string }> {
   const [dl] = await Promise.all([page.waitForEvent("download"), trigger()]);
@@ -67,6 +68,8 @@ test("S13.4 PNG-Export", async ({ page }) => {
 // S13.5: Sonden-CSV (Header + mindestens eine Zeile).
 test("S13.5 Sonden-CSV-Export", async ({ page }) => {
   const errors = await gotoApp(page);
+  await wizardDivider(page);
+  await placeVoltageProbe(page, 360, 300);
   await openBottomTab(page, "Sonden");
   const { name, text } = await downloadText(page, () =>
     page.getByRole("button", { name: /CSV Export/ }).click(),
@@ -74,6 +77,8 @@ test("S13.5 Sonden-CSV-Export", async ({ page }) => {
   expect(name).toBe("probes.csv");
   const lines = text.split("\n");
   expect(lines[0]).toBe("Name,Typ,Netz,REF,Vdc,Vrms,Vpp,Vavg,Freq");
-  expect(lines.length).toBeGreaterThan(1);
+  expect(lines).toHaveLength(2);
+  expect(lines[1].split(",").slice(0, 3)).toEqual(["V1", "voltage", "OUT"]);
+  expect(lines[1].split(",")).toHaveLength(9);
   expectNoErrors(errors);
 });

@@ -154,7 +154,7 @@ test("S17.7 Stückliste, Zonen, Faltmarken", async ({ page }) => {
   await expect(sheets.nth(1).locator('line[stroke-dasharray="4 3"]')).toHaveCount(6);
   // Stückliste: gruppierte Position mit Fundstellen auf Blatt 2 und 3.
   const bom = sheets.nth(4);
-  await expect(bom.getByText("Stückliste")).toBeAttached();
+  await expect(bom.getByText("Stückliste", { exact: true })).toBeAttached();
   await expect(bom.getByText("R1, R2")).toBeAttached();
   await expect(bom.getByText(/2·[A-D][1-4], 3·[A-D][1-4]/)).toBeAttached();
   await expect(bom.getByText("5 / 5")).toBeAttached();

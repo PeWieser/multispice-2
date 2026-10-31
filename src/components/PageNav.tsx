@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Pencil, Plus, X } from "lucide-react";
 import { offpageGroups } from "@/lib/schematic/model";
 import { useEditor } from "@/state/editor";
@@ -98,7 +99,9 @@ export default function PageNav() {
         <ChevronDown size={13} />
       </button>
 
-      {open && (
+      {/* Der Navigator liegt in einer scrollenden, sticky Tab-Leiste. Das Portal
+          verhindert, dass deren Stapelkontext das Menü hinter dem Canvas hält. */}
+      {open && createPortal(
         <>
           <div className="fixed inset-0 z-modal" onClick={() => setOpen(false)} />
           <div
@@ -231,7 +234,8 @@ export default function PageNav() {
               </button>
             </div>
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </>
   );

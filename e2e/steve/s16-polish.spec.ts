@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   act,
   canvasEl,
+  centerViewOn,
   clickWorld,
   closeInlineEditor,
   expectLog,
@@ -77,9 +78,17 @@ test("16.3 Kontextmenü Probe", async ({ page }, testInfo) => {
   await rightClickWorld(page, pos.x, pos.y);
   const menu = page.getByRole("menu");
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("button", { name: /Richtung umkehren/ })).toBeVisible();
+  // Eine Spannungssonde hat keine Stromrichtung. Erst der Wechsel auf
+  // Strom zeigt die Umkehrfunktion; diese muss den Zustand wirklich ändern.
+  await expect(menu.getByRole("button", { name: /Richtung umkehren/ })).toHaveCount(0);
+  await menu.getByRole("button", { name: /A – Strom/ }).click();
+  await expect.poll(() => msEval<string>(page, `(s) => s.doc.probes.find((p) => p.id === ${JSON.stringify(id)})?.kind`)).toBe("current");
+  await rightClickWorld(page, pos.x, pos.y);
+  const reverse = menu.getByRole("button", { name: /Richtung umkehren/ });
+  await expect(reverse).toBeVisible();
   await attachShot(page, testInfo, "ctx-probe.png");
-  await page.keyboard.press("Escape");
+  await reverse.click();
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.probes.find((p) => p.id === ${JSON.stringify(id)})?.direction`)).toBe(1);
   expectNoErrors(errors);
 });
 
@@ -90,11 +99,21 @@ test("16.4 Kontextmenü Leer", async ({ page }, testInfo) => {
   await rightClickWorld(page, 200, 200);
   const menu = page.getByRole("menu");
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("button", { name: "Einfügen" })).toBeVisible();
-  await expect(menu.getByRole("button", { name: "Netzname hinzufügen" })).toBeVisible();
+  // Einfügen gibt es nur bei gefüllter Zwischenablage.
+  await expect(menu.getByRole("button", { name: /Einfügen/ })).toHaveCount(0);
+  await expect(menu.getByRole("button", { name: /Netzname hinzufügen/ })).toBeVisible();
   await expect(menu.getByRole("button", { name: /Einpassen/ })).toBeVisible();
   await attachShot(page, testInfo, "ctx-empty.png");
   await page.keyboard.press("Escape");
+  await placeResistor(page, 400, 300);
+  await page.keyboard.press("Escape");
+  await clickWorld(page, 400, 300);
+  await page.keyboard.press("ControlOrMeta+c");
+  await rightClickWorld(page, 200, 200);
+  const paste = menu.getByRole("button", { name: /Einfügen/ });
+  await expect(paste).toBeVisible();
+  await paste.click();
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(2);
   expectNoErrors(errors);
 });
 
@@ -113,11 +132,11 @@ test("16.5 Wire-Farbe Rot + Undo", async ({ page }) => {
   await expect(page.getByRole("menu")).toBeVisible();
   await page.getByTitle("Rot").click();
   await expect
-    .poll(() => msEval<string>(page, `(s) => (s.doc.wires.find((w) => w.id === ${JSON.stringify(id)}) as { color?: string }).color ?? ""`))
+    .poll(() => msEval<string>(page, `(s) => s.doc.wires.find((w) => w.id === ${JSON.stringify(id)})?.color ?? ""`))
     .toBe("#ef4444");
   await page.keyboard.press("ControlOrMeta+z");
   await expect
-    .poll(() => msEval<string>(page, `(s) => (s.doc.wires.find((w) => w.id === ${JSON.stringify(id)}) as { color?: string }).color ?? ""`))
+    .poll(() => msEval<string>(page, `(s) => s.doc.wires.find((w) => w.id === ${JSON.stringify(id)})?.color ?? ""`))
     .toBe("");
   expectNoErrors(errors);
 });
@@ -210,12 +229,15 @@ test("16.13 Doppelklick Handle löscht Punkt", async ({ page }) => {
   const a = await worldToPage(page, 500, 300);
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
-  const b = await worldToPage(page, 600, 400);
+  const b = await worldToPage(page, 650, 400);
   await page.mouse.move(b.x, b.y, { steps: 12 });
   await page.mouse.up();
+  // Freies Ende wird per Doppelklick abgeschlossen (Drag auf Pin/Netz
+  // schließt dagegen schon beim Loslassen ab).
+  await page.mouse.dblclick(b.x, b.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(2);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires[1].points.length`)).toBe(3);
-  const h = await worldToPage(page, 600, 300);
+  const h = await worldToPage(page, 650, 300);
   await page.mouse.dblclick(h.x, h.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires[1].points.length`)).toBe(2);
   await expectLog(page, /gelöscht/);
@@ -234,10 +256,12 @@ test("16.14 Doppelklick Segment startet Abzweig", async ({ page }) => {
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(1);
   const mid = await worldToPage(page, 500, 300);
   await page.mouse.dblclick(mid.x, mid.y);
-  await expectLog(page, /Abzweig ab/);
+  // Erst fertig zeichnen: expectLog öffnet das Bottom-Panel und verdeckt
+  // sonst den geplanten Endpunkt auf dem Canvas.
   const c = await worldToPage(page, 600, 400);
   await page.mouse.dblclick(c.x, c.y);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.wires.length`)).toBe(2);
+  await expectLog(page, /Abzweig ab/);
   expectNoErrors(errors);
 });
 
@@ -262,6 +286,7 @@ test("16.15 Netz-Highlight bei Hover", async ({ page }, testInfo) => {
 test("16.17 Oszi-Fenster draggen", async ({ page }) => {
   const errors = await gotoApp(page);
   await wizardDivider(page);
+  await centerViewOn(page, 430, 320);
   await placePartUI(page, "oszi", "Oszilloskop (XSC)", 560, 300);
   await page.keyboard.press("Escape");
   const p = await worldToPage(page, 560, 300);

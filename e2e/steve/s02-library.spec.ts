@@ -73,12 +73,19 @@ test("S2.6 Datenblatt-Links", async ({ page }) => {
   await page.getByText("NE555 Timer", { exact: true }).first().click();
   const all = page.getByRole("link", { name: "AllDatasheet" });
   await expect(all).toBeVisible();
-  expect(await all.getAttribute("href")).toMatch(/^https?:\/\//);
+  const href = await all.getAttribute("href");
+  expect(href).toMatch(/^https?:\/\//);
+  if (!href) throw new Error("Datenblatt-Link ohne Ziel");
   expect(await all.getAttribute("target")).toBe("_blank");
   const oct = page.getByRole("link", { name: "Octopart" });
   expect(await oct.getAttribute("href")).toMatch(/^https?:\/\//);
+  // Den ausgehenden Link wirklich anklicken, ohne die Verfügbarkeit einer
+  // externen Webseite oder den Internetzugang des Test-Runners vorauszusetzen.
+  await page.context().route((url) => url.href === href, (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "Datenblatt" }),
+  );
   const [popup] = await Promise.all([page.waitForEvent("popup"), all.click()]);
-  expect(popup.url()).toMatch(/^https?:\/\//);
+  await expect(popup).toHaveURL(href);
   await popup.close();
   expectNoErrors(errors);
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import BottomPanel from "./BottomPanel";
 import Canvas from "./Canvas";
@@ -55,13 +55,13 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
   const canRedo = useEditor((s) => s.future.length > 0);
   return (
     <div className="flex h-[48px] shrink-0 items-center gap-1.5 px-2.5 bg-surface border-b border-hairline">
-      <button className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={onMenu} aria-label="Menü">
+      <button className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={onMenu} aria-label="Menü">
         <Menu size={18} />
       </button>
-      <span className="text-sm font-semibold">Multispice</span>
+      <span className="min-w-0 truncate text-sm font-semibold">Multispice</span>
       <div className="flex-1" />
       <button
-        className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40 bg-surface-2 border border-hairline"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg disabled:opacity-40 bg-surface-2 border border-hairline"
         disabled={!canUndo}
         onClick={undo}
         title="Rückgängig"
@@ -70,7 +70,7 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
         <Undo2 size={15} />
       </button>
       <button
-        className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40 bg-surface-2 border border-hairline"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg disabled:opacity-40 bg-surface-2 border border-hairline"
         disabled={!canRedo}
         onClick={redo}
         title="Wiederholen"
@@ -78,17 +78,17 @@ function MobileTopBar({ onMenu, onSettings }: { onMenu: () => void; onSettings: 
       >
         <Redo2 size={15} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={onSettings} title="Einstellungen" aria-label="Einstellungen">
+      <button className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={onSettings} title="Einstellungen" aria-label="Einstellungen">
         <Settings size={16} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={toggleLibrary} title="Bibliothek" aria-label="Bibliothek">
+      <button className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={toggleLibrary} title="Bibliothek" aria-label="Bibliothek">
         <Library size={16} />
       </button>
-      <button className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={toggleRight} title="Inspector" aria-label="Inspector">
+      <button className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-2 border border-hairline" onClick={toggleRight} title="Inspector" aria-label="Inspector">
         <SlidersHorizontal size={16} />
       </button>
       <button
-        className="grid h-9 w-9 place-items-center rounded-lg text-white"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white"
         style={{ background: simRunning ? "var(--warn)" : "var(--ok)" }}
         onClick={() => (simRunning ? pauseSim() : startSim())}
         aria-label={simRunning ? "Simulation pausieren" : "Simulation starten"}
@@ -161,6 +161,7 @@ export default function Workbench() {
   const libraryOpen = useEditor((s) => s.libraryOpen);
   const [dialogKind, setDialogKind] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [referenceOpen, setReferenceOpen] = useState(false);
   const [wizardsOpen, setWizardsOpen] = useState(false);
@@ -316,6 +317,23 @@ export default function Workbench() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Esc schließt zuerst ein geöffnetes Untermenü, danach den mobilen Drawer.
+  // Capture verhindert, dass derselbe Tastendruck auch den Canvas verändert.
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Ein darüber geöffnetes Modal (z. B. Einstellungen) ist zuerst dran.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]') || useEditor.getState().partEditor.open) return;
+      if (mobileMenuRef.current?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]')) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setMobileMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [mobileMenuOpen]);
+
   // W118: Abgekoppelte, rahmenlose Windows-OS-Fenster für Messgeräte/Inspector & Bibliothek
   // mit eigener Fensterleiste im Stil von iTunes für Windows.
   if (parsedDesktop.role === "instrument" && parsedDesktop.kind) {
@@ -381,10 +399,10 @@ export default function Workbench() {
             {mobileMenuOpen && (
               <div className="fixed inset-0 z-50 flex">
                 <div className="absolute inset-0 bg-black/40" onClick={() => setMobileMenuOpen(false)} />
-                <div className="relative w-[280px] h-full overflow-auto p-4 bg-surface border-r border-hairline">
+                <div ref={mobileMenuRef} className="relative w-[280px] h-full overflow-auto p-4 bg-surface border-r border-hairline">
                   <div className="flex items-center justify-between mb-4">
                     <span className="font-semibold">Menü</span>
-                    <button className="btn h-7 w-7 p-0" onClick={() => setMobileMenuOpen(false)}>
+                    <button type="button" className="btn h-7 w-7 p-0" aria-label="Menü schließen" onClick={() => setMobileMenuOpen(false)}>
                       <X size={14} />
                     </button>
                   </div>

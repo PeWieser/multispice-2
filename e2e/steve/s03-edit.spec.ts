@@ -195,28 +195,29 @@ test("S3.20 Entwurfs-Tabs: Neu + Wechseln", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "newDocument");
   const tabs = page.getByRole("tablist", { name: "Entwürfe" });
-  await expect.poll(() => tabs.getByRole("tab").count()).toBe(1);
-  // Entwurf nicht-leer machen (leere Entwürfe werden nur umbenannt, nicht neu angelegt).
+  // Der neue Entwurf kommt zum vorhandenen Beispiel-Entwurf hinzu.
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  // Den aktiven neuen Entwurf mit Inhalt versehen.
   await page.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 400, 300);
   await closeInlineEditor(page);
   const firstId = await msEval<string>(page, `(s) => s.doc.id`);
   await page.getByRole("button", { name: "Neuer Entwurf" }).click();
-  await expect.poll(() => tabs.getByRole("tab").count()).toBe(2);
+  await expect(tabs.getByRole("tab")).toHaveCount(3);
   const secondId = await msEval<string>(page, `(s) => s.doc.id`);
   expect(secondId).not.toBe(firstId);
   // Zurück zum ersten Entwurf: Inhalt ist erhalten.
-  await tabs.getByRole("tab").first().click();
+  await tabs.locator(`[data-sheet-id="${firstId}"]`).getByRole("tab").click();
   await expect.poll(() => msEval<string>(page, `(s) => s.doc.id`)).toBe(firstId);
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
-  // Shortcut Strg+Alt+N legt aus nicht-leerem Entwurf einen dritten an.
-  await tabs.getByRole("tab").nth(1).click();
+  // Shortcut Strg+Alt+N legt einen weiteren Entwurf an.
+  await tabs.locator(`[data-sheet-id="${secondId}"]`).getByRole("tab").click();
   await expect.poll(() => msEval<string>(page, `(s) => s.doc.id`)).toBe(secondId);
   await page.getByRole("button", { name: "Widerstand", exact: true }).click();
   await clickWorld(page, 500, 300);
   await closeInlineEditor(page);
   await page.keyboard.press("Control+Alt+n");
-  await expect.poll(() => tabs.getByRole("tab").count()).toBe(3);
+  await expect(tabs.getByRole("tab")).toHaveCount(4);
   expectNoErrors(errors);
 });
 
@@ -225,11 +226,13 @@ test("S3.21 Entwurf umbenennen (Doppelklick)", async ({ page }) => {
   const errors = await gotoApp(page);
   await act(page, "newDocument");
   const tabs = page.getByRole("tablist", { name: "Entwürfe" });
-  const tab = tabs.getByRole("tab").first();
+  const activeId = await msEval<string>(page, `(s) => s.doc.id`);
+  const tab = tabs.getByRole("tab", { selected: true });
   await tab.dblclick();
   await page.getByLabel("Entwurf umbenennen").fill("Stromversorgung");
   await page.keyboard.press("Enter");
   await expect.poll(() => msEval<string>(page, `(s) => s.doc.name`)).toBe("Stromversorgung");
+  await expect.poll(() => msEval<string>(page, `(s) => s.doc.id`)).toBe(activeId);
   await expect(tabs.getByRole("tab", { name: "Stromversorgung (aktiv)" })).toBeVisible();
   expectNoErrors(errors);
 });
@@ -242,15 +245,21 @@ test("S3.22 Entwurf duplizieren + schließen (Kontextmenü)", async ({ page }) =
   await clickWorld(page, 400, 300);
   await closeInlineEditor(page);
   const tabs = page.getByRole("tablist", { name: "Entwürfe" });
-  await tabs.getByRole("tab").first().click({ button: "right" });
+  const originalId = await msEval<string>(page, `(s) => s.doc.id`);
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  await tabs.getByRole("tab", { selected: true }).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Duplizieren" }).click();
-  await expect.poll(() => tabs.getByRole("tab").count()).toBe(2);
+  await expect(tabs.getByRole("tab")).toHaveCount(3);
   // Tiefe Kopie: Duplikat enthält den Widerstand unter neuer Entwurfs-ID.
   await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
   await expect.poll(() => msEval<string>(page, `(s) => s.doc.name`)).toMatch(/Kopie/);
-  await tabs.getByRole("tab").nth(1).click({ button: "right" });
+  const copyId = await msEval<string>(page, `(s) => s.doc.id`);
+  expect(copyId).not.toBe(originalId);
+  await tabs.locator(`[data-sheet-id="${copyId}"]`).getByRole("tab").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Schließen" }).click();
-  await expect.poll(() => tabs.getByRole("tab").count()).toBe(1);
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  await expect.poll(() => msEval<string>(page, `(s) => s.doc.id`)).toBe(originalId);
+  await expect.poll(() => msEval<number>(page, `(s) => s.doc.instances.length`)).toBe(1);
   expectNoErrors(errors);
 });
 
